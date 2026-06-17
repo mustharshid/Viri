@@ -40,6 +40,19 @@ Route::post('/verify-terminal', function (Request $request) {
 
 // Terminal authenticated endpoint to add a bank account
 Route::post('/bank-accounts', function (Request $request) {
+    // Auto-create the table if it doesn't exist (helpful since no SSH access)
+    if (!\Illuminate\Support\Facades\Schema::hasTable('bank_accounts')) {
+        \Illuminate\Support\Facades\Schema::create('bank_accounts', function (\Illuminate\Database\Schema\Blueprint $table) {
+            $table->id();
+            $table->foreignId('tenant_id')->constrained('tenants')->onDelete('cascade');
+            $table->string('bank_name');
+            $table->string('account_name');
+            $table->string('account_number');
+            $table->boolean('is_default')->default(false);
+            $table->timestamps();
+        });
+    }
+
     $request->validate([
         'hardware_id' => 'required|string',
         'bank_name' => 'required|string',
