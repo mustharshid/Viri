@@ -16,7 +16,7 @@ Route::post('/verify-terminal', function (Request $request) {
     ]);
 
     $terminal = \App\Models\Terminal::where('hardware_id', $request->hardware_id)
-        ->with('tenant')
+        ->with(['tenant.bankAccounts'])
         ->first();
 
     if (!$terminal || $terminal->status !== 'active') {
@@ -33,6 +33,7 @@ Route::post('/verify-terminal', function (Request $request) {
         'tenant' => [
             'name' => $terminal->tenant->name,
             'logo' => $terminal->tenant->company_logo,
+            'bank_accounts' => $terminal->tenant->bankAccounts,
         ]
     ]);
 });

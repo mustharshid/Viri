@@ -32,4 +32,9 @@ class Tenant extends Model
     {
         return $this->hasMany(AuditLog::class);
     }
+
+    public function bankAccounts(): HasMany
+    {
+        return $this->hasMany(BankAccount::class);
+    }
 }

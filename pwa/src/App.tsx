@@ -2,10 +2,18 @@ import { useState, useEffect } from 'react';
 import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle } from 'lucide-react';
 import './index.css';
 
+interface BankAccount {
+  id: number;
+  bank_name: string;
+  account_name: string;
+  account_number: string;
+  is_default: boolean;
+}
+
 function App() {
   const [amount, setAmount] = useState('');
-  const [bank, setBank] = useState<'BML' | 'MIB'>('BML');
-  const [account, setAccount] = useState('acc_1');
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [isDefault, setIsDefault] = useState(true);
   
   // Hardware bound Terminal ID (generated once per browser instance)
@@ -31,6 +39,7 @@ function App() {
   
   // Verification State
   const [loading, setLoading] = useState(false);
+  const [initLoading, setInitLoading] = useState(false);
   const [result, setResult] = useState<{
     status: string;
     reference: string;
@@ -39,11 +48,8 @@ function App() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   
-  // Dynamic Totals
-  const [totals, setTotals] = useState({
-    acc_1: 12450.00,
-    acc_2: 3200.00
-  });
+  // Dynamic Totals (keyed by account id string)
+  const [totals, setTotals] = useState<Record<string, number>>({});
 
   // Persist settings
   useEffect(() => {
@@ -53,6 +59,44 @@ function App() {
   useEffect(() => {
     localStorage.setItem('viri_backend_url', backendUrl);
   }, [backendUrl]);
+
+  // Fetch Bank Accounts on Load
+  useEffect(() => {
+    const fetchAccounts = async () => {
+      if (!hardwareId || !backendUrl) return;
+      
+      setInitLoading(true);
+      try {
+        const response = await fetch(`${backendUrl}/verify-terminal`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hardware_id: hardwareId })
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const accounts = data.tenant?.bank_accounts || [];
+          setBankAccounts(accounts);
+          
+          if (accounts.length > 0) {
+            const defaultAcc = accounts.find((a: BankAccount) => a.is_default) || accounts[0];
+            setSelectedAccountId(defaultAcc.id.toString());
+            
+            // Initialize totals to 0 if not set
+            const newTotals: Record<string, number> = {};
+            accounts.forEach((acc: BankAccount) => {
+              newTotals[acc.id.toString()] = 0;
+            });
+            setTotals(newTotals);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch initial terminal data", err);
+      } finally {
+        setInitLoading(false);
+      }
+    };
+    fetchAccounts();
+  }, [hardwareId, backendUrl]);
 
   const handleVerify = async () => {
     if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
@@ -96,14 +140,17 @@ function App() {
       return;
     }
 
+    const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
+    const selectedBankName = selectedAccount ? selectedAccount.bank_name : 'BML';
+
     chrome.runtime.sendMessage(
       extensionId,
       {
         action: 'VERIFY_TRANSFER',
         payload: {
           amount: parseFloat(amount).toFixed(2),
-          bank: bank,
-          accountId: account
+          bank: selectedBankName,
+          accountId: selectedAccountId
         }
       },
       (response: any) => {
@@ -119,7 +166,7 @@ function App() {
           const addedAmount = parseFloat(amount);
           setTotals(prev => ({
             ...prev,
-            [account]: prev[account as keyof typeof prev] + addedAmount
+            [selectedAccountId]: (prev[selectedAccountId] || 0) + addedAmount
           }));
           setAmount(''); // clear input on success
         } else {
@@ -214,20 +261,8 @@ function App() {
           <div className="mb-6 flex-between">
             <h2 className="text-xl">Verify Transfer</h2>
             <div className="flex bg-[var(--bg-canvas)] rounded-lg p-1 border border-[var(--border-color)]">
-              <button 
-                onClick={() => setBank('BML')}
-                disabled={loading}
-                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${bank === 'BML' ? 'bg-[var(--text-primary)] text-[var(--bg-canvas)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
-              >
-                BML
-              </button>
-              <button 
-                onClick={() => setBank('MIB')}
-                disabled={loading}
-                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${bank === 'MIB' ? 'bg-[var(--text-primary)] text-[var(--bg-canvas)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
-              >
-                MIB
-              </button>
+              {/* Removed hardcoded BML/MIB buttons since we now use the dynamic accounts dropdown below */}
+              {initLoading && <span className="text-xs text-[var(--text-secondary)] px-2">Loading...</span>}
             </div>
           </div>
 
@@ -271,12 +306,18 @@ function App() {
             <label className="input-label">Receiving Account</label>
             <select 
               className="input-field appearance-none cursor-pointer"
-              value={account}
-              disabled={loading}
-              onChange={(e) => setAccount(e.target.value)}
+              value={selectedAccountId}
+              disabled={loading || bankAccounts.length === 0}
+              onChange={(e) => setSelectedAccountId(e.target.value)}
             >
-              <option value="acc_1">Business Checking (...4592)</option>
-              <option value="acc_2">Main Savings (...1103)</option>
+              {bankAccounts.length === 0 && (
+                <option value="">No accounts configured</option>
+              )}
+              {bankAccounts.map((acc) => (
+                <option key={acc.id} value={acc.id.toString()}>
+                  {acc.bank_name} - {acc.account_name} (...{acc.account_number.slice(-4)})
+                </option>
+              ))}
             </select>
           </div>
 
@@ -324,18 +365,20 @@ function App() {
           </div>
           
           <div className="grid grid-cols-2 gap-4">
-            <div className="bg-[var(--bg-canvas)] p-4 rounded-lg border border-[var(--border-color)]">
-              <p className="text-xs text-[var(--text-secondary)] uppercase tracking-wider mb-1">Checking (...4592)</p>
-              <p className="text-2xl font-bold text-[var(--color-success)]">
-                {totals.acc_1.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-sm font-normal text-[var(--text-secondary)]">MVR</span>
-              </p>
-            </div>
-            <div className="bg-[var(--bg-canvas)] p-4 rounded-lg border border-[var(--border-color)]">
-              <p className="text-xs text-[var(--text-secondary)] uppercase tracking-wider mb-1">Savings (...1103)</p>
-              <p className="text-2xl font-bold text-[var(--text-primary)]">
-                {totals.acc_2.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-sm font-normal text-[var(--text-secondary)]">MVR</span>
-              </p>
-            </div>
+            {bankAccounts.length === 0 ? (
+              <p className="text-sm text-[var(--text-secondary)]">No active accounts.</p>
+            ) : (
+              bankAccounts.map((acc) => (
+                <div key={acc.id} className="bg-[var(--bg-canvas)] p-4 rounded-lg border border-[var(--border-color)]">
+                  <p className="text-xs text-[var(--text-secondary)] uppercase tracking-wider mb-1">
+                    {acc.account_name} (...{acc.account_number.slice(-4)})
+                  </p>
+                  <p className="text-2xl font-bold text-[var(--color-success)]">
+                    {(totals[acc.id.toString()] || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-sm font-normal text-[var(--text-secondary)]">MVR</span>
+                  </p>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
