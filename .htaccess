@@ -1,0 +1,21 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /viri/
+
+    # 1. Route all API calls to Laravel public/index.php
+    RewriteRule ^api/(.*)$ public/index.php [L,QSA]
+
+    # 2. Route PWA asset calls to public/viri/
+    RewriteCond %{REQUEST_URI} !^/viri/public/
+    RewriteRule ^assets/(.*)$ public/viri/assets/$1 [L]
+    RewriteRule ^vite.svg$ public/viri/vite.svg [L]
+    RewriteRule ^index.html$ public/viri/index.html [L]
+
+    # 3. Route root access to the static PWA index
+    RewriteRule ^$ public/viri/index.html [L]
+
+    # 4. Fallback for all other routes to Laravel
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ public/index.php/$1 [L,QSA]
+</IfModule>
