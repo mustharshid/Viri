@@ -19,7 +19,8 @@
     "matches": [
       "http://localhost/*",
       "https://*.viri.app/*",
-      "https://soft.thinksafe.mv/*"
+      "https://soft.thinksafe.mv/*",
+      "https://viri.thinksafe.mv/*"
     ]
   }
 }

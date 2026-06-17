@@ -21,10 +21,10 @@ function App() {
   // Settings
   const [extensionId, setExtensionId] = useState(localStorage.getItem('viri_extension_id') || '');
   const [backendUrl, setBackendUrl] = useState(() => {
-    // Default to the current origin's subfolder path if not set
-    const defaultUrl = window.location.origin.includes('localhost') 
-      ? 'http://localhost:8000/api' // default local Laravel port
-      : `${window.location.origin}/viri/api`;
+    // Default backend URL based on environment
+    const defaultUrl = window.location.origin.includes('localhost')
+      ? 'http://localhost:8000/api'        // local Laravel dev server
+      : `${window.location.origin}/api`;  // production: viri.thinksafe.mv/api
     return localStorage.getItem('viri_backend_url') || defaultUrl;
   });
   const [showSettings, setShowSettings] = useState(false);
