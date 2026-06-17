@@ -1,0 +1,19 @@
+# Viri PWA - Static SPA .htaccess
+# Serves the React single-page app correctly from viri.thinksafe.mv
+
+Options -MultiViews
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # Serve static assets directly (JS, CSS, images)
+    RewriteRule ^assets/ - [L]
+    RewriteRule ^vite\.svg$ - [L]
+    RewriteRule ^favicon\.ico$ - [L]
+
+    # For everything else, serve index.html (React handles routing client-side)
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.html [L]
+</IfModule>
