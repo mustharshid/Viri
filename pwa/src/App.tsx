@@ -32,7 +32,7 @@ function App() {
     // Default backend URL based on environment
     const defaultUrl = window.location.origin.includes('localhost')
       ? 'http://localhost:8000/api'        // local Laravel dev server
-      : `${window.location.origin}/api`;  // production: viri.thinksafe.mv/api
+      : 'https://soft.thinksafe.mv/api';  // production: API is on the main domain
     return localStorage.getItem('viri_backend_url') || defaultUrl;
   });
   const [showSettings, setShowSettings] = useState(false);
