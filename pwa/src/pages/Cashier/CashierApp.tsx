@@ -41,6 +41,11 @@ function App() {
     return localStorage.getItem('viri_backend_url') || defaultUrl;
   });
   const [showSettings, setShowSettings] = useState(false);
+
+  // Robot Credentials
+  const [bmlUsername, setBmlUsername] = useState(localStorage.getItem('viri_bml_username') || '');
+  const [bmlPassword, setBmlPassword] = useState(localStorage.getItem('viri_bml_password') || '');
+  const [bmlTotpSeed, setBmlTotpSeed] = useState(localStorage.getItem('viri_bml_totp_seed') || '');
   
   // Verification State
   const [loading, setLoading] = useState(false);
@@ -73,6 +78,12 @@ function App() {
   useEffect(() => {
     localStorage.setItem('viri_backend_url', backendUrl);
   }, [backendUrl]);
+
+  useEffect(() => {
+    localStorage.setItem('viri_bml_username', bmlUsername);
+    localStorage.setItem('viri_bml_password', bmlPassword);
+    localStorage.setItem('viri_bml_totp_seed', bmlTotpSeed);
+  }, [bmlUsername, bmlPassword, bmlTotpSeed]);
 
   // Fetch Bank Accounts on Load
   useEffect(() => {
@@ -230,7 +241,12 @@ function App() {
         amount: parseFloat(amount).toFixed(2),
         bank: selectedBankName,
         accountId: selectedAccountId,
-        accountNumber: selectedAccount ? selectedAccount.account_number : ''
+        accountNumber: selectedAccount ? selectedAccount.account_number : '',
+        credentials: {
+          username: bmlUsername,
+          password: bmlPassword,
+          totpSeed: bmlTotpSeed
+        }
       }
     });
   };
@@ -412,6 +428,48 @@ function App() {
             <span className="text-[10px] text-[var(--text-secondary)]">
               Set a 4-digit PIN to manually lock this terminal screen.
             </span>
+          </div>
+
+          {/* Robot Credentials Section */}
+          <div className="mt-6 pt-6 border-t border-[var(--border-color)]">
+            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+              <Shield size={14} className="text-[var(--color-warning)]" />
+              Headless Robot Credentials
+            </h4>
+            <p className="text-xs text-[var(--text-secondary)] mb-4">
+              Stored securely on this local machine. These credentials are NEVER sent to the Viri servers. The background robot uses them to perform zero-knowledge verification.
+            </p>
+
+            <div className="space-y-3">
+              <div className="input-group">
+                <label className="input-label">BML Username</label>
+                <input 
+                  type="text" 
+                  className="input-field" 
+                  value={bmlUsername}
+                  onChange={(e) => setBmlUsername(e.target.value)}
+                />
+              </div>
+              <div className="input-group">
+                <label className="input-label">BML Password</label>
+                <input 
+                  type="password" 
+                  className="input-field" 
+                  value={bmlPassword}
+                  onChange={(e) => setBmlPassword(e.target.value)}
+                />
+              </div>
+              <div className="input-group">
+                <label className="input-label">BML TOTP Secret Seed (Authenticator)</label>
+                <input 
+                  type="password" 
+                  className="input-field font-mono" 
+                  placeholder="e.g. JBSWY3DPEHPK3PXP"
+                  value={bmlTotpSeed}
+                  onChange={(e) => setBmlTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())}
+                />
+              </div>
+            </div>
           </div>
 
           {/* Bank Accounts Manager */}
