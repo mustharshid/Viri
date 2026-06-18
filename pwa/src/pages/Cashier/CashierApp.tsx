@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle } from 'lucide-react';
+import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle, Lock } from 'lucide-react';
 
 
 interface BankAccount {
@@ -16,15 +16,15 @@ function App() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [isDefault, setIsDefault] = useState(true);
   
-  // Hardware bound Terminal ID (generated once per browser instance)
-  const [hardwareId] = useState(() => {
-    let id = localStorage.getItem('viri_hardware_id');
-    if (!id) {
-      id = 'term_' + Math.random().toString(36).substring(2, 11) + '_' + Math.random().toString(36).substring(2, 11);
-      localStorage.setItem('viri_hardware_id', id);
-    }
-    return id;
+  // Hardware bound Terminal ID
+  const [hardwareId, setHardwareId] = useState(() => {
+    return localStorage.getItem('viri_hardware_id') || '';
   });
+  
+  // PIN Lock State
+  const [pin, setPin] = useState(localStorage.getItem('viri_terminal_pin') || '');
+  const [isLocked, setIsLocked] = useState(false);
+  const [enteredPin, setEnteredPin] = useState('');
 
   // Settings
   const [extensionId, setExtensionId] = useState(localStorage.getItem('viri_extension_id') || '');
@@ -56,6 +56,10 @@ function App() {
   const [totals, setTotals] = useState<Record<string, number>>({});
 
   // Persist settings
+  useEffect(() => {
+    localStorage.setItem('viri_hardware_id', hardwareId);
+  }, [hardwareId]);
+
   useEffect(() => {
     localStorage.setItem('viri_extension_id', extensionId);
   }, [extensionId]);
@@ -190,6 +194,41 @@ function App() {
   const companyName = tenantName || "Unregistered Terminal";
   const planName = subscriptionTier === 'free' ? 'Free Trial' : (subscriptionTier === '499' ? 'Standard' : (subscriptionTier === '999' ? 'Pro' : ''));
 
+  if (isLocked) {
+    return (
+      <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center p-4">
+        <div className="glass-panel p-8 max-w-sm w-full text-center animate-fade-in shadow-2xl">
+          <Lock className="mx-auto mb-6 text-[var(--color-success)]" size={56} />
+          <h2 className="text-2xl font-bold mb-2">Terminal Locked</h2>
+          <p className="text-[var(--text-secondary)] text-sm mb-8">Enter your 4-digit PIN to unlock.</p>
+          <input 
+            type="password" 
+            placeholder="••••" 
+            maxLength={4}
+            className="input-field text-center text-3xl tracking-[1em] font-mono py-4 mb-6" 
+            value={enteredPin} 
+            onChange={e => setEnteredPin(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                if (enteredPin === pin) { setIsLocked(false); setEnteredPin(''); }
+                else { alert('Incorrect PIN'); setEnteredPin(''); }
+              }
+            }}
+          />
+          <button 
+            onClick={() => { 
+              if (enteredPin === pin) { setIsLocked(false); setEnteredPin(''); } 
+              else { alert('Incorrect PIN'); setEnteredPin(''); } 
+            }} 
+            className="btn btn-success w-full py-4 text-lg font-bold"
+          >
+            Unlock
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen p-4 md:p-8 flex flex-col items-center">
       
@@ -208,6 +247,15 @@ function App() {
           <p className="text-sm text-[var(--text-secondary)]">Powered by Viri {planName && <span className="opacity-70 px-1">• {planName} Plan</span>}</p>
         </div>
         <div className="flex items-center gap-3">
+          {pin && (
+            <button 
+              onClick={() => setIsLocked(true)} 
+              className="btn btn-outline p-2 rounded-full hover:bg-[var(--color-warning)] hover:text-black hover:border-transparent transition-colors"
+              title="Lock Terminal"
+            >
+              <Lock size={18} />
+            </button>
+          )}
           <button 
             onClick={() => setShowSettings(!showSettings)} 
             className={`btn btn-outline p-2 rounded-full ${showSettings ? 'text-[var(--color-success)] border-[var(--color-success)]' : ''}`}
@@ -230,15 +278,16 @@ function App() {
           </p>
           
           <div className="input-group">
-            <label className="input-label">Terminal Hardware ID (Unique)</label>
+            <label className="input-label">Terminal Pairing Code</label>
             <input 
               type="text" 
-              className="input-field opacity-60" 
+              className="input-field" 
+              placeholder="e.g. term_a1b2c3d4..."
               value={hardwareId}
-              readOnly
+              onChange={(e) => setHardwareId(e.target.value.trim())}
             />
             <span className="text-[10px] text-[var(--text-secondary)]">
-              Register this ID in your admin panel to activate this terminal counter.
+              Paste the Pairing Code generated in your admin panel to sync this terminal.
             </span>
           </div>
 
@@ -262,6 +311,25 @@ function App() {
               value={backendUrl}
               onChange={(e) => setBackendUrl(e.target.value.trim())}
             />
+          </div>
+
+          <div className="input-group mt-3">
+            <label className="input-label">Terminal Lock PIN (Optional)</label>
+            <input 
+              type="text" 
+              className="input-field" 
+              placeholder="e.g. 1234" 
+              maxLength={4}
+              value={pin}
+              onChange={(e) => {
+                const val = e.target.value.replace(/\D/g, '');
+                setPin(val);
+                localStorage.setItem('viri_terminal_pin', val);
+              }}
+            />
+            <span className="text-[10px] text-[var(--text-secondary)]">
+              Set a 4-digit PIN to manually lock this terminal screen.
+            </span>
           </div>
 
           {/* Bank Accounts Manager */}
