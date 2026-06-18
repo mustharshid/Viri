@@ -90,6 +90,7 @@ Route::post('/verify-terminal', function (Request $request) {
             'logo' => $tenant->company_logo,
             'tier' => $tier,
             'verifications_used' => $tenant->verifications_count,
+            'extension_id' => env('VIRI_EXTENSION_ID', 'viri_default_extension_id'),
             'bank_accounts' => $tenant->bankAccounts->map(function($account) {
                 return [
                     'id' => $account->id,
