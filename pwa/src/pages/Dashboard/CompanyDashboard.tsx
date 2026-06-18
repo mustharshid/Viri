@@ -156,7 +156,7 @@ export default function CompanyDashboard() {
               {terminals.map(term => (
                 <div key={term.id} className="bg-[var(--bg-canvas)] p-3 rounded border border-[var(--border-color)] flex flex-col gap-2">
                   <div className="flex justify-between items-center">
-                    <strong className="text-[var(--color-success)]">{term.name}</strong>
+                    <strong className="text-[var(--color-success)]">{term.terminal_name}</strong>
                     <button onClick={() => deleteTerminal(term.id)} className="text-red-400 hover:text-red-300"><Trash2 size={16}/></button>
                   </div>
                   <div className="flex justify-between items-center text-sm font-mono text-[var(--text-secondary)] bg-black/30 p-2 rounded">
@@ -186,10 +186,15 @@ export default function CompanyDashboard() {
             <div className="grid md:grid-cols-2 gap-4">
               {bankAccounts.map(acc => (
                 <div key={acc.id} className="bg-[var(--bg-canvas)] p-4 rounded border border-[var(--border-color)] flex justify-between items-center">
-                  <div>
-                    <div className="font-bold text-lg">{acc.bank_name}</div>
-                    <div className="text-[var(--text-secondary)]">{acc.account_name}</div>
-                    <div className="font-mono text-sm">{acc.account_number}</div>
+                  <div className="flex gap-4 items-center">
+                    <div className={`w-12 h-12 rounded-lg flex items-center justify-center font-bold text-white shadow-lg ${acc.bank_name === 'BML' ? 'bg-red-600' : 'bg-emerald-600'}`}>
+                      {acc.bank_name}
+                    </div>
+                    <div>
+                      <div className="font-bold text-lg">{acc.bank_name === 'BML' ? 'Bank of Maldives' : 'Maldives Islamic Bank'}</div>
+                      <div className="text-[var(--text-secondary)]">{acc.account_name}</div>
+                      <div className="font-mono text-sm">{acc.account_number}</div>
+                    </div>
                   </div>
                   <button onClick={() => deleteBankAccount(acc.id)} className="p-2 text-red-400 hover:text-red-300 hover:bg-red-400/10 rounded"><Trash2 size={20}/></button>
                 </div>

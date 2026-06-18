@@ -29,7 +29,7 @@ class CompanyController extends Controller
 
         $terminal = Terminal::create([
             'tenant_id' => $tenantId,
-            'name' => $request->name,
+            'terminal_name' => $request->name,
             'hardware_id' => $hardwareId,
             'status' => 'active'
         ]);
