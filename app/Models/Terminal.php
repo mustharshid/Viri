@@ -16,6 +16,10 @@ class Terminal extends Model
         'pairing_code_expires_at'
     ];
 
+    protected $casts = [
+        'pairing_code_expires_at' => 'datetime'
+    ];
+
     public function tenant(): BelongsTo
     {
         return $this->belongsTo(Tenant::class);
