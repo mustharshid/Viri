@@ -166,10 +166,10 @@ function App() {
     if (activePortRef.current) {
       activePortRef.current.disconnect();
       activePortRef.current = null;
-      setLoading(false);
-      setError("Verification aborted by user.");
-      setLogs(prev => [...prev, "> [System] Connection severed. Robot killed."]);
     }
+    setLoading(false);
+    setError("Verification aborted by user.");
+    setLogs(prev => [...prev, "> [System] Connection severed. Robot killed."]);
   };
 
   const handleVerify = async () => {
@@ -219,18 +219,25 @@ function App() {
     
     setLogs([]); // Clear previous logs
 
-    const port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
+    let port;
+    try {
+      port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
+    } catch (e: any) {
+      setError(`Extension connection failed: ${e.message}. Is the Extension ID correct?`);
+      setLoading(false);
+      return;
+    }
+    
     activePortRef.current = port;
     
     // Add connection error handling
     port.onDisconnect.addListener(() => {
+      if (!activePortRef.current) return; // We manually disconnected it, or kill switch was used
+
       if (chrome.runtime.lastError) {
         setError(`Extension connection failed: ${chrome.runtime.lastError.message}`);
       } else {
-        // Port disconnected without error (possibly by kill switch or background script crash)
-        if (loading) {
-          setError("Connection to background robot lost unexpectedly.");
-        }
+        setError("Connection to background robot lost unexpectedly. Is the extension installed and enabled?");
       }
       setLoading(false);
       activePortRef.current = null;
