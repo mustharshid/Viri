@@ -24,13 +24,17 @@ class CompanyController extends Controller
         ]);
 
         $tenantId = $request->user()->tenant_id;
-        // Generate a random hardware ID for them to paste into the Cashier App
+        // Generate a random hardware ID
         $hardwareId = 'term_' . bin2hex(random_bytes(8));
+        // Generate a 6-digit pairing code
+        $pairingCode = str_pad(mt_rand(0, 999999), 6, '0', STR_PAD_LEFT);
 
         $terminal = Terminal::create([
             'tenant_id' => $tenantId,
             'terminal_name' => $request->name,
             'hardware_id' => $hardwareId,
+            'pairing_code' => $pairingCode,
+            'pairing_code_expires_at' => now()->addMinutes(10),
             'status' => 'active'
         ]);
 

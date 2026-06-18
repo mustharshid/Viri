@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\API\AuthController;
 use App\Http\Controllers\API\CompanyController;
 use App\Http\Controllers\API\SuperadminController;
+use App\Http\Controllers\API\TerminalPairingController;
 
 /*
 |--------------------------------------------------------------------------
@@ -14,6 +15,7 @@ use App\Http\Controllers\API\SuperadminController;
 */
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
+Route::post('/terminal/pair', [TerminalPairingController::class, 'pair']);
 
 /*
 |--------------------------------------------------------------------------
