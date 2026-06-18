@@ -26,7 +26,7 @@ function emitLog(port, message) {
 // ─── Bank Verification Logic ────────────────────────────────────────────────────
 
 async function handleVerification(payload, port) {
-  const { amount, bank, accountId, accountNumber } = payload;
+  const { amount, bank, accountId, accountNumber, credentials } = payload;
   
   emitLog(port, `> [Viri Bridge] Initializing decentralized verification...`);
   emitLog(port, `> Target Bank: ${bank}`);
@@ -34,7 +34,7 @@ async function handleVerification(payload, port) {
   emitLog(port, `> Account ID/Number: ${accountNumber || accountId}`);
 
   if (bank === 'BML') {
-    await verifyBML(amount, accountNumber || accountId, port);
+    await verifyBML(amount, accountNumber || accountId, credentials, port);
   } else if (bank === 'MIB') {
     emitLog(port, `> [!] MIB integration is pending. Falling back to simulation.`);
     await simulateVerification(amount, bank, port);
