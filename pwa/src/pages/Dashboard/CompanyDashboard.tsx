@@ -18,6 +18,7 @@ export default function CompanyDashboard() {
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [now, setNow] = useState(Date.now());
   
   // Forms
   const [newTerminalName, setNewTerminalName] = useState('');
@@ -29,6 +30,8 @@ export default function CompanyDashboard() {
 
   useEffect(() => {
     fetchData();
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
   }, []);
 
   const fetchData = async () => {
@@ -187,21 +190,55 @@ export default function CompanyDashboard() {
                 <button type="submit" className="btn btn-success p-3"><Plus size={20} /></button>
               </form>
               <div className="space-y-3">
-                {terminals.map(term => (
-                  <div key={term.id} className="bg-[var(--bg-canvas)] p-3 rounded border border-[var(--border-color)] flex flex-col gap-2">
-                    <div className="flex justify-between items-center">
-                      <strong className="text-[var(--color-success)] flex items-center gap-2">
-                        <MonitorSmartphone size={18} className="text-[var(--text-secondary)]" /> 
-                        {term.terminal_name}
-                      </strong>
-                      <button onClick={() => deleteTerminal(term.id)} className="text-red-400 hover:text-red-300"><Trash2 size={16}/></button>
+                {terminals.map(term => {
+                  const isExpired = term.pairing_code_expires_at ? new Date(term.pairing_code_expires_at).getTime() < now : true;
+                  const minutesLeft = term.pairing_code_expires_at ? Math.max(0, Math.floor((new Date(term.pairing_code_expires_at).getTime() - now) / 60000)) : 0;
+                  const secondsLeft = term.pairing_code_expires_at ? Math.max(0, Math.floor(((new Date(term.pairing_code_expires_at).getTime() - now) % 60000) / 1000)) : 0;
+
+                  return (
+                    <div key={term.id} className="bg-[var(--bg-canvas)] p-3 rounded border border-[var(--border-color)] flex flex-col gap-3">
+                      <div className="flex justify-between items-center">
+                        <strong className="text-[var(--color-success)] flex items-center gap-2">
+                          <MonitorSmartphone size={18} className="text-[var(--text-secondary)]" /> 
+                          {term.terminal_name}
+                        </strong>
+                        <button onClick={() => deleteTerminal(term.id)} className="text-red-400 hover:text-red-300" title="Delete Terminal"><Trash2 size={16}/></button>
+                      </div>
+
+                      {term.pairing_code && !isExpired ? (
+                        <div className="flex justify-between items-center bg-black/40 p-4 rounded border border-yellow-500/30">
+                          <div>
+                            <div className="text-xs text-[var(--text-secondary)] mb-1 uppercase tracking-wider">Pairing Code</div>
+                            <div className="text-3xl font-mono text-yellow-400 tracking-[0.2em]">{term.pairing_code}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs text-[var(--text-secondary)] mb-1">Expires In</div>
+                            <div className="text-sm font-mono text-yellow-200">
+                              {minutesLeft}:{secondsLeft.toString().padStart(2, '0')}
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        term.pairing_code && isExpired ? (
+                          <div className="flex justify-between items-center bg-red-900/20 p-3 rounded border border-red-500/20">
+                            <span className="text-red-400 text-sm">Pairing Code Expired</span>
+                            <button onClick={() => deleteTerminal(term.id)} className="btn btn-outline text-xs py-1 px-2 border-red-500 text-red-500">Delete & Recreate</button>
+                          </div>
+                        ) : (
+                          <div className="flex justify-between items-center bg-emerald-900/20 p-3 rounded border border-[var(--color-success)] border-opacity-30">
+                            <span className="flex items-center gap-2 text-sm text-[var(--color-success)] font-medium">
+                              <CheckCircle2 size={16}/> Configured
+                            </span>
+                            <div className="flex items-center gap-2 text-xs font-mono text-[var(--text-secondary)]">
+                              ID: ...{term.hardware_id.slice(-8)}
+                              <button onClick={() => copyToClipboard(term.hardware_id)} className="hover:text-white" title="Copy Hardware ID"><Copy size={14}/></button>
+                            </div>
+                          </div>
+                        )
+                      )}
                     </div>
-                    <div className="flex justify-between items-center text-sm font-mono text-[var(--text-secondary)] bg-black/30 p-2 rounded">
-                      <span>{term.hardware_id}</span>
-                      <button onClick={() => copyToClipboard(term.hardware_id)} className="hover:text-white"><Copy size={16}/></button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {terminals.length === 0 && <p className="text-sm text-[var(--text-secondary)]">No terminals created yet.</p>}
               </div>
             </div>

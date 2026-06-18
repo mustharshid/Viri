@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle, Lock } from 'lucide-react';
+import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle, Lock, MonitorSmartphone } from 'lucide-react';
 
 
 interface BankAccount {
@@ -25,6 +25,11 @@ function App() {
   const [pin, setPin] = useState(localStorage.getItem('viri_terminal_pin') || '');
   const [isLocked, setIsLocked] = useState(false);
   const [enteredPin, setEnteredPin] = useState('');
+
+  // Setup / Pairing State
+  const [isSetupMode, setIsSetupMode] = useState(!hardwareId);
+  const [pairingCodeInput, setPairingCodeInput] = useState('');
+  const [setupError, setSetupError] = useState<string | null>(null);
 
   // Settings
   const [extensionId, setExtensionId] = useState(localStorage.getItem('viri_extension_id') || '');
@@ -103,6 +108,9 @@ function App() {
             });
             setTotals(newTotals);
           }
+        } else {
+          // If the backend rejects the hardware_id, force setup mode
+          setIsSetupMode(true);
         }
       } catch (err) {
         console.error("Failed to fetch initial terminal data", err);
@@ -112,6 +120,30 @@ function App() {
     };
     fetchAccounts();
   }, [hardwareId, backendUrl]);
+
+  const handlePair = async () => {
+    if (!pairingCodeInput || pairingCodeInput.length !== 6) {
+      setSetupError("Please enter a valid 6-digit code.");
+      return;
+    }
+    setSetupError(null);
+    try {
+      const res = await fetch(`${backendUrl}/terminal/pair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pairing_code: pairingCodeInput })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSetupError(data.error || "Pairing failed.");
+        return;
+      }
+      setHardwareId(data.hardware_id);
+      setIsSetupMode(false);
+    } catch (err) {
+      setSetupError("Network error. Could not connect to backend.");
+    }
+  };
 
   const handleVerify = async () => {
     if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
@@ -193,6 +225,40 @@ function App() {
 
   const companyName = tenantName || "Unregistered Terminal";
   const planName = subscriptionTier === 'free' ? 'Free Trial' : (subscriptionTier === '499' ? 'Standard' : (subscriptionTier === '999' ? 'Pro' : ''));
+
+  if (isSetupMode) {
+    return (
+      <div className="min-h-screen bg-[var(--bg-base)] flex flex-col items-center justify-center p-4">
+        <div className="glass-panel p-8 max-w-sm w-full text-center animate-fade-in shadow-2xl">
+          <MonitorSmartphone className="mx-auto mb-6 text-[var(--color-success)]" size={56} />
+          <h2 className="text-2xl font-bold mb-2">Terminal Setup</h2>
+          <p className="text-[var(--text-secondary)] text-sm mb-6">Enter the 6-digit pairing code from your Company Dashboard to link this terminal.</p>
+          
+          {setupError && (
+            <div className="text-red-400 text-sm mb-4 bg-red-900/20 p-3 rounded border border-red-500/30">
+              {setupError}
+            </div>
+          )}
+
+          <input 
+            type="text" 
+            placeholder="000000" 
+            maxLength={6}
+            className="input-field text-center text-4xl tracking-widest font-mono py-4 mb-6" 
+            value={pairingCodeInput} 
+            onChange={e => setPairingCodeInput(e.target.value.replace(/\D/g, ''))}
+            onKeyDown={e => { if (e.key === 'Enter') handlePair(); }}
+          />
+          <button 
+            onClick={handlePair} 
+            className="btn btn-success w-full py-4 text-lg font-bold"
+          >
+            Link Terminal
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (isLocked) {
     return (
@@ -278,17 +344,21 @@ function App() {
           </p>
           
           <div className="input-group">
-            <label className="input-label">Terminal Pairing Code</label>
-            <input 
-              type="text" 
-              className="input-field" 
-              placeholder="e.g. term_a1b2c3d4..."
-              value={hardwareId}
-              onChange={(e) => setHardwareId(e.target.value.trim())}
-            />
-            <span className="text-[10px] text-[var(--text-secondary)]">
-              Paste the Pairing Code generated in your admin panel to sync this terminal.
-            </span>
+            <label className="input-label">Terminal Status</label>
+            <div className="p-3 bg-black/30 border border-[var(--border-color)] rounded text-sm text-[var(--color-success)] font-mono flex items-center justify-between">
+              <span>Connected to {companyName}</span>
+              <button 
+                onClick={() => {
+                  if (confirm("Are you sure you want to unlink this terminal? You will need a new pairing code to use it again.")) {
+                    setHardwareId('');
+                    setIsSetupMode(true);
+                  }
+                }}
+                className="text-red-400 hover:text-red-300 text-xs px-2 py-1 border border-red-500/50 rounded"
+              >
+                Unlink
+              </button>
+            </div>
           </div>
 
           <div className="input-group mt-3">
