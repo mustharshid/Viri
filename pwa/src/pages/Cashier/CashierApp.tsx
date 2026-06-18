@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle, Lock, MonitorSmartphone } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle } from 'lucide-react';
 
 
 interface BankAccount {
@@ -23,7 +23,7 @@ function App() {
   
   // PIN Lock State
   const [pin, setPin] = useState(localStorage.getItem('viri_terminal_pin') || '');
-  const [isLocked, setIsLocked] = useState(false);
+  const [isLocked, setIsLocked] = useState(!!pin);
   const [enteredPin, setEnteredPin] = useState('');
 
   // Setup / Pairing State
@@ -33,7 +33,7 @@ function App() {
 
   // Settings
   const [extensionId, setExtensionId] = useState(localStorage.getItem('viri_extension_id') || '');
-  const [backendUrl, setBackendUrl] = useState(() => {
+  const [backendUrl] = useState(() => {
     // Default backend URL based on environment
     const defaultUrl = window.location.origin.includes('localhost')
       ? 'http://localhost:8000/api'        // local Laravel dev server
@@ -42,13 +42,20 @@ function App() {
   });
   const [showSettings, setShowSettings] = useState(false);
 
-  // Robot Credentials
+  // Credentials States
   const [bmlUsername, setBmlUsername] = useState(localStorage.getItem('viri_bml_username') || '');
   const [bmlPassword, setBmlPassword] = useState(localStorage.getItem('viri_bml_password') || '');
   const [bmlTotpSeed, setBmlTotpSeed] = useState(localStorage.getItem('viri_bml_totp_seed') || '');
+  const [bmlConfigured, setBmlConfigured] = useState(!!localStorage.getItem('viri_bml_username'));
+
+  const [mibUsername, setMibUsername] = useState(localStorage.getItem('viri_mib_username') || '');
+  const [mibPassword, setMibPassword] = useState(localStorage.getItem('viri_mib_password') || '');
+  const [mibTotpSeed, setMibTotpSeed] = useState(localStorage.getItem('viri_mib_totp_seed') || '');
+  const [mibConfigured, setMibConfigured] = useState(!!localStorage.getItem('viri_mib_username'));
   
   // Verification State
   const [loading, setLoading] = useState(false);
+  const activePortRef = useRef<chrome.runtime.Port | null>(null);
   const [initLoading, setInitLoading] = useState(false);
   const [result, setResult] = useState<{
     status: string;
@@ -102,12 +109,9 @@ function App() {
           const accounts = data.tenant?.bank_accounts || [];
           setBankAccounts(accounts);
           
-          if (data.tenant?.name) {
-            setTenantName(data.tenant.name);
-          }
-          if (data.tenant?.subscription_tier) {
-            setSubscriptionTier(data.tenant.subscription_tier);
-          }
+          if (data.tenant?.name) setTenantName(data.tenant.name);
+          if (data.tenant?.tier) setSubscriptionTier(data.tenant.tier);
+          if (data.tenant?.extension_id) setExtensionId(data.tenant.extension_id);
           
           if (accounts.length > 0) {
             const defaultAcc = accounts.find((a: BankAccount) => a.is_default) || accounts[0];
@@ -151,9 +155,20 @@ function App() {
         return;
       }
       setHardwareId(data.hardware_id);
+      if (data.extension_id) setExtensionId(data.extension_id);
       setIsSetupMode(false);
     } catch (err) {
       setSetupError("Network error. Could not connect to backend.");
+    }
+  };
+
+  const killRobot = () => {
+    if (activePortRef.current) {
+      activePortRef.current.disconnect();
+      activePortRef.current = null;
+      setLoading(false);
+      setError("Verification aborted by user.");
+      setLogs(prev => [...prev, "> [System] Connection severed. Robot killed."]);
     }
   };
 
@@ -205,13 +220,20 @@ function App() {
     setLogs([]); // Clear previous logs
 
     const port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
+    activePortRef.current = port;
     
     // Add connection error handling
     port.onDisconnect.addListener(() => {
       if (chrome.runtime.lastError) {
         setError(`Extension connection failed: ${chrome.runtime.lastError.message}`);
-        setLoading(false);
+      } else {
+        // Port disconnected without error (possibly by kill switch or background script crash)
+        if (loading) {
+          setError("Connection to background robot lost unexpectedly.");
+        }
       }
+      setLoading(false);
+      activePortRef.current = null;
     });
 
     port.onMessage.addListener((response: any) => {
@@ -228,12 +250,25 @@ function App() {
         }));
         setAmount(''); // clear input on success
         port.disconnect();
+        activePortRef.current = null;
       } else if (response.type === 'error') {
         setLoading(false);
         setError(response.error || "Verification failed.");
         port.disconnect();
+        activePortRef.current = null;
       }
     });
+
+    // Provide the correct credentials based on bank
+    const activeCreds = selectedBankName === 'BML' ? {
+      username: bmlUsername,
+      password: bmlPassword,
+      totpSeed: bmlTotpSeed
+    } : {
+      username: mibUsername,
+      password: mibPassword,
+      totpSeed: mibTotpSeed
+    };
 
     port.postMessage({
       action: 'VERIFY_TRANSFER',
@@ -242,11 +277,7 @@ function App() {
         bank: selectedBankName,
         accountId: selectedAccountId,
         accountNumber: selectedAccount ? selectedAccount.account_number : '',
-        credentials: {
-          username: bmlUsername,
-          password: bmlPassword,
-          totpSeed: bmlTotpSeed
-        }
+        credentials: activeCreds
       }
     });
   };
@@ -297,9 +328,9 @@ function App() {
           <p className="text-[var(--text-secondary)] text-sm mb-8">Enter your 4-digit PIN to unlock.</p>
           <input 
             type="password" 
-            placeholder="••••" 
             maxLength={4}
-            className="input-field text-center text-3xl tracking-[1em] font-mono py-4 mb-6" 
+            className="input-field text-center text-3xl tracking-[1em] font-mono py-4 mb-6 text-transparent" 
+            style={{ textShadow: '0 0 0 white' }}
             value={enteredPin} 
             onChange={e => setEnteredPin(e.target.value)}
             onKeyDown={e => {
@@ -351,9 +382,22 @@ function App() {
             </button>
           )}
           <button 
-            onClick={() => setShowSettings(!showSettings)} 
+            onClick={() => {
+              if (showSettings) {
+                setShowSettings(false);
+              } else {
+                if (pin) {
+                  const check = prompt("Enter Terminal PIN to open settings:");
+                  if (check !== pin) {
+                    alert("Incorrect PIN");
+                    return;
+                  }
+                }
+                setShowSettings(true);
+              }
+            }} 
             className={`btn btn-outline p-2 rounded-full ${showSettings ? 'text-[var(--color-success)] border-[var(--color-success)]' : ''}`}
-            title="Configure Extension ID"
+            title="Terminal Settings"
           >
             <Settings size={18} />
           </button>
@@ -368,7 +412,7 @@ function App() {
             <Settings size={16} /> Viri Terminal Settings
           </h3>
           <p className="text-xs text-[var(--text-secondary)] mb-4">
-            Configure licensing server coordinates and your local terminal credentials.
+            System configuration and local credentials. System config is pushed by the server and read-only.
           </p>
           
           <div className="input-group">
@@ -390,35 +434,34 @@ function App() {
           </div>
 
           <div className="input-group mt-3">
-            <label className="input-label">Viri Bridge Extension ID</label>
+            <label className="input-label">Viri Bridge Extension ID (System)</label>
             <input 
               type="text" 
-              className="input-field" 
-              placeholder="e.g., oipcnkdpbdfkgjpdmnobk..." 
+              className="input-field opacity-60 cursor-not-allowed" 
               value={extensionId}
-              onChange={(e) => setExtensionId(e.target.value.trim())}
+              readOnly
             />
           </div>
 
           <div className="input-group mt-3">
-            <label className="input-label">Viri Backend API Endpoint</label>
+            <label className="input-label">Viri Backend API Endpoint (System)</label>
             <input 
               type="text" 
-              className="input-field" 
-              placeholder="e.g., https://soft.thinksafe.mv/viri/api" 
+              className="input-field opacity-60 cursor-not-allowed" 
               value={backendUrl}
-              onChange={(e) => setBackendUrl(e.target.value.trim())}
+              readOnly
             />
           </div>
 
           <div className="input-group mt-3">
             <label className="input-label">Terminal Lock PIN (Optional)</label>
             <input 
-              type="text" 
-              className="input-field" 
-              placeholder="e.g. 1234" 
+              type="password" 
+              className="input-field text-transparent" 
+              style={{ textShadow: '0 0 0 white' }}
+              placeholder={pin ? "PIN Set (Hidden)" : "Not Set"} 
               maxLength={4}
-              value={pin}
+              value=""
               onChange={(e) => {
                 const val = e.target.value.replace(/\D/g, '');
                 setPin(val);
@@ -426,7 +469,7 @@ function App() {
               }}
             />
             <span className="text-[10px] text-[var(--text-secondary)]">
-              Set a 4-digit PIN to manually lock this terminal screen.
+              Type a 4-digit PIN to update. Input length is hidden.
             </span>
           </div>
 
@@ -434,41 +477,72 @@ function App() {
           <div className="mt-6 pt-6 border-t border-[var(--border-color)]">
             <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
               <Shield size={14} className="text-[var(--color-warning)]" />
-              Headless Robot Credentials
+              Bank Credentials (Per Bank)
             </h4>
             <p className="text-xs text-[var(--text-secondary)] mb-4">
-              Stored securely on this local machine. These credentials are NEVER sent to the Viri servers. The background robot uses them to perform zero-knowledge verification.
+              Stored securely on this local machine. These credentials are NEVER sent to the Viri servers.
             </p>
 
-            <div className="space-y-3">
-              <div className="input-group">
-                <label className="input-label">BML Username</label>
-                <input 
-                  type="text" 
-                  className="input-field" 
-                  value={bmlUsername}
-                  onChange={(e) => setBmlUsername(e.target.value)}
-                />
+            {/* BML Credentials */}
+            <div className="mb-4 p-3 border border-zinc-800 rounded bg-black/20">
+              <div className="flex-between mb-2">
+                <span className="text-sm font-bold">Bank of Maldives (BML)</span>
+                {bmlConfigured ? (
+                  <span className="badge badge-success flex items-center gap-1"><CheckCircle size={10}/> Configured</span>
+                ) : (
+                  <span className="badge border border-yellow-600 text-yellow-500">Not Configured</span>
+                )}
               </div>
-              <div className="input-group">
-                <label className="input-label">BML Password</label>
-                <input 
-                  type="password" 
-                  className="input-field" 
-                  value={bmlPassword}
-                  onChange={(e) => setBmlPassword(e.target.value)}
-                />
+              
+              {!bmlConfigured ? (
+                <div className="space-y-3">
+                  <input type="text" className="input-field text-sm" placeholder="Username" value={bmlUsername} onChange={e => setBmlUsername(e.target.value)} />
+                  <input type="password" className="input-field text-sm" placeholder="Password" value={bmlPassword} onChange={e => setBmlPassword(e.target.value)} />
+                  <input type="password" className="input-field text-sm font-mono" placeholder="Authenticator Seed" value={bmlTotpSeed} onChange={e => setBmlTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())} />
+                  <button className="btn btn-success w-full py-2 text-sm" onClick={() => {
+                    localStorage.setItem('viri_bml_username', bmlUsername);
+                    localStorage.setItem('viri_bml_password', bmlPassword);
+                    localStorage.setItem('viri_bml_totp_seed', bmlTotpSeed);
+                    setBmlConfigured(true);
+                  }}>Save BML Credentials</button>
+                </div>
+              ) : (
+                <button className="text-xs text-red-400 hover:text-red-300 underline" onClick={() => {
+                  setBmlUsername(''); setBmlPassword(''); setBmlTotpSeed(''); setBmlConfigured(false);
+                  localStorage.removeItem('viri_bml_username'); localStorage.removeItem('viri_bml_password'); localStorage.removeItem('viri_bml_totp_seed');
+                }}>Reset Credentials</button>
+              )}
+            </div>
+
+            {/* MIB Credentials */}
+            <div className="p-3 border border-zinc-800 rounded bg-black/20">
+              <div className="flex-between mb-2">
+                <span className="text-sm font-bold">Maldives Islamic Bank (MIB)</span>
+                {mibConfigured ? (
+                  <span className="badge badge-success flex items-center gap-1"><CheckCircle size={10}/> Configured</span>
+                ) : (
+                  <span className="badge border border-yellow-600 text-yellow-500">Not Configured</span>
+                )}
               </div>
-              <div className="input-group">
-                <label className="input-label">BML TOTP Secret Seed (Authenticator)</label>
-                <input 
-                  type="password" 
-                  className="input-field font-mono" 
-                  placeholder="e.g. JBSWY3DPEHPK3PXP"
-                  value={bmlTotpSeed}
-                  onChange={(e) => setBmlTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())}
-                />
-              </div>
+              
+              {!mibConfigured ? (
+                <div className="space-y-3">
+                  <input type="text" className="input-field text-sm" placeholder="Username" value={mibUsername} onChange={e => setMibUsername(e.target.value)} />
+                  <input type="password" className="input-field text-sm" placeholder="Password" value={mibPassword} onChange={e => setMibPassword(e.target.value)} />
+                  <input type="password" className="input-field text-sm font-mono" placeholder="Authenticator Seed" value={mibTotpSeed} onChange={e => setMibTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())} />
+                  <button className="btn btn-success w-full py-2 text-sm" onClick={() => {
+                    localStorage.setItem('viri_mib_username', mibUsername);
+                    localStorage.setItem('viri_mib_password', mibPassword);
+                    localStorage.setItem('viri_mib_totp_seed', mibTotpSeed);
+                    setMibConfigured(true);
+                  }}>Save MIB Credentials</button>
+                </div>
+              ) : (
+                <button className="text-xs text-red-400 hover:text-red-300 underline" onClick={() => {
+                  setMibUsername(''); setMibPassword(''); setMibTotpSeed(''); setMibConfigured(false);
+                  localStorage.removeItem('viri_mib_username'); localStorage.removeItem('viri_mib_password'); localStorage.removeItem('viri_mib_totp_seed');
+                }}>Reset Credentials</button>
+              )}
             </div>
           </div>
 
@@ -629,7 +703,16 @@ function App() {
               <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
               <span className="text-xs text-zinc-400 ml-2 font-mono">Viri Bridge Terminal</span>
-              {loading && <RefreshCw size={12} className="text-[var(--color-success)] animate-spin ml-auto" />}
+              {loading && <RefreshCw size={12} className="text-[var(--color-success)] animate-spin ml-2" />}
+              
+              {loading && (
+                <button 
+                  onClick={killRobot}
+                  className="ml-auto flex items-center gap-1 text-[10px] uppercase font-bold text-red-500 bg-red-950 border border-red-900 px-2 py-1 rounded hover:bg-red-900 transition-colors"
+                >
+                  <XCircle size={12} /> Kill Robot
+                </button>
+              )}
             </div>
             <div className="p-4 font-mono text-xs text-[var(--color-success)] h-48 overflow-y-auto flex flex-col gap-1"
                  ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}>
