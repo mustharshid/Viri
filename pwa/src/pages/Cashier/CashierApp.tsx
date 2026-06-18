@@ -52,6 +52,7 @@ function App() {
     timestamp: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [logs, setLogs] = useState<string[]>([]);
   
   // Tenant Information from Server
   const [tenantName, setTenantName] = useState<string>('');
@@ -180,8 +181,8 @@ function App() {
       return;
     }
 
-    // Step 2: Send message to the local extension
-    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+    // Step 2: Send message to the local extension using a persistent port
+    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
       setError("Browser extension API not detected. Make sure you are using Chrome and the extension is loaded.");
       setLoading(false);
       return;
@@ -189,38 +190,49 @@ function App() {
 
     const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
     const selectedBankName = selectedAccount ? selectedAccount.bank_name : 'BML';
+    
+    setLogs([]); // Clear previous logs
 
-    chrome.runtime.sendMessage(
-      extensionId,
-      {
-        action: 'VERIFY_TRANSFER',
-        payload: {
-          amount: parseFloat(amount).toFixed(2),
-          bank: selectedBankName,
-          accountId: selectedAccountId
-        }
-      },
-      (response: any) => {
+    const port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
+    
+    // Add connection error handling
+    port.onDisconnect.addListener(() => {
+      if (chrome.runtime.lastError) {
+        setError(`Extension connection failed: ${chrome.runtime.lastError.message}`);
         setLoading(false);
-        if (chrome.runtime.lastError) {
-          setError(`Extension connection failed: ${chrome.runtime.lastError.message}. Make sure the Extension ID is correct and active.`);
-          return;
-        }
-
-        if (response && response.success) {
-          setResult(response.data);
-          // Increment totals dynamically
-          const addedAmount = parseFloat(amount);
-          setTotals(prev => ({
-            ...prev,
-            [selectedAccountId]: (prev[selectedAccountId] || 0) + addedAmount
-          }));
-          setAmount(''); // clear input on success
-        } else {
-          setError(response?.error || "Bank transfer not found or verification failed.");
-        }
       }
-    );
+    });
+
+    port.onMessage.addListener((response: any) => {
+      if (response.type === 'log') {
+        setLogs(prev => [...prev, response.message]);
+      } else if (response.type === 'success') {
+        setLoading(false);
+        setResult(response.data);
+        // Increment totals dynamically
+        const addedAmount = parseFloat(amount);
+        setTotals(prev => ({
+          ...prev,
+          [selectedAccountId]: (prev[selectedAccountId] || 0) + addedAmount
+        }));
+        setAmount(''); // clear input on success
+        port.disconnect();
+      } else if (response.type === 'error') {
+        setLoading(false);
+        setError(response.error || "Verification failed.");
+        port.disconnect();
+      }
+    });
+
+    port.postMessage({
+      action: 'VERIFY_TRANSFER',
+      payload: {
+        amount: parseFloat(amount).toFixed(2),
+        bank: selectedBankName,
+        accountId: selectedAccountId,
+        accountNumber: selectedAccount ? selectedAccount.account_number : ''
+      }
+    });
   };
 
   const companyName = tenantName || "Unregistered Terminal";
@@ -550,6 +562,31 @@ function App() {
             )}
           </div>
         </div>
+
+        {/* Live Terminal Log Viewer */}
+        {(loading || logs.length > 0) && (
+          <div className="w-full bg-black border border-zinc-800 rounded-lg overflow-hidden animate-fade-in shadow-2xl mt-4 mb-12">
+            <div className="bg-zinc-900 px-4 py-2 border-b border-zinc-800 flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-red-500"></div>
+              <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+              <div className="w-3 h-3 rounded-full bg-green-500"></div>
+              <span className="text-xs text-zinc-400 ml-2 font-mono">Viri Bridge Terminal</span>
+              {loading && <RefreshCw size={12} className="text-[var(--color-success)] animate-spin ml-auto" />}
+            </div>
+            <div className="p-4 font-mono text-xs text-[var(--color-success)] h-48 overflow-y-auto flex flex-col gap-1"
+                 ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}>
+              {logs.length === 0 ? (
+                <span className="text-zinc-500">Waiting for extension connection...</span>
+              ) : (
+                logs.map((log, i) => (
+                  <div key={i} className={`${log.includes('error') || log.includes('Exception') || log.includes('Failed') ? 'text-red-400' : ''}`}>
+                    {log}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
 
       </div>
     </div>
