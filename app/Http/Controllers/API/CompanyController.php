@@ -1,0 +1,93 @@
+<?php
+
+namespace App\Http\Controllers\API;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use App\Models\Terminal;
+use App\Models\BankAccount;
+
+class CompanyController extends Controller
+{
+    // === TERMINALS ===
+    public function getTerminals(Request $request)
+    {
+        $tenantId = $request->user()->tenant_id;
+        $terminals = Terminal::where('tenant_id', $tenantId)->get();
+        return response()->json($terminals);
+    }
+
+    public function createTerminal(Request $request)
+    {
+        $request->validate([
+            'name' => 'required|string',
+        ]);
+
+        $tenantId = $request->user()->tenant_id;
+        // Generate a random hardware ID for them to paste into the Cashier App
+        $hardwareId = 'term_' . bin2hex(random_bytes(8));
+
+        $terminal = Terminal::create([
+            'tenant_id' => $tenantId,
+            'name' => $request->name,
+            'hardware_id' => $hardwareId,
+            'status' => 'active'
+        ]);
+
+        return response()->json(['terminal' => $terminal]);
+    }
+
+    public function deleteTerminal(Request $request, $id)
+    {
+        $terminal = Terminal::where('tenant_id', $request->user()->tenant_id)->findOrFail($id);
+        $terminal->delete();
+        return response()->json(['message' => 'Terminal deleted']);
+    }
+
+    // === BANK ACCOUNTS ===
+    public function getBankAccounts(Request $request)
+    {
+        $tenantId = $request->user()->tenant_id;
+        $accounts = BankAccount::where('tenant_id', $tenantId)->get();
+        return response()->json($accounts);
+    }
+
+    public function createBankAccount(Request $request)
+    {
+        $tenantId = $request->user()->tenant_id;
+        $tenant = $request->user()->tenant;
+
+        // Check subscription limits
+        $currentAccounts = BankAccount::where('tenant_id', $tenantId)->count();
+        $limit = 2; // Free
+        if ($tenant->subscription_tier === '499') $limit = 2;
+        if ($tenant->subscription_tier === '999') $limit = 4;
+        if ($tenant->subscription_tier === '1999') $limit = 20;
+
+        if ($currentAccounts >= $limit) {
+            return response()->json(['message' => 'Bank account limit reached for your subscription tier.'], 403);
+        }
+
+        $request->validate([
+            'bank_name' => 'required|string',
+            'account_name' => 'required|string',
+            'account_number' => 'required|string',
+        ]);
+
+        $account = BankAccount::create([
+            'tenant_id' => $tenantId,
+            'bank_name' => $request->bank_name,
+            'account_name' => $request->account_name,
+            'account_number' => $request->account_number,
+        ]);
+
+        return response()->json(['account' => $account]);
+    }
+
+    public function deleteBankAccount(Request $request, $id)
+    {
+        $account = BankAccount::where('tenant_id', $request->user()->tenant_id)->findOrFail($id);
+        $account->delete();
+        return response()->json(['message' => 'Bank account deleted']);
+    }
+}

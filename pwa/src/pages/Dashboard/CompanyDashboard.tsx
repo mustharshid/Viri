@@ -1,0 +1,205 @@
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Shield, Plus, Trash2, LogOut, Copy } from 'lucide-react';
+
+export default function CompanyDashboard() {
+  const [user, setUser] = useState<any>(null);
+  const [terminals, setTerminals] = useState<any[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  
+  // Forms
+  const [newTerminalName, setNewTerminalName] = useState('');
+  const [bankName, setBankName] = useState('BML');
+  const [accountName, setAccountName] = useState('');
+  const [accountNumber, setAccountNumber] = useState('');
+  
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    try {
+      const token = localStorage.getItem('viri_token');
+      if (!token) throw new Error('Not logged in');
+
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json'
+      };
+
+      const userRes = await fetch('/api/me', { headers });
+      if (!userRes.ok) throw new Error('Unauthorized');
+      const userData = await userRes.json();
+      setUser(userData.user);
+
+      const termsRes = await fetch('/api/company/terminals', { headers });
+      setTerminals(await termsRes.json());
+
+      const banksRes = await fetch('/api/company/bank-accounts', { headers });
+      setBankAccounts(await banksRes.json());
+
+    } catch (err) {
+      navigate('/login');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    const token = localStorage.getItem('viri_token');
+    if (token) {
+      await fetch('/api/logout', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` }});
+    }
+    localStorage.removeItem('viri_token');
+    navigate('/login');
+  };
+
+  const createTerminal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const token = localStorage.getItem('viri_token');
+    await fetch('/api/company/terminals', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newTerminalName })
+    });
+    setNewTerminalName('');
+    fetchData();
+  };
+
+  const deleteTerminal = async (id: number) => {
+    const token = localStorage.getItem('viri_token');
+    await fetch(`/api/company/terminals/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` }});
+    fetchData();
+  };
+
+  const createBankAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const token = localStorage.getItem('viri_token');
+    const res = await fetch('/api/company/bank-accounts', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bank_name: bankName, account_name: accountName, account_number: accountNumber })
+    });
+    
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.message || 'Error adding account');
+    } else {
+      setAccountName('');
+      setAccountNumber('');
+      fetchData();
+    }
+  };
+
+  const deleteBankAccount = async (id: number) => {
+    const token = localStorage.getItem('viri_token');
+    await fetch(`/api/company/bank-accounts/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` }});
+    fetchData();
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    alert('Hardware ID copied to clipboard!');
+  };
+
+  if (loading) return <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center text-white">Loading...</div>;
+
+  return (
+    <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)] p-6">
+      <div className="max-w-5xl mx-auto">
+        <header className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold">Company Dashboard</h1>
+            <p className="text-[var(--text-secondary)]">Welcome, {user?.name} ({user?.tenant?.name})</p>
+          </div>
+          <button onClick={handleLogout} className="btn btn-outline flex items-center gap-2">
+            <LogOut size={16} /> Logout
+          </button>
+        </header>
+
+        {user?.status === 'pending' || user?.tenant?.status === 'pending' ? (
+          <div className="bg-yellow-900/30 border border-yellow-500/50 p-6 rounded-lg text-yellow-200 mb-8">
+            <h2 className="text-xl font-bold mb-2 flex items-center gap-2"><Shield /> Account Pending Approval</h2>
+            <p>Your account is currently under review by a superadmin. You can configure your terminals and bank accounts, but they will not be active until approved.</p>
+          </div>
+        ) : null}
+
+        <div className="grid md:grid-cols-2 gap-8">
+          {/* Subscription Info */}
+          <div className="glass-panel p-6">
+            <h2 className="text-xl font-bold mb-4 border-b border-[var(--border-color)] pb-2">Subscription Details</h2>
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span className="text-[var(--text-secondary)]">Current Tier:</span>
+                <span className="font-bold uppercase text-[var(--color-success)]">{user?.tenant?.subscription_tier === 'free' ? 'Free Trial' : `MVR ${user?.tenant?.subscription_tier}`}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[var(--text-secondary)]">Verifications Used:</span>
+                <span className="font-mono">{user?.tenant?.verifications_count} this month</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Terminals */}
+          <div className="glass-panel p-6">
+            <h2 className="text-xl font-bold mb-4 border-b border-[var(--border-color)] pb-2">Terminals</h2>
+            
+            <form onSubmit={createTerminal} className="flex gap-2 mb-4">
+              <input type="text" required placeholder="New Terminal Name (e.g. Counter 1)" className="input-field flex-1" value={newTerminalName} onChange={e => setNewTerminalName(e.target.value)} />
+              <button type="submit" className="btn btn-success p-3"><Plus size={20} /></button>
+            </form>
+
+            <div className="space-y-3">
+              {terminals.map(term => (
+                <div key={term.id} className="bg-[var(--bg-canvas)] p-3 rounded border border-[var(--border-color)] flex flex-col gap-2">
+                  <div className="flex justify-between items-center">
+                    <strong className="text-[var(--color-success)]">{term.name}</strong>
+                    <button onClick={() => deleteTerminal(term.id)} className="text-red-400 hover:text-red-300"><Trash2 size={16}/></button>
+                  </div>
+                  <div className="flex justify-between items-center text-sm font-mono text-[var(--text-secondary)] bg-black/30 p-2 rounded">
+                    <span>{term.hardware_id}</span>
+                    <button onClick={() => copyToClipboard(term.hardware_id)} className="hover:text-white"><Copy size={16}/></button>
+                  </div>
+                </div>
+              ))}
+              {terminals.length === 0 && <p className="text-sm text-[var(--text-secondary)]">No terminals created yet.</p>}
+            </div>
+          </div>
+
+          {/* Bank Accounts */}
+          <div className="glass-panel p-6 md:col-span-2">
+            <h2 className="text-xl font-bold mb-4 border-b border-[var(--border-color)] pb-2">Bank Accounts</h2>
+            
+            <form onSubmit={createBankAccount} className="grid md:grid-cols-4 gap-4 mb-6">
+              <select className="input-field" value={bankName} onChange={e => setBankName(e.target.value)}>
+                <option value="BML">Bank of Maldives (BML)</option>
+                <option value="MIB">Maldives Islamic Bank (MIB)</option>
+              </select>
+              <input type="text" required placeholder="Account Name (e.g. Main Checking)" className="input-field" value={accountName} onChange={e => setAccountName(e.target.value)} />
+              <input type="text" required placeholder="Account Number" className="input-field" value={accountNumber} onChange={e => setAccountNumber(e.target.value)} />
+              <button type="submit" className="btn btn-success flex justify-center items-center gap-2"><Plus size={18}/> Add Account</button>
+            </form>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              {bankAccounts.map(acc => (
+                <div key={acc.id} className="bg-[var(--bg-canvas)] p-4 rounded border border-[var(--border-color)] flex justify-between items-center">
+                  <div>
+                    <div className="font-bold text-lg">{acc.bank_name}</div>
+                    <div className="text-[var(--text-secondary)]">{acc.account_name}</div>
+                    <div className="font-mono text-sm">{acc.account_number}</div>
+                  </div>
+                  <button onClick={() => deleteBankAccount(acc.id)} className="p-2 text-red-400 hover:text-red-300 hover:bg-red-400/10 rounded"><Trash2 size={20}/></button>
+                </div>
+              ))}
+              {bankAccounts.length === 0 && <p className="text-sm text-[var(--text-secondary)]">No bank accounts configured.</p>}
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
