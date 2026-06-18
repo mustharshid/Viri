@@ -14,8 +14,16 @@
     RewriteCond %{REQUEST_URI} (.+)/$
     RewriteRule ^ %1 [L,R=301]
 
-    # Send Requests To Front Controller...
-    RewriteCond %{REQUEST_FILENAME} !-d
+    # 1. Route API requests to Laravel's Front Controller
+    RewriteRule ^api/(.*)$ index.php [L]
+
+    # 2. Transparently route PWA assets to the /viri/ subfolder
+    RewriteRule ^assets/(.*)$ viri/assets/$1 [L]
+    RewriteRule ^vite\.svg$ viri/vite.svg [L]
+    RewriteRule ^favicon\.ico$ viri/favicon.ico [L]
+
+    # 3. For any other request that isn't a file/folder, serve the PWA index.html
     RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteRule ^ index.php [L]
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ viri/index.html [L]
 </IfModule>
