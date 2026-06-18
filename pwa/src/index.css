@@ -45,7 +45,7 @@ h1, h2, h3, h4, h5, h6, .font-heading {
   }
   
   .btn-outline {
-    @apply border border-[var(--border-color)] hover:border-[var(--color-success)] hover:bg-[var(--color-success)]/10 text-[var(--text-primary)] backdrop-blur-sm bg-transparent;
+    @apply border border-[var(--border-color)] hover:border-[var(--color-success)] hover:bg-emerald-900/30 text-[var(--text-primary)] backdrop-blur-sm bg-transparent;
   }
 
   .glass-panel {
