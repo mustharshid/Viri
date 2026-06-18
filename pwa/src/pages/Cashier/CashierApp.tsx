@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle, Plus, Trash2 } from 'lucide-react';
+import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle } from 'lucide-react';
 
 
 interface BankAccount {
@@ -48,11 +48,9 @@ function App() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   
-  // New Bank Account Form State
-  const [newBankName, setNewBankName] = useState('BML');
-  const [newAccountName, setNewAccountName] = useState('');
-  const [newAccountNumber, setNewAccountNumber] = useState('');
-  const [isAddingAccount, setIsAddingAccount] = useState(false);
+  // Tenant Information from Server
+  const [tenantName, setTenantName] = useState<string>('');
+  const [subscriptionTier, setSubscriptionTier] = useState<string>('');
   
   // Dynamic Totals (keyed by account id string)
   const [totals, setTotals] = useState<Record<string, number>>({});
@@ -83,6 +81,13 @@ function App() {
           const accounts = data.tenant?.bank_accounts || [];
           setBankAccounts(accounts);
           
+          if (data.tenant?.name) {
+            setTenantName(data.tenant.name);
+          }
+          if (data.tenant?.subscription_tier) {
+            setSubscriptionTier(data.tenant.subscription_tier);
+          }
+          
           if (accounts.length > 0) {
             const defaultAcc = accounts.find((a: BankAccount) => a.is_default) || accounts[0];
             setSelectedAccountId(defaultAcc.id.toString());
@@ -103,57 +108,6 @@ function App() {
     };
     fetchAccounts();
   }, [hardwareId, backendUrl]);
-
-  const handleAddAccount = async () => {
-    if (!newAccountName || !newAccountNumber) return;
-    setIsAddingAccount(true);
-    try {
-      const response = await fetch(`${backendUrl}/bank-accounts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hardware_id: hardwareId,
-          bank_name: newBankName,
-          account_name: newAccountName,
-          account_number: newAccountNumber
-        })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setBankAccounts(prev => [...prev, data.account]);
-        setNewAccountName('');
-        setNewAccountNumber('');
-        if (!selectedAccountId) {
-          setSelectedAccountId(data.account.id.toString());
-        }
-      } else {
-        alert("Failed to add account");
-      }
-    } catch (e) {
-      alert("Error adding account");
-    } finally {
-      setIsAddingAccount(false);
-    }
-  };
-
-  const handleDeleteAccount = async (id: number) => {
-    if (!confirm("Remove this bank account?")) return;
-    try {
-      const response = await fetch(`${backendUrl}/bank-accounts/${id}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hardware_id: hardwareId })
-      });
-      if (response.ok) {
-        setBankAccounts(prev => prev.filter(a => a.id !== id));
-        if (selectedAccountId === id.toString()) {
-          setSelectedAccountId('');
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
 
   const handleVerify = async () => {
     if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
@@ -233,7 +187,8 @@ function App() {
     );
   };
 
-  const companyName = "Retailer Pos";
+  const companyName = tenantName || "Unregistered Terminal";
+  const planName = subscriptionTier === 'free' ? 'Free Trial' : (subscriptionTier === '499' ? 'Standard' : (subscriptionTier === '999' ? 'Pro' : ''));
 
   return (
     <div className="min-h-screen p-4 md:p-8 flex flex-col items-center">
@@ -250,7 +205,7 @@ function App() {
       <div className="w-full max-w-xl flex-between mb-8">
         <div>
           <h1 className="text-2xl tracking-tight">{companyName}</h1>
-          <p className="text-sm text-[var(--text-secondary)]">Powered by Viri</p>
+          <p className="text-sm text-[var(--text-secondary)]">Powered by Viri {planName && <span className="opacity-70 px-1">• {planName} Plan</span>}</p>
         </div>
         <div className="flex items-center gap-3">
           <button 
@@ -312,60 +267,19 @@ function App() {
           {/* Bank Accounts Manager */}
           <div className="mt-6 pt-6 border-t border-[var(--border-color)]">
             <h4 className="text-sm font-semibold mb-3">Managed Bank Accounts</h4>
+            <p className="text-xs text-[var(--text-secondary)] mb-4">Accounts are synced automatically from your company dashboard. You cannot add or remove accounts directly from the terminal.</p>
             
             <div className="space-y-2 mb-4">
               {bankAccounts.length === 0 ? (
-                <p className="text-xs text-[var(--text-secondary)] italic">No accounts added yet.</p>
+                <p className="text-xs text-[var(--text-secondary)] italic">No accounts configured. Please add them in the company dashboard.</p>
               ) : (
                 bankAccounts.map(acc => (
-                  <div key={acc.id} className="flex-between p-2 bg-[var(--bg-canvas)] border border-[var(--border-color)] rounded-md text-sm">
-                    <div>
-                      <span className="font-medium text-[var(--text-primary)]">{acc.bank_name}</span> - {acc.account_name} 
-                      <span className="text-[var(--text-secondary)] text-xs ml-1">(...{acc.account_number.slice(-4)})</span>
-                    </div>
-                    <button onClick={() => handleDeleteAccount(acc.id)} className="text-[var(--color-warning)] hover:opacity-70">
-                      <Trash2 size={14} />
-                    </button>
+                  <div key={acc.id} className="p-3 bg-[var(--bg-canvas)] border border-[var(--border-color)] rounded-md text-sm">
+                    <div className="font-medium text-[var(--text-primary)]">{acc.bank_name} - {acc.account_name}</div>
+                    <div className="text-[var(--text-secondary)] text-xs mt-1">Account Number: {acc.account_number}</div>
                   </div>
                 ))
               )}
-            </div>
-
-            <div className="p-3 bg-[var(--bg-canvas)] border border-[var(--border-color)] rounded-md">
-              <h5 className="text-xs font-semibold mb-2">Add New Account</h5>
-              <div className="grid grid-cols-2 gap-2 mb-2">
-                <select 
-                  className="input-field text-sm p-1.5"
-                  value={newBankName}
-                  onChange={e => setNewBankName(e.target.value)}
-                >
-                  <option value="BML">BML</option>
-                  <option value="MIB">MIB</option>
-                </select>
-                <input 
-                  type="text" 
-                  placeholder="Account Name (e.g. Savings)" 
-                  className="input-field text-sm p-1.5"
-                  value={newAccountName}
-                  onChange={e => setNewAccountName(e.target.value)}
-                />
-              </div>
-              <div className="flex gap-2">
-                <input 
-                  type="text" 
-                  placeholder="Account Number" 
-                  className="input-field text-sm p-1.5 flex-1"
-                  value={newAccountNumber}
-                  onChange={e => setNewAccountNumber(e.target.value)}
-                />
-                <button 
-                  onClick={handleAddAccount}
-                  disabled={isAddingAccount || !newAccountName || !newAccountNumber}
-                  className="btn btn-primary px-3 py-1 text-xs whitespace-nowrap"
-                >
-                  <Plus size={14} className="mr-1 inline" /> Add
-                </button>
-              </div>
             </div>
           </div>
         </div>
