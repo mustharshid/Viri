@@ -3,6 +3,8 @@
         Options -MultiViews -Indexes
     </IfModule>
 
+    DirectoryIndex viri/index.html index.php
+
     RewriteEngine On
 
     # Handle Authorization Header
@@ -22,8 +24,7 @@
     RewriteRule ^vite\.svg$ viri/vite.svg [L]
     RewriteRule ^favicon\.ico$ viri/favicon.ico [L]
 
-    # 3. For any other request that isn't a file/folder, serve the PWA index.html
+    # 3. For any other request that isn't a file, serve the PWA index.html
     RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule ^(.*)$ viri/index.html [L]
 </IfModule>
