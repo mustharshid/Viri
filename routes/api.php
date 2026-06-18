@@ -98,6 +98,5 @@ Route::post('/verify-terminal', function (Request $request) {
                 ];
             })
         ]
-        ]
     ]);
 });
