@@ -106,7 +106,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
   // 1. Submit Username/Password
   emitLog(port, `> [BML] Step 1: Submitting Primary Credentials...`);
   try {
-    const loginRes = await fetch('https://www.bankofmaldives.com.mv/internetbanking/web/login', {
+    const loginRes = await fetch('https://www.bankofmaldives.com.mv/internetbanking/new/js/app.js?id=d12029c1a2842815ae3045f4fad41e1d', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -130,7 +130,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
   emitLog(port, `> [BML] OTP generated: ${otpCode.substring(0,2)}****`);
   
   try {
-    const mfaRes = await fetch('https://www.bankofmaldives.com.mv/internetbanking/web/login', {
+    const mfaRes = await fetch('https://www.bankofmaldives.com.mv/internetbanking/new/js/app.js?id=d12029c1a2842815ae3045f4fad41e1d', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
