@@ -15,12 +15,12 @@ function App() {
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [isDefault, setIsDefault] = useState(true);
-  
+
   // Hardware bound Terminal ID
   const [hardwareId, setHardwareId] = useState(() => {
     return localStorage.getItem('viri_hardware_id') || '';
   });
-  
+
   // PIN Lock State
   const [pin, setPin] = useState(localStorage.getItem('viri_terminal_pin') || '');
   const [isLocked, setIsLocked] = useState(!!pin);
@@ -52,7 +52,7 @@ function App() {
   const [mibPassword, setMibPassword] = useState(localStorage.getItem('viri_mib_password') || '');
   const [mibTotpSeed, setMibTotpSeed] = useState(localStorage.getItem('viri_mib_totp_seed') || '');
   const [mibConfigured, setMibConfigured] = useState(!!localStorage.getItem('viri_mib_username'));
-  
+
   // Verification State
   const [loading, setLoading] = useState(false);
   const activePortRef = useRef<chrome.runtime.Port | null>(null);
@@ -65,11 +65,11 @@ function App() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
-  
+
   // Tenant Information from Server
   const [tenantName, setTenantName] = useState<string>('');
   const [subscriptionTier, setSubscriptionTier] = useState<string>('');
-  
+
   // Dynamic Totals (keyed by account id string)
   const [totals, setTotals] = useState<Record<string, number>>({});
 
@@ -96,7 +96,7 @@ function App() {
   useEffect(() => {
     const fetchAccounts = async () => {
       if (!hardwareId || !backendUrl) return;
-      
+
       setInitLoading(true);
       try {
         const response = await fetch(`${backendUrl}/verify-terminal`, {
@@ -108,20 +108,15 @@ function App() {
           const data = await response.json();
           const accounts = data.tenant?.bank_accounts || [];
           setBankAccounts(accounts);
-          
+
           if (data.tenant?.name) setTenantName(data.tenant.name);
           if (data.tenant?.tier) setSubscriptionTier(data.tenant.tier);
-          
-          if (data.tenant?.extension_id) {
-            if (!localStorage.getItem('viri_dev_extension_id')) {
-              setExtensionId(data.tenant.extension_id);
-            }
-          }
-          
+          if (data.tenant?.extension_id) setExtensionId(data.tenant.extension_id);
+
           if (accounts.length > 0) {
             const defaultAcc = accounts.find((a: BankAccount) => a.is_default) || accounts[0];
             setSelectedAccountId(defaultAcc.id.toString());
-            
+
             // Initialize totals to 0 if not set
             const newTotals: Record<string, number> = {};
             accounts.forEach((acc: BankAccount) => {
@@ -160,11 +155,7 @@ function App() {
         return;
       }
       setHardwareId(data.hardware_id);
-      if (data.extension_id) {
-        if (!localStorage.getItem('viri_dev_extension_id')) {
-          setExtensionId(data.extension_id);
-        }
-      }
+      if (data.extension_id) setExtensionId(data.extension_id);
       setIsSetupMode(false);
     } catch (err) {
       setSetupError("Network error. Could not connect to backend.");
@@ -225,7 +216,7 @@ function App() {
 
     const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
     const selectedBankName = selectedAccount ? selectedAccount.bank_name : 'BML';
-    
+
     setLogs([]); // Clear previous logs
 
     let port;
@@ -236,9 +227,9 @@ function App() {
       setLoading(false);
       return;
     }
-    
+
     activePortRef.current = port;
-    
+
     // Add connection error handling
     port.onDisconnect.addListener(() => {
       if (!activePortRef.current) return; // We manually disconnected it, or kill switch was used
@@ -308,24 +299,24 @@ function App() {
           <MonitorSmartphone className="mx-auto mb-6 text-[var(--color-success)]" size={56} />
           <h2 className="text-2xl font-bold mb-2">Terminal Setup</h2>
           <p className="text-[var(--text-secondary)] text-sm mb-6">Enter the 6-digit pairing code from your Company Dashboard to link this terminal.</p>
-          
+
           {setupError && (
             <div className="text-red-400 text-sm mb-4 bg-red-900/20 p-3 rounded border border-red-500/30">
               {setupError}
             </div>
           )}
 
-          <input 
-            type="text" 
-            placeholder="000000" 
+          <input
+            type="text"
+            placeholder="000000"
             maxLength={6}
-            className="input-field text-center text-4xl tracking-widest font-mono py-4 mb-6" 
-            value={pairingCodeInput} 
+            className="input-field text-center text-4xl tracking-widest font-mono py-4 mb-6"
+            value={pairingCodeInput}
             onChange={e => setPairingCodeInput(e.target.value.replace(/\D/g, ''))}
             onKeyDown={e => { if (e.key === 'Enter') handlePair(); }}
           />
-          <button 
-            onClick={handlePair} 
+          <button
+            onClick={handlePair}
             className="btn btn-success w-full py-4 text-lg font-bold"
           >
             Link Terminal
@@ -342,12 +333,12 @@ function App() {
           <Lock className="mx-auto mb-6 text-[var(--color-success)]" size={56} />
           <h2 className="text-2xl font-bold mb-2">Terminal Locked</h2>
           <p className="text-[var(--text-secondary)] text-sm mb-8">Enter your 4-digit PIN to unlock.</p>
-          <input 
-            type="password" 
+          <input
+            type="password"
             maxLength={4}
-            className="input-field text-center text-3xl tracking-[1em] font-mono py-4 mb-6 text-transparent" 
+            className="input-field text-center text-3xl tracking-[1em] font-mono py-4 mb-6 text-transparent"
             style={{ textShadow: '0 0 0 white' }}
-            value={enteredPin} 
+            value={enteredPin}
             onChange={e => setEnteredPin(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter') {
@@ -356,11 +347,11 @@ function App() {
               }
             }}
           />
-          <button 
-            onClick={() => { 
-              if (enteredPin === pin) { setIsLocked(false); setEnteredPin(''); } 
-              else { alert('Incorrect PIN'); setEnteredPin(''); } 
-            }} 
+          <button
+            onClick={() => {
+              if (enteredPin === pin) { setIsLocked(false); setEnteredPin(''); }
+              else { alert('Incorrect PIN'); setEnteredPin(''); }
+            }}
             className="btn btn-success w-full py-4 text-lg font-bold"
           >
             Unlock
@@ -372,7 +363,7 @@ function App() {
 
   return (
     <div className="min-h-screen p-4 md:p-8 flex flex-col items-center">
-      
+
       {/* Trust Badge */}
       <div className="w-full max-w-xl mb-6 p-3 bg-[var(--bg-surface)] border border-[var(--color-success)] border-opacity-30 rounded-lg flex items-center gap-3">
         <Shield className="text-[var(--color-success)] shrink-0" size={24} />
@@ -389,15 +380,15 @@ function App() {
         </div>
         <div className="flex items-center gap-3">
           {pin && (
-            <button 
-              onClick={() => setIsLocked(true)} 
+            <button
+              onClick={() => setIsLocked(true)}
               className="btn btn-outline p-2 rounded-full hover:bg-[var(--color-warning)] hover:text-black hover:border-transparent transition-colors"
               title="Lock Terminal"
             >
               <Lock size={18} />
             </button>
           )}
-          <button 
+          <button
             onClick={() => {
               if (showSettings) {
                 setShowSettings(false);
@@ -411,7 +402,7 @@ function App() {
                 }
                 setShowSettings(true);
               }
-            }} 
+            }}
             className={`btn btn-outline p-2 rounded-full ${showSettings ? 'text-[var(--color-success)] border-[var(--color-success)]' : ''}`}
             title="Terminal Settings"
           >
@@ -430,12 +421,12 @@ function App() {
           <p className="text-xs text-[var(--text-secondary)] mb-4">
             System configuration and local credentials. System config is pushed by the server and read-only.
           </p>
-          
+
           <div className="input-group">
             <label className="input-label">Terminal Status</label>
             <div className="p-3 bg-black/30 border border-[var(--border-color)] rounded text-sm text-[var(--color-success)] font-mono flex items-center justify-between">
               <span>Connected to {companyName}</span>
-              <button 
+              <button
                 onClick={() => {
                   if (confirm("Are you sure you want to unlink this terminal? You will need a new pairing code to use it again.")) {
                     setHardwareId('');
@@ -450,49 +441,20 @@ function App() {
           </div>
 
           <div className="input-group mt-3">
-            <label className="input-label flex justify-between">
-              <span>Viri Bridge Extension ID</span>
-              <label className="flex items-center gap-1 text-[10px] text-zinc-500 cursor-pointer">
-                <input 
-                  type="checkbox" 
-                  checked={!!localStorage.getItem('viri_dev_extension_id')}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      const customId = prompt("Enter custom local Extension ID:");
-                      if (customId && customId.length === 32) {
-                        localStorage.setItem('viri_dev_extension_id', customId);
-                        setExtensionId(customId);
-                      } else if (customId) {
-                        alert("Extension ID must be exactly 32 characters.");
-                      }
-                    } else {
-                      localStorage.removeItem('viri_dev_extension_id');
-                      alert("Reload the page to fetch the official server ID.");
-                    }
-                  }}
-                />
-                Dev Override
-              </label>
-            </label>
-            <input 
-              type="text" 
-              className={`input-field ${localStorage.getItem('viri_dev_extension_id') ? 'border-yellow-500 text-yellow-500' : 'opacity-60 cursor-not-allowed'}`} 
+            <label className="input-label">Viri Bridge Extension ID (System)</label>
+            <input
+              type="text"
+              className="input-field opacity-60 cursor-not-allowed"
               value={extensionId}
-              onChange={(e) => {
-                if (localStorage.getItem('viri_dev_extension_id')) {
-                  setExtensionId(e.target.value);
-                  localStorage.setItem('viri_dev_extension_id', e.target.value);
-                }
-              }}
-              readOnly={!localStorage.getItem('viri_dev_extension_id')}
+              readOnly
             />
           </div>
 
           <div className="input-group mt-3">
             <label className="input-label">Viri Backend API Endpoint (System)</label>
-            <input 
-              type="text" 
-              className="input-field opacity-60 cursor-not-allowed" 
+            <input
+              type="text"
+              className="input-field opacity-60 cursor-not-allowed"
               value={backendUrl}
               readOnly
             />
@@ -500,11 +462,11 @@ function App() {
 
           <div className="input-group mt-3">
             <label className="input-label">Terminal Lock PIN (Optional)</label>
-            <input 
-              type="password" 
-              className="input-field text-transparent" 
+            <input
+              type="password"
+              className="input-field text-transparent"
               style={{ textShadow: '0 0 0 white' }}
-              placeholder={pin ? "PIN Set (Hidden)" : "Not Set"} 
+              placeholder={pin ? "PIN Set (Hidden)" : "Not Set"}
               maxLength={4}
               value=""
               onChange={(e) => {
@@ -533,12 +495,12 @@ function App() {
               <div className="flex-between mb-2">
                 <span className="text-sm font-bold">Bank of Maldives (BML)</span>
                 {bmlConfigured ? (
-                  <span className="badge badge-success flex items-center gap-1"><CheckCircle size={10}/> Configured</span>
+                  <span className="badge badge-success flex items-center gap-1"><CheckCircle size={10} /> Configured</span>
                 ) : (
                   <span className="badge border border-yellow-600 text-yellow-500">Not Configured</span>
                 )}
               </div>
-              
+
               {!bmlConfigured ? (
                 <div className="space-y-3">
                   <input type="text" className="input-field text-sm" placeholder="Username" value={bmlUsername} onChange={e => setBmlUsername(e.target.value)} />
@@ -564,12 +526,12 @@ function App() {
               <div className="flex-between mb-2">
                 <span className="text-sm font-bold">Maldives Islamic Bank (MIB)</span>
                 {mibConfigured ? (
-                  <span className="badge badge-success flex items-center gap-1"><CheckCircle size={10}/> Configured</span>
+                  <span className="badge badge-success flex items-center gap-1"><CheckCircle size={10} /> Configured</span>
                 ) : (
                   <span className="badge border border-yellow-600 text-yellow-500">Not Configured</span>
                 )}
               </div>
-              
+
               {!mibConfigured ? (
                 <div className="space-y-3">
                   <input type="text" className="input-field text-sm" placeholder="Username" value={mibUsername} onChange={e => setMibUsername(e.target.value)} />
@@ -595,7 +557,7 @@ function App() {
           <div className="mt-6 pt-6 border-t border-[var(--border-color)]">
             <h4 className="text-sm font-semibold mb-3">Managed Bank Accounts</h4>
             <p className="text-xs text-[var(--text-secondary)] mb-4">Accounts are synced automatically from your company dashboard. You cannot add or remove accounts directly from the terminal.</p>
-            
+
             <div className="space-y-2 mb-4">
               {bankAccounts.length === 0 ? (
                 <p className="text-xs text-[var(--text-secondary)] italic">No accounts configured. Please add them in the company dashboard.</p>
@@ -613,7 +575,7 @@ function App() {
       )}
 
       <div className="w-full max-w-xl grid gap-6">
-        
+
         {/* Main Verification Panel */}
         <div className="glass-panel animate-fade-in">
           <div className="mb-6 flex-between">
@@ -650,10 +612,10 @@ function App() {
 
           <div className="input-group">
             <label className="input-label">Target Amount (MVR)</label>
-            <input 
-              type="number" 
-              className="input-field text-2xl font-semibold" 
-              placeholder="0.00" 
+            <input
+              type="number"
+              className="input-field text-2xl font-semibold"
+              placeholder="0.00"
               value={amount}
               disabled={loading}
               onChange={(e) => setAmount(e.target.value)}
@@ -662,7 +624,7 @@ function App() {
 
           <div className="input-group mt-4">
             <label className="input-label">Receiving Account</label>
-            <select 
+            <select
               className="input-field appearance-none cursor-pointer"
               value={selectedAccountId}
               disabled={loading || bankAccounts.length === 0}
@@ -684,17 +646,17 @@ function App() {
               <span>Set as Default Account</span>
             </label>
             <label className="toggle-switch">
-              <input 
-                type="checkbox" 
-                checked={isDefault} 
+              <input
+                type="checkbox"
+                checked={isDefault}
                 disabled={loading}
-                onChange={(e) => setIsDefault(e.target.checked)} 
+                onChange={(e) => setIsDefault(e.target.checked)}
               />
               <span className="slider"></span>
             </label>
           </div>
 
-          <button 
+          <button
             onClick={handleVerify}
             disabled={loading}
             className={`btn btn-success w-full py-3 text-lg justify-center gap-2 ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
@@ -721,7 +683,7 @@ function App() {
               <RefreshCw size={14} /> Sync
             </button>
           </div>
-          
+
           <div className="grid grid-cols-2 gap-4">
             {bankAccounts.length === 0 ? (
               <p className="text-sm text-[var(--text-secondary)]">No active accounts.</p>
@@ -749,9 +711,9 @@ function App() {
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
               <span className="text-xs text-zinc-400 ml-2 font-mono">Viri Bridge Terminal</span>
               {loading && <RefreshCw size={12} className="text-[var(--color-success)] animate-spin ml-2" />}
-              
+
               {loading && (
-                <button 
+                <button
                   onClick={killRobot}
                   className="ml-auto flex items-center gap-1 text-[10px] uppercase font-bold text-red-500 bg-red-950 border border-red-900 px-2 py-1 rounded hover:bg-red-900 transition-colors"
                 >
@@ -760,7 +722,7 @@ function App() {
               )}
             </div>
             <div className="p-4 font-mono text-xs text-[var(--color-success)] h-48 overflow-y-auto flex flex-col gap-1"
-                 ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}>
+              ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}>
               {logs.length === 0 ? (
                 <span className="text-zinc-500">Waiting for extension connection...</span>
               ) : (
