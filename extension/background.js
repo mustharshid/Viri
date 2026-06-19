@@ -19,8 +19,10 @@ chrome.runtime.onConnectExternal.addListener((port) => {
 
 // Helper to stream logs to PWA
 function emitLog(port, message) {
-  console.log(message);
-  port.postMessage({ type: 'log', message });
+  const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+  const timedMessage = `[${time}] ${message}`;
+  console.log(timedMessage);
+  port.postMessage({ type: 'log', message: timedMessage });
 }
 
 // ─── Bank Verification Logic ────────────────────────────────────────────────────
@@ -104,7 +106,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
   // 1. Submit Username/Password
   emitLog(port, `> [BML] Step 1: Submitting Primary Credentials...`);
   try {
-    const loginRes = await fetch('https://www.bankofmaldives.com.mv/internetbanking/new/js/app.js?id=d12029c1a2842815ae3045f4fad41e1d', {
+    const loginRes = await fetch('https://www.bankofmaldives.com.mv/internetbanking/web/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -114,7 +116,9 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
       })
     });
     
-    // We expect some success indicator from BML, usually proceeding to MFA
+    if (!loginRes.ok) {
+      throw new Error(`HTTP ${loginRes.status} on login POST.`);
+    }
     emitLog(port, `> [BML] Primary login complete (HTTP ${loginRes.status}). Proceeding to MFA...`);
   } catch (err) {
     throw new Error(`Failed to post primary credentials: ${err.message}`);
@@ -126,10 +130,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
   emitLog(port, `> [BML] OTP generated: ${otpCode.substring(0,2)}****`);
   
   try {
-    // Note: Assuming the MFA endpoint is the same URL based on the payloads provided.
-    // In many SPAs, it posts back to a specific auth endpoint. 
-    // We use the same app.js URL as per the user's network capture notes.
-    const mfaRes = await fetch('https://www.bankofmaldives.com.mv/internetbanking/new/js/app.js?id=d12029c1a2842815ae3045f4fad41e1d', {
+    const mfaRes = await fetch('https://www.bankofmaldives.com.mv/internetbanking/web/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
