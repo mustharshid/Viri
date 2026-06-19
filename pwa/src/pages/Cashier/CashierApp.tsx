@@ -111,7 +111,12 @@ function App() {
           
           if (data.tenant?.name) setTenantName(data.tenant.name);
           if (data.tenant?.tier) setSubscriptionTier(data.tenant.tier);
-          if (data.tenant?.extension_id) setExtensionId(data.tenant.extension_id);
+          
+          if (data.tenant?.extension_id) {
+            if (!localStorage.getItem('viri_dev_extension_id')) {
+              setExtensionId(data.tenant.extension_id);
+            }
+          }
           
           if (accounts.length > 0) {
             const defaultAcc = accounts.find((a: BankAccount) => a.is_default) || accounts[0];
@@ -155,7 +160,11 @@ function App() {
         return;
       }
       setHardwareId(data.hardware_id);
-      if (data.extension_id) setExtensionId(data.extension_id);
+      if (data.extension_id) {
+        if (!localStorage.getItem('viri_dev_extension_id')) {
+          setExtensionId(data.extension_id);
+        }
+      }
       setIsSetupMode(false);
     } catch (err) {
       setSetupError("Network error. Could not connect to backend.");
@@ -441,12 +450,41 @@ function App() {
           </div>
 
           <div className="input-group mt-3">
-            <label className="input-label">Viri Bridge Extension ID (System)</label>
+            <label className="input-label flex justify-between">
+              <span>Viri Bridge Extension ID</span>
+              <label className="flex items-center gap-1 text-[10px] text-zinc-500 cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  checked={!!localStorage.getItem('viri_dev_extension_id')}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      const customId = prompt("Enter custom local Extension ID:");
+                      if (customId && customId.length === 32) {
+                        localStorage.setItem('viri_dev_extension_id', customId);
+                        setExtensionId(customId);
+                      } else if (customId) {
+                        alert("Extension ID must be exactly 32 characters.");
+                      }
+                    } else {
+                      localStorage.removeItem('viri_dev_extension_id');
+                      alert("Reload the page to fetch the official server ID.");
+                    }
+                  }}
+                />
+                Dev Override
+              </label>
+            </label>
             <input 
               type="text" 
-              className="input-field opacity-60 cursor-not-allowed" 
+              className={`input-field ${localStorage.getItem('viri_dev_extension_id') ? 'border-yellow-500 text-yellow-500' : 'opacity-60 cursor-not-allowed'}`} 
               value={extensionId}
-              readOnly
+              onChange={(e) => {
+                if (localStorage.getItem('viri_dev_extension_id')) {
+                  setExtensionId(e.target.value);
+                  localStorage.setItem('viri_dev_extension_id', e.target.value);
+                }
+              }}
+              readOnly={!localStorage.getItem('viri_dev_extension_id')}
             />
           </div>
 
