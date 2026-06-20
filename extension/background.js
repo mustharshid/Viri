@@ -149,30 +149,36 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
   // -------------------------------------------------------------
 
   // -- Helper: Follow Inertia 409 redirect chain (matching Python _handle_inertia_response) --
-  async function handleInertiaRedirects(response, maxRedirects = 5) {
-    let redirectCount = 0;
-    let currentRes = response;
-    while (currentRes.status === 409 && redirectCount < maxRedirects) {
+  async function handleInertiaRedirects(initialRes, currentVersion = '') {
+    let currentRes = initialRes;
+    let version = currentVersion || initialRes.headers.get('X-Inertia-Version') || '';
+    
+    while (currentRes.status === 409) {
       const redirectUrl = currentRes.headers.get('X-Inertia-Location');
-      if (!redirectUrl) {
-        emitLog(port, `> [BML] Warning: 409 without X-Inertia-Location header`);
-        break;
-      }
-      redirectCount++;
+      if (!redirectUrl) break;
+      
       const fullUrl = redirectUrl.startsWith('http') ? redirectUrl : `${BASE_URL}${redirectUrl}`;
-      emitLog(port, `> [BML] Following Inertia redirect #${redirectCount} to: ${fullUrl}`);
-
-      // CRITICAL: Must include X-Requested-With for Laravel to process X-Inertia correctly
+      emitLog(port, `> [BML] Following Inertia redirect to: ${fullUrl}`);
+      
       let token = await getXsrfToken();
+      const redirectHeaders = {
+        'Accept': 'text/html, application/xhtml+xml',
+        'X-Inertia': 'true',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-XSRF-TOKEN': token,
+        'User-Agent': USER_AGENT
+      };
+      if (version) {
+        redirectHeaders['X-Inertia-Version'] = version;
+      }
+      
       currentRes = await loggedFetch(fullUrl, {
-        headers: {
-          'Accept': 'text/html, application/xhtml+xml',
-          'X-Inertia': 'true',
-          'X-Requested-With': 'XMLHttpRequest',
-          'X-XSRF-TOKEN': token,
-          'User-Agent': USER_AGENT
-        }
+        headers: redirectHeaders
       });
+      
+      const newVersion = currentRes.headers.get('X-Inertia-Version');
+      if (newVersion) version = newVersion;
+      
       if (currentRes.status === 200) break;
     }
     return currentRes;
@@ -191,14 +197,16 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
       }
     });
     
-    let version = '';
-    try {
-      const data = await res.clone().json();
-      if (data && data.version) {
-        version = data.version;
+    let version = res.headers.get('X-Inertia-Version') || '';
+    if (!version) {
+      try {
+        const data = await res.clone().json();
+        if (data && data.version) {
+          version = data.version;
+        }
+      } catch (e) {
+        emitLog(port, `> [BML] Could not parse Inertia version from body: ${e.message}`);
       }
-    } catch (e) {
-      emitLog(port, `> [BML] Could not parse Inertia version: ${e.message}`);
     }
 
     // Wait 200ms to ensure Chrome's cookie store reflects any Set-Cookie headers
@@ -215,7 +223,8 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     const cookies = await chrome.cookies.getAll({ domain: "bankofmaldives.com.mv" });
     for (const cookie of cookies) {
       const protocol = cookie.secure ? "https://" : "http://";
-      const cookieUrl = `${protocol}${cookie.domain}${cookie.path}`;
+      const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+      const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
       await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
     }
 
@@ -228,17 +237,22 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     // STEP 2: Submit Username/Password
     // ═══════════════════════════════════════════════════════════════
     emitLog(port, `> [BML] Step 2: Submitting Primary Credentials...`);
+    const headers = {
+      'Accept': 'text/html, application/xhtml+xml',
+      'Content-Type': 'application/json',
+      'X-Inertia': 'true',
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-XSRF-TOKEN': xsrfToken,
+      'Referer': `${BASE_URL}/web/login`,
+      'User-Agent': USER_AGENT
+    };
+    if (inertiaVersion) {
+      headers['X-Inertia-Version'] = inertiaVersion;
+    }
+
     const loginRes = await loggedFetch(`${BASE_URL}/web/login`, {
       method: 'POST',
-      headers: {
-        'Accept': 'text/html, application/xhtml+xml',
-        'Content-Type': 'application/json',
-        'X-Inertia': 'true',
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-XSRF-TOKEN': xsrfToken,
-        'Referer': `${BASE_URL}/web/login`,
-        'User-Agent': USER_AGENT
-      },
+      headers: headers,
       body: JSON.stringify({
         username: credentials.username,
         password: credentials.password
@@ -247,7 +261,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
 
     if (loginRes.status === 409) {
       emitLog(port, `> [BML] Login returned 409. Following Inertia redirects...`);
-      await handleInertiaRedirects(loginRes);
+      await handleInertiaRedirects(loginRes, inertiaVersion);
     } else if (loginRes.status === 200) {
       const loginBody = await loginRes.clone().text();
       await saveScrap('login_failed_200', loginBody);
@@ -270,25 +284,29 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     const otpCode = await generateTOTP(credentials.totpSeed);
     emitLog(port, `> [TESTING] Submitting OTP: ${otpCode}`);
 
+    const mfaHeaders = {
+      'Accept': 'text/html, application/xhtml+xml',
+      'Content-Type': 'application/json',
+      'X-Inertia': 'true',
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-XSRF-TOKEN': xsrfToken,
+      'Referer': `${BASE_URL}/web/login/2fa`,
+      'User-Agent': USER_AGENT
+    };
+    if (inertiaVersion) {
+      mfaHeaders['X-Inertia-Version'] = inertiaVersion;
+    }
+
     const mfaRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
       method: 'POST',
-      headers: {
-        'Accept': 'text/html, application/xhtml+xml',
-        'Content-Type': 'application/json',
-        'X-Inertia': 'true',
-        'X-Inertia-Version': inertiaVersion,
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-XSRF-TOKEN': xsrfToken,
-        'Referer': `${BASE_URL}/web/login/2fa`,
-        'User-Agent': USER_AGENT
-      },
+      headers: mfaHeaders,
       body: JSON.stringify({ otp: otpCode, channel: 'authenticator' })
     });
 
     if (mfaRes.status === 409) {
       const mfaRedirectUrl = mfaRes.headers.get('X-Inertia-Location');
       emitLog(port, `> [BML] MFA returned 409 Redirect to ${mfaRedirectUrl}.`);
-      await handleInertiaRedirects(mfaRes);
+      await handleInertiaRedirects(mfaRes, inertiaVersion);
     } else if (mfaRes.status === 200) {
       const mfaBody = await mfaRes.clone().text();
       await saveScrap('mfa_failed_200', mfaBody);
