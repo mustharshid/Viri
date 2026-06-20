@@ -205,153 +205,43 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
       emitLog(port, `> [BML] Authentication Successful! Processing profiles...`);
     }
 
-    // 4. Select Profile
-    emitLog(port, `> [BML] Step 4: Fetching Profiles...`);
+    // 4. Bypass Profile Selection & Navigate Directly to Accounts Overview
+    emitLog(port, `> [BML] Step 4: Bypassing Profile Selection (direct navigation)...`);
     xsrfToken = await getXsrfToken() || xsrfToken; // Update token after MFA
-    let profileRes = await fetch(`${BASE_URL}/web/profile`, {
+    
+    const accountsOverviewRes = await fetch(`${BASE_URL}/vf/accounts/overview`, {
       headers: {
         'Accept': 'text/html, application/xhtml+xml',
         'X-Inertia': 'true',
         'X-Requested-With': 'XMLHttpRequest',
         'X-XSRF-TOKEN': xsrfToken,
-        'Referer': `${BASE_URL}/web/login/2fa`,
+        'Referer': `${BASE_URL}/web/redirect`,
         'User-Agent': USER_AGENT
       }
     });
 
-    let profileRedirectUrl = null;
-    if (profileRes.status === 409) {
-      profileRedirectUrl = profileRes.headers.get('X-Inertia-Location');
-      emitLog(port, `> [BML] Profile list returned 409 Redirect to ${profileRedirectUrl}. Following...`);
-      if (profileRedirectUrl) {
+    if (accountsOverviewRes.status === 409) {
+      const redirectUrl = accountsOverviewRes.headers.get('X-Inertia-Location');
+      emitLog(port, `> [BML] Accounts overview returned 409 Redirect to ${redirectUrl}. Following...`);
+      if (redirectUrl) {
          xsrfToken = await getXsrfToken() || xsrfToken;
-         profileRes = await fetch(profileRedirectUrl, {
+         await fetch(redirectUrl, {
            headers: { 
              'Accept': 'text/html, application/xhtml+xml', 
              'X-Inertia': 'true', 
              'X-Requested-With': 'XMLHttpRequest', 
              'X-XSRF-TOKEN': xsrfToken, 
-             'Referer': `${BASE_URL}/web/login/2fa`,
+             'Referer': `${BASE_URL}/web/redirect`,
              'User-Agent': USER_AGENT 
            }
          });
       }
     }
 
-    if (!profileRes.ok) {
-       if (profileRes.status === 409) {
-          emitLog(port, `> [BML] Warning: Second 409. Forcing hard page load to sync session...`);
-          profileRes = await fetch(profileRedirectUrl || `${BASE_URL}/web/profile`, {
-             headers: { 'Accept': 'text/html, application/xhtml+xml', 'User-Agent': USER_AGENT }
-          });
-       } else {
-          throw new Error(`Failed to fetch profiles: HTTP ${profileRes.status}`);
-       }
-    }
-    
-    const responseText = await profileRes.text();
-    let profiles = [];
-    
-    try {
-      const profileData = JSON.parse(responseText);
-      profiles = profileData.props?.profiles || [];
-    } catch (err) {
-      emitLog(port, `> [BML] Notice: Profiles response is HTML, falling back to regex extraction...`);
-    }
+    xsrfToken = await getXsrfToken() || xsrfToken;
 
-    // Fallback regex extraction based on tech's logic
-    if (profiles.length === 0) {
-       const patterns = [
-         /\/internetbanking\/web\/profile\/([a-fA-F0-9\-]+)/gi,
-         /"profileId":\s*"([a-fA-F0-9\-]+)"/gi,
-         /profileId:\s*'([a-fA-F0-9\-]+)'/gi,
-         /data-profile-id="([a-fA-F0-9\-]+)"/gi
-       ];
-       const uniqueIds = new Set();
-       for (const pattern of patterns) {
-           let match;
-           while ((match = pattern.exec(responseText)) !== null) {
-               uniqueIds.add(match[1]);
-           }
-       }
-       profiles = Array.from(uniqueIds).map(id => ({ id, name: id }));
-    }
-
-    if (profiles.length === 0) {
-      emitLog(port, `> [BML] No profiles found in HTML, falling back to API...`);
-      xsrfToken = await getXsrfToken() || xsrfToken;
-      await fetch(`${BASE_URL}/vf/accounts/overview`, {
-        headers: {
-          'X-Inertia': 'true',
-          'X-XSRF-TOKEN': xsrfToken,
-          'Referer': `${BASE_URL}/web/redirect`,
-          'Accept': 'text/html, application/xhtml+xml',
-          'User-Agent': USER_AGENT
-        }
-      });
-      
-      xsrfToken = await getXsrfToken() || xsrfToken;
-      const apiProfileRes = await fetch(`${BASE_URL}/api/profile`, {
-        headers: {
-          'Accept': 'application/json, text/plain, */*',
-          'Authorization': 'Bearer',
-          'X-XSRF-TOKEN': xsrfToken,
-          'Referer': `${BASE_URL}/vf/accounts/overview`,
-          'User-Agent': USER_AGENT
-        }
-      });
-      
-      if (!apiProfileRes.ok) {
-         throw new Error(`Failed to get profile from API: HTTP ${apiProfileRes.status}`);
-      }
-      const apiProfileData = await apiProfileRes.json();
-      const profileId = apiProfileData.id || apiProfileData.profileId || apiProfileData.profile_id;
-      
-      if (!profileId) {
-         throw new Error("No profiles found on this BML account.");
-      }
-      emitLog(port, `> [BML] Successfully extracted profile from API fallback!`);
-      profiles = [{ id: profileId, name: profileId }];
-    }
-
-    // Always follow the first profile - the one on the top
-    const selectedProfile = profiles[0];
-    emitLog(port, `> [BML] Selected First Profile: ${selectedProfile.name || selectedProfile.id}`);
-    emitLog(port, `> [TESTING] Selected Profile ID: ${selectedProfile.id}`);
-    
-    const selectProfileRes = await fetch(`${BASE_URL}/web/profile/${selectedProfile.id}`, {
-      method: 'GET',
-      headers: {
-        'Accept': 'text/html, application/xhtml+xml',
-        'X-Inertia': 'true',
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-XSRF-TOKEN': xsrfToken,
-        'Referer': `${BASE_URL}/web/profile`,
-        'User-Agent': USER_AGENT
-      }
-    });
-
-    if (selectProfileRes.status === 409) {
-       const redirectUrl = selectProfileRes.headers.get('X-Inertia-Location');
-       if (redirectUrl) {
-         await fetch(redirectUrl, {
-           headers: { 'X-Inertia': 'true', 'X-XSRF-TOKEN': xsrfToken, 'User-Agent': USER_AGENT }
-         });
-       }
-    } else if (!selectProfileRes.ok && selectProfileRes.status !== 200) {
-       throw new Error(`Profile selection failed: HTTP ${selectProfileRes.status}`);
-    }
-
-    // 5. Navigate to Accounts Overview
-    emitLog(port, `> [BML] Step 5: Loading Accounts Overview...`);
-    await fetch(`${BASE_URL}/vf/accounts/overview`, {
-      headers: {
-        'X-Inertia': 'true',
-        'X-XSRF-TOKEN': xsrfToken,
-        'Referer': `${BASE_URL}/web/redirect`,
-        'User-Agent': USER_AGENT
-      }
-    });
+    // 5. Get Dashboard to find internal Account ID
+    emitLog(port, `> [BML] Step 5: Loading Dashboard...`);
 
     // Get Dashboard to find internal Account ID
     const dashboardRes = await fetch(`${BASE_URL}/api/dashboard`, {
