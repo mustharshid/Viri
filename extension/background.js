@@ -310,6 +310,21 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     if (!dashboardRes.ok) throw new Error(`Dashboard retrieval failed: HTTP ${dashboardRes.status}`);
     const dashboardData = await dashboardRes.json();
     
+    // -- LOG RESPONSE FOR DEBUGGING --
+    emitLog(port, `> [TESTING] Dashboard Response Summary:`);
+    try {
+      const summaryStr = JSON.stringify(dashboardData).substring(0, 500);
+      emitLog(port, `> [TESTING] Data: ${summaryStr}${summaryStr.length === 500 ? '...' : ''}`);
+      if (dashboardData.accounts) {
+        emitLog(port, `> [TESTING] Parsed Accounts Count: ${dashboardData.accounts.length}`);
+      } else {
+        emitLog(port, `> [TESTING] Warning: 'accounts' array not found in response`);
+      }
+    } catch (e) {
+      emitLog(port, `> [TESTING] Could not stringify dashboard data`);
+    }
+    // --------------------------------
+    
     // Find matching account ID based on the account number
     const accounts = dashboardData.accounts || [];
     let bmlAccountId = null;
