@@ -172,7 +172,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
       emitLog(port, `> [BML] Primary login returned 409 Redirect to ${redirectUrl}. Proceeding to MFA...`);
       if (redirectUrl) {
          await loggedFetch(redirectUrl, {
-           headers: { 'X-Inertia': 'true', 'X-XSRF-TOKEN': xsrfToken, 'User-Agent': USER_AGENT }
+           headers: { 'Accept': 'text/html, application/xhtml+xml', 'User-Agent': USER_AGENT }
          });
       }
     } else if (!loginRes.ok) {
@@ -207,23 +207,23 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
       emitLog(port, `> [BML] MFA returned 409 Redirect to ${redirectUrl}. Processing profiles...`);
       if (redirectUrl) {
          await loggedFetch(redirectUrl, {
-           headers: { 'X-Inertia': 'true', 'X-XSRF-TOKEN': xsrfToken, 'User-Agent': USER_AGENT }
+           headers: { 'Accept': 'text/html, application/xhtml+xml', 'User-Agent': USER_AGENT }
          });
       }
     } else {
       throw new Error(`MFA failed. Server did not redirect. HTTP ${mfaRes.status}`);
     }
 
-    // 4. Fetch and Select Profile (Mimicking the user click from HAR file)
+    // 4. Fetch and Select Profile
+    // If MFA was successful, the previous hard load of the redirect URL has already updated the session.
+    // If the redirect was to /web/profile, we ALREADY have the HTML from that hard load!
+    // But to be safe, we can fetch it again as a hard load if needed, or just let it fall through.
+    // Actually, let's just fetch /web/profile directly as a hard load if it wasn't the redirect URL.
     emitLog(port, `> [BML] Step 4: Fetching Profiles...`);
     xsrfToken = await getXsrfToken() || xsrfToken;
     let profileRes = await loggedFetch(`${BASE_URL}/web/profile`, {
       headers: {
         'Accept': 'text/html, application/xhtml+xml',
-        'X-Inertia': 'true',
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-XSRF-TOKEN': xsrfToken,
-        'Referer': `${BASE_URL}/web/login/2fa`,
         'User-Agent': USER_AGENT
       }
     });
@@ -231,28 +231,14 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     if (profileRes.status === 409) {
       const redirectUrl = profileRes.headers.get('X-Inertia-Location');
       if (redirectUrl && redirectUrl.includes('/web/redirect')) {
-         // Single profile account automatically redirects
          emitLog(port, `> [BML] Single profile detected. Following redirect to: ${redirectUrl}`);
-         xsrfToken = await getXsrfToken() || xsrfToken;
          profileRes = await loggedFetch(redirectUrl, {
-           headers: { 
-             'Accept': 'text/html, application/xhtml+xml', 
-             'X-Inertia': 'true', 
-             'X-XSRF-TOKEN': xsrfToken, 
-             'User-Agent': USER_AGENT 
-           }
+           headers: { 'Accept': 'text/html, application/xhtml+xml', 'User-Agent': USER_AGENT }
          });
       } else if (redirectUrl) {
          emitLog(port, `> [BML] Following profile list redirect to: ${redirectUrl}`);
-         xsrfToken = await getXsrfToken() || xsrfToken;
          profileRes = await loggedFetch(redirectUrl, {
-           headers: { 
-             'Accept': 'text/html, application/xhtml+xml', 
-             'X-Inertia': 'true', 
-             'X-Requested-With': 'XMLHttpRequest', 
-             'X-XSRF-TOKEN': xsrfToken, 
-             'User-Agent': USER_AGENT 
-           }
+           headers: { 'Accept': 'text/html, application/xhtml+xml', 'User-Agent': USER_AGENT }
          });
       }
     }
@@ -328,13 +314,10 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
           const redirectUrl = selectProfileRes.headers.get('X-Inertia-Location');
           emitLog(port, `> [BML] Profile selection returned 409 Redirect to ${redirectUrl}. Following...`);
           if (redirectUrl) {
-            xsrfToken = await getXsrfToken() || xsrfToken;
-            // Notice: X-Requested-With removed for the hard redirect fetch, as advised by tech!
+            // Notice: completely standard hard load!
             await loggedFetch(redirectUrl, {
               headers: { 
                 'Accept': 'text/html, application/xhtml+xml', 
-                'X-Inertia': 'true', 
-                'X-XSRF-TOKEN': xsrfToken, 
                 'User-Agent': USER_AGENT 
               }
             });
@@ -364,13 +347,9 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
        const redirectUrl3 = accountsOverviewRes.headers.get('X-Inertia-Location');
        if (redirectUrl3) {
           emitLog(port, `> [BML] Accounts overview returned 409. Following...`);
-          xsrfToken = await getXsrfToken() || xsrfToken;
           await loggedFetch(redirectUrl3, {
             headers: { 
               'Accept': 'text/html, application/xhtml+xml', 
-              'X-Inertia': 'true', 
-              'X-XSRF-TOKEN': xsrfToken, 
-              'Referer': `${BASE_URL}/web/redirect`,
               'User-Agent': USER_AGENT 
             }
           });
