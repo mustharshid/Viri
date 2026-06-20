@@ -207,43 +207,94 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
       emitLog(port, `> [BML] Authentication Successful! Processing profiles...`);
     }
 
-    // 4. Bypass Profile Selection & Navigate Directly to Accounts Overview
-    emitLog(port, `> [BML] Step 4: Bypassing Profile Selection (direct navigation)...`);
-    xsrfToken = await getXsrfToken() || xsrfToken; // Update token after MFA
+    // 4. Establish Session (Mimicking browser redirect chain)
+    emitLog(port, `> [BML] Step 4: Establishing session (following redirects)...`);
+    xsrfToken = await getXsrfToken() || xsrfToken;
     
-    const accountsOverviewRes = await fetch(`${BASE_URL}/vf/accounts/overview`, {
+    // First, hit /web/profile
+    let establishRes = await fetch(`${BASE_URL}/web/profile`, {
       headers: {
         'Accept': 'text/html, application/xhtml+xml',
         'X-Inertia': 'true',
         'X-Requested-With': 'XMLHttpRequest',
         'X-XSRF-TOKEN': xsrfToken,
-        'Referer': `${BASE_URL}/web/redirect`,
+        'Referer': `${BASE_URL}/web/login/2fa`,
         'User-Agent': USER_AGENT
       }
     });
 
-    if (accountsOverviewRes.status === 409) {
-      const redirectUrl = accountsOverviewRes.headers.get('X-Inertia-Location');
-      emitLog(port, `> [BML] Accounts overview returned 409 Redirect to ${redirectUrl}. Following...`);
-      if (redirectUrl) {
+    if (establishRes.status === 409) {
+      const redirectUrl1 = establishRes.headers.get('X-Inertia-Location');
+      if (redirectUrl1) {
+         emitLog(port, `> [BML] Following profile redirect to: ${redirectUrl1}`);
          xsrfToken = await getXsrfToken() || xsrfToken;
-         await fetch(redirectUrl, {
+         establishRes = await fetch(redirectUrl1, {
            headers: { 
              'Accept': 'text/html, application/xhtml+xml', 
              'X-Inertia': 'true', 
              'X-Requested-With': 'XMLHttpRequest', 
              'X-XSRF-TOKEN': xsrfToken, 
-             'Referer': `${BASE_URL}/web/redirect`,
              'User-Agent': USER_AGENT 
            }
          });
+         
+         if (establishRes.status === 409) {
+            const redirectUrl2 = establishRes.headers.get('X-Inertia-Location');
+            if (redirectUrl2) {
+               emitLog(port, `> [BML] Following second redirect to: ${redirectUrl2}`);
+               xsrfToken = await getXsrfToken() || xsrfToken;
+               establishRes = await fetch(redirectUrl2, {
+                 headers: { 
+                   'Accept': 'text/html, application/xhtml+xml', 
+                   'X-Inertia': 'true', 
+                   'X-Requested-With': 'XMLHttpRequest', 
+                   'X-XSRF-TOKEN': xsrfToken, 
+                   'User-Agent': USER_AGENT 
+                 }
+               });
+            }
+         }
       }
+    }
+    
+    // Add 1 second delay to give server time to establish session
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Then hit accounts overview
+    emitLog(port, `> [BML] Step 5: Loading Accounts Overview...`);
+    xsrfToken = await getXsrfToken() || xsrfToken;
+    const accountsOverviewRes = await fetch(`${BASE_URL}/vf/accounts/overview`, {
+      headers: {
+        'X-Inertia': 'true',
+        'X-XSRF-TOKEN': xsrfToken,
+        'Referer': `${BASE_URL}/web/redirect`,
+        'Accept': 'text/html, application/xhtml+xml',
+        'User-Agent': USER_AGENT
+      }
+    });
+    
+    if (accountsOverviewRes.status === 409) {
+       const redirectUrl3 = accountsOverviewRes.headers.get('X-Inertia-Location');
+       if (redirectUrl3) {
+          emitLog(port, `> [BML] Accounts overview returned 409. Following...`);
+          xsrfToken = await getXsrfToken() || xsrfToken;
+          await fetch(redirectUrl3, {
+            headers: { 
+              'Accept': 'text/html, application/xhtml+xml', 
+              'X-Inertia': 'true', 
+              'X-Requested-With': 'XMLHttpRequest', 
+              'X-XSRF-TOKEN': xsrfToken, 
+              'Referer': `${BASE_URL}/web/redirect`,
+              'User-Agent': USER_AGENT 
+            }
+          });
+       }
     }
 
     xsrfToken = await getXsrfToken() || xsrfToken;
 
-    // 5. Get Dashboard to find internal Account ID
-    emitLog(port, `> [BML] Step 5: Loading Dashboard...`);
+    // 6. Get Dashboard to find internal Account ID
+    emitLog(port, `> [BML] Step 6: Loading Dashboard...`);
 
     // Get Dashboard to find internal Account ID
     const dashboardRes = await fetch(`${BASE_URL}/api/dashboard`, {
