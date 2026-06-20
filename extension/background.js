@@ -262,10 +262,10 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     // Fallback regex extraction based on tech's logic
     if (profiles.length === 0) {
        const patterns = [
-         /\/internetbanking\/web\/profile\/([A-F0-9\-]{36})/gi,
-         /"profileId":\s*"([A-F0-9\-]{36})"/gi,
-         /profileId:\s*'([A-F0-9\-]{36})'/gi,
-         /data-profile-id="([A-F0-9\-]{36})"/gi
+         /\/internetbanking\/web\/profile\/([a-fA-F0-9\-]+)/gi,
+         /"profileId":\s*"([a-fA-F0-9\-]+)"/gi,
+         /profileId:\s*'([a-fA-F0-9\-]+)'/gi,
+         /data-profile-id="([a-fA-F0-9\-]+)"/gi
        ];
        const uniqueIds = new Set();
        for (const pattern of patterns) {
@@ -278,7 +278,40 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     }
 
     if (profiles.length === 0) {
-      throw new Error("No profiles found on this BML account.");
+      emitLog(port, `> [BML] No profiles found in HTML, falling back to API...`);
+      xsrfToken = await getXsrfToken() || xsrfToken;
+      await fetch(`${BASE_URL}/vf/accounts/overview`, {
+        headers: {
+          'X-Inertia': 'true',
+          'X-XSRF-TOKEN': xsrfToken,
+          'Referer': `${BASE_URL}/web/redirect`,
+          'Accept': 'text/html, application/xhtml+xml',
+          'User-Agent': USER_AGENT
+        }
+      });
+      
+      xsrfToken = await getXsrfToken() || xsrfToken;
+      const apiProfileRes = await fetch(`${BASE_URL}/api/profile`, {
+        headers: {
+          'Accept': 'application/json, text/plain, */*',
+          'Authorization': 'Bearer',
+          'X-XSRF-TOKEN': xsrfToken,
+          'Referer': `${BASE_URL}/vf/accounts/overview`,
+          'User-Agent': USER_AGENT
+        }
+      });
+      
+      if (!apiProfileRes.ok) {
+         throw new Error(`Failed to get profile from API: HTTP ${apiProfileRes.status}`);
+      }
+      const apiProfileData = await apiProfileRes.json();
+      const profileId = apiProfileData.id || apiProfileData.profileId || apiProfileData.profile_id;
+      
+      if (!profileId) {
+         throw new Error("No profiles found on this BML account.");
+      }
+      emitLog(port, `> [BML] Successfully extracted profile from API fallback!`);
+      profiles = [{ id: profileId, name: profileId }];
     }
 
     // Always follow the first profile - the one on the top
