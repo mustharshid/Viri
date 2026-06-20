@@ -5,7 +5,7 @@
 
 chrome.runtime.onConnectExternal.addListener((port) => {
   console.log("[Viri Bridge] PWA Connected via Port:", port.name);
-  
+
   port.onMessage.addListener(async (msg) => {
     if (msg.action === 'VERIFY_TRANSFER') {
       try {
@@ -29,7 +29,7 @@ function emitLog(port, message) {
 
 async function handleVerification(payload, port) {
   const { amount, bank, accountId, accountNumber, credentials } = payload;
-  
+
   emitLog(port, `> [Viri Bridge] Initializing decentralized verification...`);
   emitLog(port, `> Target Bank: ${bank}`);
   emitLog(port, `> Target Amount: MVR ${amount}`);
@@ -66,7 +66,7 @@ function base32ToBuffer(base32) {
 async function generateTOTP(secretBase32) {
   const keyBuffer = base32ToBuffer(secretBase32);
   const timeStep = Math.floor(Date.now() / 30000);
-  
+
   // Create 8 byte buffer from timestep
   const timeBuffer = new ArrayBuffer(8);
   const timeView = new DataView(timeBuffer);
@@ -82,7 +82,7 @@ async function generateTOTP(secretBase32) {
 
   const signature = await crypto.subtle.sign('HMAC', cryptoKey, timeBuffer);
   const hmacArray = new Uint8Array(signature);
-  
+
   const offset = hmacArray[hmacArray.length - 1] & 0xf;
   const binary =
     ((hmacArray[offset] & 0x7f) << 24) |
@@ -120,11 +120,11 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
       const inertiaLoc = res.headers.get('X-Inertia-Location');
       const locStr = inertiaLoc ? ` [Redirects to: ${inertiaLoc}]` : '';
       emitLog(port, `> [SERVER REPLY] ${method} ${url} -> HTTP ${res.status}${locStr}: ${snippet}`);
-    } catch(e) {}
+    } catch (e) { }
     return res;
   };
   emitLog(port, `> [BML] Initiating Headless Auto-Login Sequence...`);
-  
+
   if (!credentials || !credentials.username || !credentials.password || !credentials.totpSeed) {
     throw new Error("Terminal missing BML robot credentials. Please configure them in settings.");
   }
@@ -186,7 +186,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     await loggedFetch(`${BASE_URL}/web/login`, {
       headers: { 'User-Agent': USER_AGENT }
     });
-    
+
     let xsrfToken = await getXsrfToken();
     if (!xsrfToken) throw new Error("Failed to extract initial XSRF token");
 
@@ -208,7 +208,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
         password: credentials.password
       })
     });
-    
+
     if (loginRes.status === 409) {
       emitLog(port, `> [BML] Login returned 409. Following Inertia redirects...`);
       await handleInertiaRedirects(loginRes);
@@ -220,14 +220,14 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
 
     // 3A. Select the authenticator channel
     emitLog(port, `> [BML] Step 3A: Selecting authenticator channel...`);
-    
+
     // Do a hard page load of /web/login/2fa first (like a browser would after the login redirect)
     const twofaPageRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
       headers: { 'Accept': 'text/html, application/xhtml+xml', 'User-Agent': USER_AGENT }
     });
     xsrfToken = await getXsrfToken() || xsrfToken;
     emitLog(port, `> [BML] 2FA page loaded (HTTP ${twofaPageRes.status}). Selecting channel...`);
-    
+
     const channelRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
       method: 'POST',
       headers: {
@@ -241,27 +241,20 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
       },
       body: JSON.stringify({ channel: 'authenticator' })
     });
-    
+
     if (channelRes.status === 409) {
       emitLog(port, `> [BML] Channel selected (409). Following redirect...`);
       await handleInertiaRedirects(channelRes);
     } else {
       emitLog(port, `> [BML] Channel selection returned HTTP ${channelRes.status}. Continuing...`);
     }
-    
-    // 3B. Now do a hard page load to get the OTP input form with a fresh XSRF
-    emitLog(port, `> [BML] Step 3B: Loading OTP input form...`);
-    const otpPageRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
-      headers: { 'Accept': 'text/html, application/xhtml+xml', 'User-Agent': USER_AGENT }
-    });
-    xsrfToken = await getXsrfToken() || xsrfToken;
-    
-    // Log what the OTP page looks like
-    const otpPageText = await otpPageRes.clone().text();
-    emitLog(port, `> [TESTING] OTP Page Response (HTTP ${otpPageRes.status}): ${otpPageText.substring(0, 500).replace(/\n/g, ' ')}...`);
 
-    // 3C. Submit the actual TOTP code
-    emitLog(port, `> [BML] Step 3C: Submitting TOTP code...`);
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 3: Verify OTP
+    // ═══════════════════════════════════════════════════════════════
+    emitLog(port, `> [BML] Step 3: Submitting TOTP code...`);
+    await getFreshXsrfToken('/web/login/2fa');
+
     const otpCode = await generateTOTP(credentials.totpSeed);
     emitLog(port, `> [TESTING] Submitting OTP: ${otpCode}`);
 
@@ -282,17 +275,18 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     if (mfaRes.status === 409) {
       const mfaRedirectUrl = mfaRes.headers.get('X-Inertia-Location');
       emitLog(port, `> [BML] MFA returned 409 Redirect to ${mfaRedirectUrl}.`);
-      emitLog(port, `> [BML] OTP accepted! Following redirect...`);
       await handleInertiaRedirects(mfaRes);
     } else if (mfaRes.status === 200) {
       const mfaBody = await mfaRes.clone().text();
-      emitLog(port, `> [BML] WARNING: MFA returned HTTP 200. Response: ${mfaBody.substring(0, 500).replace(/\n/g, ' ')}`);
-      throw new Error(`MFA failed: OTP was rejected by the server (HTTP 200 re-render).`);
+      emitLog(port, `> [BML] WARNING: MFA returned HTTP 200. Response: ${mfaBody.substring(0, 300).replace(/\n/g, ' ')}`);
+      throw new Error(`MFA failed: Server re-rendered 2FA form.`);
     } else {
-      throw new Error(`MFA failed with unexpected HTTP ${mfaRes.status}`);
+      throw new Error(`MFA failed with HTTP ${mfaRes.status}`);
     }
 
-    // 4. Fetch and Select Profile
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 4: Fetch and Select Profile
+    // ═══════════════════════════════════════════════════════════════
     emitLog(port, `> [BML] Step 4: Fetching Profiles...`);
     await getFreshXsrfToken('/web/profile');
     
@@ -308,55 +302,38 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     });
 
     if (profileRes.status === 409) {
-      emitLog(port, `> [BML] Profile page returned 409. Following Inertia redirects...`);
+      emitLog(port, `> [BML] Profile page returned 409. Following redirects...`);
       profileRes = await handleInertiaRedirects(profileRes);
     }
 
     const responseText = await profileRes.clone().text();
-    emitLog(port, `> [TESTING] Profile Response Snippet: ${responseText.substring(0, 800).replace(/\n/g, '')}...`);
-
     let profiles = [];
     
     try {
       const profileData = JSON.parse(responseText);
       profiles = profileData.props?.profiles || [];
     } catch (err) {
-      // It's HTML, try to extract Inertia data-page attribute
       const dataPageMatch = /data-page=(['"])(.*?)\1/.exec(responseText);
       if (dataPageMatch) {
          try {
            const decoded = dataPageMatch[2].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
            const pageData = JSON.parse(decoded);
            profiles = pageData.props?.profiles || [];
-           if (profiles.length > 0) {
-             emitLog(port, `> [BML] Extracted ${profiles.length} profile(s) from Inertia data-page attribute.`);
-           }
-         } catch(e) {
-           emitLog(port, `> [BML] Error parsing data-page JSON: ${e.message}`);
-         }
+         } catch(e) {}
       }
-      
       if (profiles.length === 0) {
-        emitLog(port, `> [BML] Notice: Profiles response is HTML, falling back to regex...`);
+         const patterns = [
+           /\/internetbanking\/web\/profile\/([a-fA-F0-9\-]{36})/gi,
+           /"profileId":\s*"([a-fA-F0-9\-]{36})"/gi,
+           /data-profile-id="([a-fA-F0-9\-]{36})"/gi
+         ];
+         const uniqueIds = new Set();
+         for (const pattern of patterns) {
+             let match;
+             while ((match = pattern.exec(responseText)) !== null) { uniqueIds.add(match[1]); }
+         }
+         profiles = Array.from(uniqueIds).map(id => ({ id, name: id }));
       }
-    }
-
-    if (profiles.length === 0) {
-       const patterns = [
-         /\/internetbanking\/web\/profile\/([a-fA-F0-9\-]{36})/gi,
-         /"profileId":\s*"([a-fA-F0-9\-]{36})"/gi,
-         /profileId:\s*'([a-fA-F0-9\-]{36})'/gi,
-         /data-profile-id="([a-fA-F0-9\-]{36})"/gi,
-         /profile(?:Id|Id&quot;|Id\\"|Id%22|Id%27)[^a-zA-Z0-9]*([a-fA-F0-9]{36})/gi
-       ];
-       const uniqueIds = new Set();
-       for (const pattern of patterns) {
-           let match;
-           while ((match = pattern.exec(responseText)) !== null) {
-               uniqueIds.add(match[1]);
-           }
-       }
-       profiles = Array.from(uniqueIds).map(id => ({ id, name: id }));
     }
 
     if (profiles.length > 0) {
@@ -386,19 +363,22 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
        emitLog(port, `> [BML] No profiles found. Proceeding with single-profile assumption...`);
     }
 
-    // Add 1 second delay to give server time to establish session
+    // Add delay to let backend sync
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // 5. Navigate to accounts overview  
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 5: Navigate to accounts overview  
+    // ═══════════════════════════════════════════════════════════════
     emitLog(port, `> [BML] Step 5: Loading Accounts Overview...`);
     await getFreshXsrfToken('/vf/accounts/overview');
 
     const accountsOverviewRes = await loggedFetch(`${BASE_URL}/vf/accounts/overview`, {
       headers: {
+        'Accept': 'text/html, application/xhtml+xml',
         'X-Inertia': 'true',
+        'X-Requested-With': 'XMLHttpRequest',
         'X-XSRF-TOKEN': xsrfToken,
         'Referer': `${BASE_URL}/web/redirect`,
-        'Accept': 'text/html, application/xhtml+xml',
         'User-Agent': USER_AGENT
       }
     });
@@ -408,9 +388,9 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
        await handleInertiaRedirects(accountsOverviewRes);
     }
 
-    xsrfToken = await getXsrfToken() || xsrfToken;
-
-    // 6. Fetch Dashboard
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 6: Fetch Dashboard
+    // ═══════════════════════════════════════════════════════════════
     emitLog(port, `> [BML] Step 6: Loading Dashboard...`);
     xsrfToken = await getXsrfToken() || xsrfToken;
     const dashboardRes = await loggedFetch(`${BASE_URL}/api/dashboard`, {
@@ -428,30 +408,30 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     emitLog(port, `> [TESTING] Dashboard Response Payload: ${dashText.substring(0, 800).replace(/\n/g, '')}...`);
 
     if (!dashboardRes.ok) {
-       throw new Error(`Dashboard retrieval failed: HTTP ${dashboardRes.status}. Server replied: ${dashText.substring(0, 200)}`);
+      throw new Error(`Dashboard retrieval failed: HTTP ${dashboardRes.status}. Server replied: ${dashText.substring(0, 200)}`);
     }
 
     let dashboardData;
     try {
-       dashboardData = JSON.parse(dashText);
+      dashboardData = JSON.parse(dashText);
     } catch (e) {
-       throw new Error(`Failed to parse Dashboard JSON. Response: ${dashText.substring(0, 200)}`);
+      throw new Error(`Failed to parse Dashboard JSON. Response: ${dashText.substring(0, 200)}`);
     }
 
     const accounts = dashboardData.accounts || [];
     let bmlAccountId = null;
-    
+
     for (const acc of accounts) {
-       if (acc.account_number === targetAccount || acc.id === targetAccount) {
-         bmlAccountId = acc.id;
-         break;
-       }
+      if (acc.account_number === targetAccount || acc.id === targetAccount) {
+        bmlAccountId = acc.id;
+        break;
+      }
     }
-    
+
     if (!bmlAccountId) {
-       // fallback if not found directly
-       bmlAccountId = accounts.length > 0 ? accounts[0].id : targetAccount;
-       emitLog(port, `> [BML] Warning: Could not explicitly map account ${targetAccount}. Using fallback ${bmlAccountId}`);
+      // fallback if not found directly
+      bmlAccountId = accounts.length > 0 ? accounts[0].id : targetAccount;
+      emitLog(port, `> [BML] Warning: Could not explicitly map account ${targetAccount}. Using fallback ${bmlAccountId}`);
     }
 
     // 6. Perform the History Scrape
@@ -459,7 +439,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     const historyUrl = `${BASE_URL}/api/account/${bmlAccountId}/history/today`;
     const histRes = await fetch(historyUrl, {
       method: 'GET',
-      headers: { 
+      headers: {
         'Accept': 'application/json, text/plain, */*',
         'Authorization': 'Bearer',
         'X-XSRF-TOKEN': xsrfToken,
@@ -515,7 +495,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
   } catch (error) {
     emitLog(port, `> [BML] FATAL ERROR: ${error.message}`);
     // Attempt logout on error just in case
-    try { await fetch(`${BASE_URL}/logout`, { method: 'POST' }); } catch (e) {}
+    try { await fetch(`${BASE_URL}/logout`, { method: 'POST' }); } catch (e) { }
     throw error; // Let the caller catch it and send error postMessage
   }
 }
@@ -524,7 +504,7 @@ async function simulateVerification(amount, bank, port) {
   emitLog(port, `> [Simulator] Simulating network delay...`);
   await new Promise(r => setTimeout(r, 2000));
   emitLog(port, `> [Simulator] Match generated internally.`);
-  
+
   port.postMessage({
     type: 'success',
     data: {
