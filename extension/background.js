@@ -218,10 +218,50 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
       emitLog(port, `> [BML] Primary login complete (HTTP ${loginRes.status}).`);
     }
 
-    // 3. Get fresh XSRF token from 2FA page, then submit TOTP
-    emitLog(port, `> [BML] Step 3: Submitting TOTP code...`);
-    await getFreshXsrfToken('/web/login/2fa');
+    // 3A. Select the authenticator channel
+    emitLog(port, `> [BML] Step 3A: Selecting authenticator channel...`);
+    
+    // Do a hard page load of /web/login/2fa first (like a browser would after the login redirect)
+    const twofaPageRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
+      headers: { 'Accept': 'text/html, application/xhtml+xml', 'User-Agent': USER_AGENT }
+    });
+    xsrfToken = await getXsrfToken() || xsrfToken;
+    emitLog(port, `> [BML] 2FA page loaded (HTTP ${twofaPageRes.status}). Selecting channel...`);
+    
+    const channelRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'text/html, application/xhtml+xml',
+        'Content-Type': 'application/json',
+        'X-Inertia': 'true',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-XSRF-TOKEN': xsrfToken,
+        'Referer': `${BASE_URL}/web/login/2fa`,
+        'User-Agent': USER_AGENT
+      },
+      body: JSON.stringify({ channel: 'authenticator' })
+    });
+    
+    if (channelRes.status === 409) {
+      emitLog(port, `> [BML] Channel selected (409). Following redirect...`);
+      await handleInertiaRedirects(channelRes);
+    } else {
+      emitLog(port, `> [BML] Channel selection returned HTTP ${channelRes.status}. Continuing...`);
+    }
+    
+    // 3B. Now do a hard page load to get the OTP input form with a fresh XSRF
+    emitLog(port, `> [BML] Step 3B: Loading OTP input form...`);
+    const otpPageRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
+      headers: { 'Accept': 'text/html, application/xhtml+xml', 'User-Agent': USER_AGENT }
+    });
+    xsrfToken = await getXsrfToken() || xsrfToken;
+    
+    // Log what the OTP page looks like
+    const otpPageText = await otpPageRes.clone().text();
+    emitLog(port, `> [TESTING] OTP Page Response (HTTP ${otpPageRes.status}): ${otpPageText.substring(0, 500).replace(/\n/g, ' ')}...`);
 
+    // 3C. Submit the actual TOTP code
+    emitLog(port, `> [BML] Step 3C: Submitting TOTP code...`);
     const otpCode = await generateTOTP(credentials.totpSeed);
     emitLog(port, `> [TESTING] Submitting OTP: ${otpCode}`);
 
@@ -242,24 +282,12 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     if (mfaRes.status === 409) {
       const mfaRedirectUrl = mfaRes.headers.get('X-Inertia-Location');
       emitLog(port, `> [BML] MFA returned 409 Redirect to ${mfaRedirectUrl}.`);
-      
-      // Check if it redirects to profile (success) or back to 2fa (failure)
-      if (mfaRedirectUrl && mfaRedirectUrl.includes('/web/login/2fa')) {
-        // The server bounced us back to 2FA. This COULD be a session sync issue.
-        // Follow the redirect chain like the Python code does.
-        emitLog(port, `> [BML] MFA redirect is back to 2FA page. Following redirect chain...`);
-        const mfaFinal = await handleInertiaRedirects(mfaRes);
-        emitLog(port, `> [BML] MFA redirect chain ended at HTTP ${mfaFinal.status}`);
-      } else if (mfaRedirectUrl) {
-        // Redirects somewhere else (e.g. /web/profile) - this is success!
-        emitLog(port, `> [BML] MFA accepted! Following redirect to ${mfaRedirectUrl}...`);
-        await handleInertiaRedirects(mfaRes);
-      }
+      emitLog(port, `> [BML] OTP accepted! Following redirect...`);
+      await handleInertiaRedirects(mfaRes);
     } else if (mfaRes.status === 200) {
-      // HTTP 200 means the server re-rendered the 2FA form (OTP rejected)
       const mfaBody = await mfaRes.clone().text();
-      emitLog(port, `> [BML] WARNING: MFA returned HTTP 200 (OTP likely rejected). Response: ${mfaBody.substring(0, 300).replace(/\n/g, ' ')}`);
-      throw new Error(`MFA failed: OTP was rejected by the server. HTTP 200 re-render.`);
+      emitLog(port, `> [BML] WARNING: MFA returned HTTP 200. Response: ${mfaBody.substring(0, 500).replace(/\n/g, ' ')}`);
+      throw new Error(`MFA failed: OTP was rejected by the server (HTTP 200 re-render).`);
     } else {
       throw new Error(`MFA failed with unexpected HTTP ${mfaRes.status}`);
     }
