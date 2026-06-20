@@ -179,6 +179,17 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
 
   try {
     // ═══════════════════════════════════════════════════════════════
+    // STEP 0: Clear Previous Session State
+    // ═══════════════════════════════════════════════════════════════
+    emitLog(port, `> [BML] Step 0: Clearing previous session cookies...`);
+    const cookies = await chrome.cookies.getAll({ domain: "bankofmaldives.com.mv" });
+    for (const cookie of cookies) {
+      const protocol = cookie.secure ? "https://" : "http://";
+      const cookieUrl = `${protocol}${cookie.domain}${cookie.path}`;
+      await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // STEP 1: Initialize Session
     // ═══════════════════════════════════════════════════════════════
     emitLog(port, `> [BML] Step 1: Initializing session to get XSRF token...`);
@@ -213,6 +224,10 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     if (loginRes.status === 409) {
       emitLog(port, `> [BML] Login returned 409. Following Inertia redirects...`);
       await handleInertiaRedirects(loginRes);
+    } else if (loginRes.status === 200) {
+      const loginBody = await loginRes.clone().text();
+      emitLog(port, `> [BML] WARNING: Login returned HTTP 200. Response: ${loginBody.substring(0, 300).replace(/\n/g, ' ')}`);
+      throw new Error(`Login failed: Invalid credentials or server rejected login. HTTP 200 re-render.`);
     } else if (!loginRes.ok) {
       throw new Error(`HTTP ${loginRes.status} on login POST.`);
     }
@@ -445,9 +460,21 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     // STEP 8: Cleanup and Report
     // ═══════════════════════════════════════════════════════════════
     try {
-      await fetch(`${BASE_URL}/logout`, { method: 'POST' });
+      await loggedFetch(`${BASE_URL}/logout`, {
+        method: 'POST',
+        headers: {
+          'Accept': 'text/html, application/xhtml+xml',
+          'X-Inertia': 'true',
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-XSRF-TOKEN': xsrfToken,
+          'Referer': `${BASE_URL}/vf/accounts/overview`,
+          'User-Agent': USER_AGENT
+        }
+      });
       emitLog(port, `> [BML] Session destroyed.`);
-    } catch (e) {}
+    } catch (e) {
+      emitLog(port, `> [BML] Session destruction failed or skipped: ${e.message}`);
+    }
 
     if (matchFound) {
       emitLog(port, `> [Viri Bridge] EXACT MATCH: Ref ${matchFound.reference || matchFound.id}`);
