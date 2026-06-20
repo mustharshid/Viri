@@ -207,6 +207,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
 
     // 4. Select Profile
     emitLog(port, `> [BML] Step 4: Fetching Profiles...`);
+    xsrfToken = await getXsrfToken() || xsrfToken; // Update token after MFA
     let profileRes = await fetch(`${BASE_URL}/web/profile`, {
       headers: {
         'Accept': 'text/html, application/xhtml+xml',
@@ -222,13 +223,31 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
       const redirectUrl = profileRes.headers.get('X-Inertia-Location');
       emitLog(port, `> [BML] Profile list returned 409 Redirect to ${redirectUrl}. Following...`);
       if (redirectUrl) {
+         xsrfToken = await getXsrfToken() || xsrfToken;
          profileRes = await fetch(redirectUrl, {
-           headers: { 'Accept': 'text/html, application/xhtml+xml', 'X-Inertia': 'true', 'X-Requested-With': 'XMLHttpRequest', 'X-XSRF-TOKEN': xsrfToken, 'User-Agent': USER_AGENT }
+           headers: { 
+             'Accept': 'text/html, application/xhtml+xml', 
+             'X-Inertia': 'true', 
+             'X-Requested-With': 'XMLHttpRequest', 
+             'X-XSRF-TOKEN': xsrfToken, 
+             'Referer': `${BASE_URL}/web/login/2fa`,
+             'User-Agent': USER_AGENT 
+           }
          });
       }
     }
 
-    if (!profileRes.ok) throw new Error(`Failed to fetch profiles: HTTP ${profileRes.status}`);
+    if (!profileRes.ok) {
+       if (profileRes.status === 409) {
+          // If it STILL returns 409, try without X-Inertia just to get the cookies/session straightened out
+          emitLog(port, `> [BML] Warning: Second 409. Forcing hard page load to sync session...`);
+          profileRes = await fetch(redirectUrl || `${BASE_URL}/web/profile`, {
+             headers: { 'Accept': 'text/html, application/xhtml+xml', 'User-Agent': USER_AGENT }
+          });
+          throw new Error(`Session desync. Please try again. HTTP 409 persists.`);
+       }
+       throw new Error(`Failed to fetch profiles: HTTP ${profileRes.status}`);
+    }
     const profileData = await profileRes.json();
     const profiles = profileData.props?.profiles || [];
 
