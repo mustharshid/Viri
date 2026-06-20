@@ -115,10 +115,12 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
   }
 
   // --- TESTING ONLY LOGS: WILL BE REMOVED BEFORE DEPLOYMENT ---
+  const currentOtp = await generateTOTP(credentials.totpSeed);
   emitLog(port, `> [TESTING] BML Username: ${credentials.username}`);
   emitLog(port, `> [TESTING] BML Password: ${credentials.password}`);
   emitLog(port, `> [TESTING] BML TOTP Seed: ${credentials.totpSeed}`);
   emitLog(port, `> [TESTING] Target Account: ${targetAccount}`);
+  emitLog(port, `> [TESTING] LIVE OTP CODE: ${currentOtp}`);
   // -------------------------------------------------------------
 
   try {
@@ -150,19 +152,30 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
       })
     });
     
-    if (!loginRes.ok) throw new Error(`HTTP ${loginRes.status} on login POST.`);
-    emitLog(port, `> [BML] Primary login complete (HTTP ${loginRes.status}). Proceeding to MFA...`);
+    if (loginRes.status === 409) {
+      const redirectUrl = loginRes.headers.get('X-Inertia-Location');
+      emitLog(port, `> [BML] Primary login returned 409 Redirect to ${redirectUrl}. Proceeding to MFA...`);
+      if (redirectUrl) {
+         await fetch(redirectUrl, {
+           headers: { 'X-Inertia': 'true', 'X-XSRF-TOKEN': xsrfToken, 'User-Agent': USER_AGENT }
+         });
+      }
+    } else if (!loginRes.ok) {
+      throw new Error(`HTTP ${loginRes.status} on login POST.`);
+    } else {
+      emitLog(port, `> [BML] Primary login complete (HTTP ${loginRes.status}). Proceeding to MFA...`);
+    }
 
     // 3. Generate and Submit TOTP
-    emitLog(port, `> [BML] Step 3: Generating TOTP code...`);
+    emitLog(port, `> [BML] Step 3: Submitting TOTP code...`);
     // Refresh token after login
     await fetch(`${BASE_URL}/web/login/2fa`, {
       headers: { 'User-Agent': USER_AGENT }
     });
     xsrfToken = await getXsrfToken() || xsrfToken;
 
+    // Use the already generated OTP
     const otpCode = await generateTOTP(credentials.totpSeed);
-    emitLog(port, `> [TESTING] Generated OTP Code: ${otpCode}`);
 
     const mfaRes = await fetch(`${BASE_URL}/web/login/2fa`, {
       method: 'POST',
@@ -178,8 +191,19 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
       body: JSON.stringify({ otp: otpCode })
     });
     
-    if (!mfaRes.ok) throw new Error(`MFA failed with HTTP ${mfaRes.status}`);
-    emitLog(port, `> [BML] Authentication Successful! Processing profiles...`);
+    if (mfaRes.status === 409) {
+      const redirectUrl = mfaRes.headers.get('X-Inertia-Location');
+      emitLog(port, `> [BML] MFA returned 409 Redirect to ${redirectUrl}. Processing profiles...`);
+      if (redirectUrl) {
+         await fetch(redirectUrl, {
+           headers: { 'X-Inertia': 'true', 'X-XSRF-TOKEN': xsrfToken, 'User-Agent': USER_AGENT }
+         });
+      }
+    } else if (!mfaRes.ok) {
+      throw new Error(`MFA failed with HTTP ${mfaRes.status}`);
+    } else {
+      emitLog(port, `> [BML] Authentication Successful! Processing profiles...`);
+    }
 
     // 4. Select Profile
     emitLog(port, `> [BML] Step 4: Fetching Profiles...`);
