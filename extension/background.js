@@ -185,20 +185,26 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
   }
 
   // -- Helper: Get fresh XSRF token and Inertia Version from a page --
-  async function getFreshXsrfToken(path) {
+  async function getFreshXsrfToken(path, isInitialLoad = false) {
     emitLog(port, `> [BML] Refreshing XSRF token from ${path}...`);
+    
+    const headers = {
+      'Accept': 'text/html, application/xhtml+xml',
+      'User-Agent': USER_AGENT
+    };
+    
+    if (!isInitialLoad) {
+      headers['X-Inertia'] = 'true';
+      headers['X-Requested-With'] = 'XMLHttpRequest';
+    }
+
     const res = await loggedFetch(`${BASE_URL}${path}`, {
       cache: 'no-store',
-      headers: {
-        'Accept': 'text/html, application/xhtml+xml',
-        'User-Agent': USER_AGENT,
-        'X-Inertia': 'true',
-        'X-Requested-With': 'XMLHttpRequest'
-      }
+      headers: headers
     });
     
     let version = res.headers.get('X-Inertia-Version') || '';
-    if (!version) {
+    if (!version && !isInitialLoad) {
       try {
         const data = await res.clone().json();
         if (data && data.version) {
@@ -206,6 +212,18 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
         }
       } catch (e) {
         emitLog(port, `> [BML] Could not parse Inertia version from body: ${e.message}`);
+      }
+    } else if (isInitialLoad) {
+      // On initial HTML load, extract version from the data-page attribute
+      try {
+        const html = await res.clone().text();
+        const match = html.match(/data-page="([^"]+)"/);
+        if (match && match[1]) {
+          const dataPage = JSON.parse(match[1].replace(/&quot;/g, '"'));
+          if (dataPage.version) version = dataPage.version;
+        }
+      } catch (e) {
+        emitLog(port, `> [BML] Could not parse Inertia version from HTML: ${e.message}`);
       }
     }
 
@@ -231,7 +249,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     // ═══════════════════════════════════════════════════════════════
     // STEP 1: Initialize Session
     // ═══════════════════════════════════════════════════════════════
-    let { token: xsrfToken, version: inertiaVersion } = await getFreshXsrfToken('/web/login');
+    let { token: xsrfToken, version: inertiaVersion } = await getFreshXsrfToken('/web/login', true);
 
     // ═══════════════════════════════════════════════════════════════
     // STEP 2: Submit Username/Password
