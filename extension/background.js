@@ -183,10 +183,6 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
 
     // 3. Generate and Submit TOTP
     emitLog(port, `> [BML] Step 3: Submitting TOTP code...`);
-    // Refresh token after login
-    await loggedFetch(`${BASE_URL}/web/login/2fa`, {
-      headers: { 'User-Agent': USER_AGENT }
-    });
     xsrfToken = await getXsrfToken() || xsrfToken;
 
     // Use the already generated OTP
