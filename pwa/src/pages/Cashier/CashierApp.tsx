@@ -156,6 +156,13 @@ function App() {
       }
       setHardwareId(data.hardware_id);
       if (data.extension_id) setExtensionId(data.extension_id);
+      
+      // Clear legacy PIN when a new terminal is paired
+      localStorage.removeItem('viri_terminal_pin');
+      setPin('');
+      setIsLocked(false);
+      setEnteredPin('');
+      
       setIsSetupMode(false);
     } catch (err) {
       setSetupError("Network error. Could not connect to backend.");
