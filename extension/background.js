@@ -96,6 +96,17 @@ async function generateTOTP(secretBase32) {
 
 // ─── BML Client Implementation ──────────────────────────────────────────────────
 
+const BASE_URL = 'https://www.bankofmaldives.com.mv/internetbanking';
+const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36';
+
+async function getXsrfToken() {
+  return new Promise((resolve) => {
+    chrome.cookies.get({ url: 'https://www.bankofmaldives.com.mv', name: 'XSRF-TOKEN' }, (cookie) => {
+      resolve(cookie ? decodeURIComponent(cookie.value) : null);
+    });
+  });
+}
+
 async function verifyBML(targetAmount, targetAccount, credentials, port) {
   emitLog(port, `> [BML] Initiating Headless Auto-Login Sequence...`);
   
@@ -103,106 +114,227 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     throw new Error("Terminal missing BML robot credentials. Please configure them in settings.");
   }
 
-  // 1. Submit Username/Password
-  emitLog(port, `> [BML] Step 1: Submitting Primary Credentials...`);
+  // --- TESTING ONLY LOGS: WILL BE REMOVED BEFORE DEPLOYMENT ---
+  emitLog(port, `> [TESTING] BML Username: ${credentials.username}`);
+  emitLog(port, `> [TESTING] BML Password: ${credentials.password}`);
+  emitLog(port, `> [TESTING] BML TOTP Seed: ${credentials.totpSeed}`);
+  emitLog(port, `> [TESTING] Target Account: ${targetAccount}`);
+  // -------------------------------------------------------------
+
   try {
-    const loginRes = await fetch('https://www.bankofmaldives.com.mv/internetbanking/new/js/app.js?id=d12029c1a2842815ae3045f4fad41e1d', {
+    // 1. Initialize Session
+    emitLog(port, `> [BML] Step 1: Initializing session to get XSRF token...`);
+    await fetch(`${BASE_URL}/web/login`, {
+      headers: { 'User-Agent': USER_AGENT }
+    });
+    
+    let xsrfToken = await getXsrfToken();
+    if (!xsrfToken) throw new Error("Failed to extract initial XSRF token");
+
+    // 2. Submit Username/Password
+    emitLog(port, `> [BML] Step 2: Submitting Primary Credentials...`);
+    const loginRes = await fetch(`${BASE_URL}/web/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Accept': 'text/html, application/xhtml+xml',
+        'Content-Type': 'application/json',
+        'X-Inertia': 'true',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-XSRF-TOKEN': xsrfToken,
+        'Referer': `${BASE_URL}/web/login`,
+        'User-Agent': USER_AGENT
+      },
       body: JSON.stringify({
         username: credentials.username,
-        password: credentials.password,
-        code: ""
+        password: credentials.password
       })
     });
     
-    if (!loginRes.ok) {
-      throw new Error(`HTTP ${loginRes.status} on login POST.`);
-    }
+    if (!loginRes.ok) throw new Error(`HTTP ${loginRes.status} on login POST.`);
     emitLog(port, `> [BML] Primary login complete (HTTP ${loginRes.status}). Proceeding to MFA...`);
-  } catch (err) {
-    throw new Error(`Failed to post primary credentials: ${err.message}`);
-  }
 
-  // 2. Generate and Submit TOTP
-  emitLog(port, `> [BML] Step 2: Generating TOTP code from internal seed...`);
-  const otpCode = await generateTOTP(credentials.totpSeed);
-  emitLog(port, `> [BML] OTP generated: ${otpCode.substring(0,2)}****`);
-  
-  try {
-    const mfaRes = await fetch('https://www.bankofmaldives.com.mv/internetbanking/new/js/app.js?id=d12029c1a2842815ae3045f4fad41e1d', {
+    // 3. Generate and Submit TOTP
+    emitLog(port, `> [BML] Step 3: Generating TOTP code...`);
+    // Refresh token after login
+    await fetch(`${BASE_URL}/web/login/2fa`, {
+      headers: { 'User-Agent': USER_AGENT }
+    });
+    xsrfToken = await getXsrfToken() || xsrfToken;
+
+    const otpCode = await generateTOTP(credentials.totpSeed);
+    emitLog(port, `> [TESTING] Generated OTP Code: ${otpCode}`);
+
+    const mfaRes = await fetch(`${BASE_URL}/web/login/2fa`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        code: otpCode,
-        channel: "authenticator"
-      })
+      headers: {
+        'Accept': 'text/html, application/xhtml+xml',
+        'Content-Type': 'application/json',
+        'X-Inertia': 'true',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-XSRF-TOKEN': xsrfToken,
+        'Referer': `${BASE_URL}/web/login/2fa`,
+        'User-Agent': USER_AGENT
+      },
+      body: JSON.stringify({ otp: otpCode })
     });
     
-    if (!mfaRes.ok) {
-      throw new Error(`MFA failed with HTTP ${mfaRes.status}`);
-    }
-    emitLog(port, `> [BML] Authentication Successful! Session established.`);
-  } catch (err) {
-    throw new Error(`MFA authentication failed: ${err.message}`);
-  }
+    if (!mfaRes.ok) throw new Error(`MFA failed with HTTP ${mfaRes.status}`);
+    emitLog(port, `> [BML] Authentication Successful! Processing profiles...`);
 
-  // 3. Perform the History Scrape
-  emitLog(port, `> [BML] Step 3: Scraping recent transaction history...`);
-  
-  let matchFound = null;
-  try {
-    // Hardcoded UUID for testing based on user's sample.
-    const historyUrl = `https://www.bankofmaldives.com.mv/internetbanking/vf/accounts/AD2ADF9D-46CE-E511-80D7-00155D020F0A?type=account&account=${targetAccount}&alias=MOHD.M.`;
+    // 4. Select Profile
+    emitLog(port, `> [BML] Step 4: Fetching Profiles...`);
+    const profileRes = await fetch(`${BASE_URL}/web/profile`, {
+      headers: {
+        'Accept': 'text/html, application/xhtml+xml',
+        'X-Inertia': 'true',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-XSRF-TOKEN': xsrfToken,
+        'Referer': `${BASE_URL}/web/login/2fa`,
+        'User-Agent': USER_AGENT
+      }
+    });
+
+    if (!profileRes.ok) throw new Error(`Failed to fetch profiles: HTTP ${profileRes.status}`);
+    const profileData = await profileRes.json();
+    const profiles = profileData.props?.profiles || [];
+
+    if (profiles.length === 0) {
+      throw new Error("No profiles found on this BML account.");
+    }
+
+    // Always follow the first profile - the one on the top
+    const selectedProfile = profiles[0];
+    emitLog(port, `> [BML] Selected First Profile: ${selectedProfile.name || selectedProfile.id}`);
+    emitLog(port, `> [TESTING] Selected Profile ID: ${selectedProfile.id}`);
     
+    const selectProfileRes = await fetch(`${BASE_URL}/web/profile/${selectedProfile.id}`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'text/html, application/xhtml+xml',
+        'X-Inertia': 'true',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-XSRF-TOKEN': xsrfToken,
+        'Referer': `${BASE_URL}/web/profile`,
+        'User-Agent': USER_AGENT
+      }
+    });
+
+    if (selectProfileRes.status === 409) {
+       const redirectUrl = selectProfileRes.headers.get('X-Inertia-Location');
+       if (redirectUrl) {
+         await fetch(redirectUrl, {
+           headers: { 'X-Inertia': 'true', 'X-XSRF-TOKEN': xsrfToken, 'User-Agent': USER_AGENT }
+         });
+       }
+    } else if (!selectProfileRes.ok && selectProfileRes.status !== 200) {
+       throw new Error(`Profile selection failed: HTTP ${selectProfileRes.status}`);
+    }
+
+    // 5. Navigate to Accounts Overview
+    emitLog(port, `> [BML] Step 5: Loading Accounts Overview...`);
+    await fetch(`${BASE_URL}/vf/accounts/overview`, {
+      headers: {
+        'X-Inertia': 'true',
+        'X-XSRF-TOKEN': xsrfToken,
+        'Referer': `${BASE_URL}/web/redirect`,
+        'User-Agent': USER_AGENT
+      }
+    });
+
+    // Get Dashboard to find internal Account ID
+    const dashboardRes = await fetch(`${BASE_URL}/api/dashboard`, {
+      headers: {
+        'Accept': 'application/json, text/plain, */*',
+        'Authorization': 'Bearer',
+        'X-XSRF-TOKEN': xsrfToken,
+        'Referer': `${BASE_URL}/vf/accounts/overview`,
+        'User-Agent': USER_AGENT
+      }
+    });
+
+    if (!dashboardRes.ok) throw new Error(`Dashboard retrieval failed: HTTP ${dashboardRes.status}`);
+    const dashboardData = await dashboardRes.json();
+    
+    // Find matching account ID based on the account number
+    const accounts = dashboardData.accounts || [];
+    let bmlAccountId = null;
+    
+    for (const acc of accounts) {
+       if (acc.account_number === targetAccount || acc.id === targetAccount) {
+         bmlAccountId = acc.id;
+         break;
+       }
+    }
+    
+    if (!bmlAccountId) {
+       // fallback if not found directly
+       bmlAccountId = accounts.length > 0 ? accounts[0].id : targetAccount;
+       emitLog(port, `> [BML] Warning: Could not explicitly map account ${targetAccount}. Using fallback ${bmlAccountId}`);
+    }
+
+    // 6. Perform the History Scrape
+    emitLog(port, `> [BML] Step 6: Scraping recent transaction history...`);
+    const historyUrl = `${BASE_URL}/api/account/${bmlAccountId}/history/today`;
     const histRes = await fetch(historyUrl, {
       method: 'GET',
-      headers: { 'Accept': 'application/json, text/plain, */*' }
+      headers: { 
+        'Accept': 'application/json, text/plain, */*',
+        'Authorization': 'Bearer',
+        'X-XSRF-TOKEN': xsrfToken,
+        'Referer': `${BASE_URL}/vf/accounts/${bmlAccountId}`,
+        'User-Agent': USER_AGENT
+      }
     });
 
     if (!histRes.ok) throw new Error(`History Endpoint returned HTTP ${histRes.status}`);
 
     const histData = await histRes.json();
-    const history = histData.payload?.history || [];
+    // BML API transactions might be in .transactions or .payload.history
+    const history = histData.transactions || histData.payload?.history || [];
     const targetAmtNum = parseFloat(targetAmount);
 
     emitLog(port, `> [BML] Processing ${history.length} recent transactions...`);
 
+    let matchFound = null;
     for (const tx of history) {
-      // Assuming incoming transfers are positive, or match absolute value without minus flag
-      if (Math.abs(parseFloat(tx.amount) - targetAmtNum) < 0.01 && !tx.minus) {
+      const isCredit = tx.type === 'credit' || !tx.minus || parseFloat(tx.amount) > 0;
+      if (Math.abs(parseFloat(tx.amount) - targetAmtNum) < 0.01 && isCredit) {
         matchFound = tx;
         break;
       }
     }
-  } catch (err) {
-    emitLog(port, `> [BML] Error during scrape: ${err.message}`);
-  }
 
-  // 4. Force Sign Out (Crucial for stateless headless architecture)
-  emitLog(port, `> [BML] Step 4: Terminating Session (Zero-Trace)...`);
-  try {
-    await fetch('https://www.bankofmaldives.com.mv/internetbanking/logout', { method: 'POST' });
-    emitLog(port, `> [BML] Session destroyed.`);
-  } catch (e) {
-    emitLog(port, `> [BML] Warning: Background logout request failed.`);
-  }
+    // 7. Force Sign Out
+    emitLog(port, `> [BML] Step 7: Terminating Session (Zero-Trace)...`);
+    try {
+      await fetch(`${BASE_URL}/logout`, { method: 'POST' });
+      emitLog(port, `> [BML] Session destroyed.`);
+    } catch (e) {
+      emitLog(port, `> [BML] Warning: Background logout request failed.`);
+    }
 
-  // 5. Return Results
-  if (matchFound) {
-    emitLog(port, `> [Viri Bridge] EXACT MATCH: Ref ${matchFound.reference} at ${matchFound.narrative1 || matchFound.bookingDate}`);
-    port.postMessage({
-      type: 'success',
-      data: {
-        status: 'CREDITED',
-        reference: matchFound.reference,
-        amount: Math.abs(matchFound.amount).toFixed(2),
-        timestamp: matchFound.bookingDate
-      }
-    });
-  } else {
-    emitLog(port, `> [Viri Bridge] No exact match found for MVR ${targetAmount}.`);
-    port.postMessage({ type: 'error', error: `Transfer of MVR ${targetAmount} not found.` });
+    // 8. Return Results
+    if (matchFound) {
+      emitLog(port, `> [Viri Bridge] EXACT MATCH: Ref ${matchFound.reference || matchFound.id} at ${matchFound.date || matchFound.bookingDate}`);
+      port.postMessage({
+        type: 'success',
+        data: {
+          status: 'CREDITED',
+          reference: matchFound.reference || matchFound.id || "BML-MATCH",
+          amount: Math.abs(matchFound.amount).toFixed(2),
+          timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString()
+        }
+      });
+    } else {
+      emitLog(port, `> [Viri Bridge] No exact match found for MVR ${targetAmount}.`);
+      port.postMessage({ type: 'error', error: `Transfer of MVR ${targetAmount} not found.` });
+    }
+
+  } catch (error) {
+    emitLog(port, `> [BML] FATAL ERROR: ${error.message}`);
+    // Attempt logout on error just in case
+    try { await fetch(`${BASE_URL}/logout`, { method: 'POST' }); } catch (e) {}
+    throw error; // Let the caller catch it and send error postMessage
   }
 }
 
