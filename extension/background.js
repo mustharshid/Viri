@@ -138,6 +138,48 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
   emitLog(port, `> [TESTING] LIVE OTP CODE: ${currentOtp}`);
   // -------------------------------------------------------------
 
+  // -- Helper: Follow Inertia 409 redirect chain (matching Python _handle_inertia_response) --
+  async function handleInertiaRedirects(response, maxRedirects = 5) {
+    let redirectCount = 0;
+    let currentRes = response;
+    while (currentRes.status === 409 && redirectCount < maxRedirects) {
+      const redirectUrl = currentRes.headers.get('X-Inertia-Location');
+      if (!redirectUrl) {
+        emitLog(port, `> [BML] Warning: 409 without X-Inertia-Location header`);
+        break;
+      }
+      redirectCount++;
+      const fullUrl = redirectUrl.startsWith('http') ? redirectUrl : `${BASE_URL}${redirectUrl}`;
+      emitLog(port, `> [BML] Following Inertia redirect #${redirectCount} to: ${fullUrl}`);
+      xsrfToken = await getXsrfToken() || xsrfToken;
+      currentRes = await loggedFetch(fullUrl, {
+        headers: {
+          'X-Inertia': 'true',
+          'X-XSRF-TOKEN': xsrfToken,
+          'Accept': 'text/html, application/xhtml+xml',
+          'User-Agent': USER_AGENT
+        }
+      });
+      xsrfToken = await getXsrfToken() || xsrfToken;
+      if (currentRes.status === 200) break;
+    }
+    return currentRes;
+  }
+
+  // -- Helper: Get fresh XSRF token from a page (matching Python _get_fresh_xsrf_token) --
+  async function getFreshXsrfToken(path) {
+    emitLog(port, `> [BML] Refreshing XSRF token from ${path}...`);
+    await loggedFetch(`${BASE_URL}${path}`, {
+      headers: {
+        'User-Agent': USER_AGENT,
+        'X-Inertia': 'true'
+      }
+    });
+    const fresh = await getXsrfToken();
+    if (fresh) xsrfToken = fresh;
+    return xsrfToken;
+  }
+
   try {
     // 1. Initialize Session
     emitLog(port, `> [BML] Step 1: Initializing session to get XSRF token...`);
@@ -168,25 +210,20 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     });
     
     if (loginRes.status === 409) {
-      const redirectUrl = loginRes.headers.get('X-Inertia-Location');
-      emitLog(port, `> [BML] Primary login returned 409 Redirect to ${redirectUrl}. Proceeding to MFA...`);
-      if (redirectUrl) {
-         await loggedFetch(redirectUrl, {
-           headers: { 'Accept': 'text/html, application/xhtml+xml', 'User-Agent': USER_AGENT }
-         });
-      }
+      emitLog(port, `> [BML] Login returned 409. Following Inertia redirects...`);
+      await handleInertiaRedirects(loginRes);
     } else if (!loginRes.ok) {
       throw new Error(`HTTP ${loginRes.status} on login POST.`);
     } else {
-      emitLog(port, `> [BML] Primary login complete (HTTP ${loginRes.status}). Proceeding to MFA...`);
+      emitLog(port, `> [BML] Primary login complete (HTTP ${loginRes.status}).`);
     }
 
-    // 3. Generate and Submit TOTP
+    // 3. Get fresh XSRF token from 2FA page, then submit TOTP
     emitLog(port, `> [BML] Step 3: Submitting TOTP code...`);
-    xsrfToken = await getXsrfToken() || xsrfToken;
+    await getFreshXsrfToken('/web/login/2fa');
 
-    // Use the already generated OTP
     const otpCode = await generateTOTP(credentials.totpSeed);
+    emitLog(port, `> [TESTING] Submitting OTP: ${otpCode}`);
 
     const mfaRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
       method: 'POST',
@@ -199,58 +236,60 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
         'Referer': `${BASE_URL}/web/login/2fa`,
         'User-Agent': USER_AGENT
       },
-      body: JSON.stringify({ otp: otpCode, channel: 'authenticator' })
+      body: JSON.stringify({ otp: otpCode })
     });
     
     if (mfaRes.status === 409) {
-      const redirectUrl = mfaRes.headers.get('X-Inertia-Location');
-      emitLog(port, `> [BML] MFA returned 409 Redirect to ${redirectUrl}. Processing profiles...`);
-      if (redirectUrl) {
-         await loggedFetch(redirectUrl, {
-           headers: { 'Accept': 'text/html, application/xhtml+xml', 'User-Agent': USER_AGENT }
-         });
+      const mfaRedirectUrl = mfaRes.headers.get('X-Inertia-Location');
+      emitLog(port, `> [BML] MFA returned 409 Redirect to ${mfaRedirectUrl}.`);
+      
+      // Check if it redirects to profile (success) or back to 2fa (failure)
+      if (mfaRedirectUrl && mfaRedirectUrl.includes('/web/login/2fa')) {
+        // The server bounced us back to 2FA. This COULD be a session sync issue.
+        // Follow the redirect chain like the Python code does.
+        emitLog(port, `> [BML] MFA redirect is back to 2FA page. Following redirect chain...`);
+        const mfaFinal = await handleInertiaRedirects(mfaRes);
+        emitLog(port, `> [BML] MFA redirect chain ended at HTTP ${mfaFinal.status}`);
+      } else if (mfaRedirectUrl) {
+        // Redirects somewhere else (e.g. /web/profile) - this is success!
+        emitLog(port, `> [BML] MFA accepted! Following redirect to ${mfaRedirectUrl}...`);
+        await handleInertiaRedirects(mfaRes);
       }
+    } else if (mfaRes.status === 200) {
+      // HTTP 200 means the server re-rendered the 2FA form (OTP rejected)
+      const mfaBody = await mfaRes.clone().text();
+      emitLog(port, `> [BML] WARNING: MFA returned HTTP 200 (OTP likely rejected). Response: ${mfaBody.substring(0, 300).replace(/\n/g, ' ')}`);
+      throw new Error(`MFA failed: OTP was rejected by the server. HTTP 200 re-render.`);
     } else {
-      throw new Error(`MFA failed. Server did not redirect. HTTP ${mfaRes.status}`);
+      throw new Error(`MFA failed with unexpected HTTP ${mfaRes.status}`);
     }
 
     // 4. Fetch and Select Profile
-    // If MFA was successful, the previous hard load of the redirect URL has already updated the session.
-    // If the redirect was to /web/profile, we ALREADY have the HTML from that hard load!
-    // But to be safe, we can fetch it again as a hard load if needed, or just let it fall through.
-    // Actually, let's just fetch /web/profile directly as a hard load if it wasn't the redirect URL.
     emitLog(port, `> [BML] Step 4: Fetching Profiles...`);
-    xsrfToken = await getXsrfToken() || xsrfToken;
+    await getFreshXsrfToken('/web/profile');
+    
     let profileRes = await loggedFetch(`${BASE_URL}/web/profile`, {
       headers: {
         'Accept': 'text/html, application/xhtml+xml',
+        'X-Inertia': 'true',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-XSRF-TOKEN': xsrfToken,
+        'Referer': `${BASE_URL}/web/login/2fa`,
         'User-Agent': USER_AGENT
       }
     });
 
     if (profileRes.status === 409) {
-      const redirectUrl = profileRes.headers.get('X-Inertia-Location');
-      if (redirectUrl && redirectUrl.includes('/web/redirect')) {
-         emitLog(port, `> [BML] Single profile detected. Following redirect to: ${redirectUrl}`);
-         profileRes = await loggedFetch(redirectUrl, {
-           headers: { 'Accept': 'text/html, application/xhtml+xml', 'User-Agent': USER_AGENT }
-         });
-      } else if (redirectUrl) {
-         emitLog(port, `> [BML] Following profile list redirect to: ${redirectUrl}`);
-         profileRes = await loggedFetch(redirectUrl, {
-           headers: { 'Accept': 'text/html, application/xhtml+xml', 'User-Agent': USER_AGENT }
-         });
-      }
+      emitLog(port, `> [BML] Profile page returned 409. Following Inertia redirects...`);
+      profileRes = await handleInertiaRedirects(profileRes);
     }
 
-    const responseText = await profileRes.text();
-    // Dump response snippet for debugging
+    const responseText = await profileRes.clone().text();
     emitLog(port, `> [TESTING] Profile Response Snippet: ${responseText.substring(0, 800).replace(/\n/g, '')}...`);
 
     let profiles = [];
     
     try {
-      // First try direct JSON parsing (if server returned JSON)
       const profileData = JSON.parse(responseText);
       profiles = profileData.props?.profiles || [];
     } catch (err) {
@@ -262,7 +301,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
            const pageData = JSON.parse(decoded);
            profiles = pageData.props?.profiles || [];
            if (profiles.length > 0) {
-             emitLog(port, `> [BML] Successfully extracted profiles from Inertia HTML data-page attribute.`);
+             emitLog(port, `> [BML] Extracted ${profiles.length} profile(s) from Inertia data-page attribute.`);
            }
          } catch(e) {
            emitLog(port, `> [BML] Error parsing data-page JSON: ${e.message}`);
@@ -270,7 +309,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
       }
       
       if (profiles.length === 0) {
-        emitLog(port, `> [BML] Notice: Profiles response is HTML and data-page extraction failed, falling back to regex...`);
+        emitLog(port, `> [BML] Notice: Profiles response is HTML, falling back to regex...`);
       }
     }
 
@@ -295,7 +334,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     if (profiles.length > 0) {
        const selectedProfile = profiles[0];
        emitLog(port, `> [BML] Selected Profile: ${selectedProfile.id}`);
-       xsrfToken = await getXsrfToken() || xsrfToken;
+       await getFreshXsrfToken('/web/profile');
        
        let selectProfileRes = await loggedFetch(`${BASE_URL}/web/profile/${selectedProfile.id}`, {
          method: 'GET',
@@ -309,19 +348,9 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
          }
        });
 
-       // This is the CRITICAL redirect that sets up the session!
        if (selectProfileRes.status === 409) {
-          const redirectUrl = selectProfileRes.headers.get('X-Inertia-Location');
-          emitLog(port, `> [BML] Profile selection returned 409 Redirect to ${redirectUrl}. Following...`);
-          if (redirectUrl) {
-            // Notice: completely standard hard load!
-            await loggedFetch(redirectUrl, {
-              headers: { 
-                'Accept': 'text/html, application/xhtml+xml', 
-                'User-Agent': USER_AGENT 
-              }
-            });
-          }
+          emitLog(port, `> [BML] Profile selection returned 409. Following redirects...`);
+          await handleInertiaRedirects(selectProfileRes);
        } else if (!selectProfileRes.ok) {
           throw new Error(`Profile selection failed: HTTP ${selectProfileRes.status}`);
        }
@@ -332,29 +361,26 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     // Add 1 second delay to give server time to establish session
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Then hit accounts overview (must be standard page load like HAR)
+    // 5. Navigate to accounts overview  
     emitLog(port, `> [BML] Step 5: Loading Accounts Overview...`);
+    await getFreshXsrfToken('/vf/accounts/overview');
+
     const accountsOverviewRes = await loggedFetch(`${BASE_URL}/vf/accounts/overview`, {
       headers: {
+        'X-Inertia': 'true',
+        'X-XSRF-TOKEN': xsrfToken,
         'Referer': `${BASE_URL}/web/redirect`,
         'Accept': 'text/html, application/xhtml+xml',
-        'Upgrade-Insecure-Requests': '1',
         'User-Agent': USER_AGENT
       }
     });
     
     if (accountsOverviewRes.status === 409) {
-       const redirectUrl3 = accountsOverviewRes.headers.get('X-Inertia-Location');
-       if (redirectUrl3) {
-          emitLog(port, `> [BML] Accounts overview returned 409. Following...`);
-          await loggedFetch(redirectUrl3, {
-            headers: { 
-              'Accept': 'text/html, application/xhtml+xml', 
-              'User-Agent': USER_AGENT 
-            }
-          });
-       }
+       emitLog(port, `> [BML] Accounts overview returned 409. Following redirects...`);
+       await handleInertiaRedirects(accountsOverviewRes);
     }
+
+    xsrfToken = await getXsrfToken() || xsrfToken;
 
     // 6. Fetch Dashboard
     emitLog(port, `> [BML] Step 6: Loading Dashboard...`);
@@ -362,6 +388,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     const dashboardRes = await loggedFetch(`${BASE_URL}/api/dashboard`, {
       headers: {
         'Accept': 'application/json, text/plain, */*',
+        'Authorization': 'Bearer',
         'X-XSRF-TOKEN': xsrfToken,
         'Referer': `${BASE_URL}/vf/accounts/overview`,
         'User-Agent': USER_AGENT
