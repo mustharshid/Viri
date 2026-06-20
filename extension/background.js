@@ -13,6 +13,21 @@ function emitLog(port, msg) {
   }
 }
 
+async function saveScrap(stepName, content) {
+  try {
+    await fetch('http://localhost:9999/save', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain',
+        'X-Step-Name': stepName
+      },
+      body: content
+    });
+  } catch (err) {
+    console.log('Scrap server not running or failed to save scrap', err);
+  }
+}
+
 // Global active port
 let activePort = null;
 
@@ -20,7 +35,7 @@ chrome.runtime.onConnectExternal.addListener((port) => {
   console.log("[Viri Bridge] PWA Connected via Port:", port.name);
   if (port.name === "viri-verify" || port.name === "bml-auth") {
     activePort = port;
-    
+
     port.onMessage.addListener(async (msg) => {
       // Handle the new frontend structure
       if (msg.action === 'VERIFY_TRANSFER') {
@@ -61,7 +76,7 @@ async function loggedFetch(url, options = {}) {
   emitLog(port, `> [BML] Request: ${method} ${url}${bodyLog}`);
 
   options.credentials = 'include';
-  
+
   try {
     const res = await fetch(url, options);
     emitLog(port, `> [BML] Response: HTTP ${res.status} from ${url}`);
@@ -83,28 +98,28 @@ async function generateTOTP(secret) {
   }
   const hex = bits.match(/.{1,8}/g).map(b => parseInt(b, 2).toString(16).padStart(2, '0')).join('');
   const keyBytes = new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-  
+
   const epoch = Math.floor(Date.now() / 1000);
   const time = Math.floor(epoch / 30);
-  
+
   const timeBuffer = new ArrayBuffer(8);
   const timeView = new DataView(timeBuffer);
   timeView.setUint32(4, time, false);
-  
+
   const cryptoKey = await crypto.subtle.importKey(
     'raw', keyBytes, { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']
   );
-  
+
   const signature = await crypto.subtle.sign('HMAC', cryptoKey, timeBuffer);
   const hmacArray = new Uint8Array(signature);
-  
+
   const offset = hmacArray[hmacArray.length - 1] & 0xf;
   const binary =
     ((hmacArray[offset] & 0x7f) << 24) |
     ((hmacArray[offset + 1] & 0xff) << 16) |
     ((hmacArray[offset + 2] & 0xff) << 8) |
     (hmacArray[offset + 3] & 0xff);
-  
+
   const otp = (binary % 1000000).toString().padStart(6, '0');
   return otp;
 }
@@ -146,7 +161,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
       redirectCount++;
       const fullUrl = redirectUrl.startsWith('http') ? redirectUrl : `${BASE_URL}${redirectUrl}`;
       emitLog(port, `> [BML] Following Inertia redirect #${redirectCount} to: ${fullUrl}`);
-      
+
       // CRITICAL: Must include X-Requested-With for Laravel to process X-Inertia correctly
       let token = await getXsrfToken();
       currentRes = await loggedFetch(fullUrl, {
@@ -196,7 +211,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     await loggedFetch(`${BASE_URL}/web/login`, {
       headers: { 'Accept': 'text/html, application/xhtml+xml', 'User-Agent': USER_AGENT }
     });
-    
+
     let xsrfToken = await getXsrfToken();
     if (!xsrfToken) throw new Error("Failed to extract initial XSRF token");
 
@@ -220,15 +235,18 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
         password: credentials.password
       })
     });
-    
+
     if (loginRes.status === 409) {
       emitLog(port, `> [BML] Login returned 409. Following Inertia redirects...`);
       await handleInertiaRedirects(loginRes);
     } else if (loginRes.status === 200) {
       const loginBody = await loginRes.clone().text();
+      await saveScrap('login_failed_200', loginBody);
       emitLog(port, `> [BML] WARNING: Login returned HTTP 200. Response: ${loginBody.substring(0, 300).replace(/\n/g, ' ')}`);
       throw new Error(`Login failed: Invalid credentials or server rejected login. HTTP 200 re-render.`);
     } else if (!loginRes.ok) {
+      const loginBody = await loginRes.clone().text();
+      await saveScrap(`login_failed_${loginRes.status}`, loginBody);
       throw new Error(`HTTP ${loginRes.status} on login POST.`);
     }
 
@@ -254,16 +272,19 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
       },
       body: JSON.stringify({ otp: otpCode })
     });
-    
+
     if (mfaRes.status === 409) {
       const mfaRedirectUrl = mfaRes.headers.get('X-Inertia-Location');
       emitLog(port, `> [BML] MFA returned 409 Redirect to ${mfaRedirectUrl}.`);
       await handleInertiaRedirects(mfaRes);
     } else if (mfaRes.status === 200) {
       const mfaBody = await mfaRes.clone().text();
+      await saveScrap('mfa_failed_200', mfaBody);
       emitLog(port, `> [BML] WARNING: MFA returned HTTP 200. Response: ${mfaBody.substring(0, 300).replace(/\n/g, ' ')}`);
       throw new Error(`MFA failed: Server re-rendered 2FA form.`);
     } else {
+      const mfaBody = await mfaRes.clone().text();
+      await saveScrap(`mfa_failed_${mfaRes.status}`, mfaBody);
       throw new Error(`MFA failed with HTTP ${mfaRes.status}`);
     }
 
@@ -272,7 +293,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     // ═══════════════════════════════════════════════════════════════
     emitLog(port, `> [BML] Step 4: Fetching Profiles...`);
     xsrfToken = await getFreshXsrfToken('/web/profile');
-    
+
     let profileRes = await loggedFetch(`${BASE_URL}/web/profile`, {
       headers: {
         'Accept': 'text/html, application/xhtml+xml',
@@ -291,59 +312,59 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
 
     const responseText = await profileRes.clone().text();
     let profiles = [];
-    
+
     try {
       const profileData = JSON.parse(responseText);
       profiles = profileData.props?.profiles || [];
     } catch (err) {
       const dataPageMatch = /data-page=(['"])(.*?)\1/.exec(responseText);
       if (dataPageMatch) {
-         try {
-           const decoded = dataPageMatch[2].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-           const pageData = JSON.parse(decoded);
-           profiles = pageData.props?.profiles || [];
-         } catch(e) {}
+        try {
+          const decoded = dataPageMatch[2].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+          const pageData = JSON.parse(decoded);
+          profiles = pageData.props?.profiles || [];
+        } catch (e) { }
       }
       if (profiles.length === 0) {
-         const patterns = [
-           /\/internetbanking\/web\/profile\/([a-fA-F0-9\-]{36})/gi,
-           /"profileId":\s*"([a-fA-F0-9\-]{36})"/gi,
-           /data-profile-id="([a-fA-F0-9\-]{36})"/gi
-         ];
-         const uniqueIds = new Set();
-         for (const pattern of patterns) {
-             let match;
-             while ((match = pattern.exec(responseText)) !== null) { uniqueIds.add(match[1]); }
-         }
-         profiles = Array.from(uniqueIds).map(id => ({ id, name: id }));
+        const patterns = [
+          /\/internetbanking\/web\/profile\/([a-fA-F0-9\-]{36})/gi,
+          /"profileId":\s*"([a-fA-F0-9\-]{36})"/gi,
+          /data-profile-id="([a-fA-F0-9\-]{36})"/gi
+        ];
+        const uniqueIds = new Set();
+        for (const pattern of patterns) {
+          let match;
+          while ((match = pattern.exec(responseText)) !== null) { uniqueIds.add(match[1]); }
+        }
+        profiles = Array.from(uniqueIds).map(id => ({ id, name: id }));
       }
     }
 
     if (profiles.length > 0) {
-       const selectedProfile = profiles[0];
-       emitLog(port, `> [BML] Selected Profile: ${selectedProfile.id}`);
-       xsrfToken = await getFreshXsrfToken('/web/profile');
-       
-       let selectProfileRes = await loggedFetch(`${BASE_URL}/web/profile/${selectedProfile.id}`, {
-         method: 'GET',
-         headers: {
-           'Accept': 'text/html, application/xhtml+xml',
-           'X-Inertia': 'true',
-           'X-Requested-With': 'XMLHttpRequest',
-           'X-XSRF-TOKEN': xsrfToken,
-           'Referer': `${BASE_URL}/web/profile`,
-           'User-Agent': USER_AGENT
-         }
-       });
+      const selectedProfile = profiles[0];
+      emitLog(port, `> [BML] Selected Profile: ${selectedProfile.id}`);
+      xsrfToken = await getFreshXsrfToken('/web/profile');
 
-       if (selectProfileRes.status === 409) {
-          emitLog(port, `> [BML] Profile selection returned 409. Following redirects...`);
-          await handleInertiaRedirects(selectProfileRes);
-       } else if (!selectProfileRes.ok) {
-          throw new Error(`Profile selection failed: HTTP ${selectProfileRes.status}`);
-       }
+      let selectProfileRes = await loggedFetch(`${BASE_URL}/web/profile/${selectedProfile.id}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'text/html, application/xhtml+xml',
+          'X-Inertia': 'true',
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-XSRF-TOKEN': xsrfToken,
+          'Referer': `${BASE_URL}/web/profile`,
+          'User-Agent': USER_AGENT
+        }
+      });
+
+      if (selectProfileRes.status === 409) {
+        emitLog(port, `> [BML] Profile selection returned 409. Following redirects...`);
+        await handleInertiaRedirects(selectProfileRes);
+      } else if (!selectProfileRes.ok) {
+        throw new Error(`Profile selection failed: HTTP ${selectProfileRes.status}`);
+      }
     } else {
-       emitLog(port, `> [BML] No profiles found. Proceeding with single-profile assumption...`);
+      emitLog(port, `> [BML] No profiles found. Proceeding with single-profile assumption...`);
     }
 
     // Add delay to let backend sync
@@ -365,10 +386,10 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
         'User-Agent': USER_AGENT
       }
     });
-    
+
     if (accountsOverviewRes.status === 409) {
-       emitLog(port, `> [BML] Accounts overview returned 409. Following redirects...`);
-       await handleInertiaRedirects(accountsOverviewRes);
+      emitLog(port, `> [BML] Accounts overview returned 409. Following redirects...`);
+      await handleInertiaRedirects(accountsOverviewRes);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -417,7 +438,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     if (!bmlAccountId) {
       bmlAccountId = targetAccount;
     }
-    
+
     emitLog(port, `> [BML] 💰 Balance for ${targetAccount}: ${balance} MVR`);
 
     // ═══════════════════════════════════════════════════════════════
