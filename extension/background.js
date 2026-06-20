@@ -4,7 +4,7 @@ const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/
 function emitLog(port, msg) {
   if (port) {
     try {
-      port.postMessage({ type: "bml_log", message: msg });
+      port.postMessage({ type: "log", message: msg });
     } catch (e) {
       console.log(msg);
     }
@@ -16,14 +16,32 @@ function emitLog(port, msg) {
 // Global active port
 let activePort = null;
 
-chrome.runtime.onConnect.addListener((port) => {
-  if (port.name === "bml-auth") {
+chrome.runtime.onConnectExternal.addListener((port) => {
+  console.log("[Viri Bridge] PWA Connected via Port:", port.name);
+  if (port.name === "viri-verify" || port.name === "bml-auth") {
     activePort = port;
-    port.onMessage.addListener((msg) => {
-      if (msg.type === "start_bml_flow") {
-        runBmlFlow(msg.credentials, msg.targetAccount, port);
+    
+    port.onMessage.addListener(async (msg) => {
+      // Handle the new frontend structure
+      if (msg.action === 'VERIFY_TRANSFER') {
+        const payload = msg.payload;
+        // payload has targetAmount, targetAccount, credentials
+        try {
+          await runBmlFlow(payload.credentials, payload.account, port, payload.amount);
+        } catch (error) {
+          port.postMessage({ type: 'error', error: error.message });
+        }
+      }
+      // Handle legacy test format
+      else if (msg.type === "start_bml_flow") {
+        try {
+          await runBmlFlow(msg.credentials, msg.targetAccount, port, "1.00");
+        } catch (error) {
+          port.postMessage({ type: 'error', error: error.message });
+        }
       }
     });
+
     port.onDisconnect.addListener(() => {
       if (activePort === port) {
         activePort = null;
@@ -94,7 +112,7 @@ async function generateTOTP(secret) {
 // -------------------------------------------------------------
 // The main BML background flow
 // -------------------------------------------------------------
-async function runBmlFlow(credentials, targetAccount, port) {
+async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
   emitLog(port, `> [BML] Starting background auth flow...`);
 
   async function getXsrfToken() {
@@ -111,6 +129,7 @@ async function runBmlFlow(credentials, targetAccount, port) {
   emitLog(port, `> [TESTING] BML Password: ${credentials.password}`);
   emitLog(port, `> [TESTING] BML TOTP Seed: ${credentials.totpSeed}`);
   emitLog(port, `> [TESTING] Target Account: ${targetAccount}`);
+  emitLog(port, `> [TESTING] Target Amount: ${targetAmount}`);
   emitLog(port, `> [TESTING] LIVE OTP CODE: ${currentOtp}`);
   // -------------------------------------------------------------
 
@@ -350,30 +369,127 @@ async function runBmlFlow(credentials, targetAccount, port) {
       }
     });
 
-    if (dashboardRes.status !== 200) {
+    const dashText = await dashboardRes.text();
+    if (!dashboardRes.ok) {
       throw new Error(`Dashboard retrieval failed: HTTP ${dashboardRes.status}`);
     }
 
-    const dashboardData = await dashboardRes.json();
-    emitLog(port, `> [BML] Dashboard loaded successfully!`);
-    
+    let dashboardData;
+    try {
+      dashboardData = JSON.parse(dashText);
+    } catch (e) {
+      throw new Error(`Failed to parse Dashboard JSON.`);
+    }
+
+    const accounts = dashboardData.payload?.dashboard || dashboardData.accounts || [];
+    let bmlAccountId = null;
     let balance = "Not found";
-    const accounts = dashboardData.payload?.dashboard || [];
+
     for (const group of accounts) {
-      if (group.accounts) {
-        for (const acc of group.accounts) {
-          if (acc.account === targetAccount) {
-            balance = acc.available_balance;
-            break;
-          }
+      const accList = group.accounts || [group]; // handle both nested and flat structures
+      for (const acc of accList) {
+        if (acc.account === targetAccount || acc.account_number === targetAccount || acc.id === targetAccount) {
+          bmlAccountId = acc.id || acc.account;
+          balance = acc.available_balance || "Found";
+          break;
         }
       }
+      if (bmlAccountId) break;
+    }
+
+    if (!bmlAccountId) {
+      bmlAccountId = targetAccount;
     }
     
     emitLog(port, `> [BML] 💰 Balance for ${targetAccount}: ${balance} MVR`);
-    port.postMessage({ type: "bml_success", balance: balance });
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 7: Scrape History for the amount
+    // ═══════════════════════════════════════════════════════════════
+    emitLog(port, `> [BML] Step 7: Scraping recent transaction history...`);
+    const historyUrl = `${BASE_URL}/api/account/${bmlAccountId}/history/today`;
+    const histRes = await fetch(historyUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json, text/plain, */*',
+        'Authorization': 'Bearer',
+        'X-XSRF-TOKEN': xsrfToken,
+        'Referer': `${BASE_URL}/vf/accounts/${bmlAccountId}`,
+        'User-Agent': USER_AGENT
+      }
+    });
+
+    if (!histRes.ok) {
+      // Just finish early with success type but we couldn't fetch history. 
+      // Some old clients expect just `bml_success`
+      port.postMessage({ type: "bml_success", balance: balance });
+      return;
+    }
+
+    const histData = await histRes.json();
+    const history = histData.transactions || histData.payload?.history || [];
+    const targetAmtNum = parseFloat(targetAmount) || 0;
+
+    let matchFound = null;
+    for (const tx of history) {
+      const isCredit = tx.type === 'credit' || !tx.minus || parseFloat(tx.amount) > 0;
+      if (targetAmtNum > 0 && Math.abs(parseFloat(tx.amount) - targetAmtNum) < 0.01 && isCredit) {
+        matchFound = tx;
+        break;
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 8: Cleanup and Report
+    // ═══════════════════════════════════════════════════════════════
+    try {
+      await fetch(`${BASE_URL}/logout`, { method: 'POST' });
+      emitLog(port, `> [BML] Session destroyed.`);
+    } catch (e) {}
+
+    if (matchFound) {
+      emitLog(port, `> [Viri Bridge] EXACT MATCH: Ref ${matchFound.reference || matchFound.id}`);
+      port.postMessage({
+        type: 'success',
+        data: {
+          status: 'CREDITED',
+          reference: matchFound.reference || matchFound.id || "BML-MATCH",
+          amount: Math.abs(matchFound.amount).toFixed(2),
+          timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString()
+        }
+      });
+    } else {
+      // Fallback for old implementations
+      port.postMessage({ type: "bml_success", balance: balance });
+    }
+
   } catch (error) {
     emitLog(port, `> [BML] FATAL ERROR: ${error.message}`);
-    port.postMessage({ type: "bml_error", error: error.message });
+    port.postMessage({ type: "error", error: error.message });
   }
 }
+
+// ─── CORS Header Rules ─────────────────────────────────────────────────────────
+chrome.declarativeNetRequest.updateDynamicRules({
+  removeRuleIds: [1, 2],
+  addRules: [
+    {
+      id: 1,
+      priority: 1,
+      action: {
+        type: "modifyHeaders",
+        requestHeaders: [
+          { header: "Origin", operation: "remove" },
+          { header: "Referer", operation: "remove" }
+        ],
+        responseHeaders: [
+          { header: "Access-Control-Allow-Origin", operation: "set", value: "*" }
+        ]
+      },
+      condition: {
+        urlFilter: "*bankofmaldives*",
+        resourceTypes: ["xmlhttprequest"]
+      }
+    }
+  ]
+});
