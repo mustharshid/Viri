@@ -251,21 +251,43 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     }
 
     const responseText = await profileRes.text();
+    // Dump response snippet for debugging
+    emitLog(port, `> [TESTING] Profile Response Snippet: ${responseText.substring(0, 800).replace(/\n/g, '')}...`);
+
     let profiles = [];
     
     try {
+      // First try direct JSON parsing (if server returned JSON)
       const profileData = JSON.parse(responseText);
       profiles = profileData.props?.profiles || [];
     } catch (err) {
-      emitLog(port, `> [BML] Notice: Profiles response is HTML, falling back to regex extraction...`);
+      // It's HTML, try to extract Inertia data-page attribute
+      const dataPageMatch = /data-page=(['"])(.*?)\1/.exec(responseText);
+      if (dataPageMatch) {
+         try {
+           const decoded = dataPageMatch[2].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+           const pageData = JSON.parse(decoded);
+           profiles = pageData.props?.profiles || [];
+           if (profiles.length > 0) {
+             emitLog(port, `> [BML] Successfully extracted profiles from Inertia HTML data-page attribute.`);
+           }
+         } catch(e) {
+           emitLog(port, `> [BML] Error parsing data-page JSON: ${e.message}`);
+         }
+      }
+      
+      if (profiles.length === 0) {
+        emitLog(port, `> [BML] Notice: Profiles response is HTML and data-page extraction failed, falling back to regex...`);
+      }
     }
 
     if (profiles.length === 0) {
        const patterns = [
-         /\/internetbanking\/web\/profile\/([a-fA-F0-9\-]+)/gi,
-         /"profileId":\s*"([a-fA-F0-9\-]+)"/gi,
-         /profileId:\s*'([a-fA-F0-9\-]+)'/gi,
-         /data-profile-id="([a-fA-F0-9\-]+)"/gi
+         /\/internetbanking\/web\/profile\/([a-fA-F0-9\-]{36})/gi,
+         /"profileId":\s*"([a-fA-F0-9\-]{36})"/gi,
+         /profileId:\s*'([a-fA-F0-9\-]{36})'/gi,
+         /data-profile-id="([a-fA-F0-9\-]{36})"/gi,
+         /profile(?:Id|Id&quot;|Id\\"|Id%22|Id%27)[^a-zA-Z0-9]*([a-fA-F0-9]{36})/gi
        ];
        const uniqueIds = new Set();
        for (const pattern of patterns) {
@@ -350,41 +372,33 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
        }
     }
 
-    xsrfToken = await getXsrfToken() || xsrfToken;
-
-    // 6. Get Dashboard to find internal Account ID
+    // 6. Fetch Dashboard
     emitLog(port, `> [BML] Step 6: Loading Dashboard...`);
-
-    // Get Dashboard to find internal Account ID
+    xsrfToken = await getXsrfToken() || xsrfToken;
     const dashboardRes = await fetch(`${BASE_URL}/api/dashboard`, {
       headers: {
         'Accept': 'application/json, text/plain, */*',
-        'Authorization': 'Bearer',
         'X-XSRF-TOKEN': xsrfToken,
         'Referer': `${BASE_URL}/vf/accounts/overview`,
         'User-Agent': USER_AGENT
       }
     });
 
-    if (!dashboardRes.ok) throw new Error(`Dashboard retrieval failed: HTTP ${dashboardRes.status}`);
-    const dashboardData = await dashboardRes.json();
-    
-    // -- LOG RESPONSE FOR DEBUGGING --
-    emitLog(port, `> [TESTING] Dashboard Response Summary:`);
-    try {
-      const summaryStr = JSON.stringify(dashboardData).substring(0, 500);
-      emitLog(port, `> [TESTING] Data: ${summaryStr}${summaryStr.length === 500 ? '...' : ''}`);
-      if (dashboardData.accounts) {
-        emitLog(port, `> [TESTING] Parsed Accounts Count: ${dashboardData.accounts.length}`);
-      } else {
-        emitLog(port, `> [TESTING] Warning: 'accounts' array not found in response`);
-      }
-    } catch (e) {
-      emitLog(port, `> [TESTING] Could not stringify dashboard data`);
+    const dashText = await dashboardRes.text();
+    emitLog(port, `> [TESTING] Dashboard Response Summary: HTTP ${dashboardRes.status}`);
+    emitLog(port, `> [TESTING] Dashboard Response Payload: ${dashText.substring(0, 800).replace(/\n/g, '')}...`);
+
+    if (!dashboardRes.ok) {
+       throw new Error(`Dashboard retrieval failed: HTTP ${dashboardRes.status}. Server replied: ${dashText.substring(0, 200)}`);
     }
-    // --------------------------------
-    
-    // Find matching account ID based on the account number
+
+    let dashboardData;
+    try {
+       dashboardData = JSON.parse(dashText);
+    } catch (e) {
+       throw new Error(`Failed to parse Dashboard JSON. Response: ${dashText.substring(0, 200)}`);
+    }
+
     const accounts = dashboardData.accounts || [];
     let bmlAccountId = null;
     
