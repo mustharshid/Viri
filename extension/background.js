@@ -116,8 +116,10 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     try {
       const clone = res.clone();
       const text = await clone.text();
-      const snippet = text.length > 300 ? text.substring(0, 300).replace(/\n/g, ' ') + '...' : text.replace(/\n/g, ' ');
-      emitLog(port, `> [SERVER REPLY] ${method} ${url} -> HTTP ${res.status}: ${snippet}`);
+      const snippet = text.length > 2000 ? text.substring(0, 2000).replace(/\n/g, ' ') + '...' : text.replace(/\n/g, ' ');
+      const inertiaLoc = res.headers.get('X-Inertia-Location');
+      const locStr = inertiaLoc ? ` [Redirects to: ${inertiaLoc}]` : '';
+      emitLog(port, `> [SERVER REPLY] ${method} ${url} -> HTTP ${res.status}${locStr}: ${snippet}`);
     } catch(e) {}
     return res;
   };
@@ -212,10 +214,8 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
            headers: { 'X-Inertia': 'true', 'X-XSRF-TOKEN': xsrfToken, 'User-Agent': USER_AGENT }
          });
       }
-    } else if (!mfaRes.ok) {
-      throw new Error(`MFA failed with HTTP ${mfaRes.status}`);
     } else {
-      emitLog(port, `> [BML] Authentication Successful! Processing profiles...`);
+      throw new Error(`MFA failed. Server did not redirect. HTTP ${mfaRes.status}`);
     }
 
     // 4. Fetch and Select Profile (Mimicking the user click from HAR file)
