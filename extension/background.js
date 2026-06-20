@@ -207,7 +207,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
 
     // 4. Select Profile
     emitLog(port, `> [BML] Step 4: Fetching Profiles...`);
-    const profileRes = await fetch(`${BASE_URL}/web/profile`, {
+    let profileRes = await fetch(`${BASE_URL}/web/profile`, {
       headers: {
         'Accept': 'text/html, application/xhtml+xml',
         'X-Inertia': 'true',
@@ -217,6 +217,16 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
         'User-Agent': USER_AGENT
       }
     });
+
+    if (profileRes.status === 409) {
+      const redirectUrl = profileRes.headers.get('X-Inertia-Location');
+      emitLog(port, `> [BML] Profile list returned 409 Redirect to ${redirectUrl}. Following...`);
+      if (redirectUrl) {
+         profileRes = await fetch(redirectUrl, {
+           headers: { 'Accept': 'text/html, application/xhtml+xml', 'X-Inertia': 'true', 'X-Requested-With': 'XMLHttpRequest', 'X-XSRF-TOKEN': xsrfToken, 'User-Agent': USER_AGENT }
+         });
+      }
+    }
 
     if (!profileRes.ok) throw new Error(`Failed to fetch profiles: HTTP ${profileRes.status}`);
     const profileData = await profileRes.json();
