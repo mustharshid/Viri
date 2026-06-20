@@ -207,27 +207,27 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
       emitLog(port, `> [BML] Authentication Successful! Processing profiles...`);
     }
 
-    // 4. Establish Session (Mimicking browser redirect chain)
-    emitLog(port, `> [BML] Step 4: Establishing session (following redirects)...`);
+    // 4. Fetch and Select Profile (Mimicking the user click from HAR file)
+    emitLog(port, `> [BML] Step 4: Fetching Profiles...`);
     xsrfToken = await getXsrfToken() || xsrfToken;
-    
-    // First, hit /web/profile
-    let establishRes = await fetch(`${BASE_URL}/web/profile`, {
+    let profileRes = await fetch(`${BASE_URL}/web/profile`, {
       headers: {
         'Accept': 'text/html, application/xhtml+xml',
         'X-Inertia': 'true',
+        'X-Requested-With': 'XMLHttpRequest',
         'X-XSRF-TOKEN': xsrfToken,
         'Referer': `${BASE_URL}/web/login/2fa`,
         'User-Agent': USER_AGENT
       }
     });
 
-    if (establishRes.status === 409) {
-      const redirectUrl1 = establishRes.headers.get('X-Inertia-Location');
-      if (redirectUrl1) {
-         emitLog(port, `> [BML] Following profile redirect to: ${redirectUrl1}`);
+    if (profileRes.status === 409) {
+      const redirectUrl = profileRes.headers.get('X-Inertia-Location');
+      if (redirectUrl && redirectUrl.includes('/web/redirect')) {
+         // Single profile account automatically redirects
+         emitLog(port, `> [BML] Single profile detected. Following redirect to: ${redirectUrl}`);
          xsrfToken = await getXsrfToken() || xsrfToken;
-         establishRes = await fetch(redirectUrl1, {
+         profileRes = await fetch(redirectUrl, {
            headers: { 
              'Accept': 'text/html, application/xhtml+xml', 
              'X-Inertia': 'true', 
@@ -235,25 +235,88 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
              'User-Agent': USER_AGENT 
            }
          });
-         
-         if (establishRes.status === 409) {
-            const redirectUrl2 = establishRes.headers.get('X-Inertia-Location');
-            if (redirectUrl2) {
-               emitLog(port, `> [BML] Following second redirect to: ${redirectUrl2}`);
-               xsrfToken = await getXsrfToken() || xsrfToken;
-               establishRes = await fetch(redirectUrl2, {
-                 headers: { 
-                   'Accept': 'text/html, application/xhtml+xml', 
-                   'X-Inertia': 'true', 
-                   'X-XSRF-TOKEN': xsrfToken, 
-                   'User-Agent': USER_AGENT 
-                 }
-               });
-            }
-         }
+      } else if (redirectUrl) {
+         emitLog(port, `> [BML] Following profile list redirect to: ${redirectUrl}`);
+         xsrfToken = await getXsrfToken() || xsrfToken;
+         profileRes = await fetch(redirectUrl, {
+           headers: { 
+             'Accept': 'text/html, application/xhtml+xml', 
+             'X-Inertia': 'true', 
+             'X-Requested-With': 'XMLHttpRequest', 
+             'X-XSRF-TOKEN': xsrfToken, 
+             'User-Agent': USER_AGENT 
+           }
+         });
       }
     }
+
+    const responseText = await profileRes.text();
+    let profiles = [];
     
+    try {
+      const profileData = JSON.parse(responseText);
+      profiles = profileData.props?.profiles || [];
+    } catch (err) {
+      emitLog(port, `> [BML] Notice: Profiles response is HTML, falling back to regex extraction...`);
+    }
+
+    if (profiles.length === 0) {
+       const patterns = [
+         /\/internetbanking\/web\/profile\/([a-fA-F0-9\-]+)/gi,
+         /"profileId":\s*"([a-fA-F0-9\-]+)"/gi,
+         /profileId:\s*'([a-fA-F0-9\-]+)'/gi,
+         /data-profile-id="([a-fA-F0-9\-]+)"/gi
+       ];
+       const uniqueIds = new Set();
+       for (const pattern of patterns) {
+           let match;
+           while ((match = pattern.exec(responseText)) !== null) {
+               uniqueIds.add(match[1]);
+           }
+       }
+       profiles = Array.from(uniqueIds).map(id => ({ id, name: id }));
+    }
+
+    if (profiles.length > 0) {
+       const selectedProfile = profiles[0];
+       emitLog(port, `> [BML] Selected Profile: ${selectedProfile.id}`);
+       xsrfToken = await getXsrfToken() || xsrfToken;
+       
+       let selectProfileRes = await fetch(`${BASE_URL}/web/profile/${selectedProfile.id}`, {
+         method: 'GET',
+         headers: {
+           'Accept': 'text/html, application/xhtml+xml',
+           'X-Inertia': 'true',
+           'X-Requested-With': 'XMLHttpRequest',
+           'X-XSRF-TOKEN': xsrfToken,
+           'Referer': `${BASE_URL}/web/profile`,
+           'User-Agent': USER_AGENT
+         }
+       });
+
+       // This is the CRITICAL redirect that sets up the session!
+       if (selectProfileRes.status === 409) {
+          const redirectUrl = selectProfileRes.headers.get('X-Inertia-Location');
+          emitLog(port, `> [BML] Profile selection returned 409 Redirect to ${redirectUrl}. Following...`);
+          if (redirectUrl) {
+            xsrfToken = await getXsrfToken() || xsrfToken;
+            // Notice: X-Requested-With removed for the hard redirect fetch, as advised by tech!
+            await fetch(redirectUrl, {
+              headers: { 
+                'Accept': 'text/html, application/xhtml+xml', 
+                'X-Inertia': 'true', 
+                'X-XSRF-TOKEN': xsrfToken, 
+                'User-Agent': USER_AGENT 
+              }
+            });
+          }
+       } else if (!selectProfileRes.ok) {
+          throw new Error(`Profile selection failed: HTTP ${selectProfileRes.status}`);
+       }
+    } else {
+       emitLog(port, `> [BML] No profiles found. Proceeding with single-profile assumption...`);
+    }
+
     // Add 1 second delay to give server time to establish session
     await new Promise(resolve => setTimeout(resolve, 1000));
 
