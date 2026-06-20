@@ -108,8 +108,19 @@ async function getXsrfToken() {
 }
 
 async function verifyBML(targetAmount, targetAccount, credentials, port) {
-  // Shadow fetch to ensure cookies are sent on all cross-origin requests
-  const fetch = (url, options = {}) => globalThis.fetch(url, { ...options, credentials: 'include' });
+  // Shadow fetch to ensure cookies are sent and all responses are logged
+  const originalFetch = globalThis.fetch.bind(globalThis);
+  const loggedFetch = async (url, options = {}) => {
+    const method = options.method || 'GET';
+    const res = await originalFetch(url, { ...options, credentials: 'include' });
+    try {
+      const clone = res.clone();
+      const text = await clone.text();
+      const snippet = text.length > 300 ? text.substring(0, 300).replace(/\n/g, ' ') + '...' : text.replace(/\n/g, ' ');
+      emitLog(port, `> [SERVER REPLY] ${method} ${url} -> HTTP ${res.status}: ${snippet}`);
+    } catch(e) {}
+    return res;
+  };
   emitLog(port, `> [BML] Initiating Headless Auto-Login Sequence...`);
   
   if (!credentials || !credentials.username || !credentials.password || !credentials.totpSeed) {
@@ -128,7 +139,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
   try {
     // 1. Initialize Session
     emitLog(port, `> [BML] Step 1: Initializing session to get XSRF token...`);
-    await fetch(`${BASE_URL}/web/login`, {
+    await loggedFetch(`${BASE_URL}/web/login`, {
       headers: { 'User-Agent': USER_AGENT }
     });
     
@@ -137,7 +148,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
 
     // 2. Submit Username/Password
     emitLog(port, `> [BML] Step 2: Submitting Primary Credentials...`);
-    const loginRes = await fetch(`${BASE_URL}/web/login`, {
+    const loginRes = await loggedFetch(`${BASE_URL}/web/login`, {
       method: 'POST',
       headers: {
         'Accept': 'text/html, application/xhtml+xml',
@@ -158,7 +169,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
       const redirectUrl = loginRes.headers.get('X-Inertia-Location');
       emitLog(port, `> [BML] Primary login returned 409 Redirect to ${redirectUrl}. Proceeding to MFA...`);
       if (redirectUrl) {
-         await fetch(redirectUrl, {
+         await loggedFetch(redirectUrl, {
            headers: { 'X-Inertia': 'true', 'X-XSRF-TOKEN': xsrfToken, 'User-Agent': USER_AGENT }
          });
       }
@@ -171,7 +182,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     // 3. Generate and Submit TOTP
     emitLog(port, `> [BML] Step 3: Submitting TOTP code...`);
     // Refresh token after login
-    await fetch(`${BASE_URL}/web/login/2fa`, {
+    await loggedFetch(`${BASE_URL}/web/login/2fa`, {
       headers: { 'User-Agent': USER_AGENT }
     });
     xsrfToken = await getXsrfToken() || xsrfToken;
@@ -179,7 +190,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     // Use the already generated OTP
     const otpCode = await generateTOTP(credentials.totpSeed);
 
-    const mfaRes = await fetch(`${BASE_URL}/web/login/2fa`, {
+    const mfaRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
       method: 'POST',
       headers: {
         'Accept': 'text/html, application/xhtml+xml',
@@ -197,7 +208,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
       const redirectUrl = mfaRes.headers.get('X-Inertia-Location');
       emitLog(port, `> [BML] MFA returned 409 Redirect to ${redirectUrl}. Processing profiles...`);
       if (redirectUrl) {
-         await fetch(redirectUrl, {
+         await loggedFetch(redirectUrl, {
            headers: { 'X-Inertia': 'true', 'X-XSRF-TOKEN': xsrfToken, 'User-Agent': USER_AGENT }
          });
       }
@@ -210,7 +221,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     // 4. Fetch and Select Profile (Mimicking the user click from HAR file)
     emitLog(port, `> [BML] Step 4: Fetching Profiles...`);
     xsrfToken = await getXsrfToken() || xsrfToken;
-    let profileRes = await fetch(`${BASE_URL}/web/profile`, {
+    let profileRes = await loggedFetch(`${BASE_URL}/web/profile`, {
       headers: {
         'Accept': 'text/html, application/xhtml+xml',
         'X-Inertia': 'true',
@@ -227,7 +238,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
          // Single profile account automatically redirects
          emitLog(port, `> [BML] Single profile detected. Following redirect to: ${redirectUrl}`);
          xsrfToken = await getXsrfToken() || xsrfToken;
-         profileRes = await fetch(redirectUrl, {
+         profileRes = await loggedFetch(redirectUrl, {
            headers: { 
              'Accept': 'text/html, application/xhtml+xml', 
              'X-Inertia': 'true', 
@@ -238,7 +249,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
       } else if (redirectUrl) {
          emitLog(port, `> [BML] Following profile list redirect to: ${redirectUrl}`);
          xsrfToken = await getXsrfToken() || xsrfToken;
-         profileRes = await fetch(redirectUrl, {
+         profileRes = await loggedFetch(redirectUrl, {
            headers: { 
              'Accept': 'text/html, application/xhtml+xml', 
              'X-Inertia': 'true', 
@@ -304,7 +315,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
        emitLog(port, `> [BML] Selected Profile: ${selectedProfile.id}`);
        xsrfToken = await getXsrfToken() || xsrfToken;
        
-       let selectProfileRes = await fetch(`${BASE_URL}/web/profile/${selectedProfile.id}`, {
+       let selectProfileRes = await loggedFetch(`${BASE_URL}/web/profile/${selectedProfile.id}`, {
          method: 'GET',
          headers: {
            'Accept': 'text/html, application/xhtml+xml',
@@ -323,7 +334,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
           if (redirectUrl) {
             xsrfToken = await getXsrfToken() || xsrfToken;
             // Notice: X-Requested-With removed for the hard redirect fetch, as advised by tech!
-            await fetch(redirectUrl, {
+            await loggedFetch(redirectUrl, {
               headers: { 
                 'Accept': 'text/html, application/xhtml+xml', 
                 'X-Inertia': 'true', 
@@ -342,15 +353,13 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     // Add 1 second delay to give server time to establish session
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Then hit accounts overview
+    // Then hit accounts overview (must be standard page load like HAR)
     emitLog(port, `> [BML] Step 5: Loading Accounts Overview...`);
-    xsrfToken = await getXsrfToken() || xsrfToken;
-    const accountsOverviewRes = await fetch(`${BASE_URL}/vf/accounts/overview`, {
+    const accountsOverviewRes = await loggedFetch(`${BASE_URL}/vf/accounts/overview`, {
       headers: {
-        'X-Inertia': 'true',
-        'X-XSRF-TOKEN': xsrfToken,
         'Referer': `${BASE_URL}/web/redirect`,
         'Accept': 'text/html, application/xhtml+xml',
+        'Upgrade-Insecure-Requests': '1',
         'User-Agent': USER_AGENT
       }
     });
@@ -360,7 +369,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
        if (redirectUrl3) {
           emitLog(port, `> [BML] Accounts overview returned 409. Following...`);
           xsrfToken = await getXsrfToken() || xsrfToken;
-          await fetch(redirectUrl3, {
+          await loggedFetch(redirectUrl3, {
             headers: { 
               'Accept': 'text/html, application/xhtml+xml', 
               'X-Inertia': 'true', 
@@ -375,7 +384,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
     // 6. Fetch Dashboard
     emitLog(port, `> [BML] Step 6: Loading Dashboard...`);
     xsrfToken = await getXsrfToken() || xsrfToken;
-    const dashboardRes = await fetch(`${BASE_URL}/api/dashboard`, {
+    const dashboardRes = await loggedFetch(`${BASE_URL}/api/dashboard`, {
       headers: {
         'Accept': 'application/json, text/plain, */*',
         'X-XSRF-TOKEN': xsrfToken,
