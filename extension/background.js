@@ -216,9 +216,36 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // STEP 3: Verify OTP
+    // STEP 3A: Select Authenticator Channel
     // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [BML] Step 3: Submitting TOTP code...`);
+    emitLog(port, `> [BML] Step 3A: Selecting Authenticator Channel...`);
+    xsrfToken = await getFreshXsrfToken('/web/login/2fa');
+    
+    const channelRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'text/html, application/xhtml+xml',
+        'Content-Type': 'application/json',
+        'X-Inertia': 'true',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-XSRF-TOKEN': xsrfToken,
+        'Referer': `${BASE_URL}/web/login/2fa`,
+        'User-Agent': USER_AGENT
+      },
+      body: JSON.stringify({ channel: 'authenticator' })
+    });
+    
+    if (channelRes.status === 409) {
+      emitLog(port, `> [BML] Channel selected. Following redirects...`);
+      await handleInertiaRedirects(channelRes);
+    } else {
+      emitLog(port, `> [BML] Channel selection returned HTTP ${channelRes.status}`);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 3B: Verify OTP
+    // ═══════════════════════════════════════════════════════════════
+    emitLog(port, `> [BML] Step 3B: Submitting TOTP code...`);
     xsrfToken = await getFreshXsrfToken('/web/login/2fa');
 
     const otpCode = await generateTOTP(credentials.totpSeed);
