@@ -216,7 +216,6 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
       headers: {
         'Accept': 'text/html, application/xhtml+xml',
         'X-Inertia': 'true',
-        'X-Requested-With': 'XMLHttpRequest',
         'X-XSRF-TOKEN': xsrfToken,
         'Referer': `${BASE_URL}/web/login/2fa`,
         'User-Agent': USER_AGENT
@@ -232,7 +231,6 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
            headers: { 
              'Accept': 'text/html, application/xhtml+xml', 
              'X-Inertia': 'true', 
-             'X-Requested-With': 'XMLHttpRequest', 
              'X-XSRF-TOKEN': xsrfToken, 
              'User-Agent': USER_AGENT 
            }
@@ -247,7 +245,6 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
                  headers: { 
                    'Accept': 'text/html, application/xhtml+xml', 
                    'X-Inertia': 'true', 
-                   'X-Requested-With': 'XMLHttpRequest', 
                    'X-XSRF-TOKEN': xsrfToken, 
                    'User-Agent': USER_AGENT 
                  }
@@ -282,7 +279,6 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
             headers: { 
               'Accept': 'text/html, application/xhtml+xml', 
               'X-Inertia': 'true', 
-              'X-Requested-With': 'XMLHttpRequest', 
               'X-XSRF-TOKEN': xsrfToken, 
               'Referer': `${BASE_URL}/web/redirect`,
               'User-Agent': USER_AGENT 
