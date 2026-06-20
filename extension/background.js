@@ -219,12 +219,13 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
       }
     });
 
+    let profileRedirectUrl = null;
     if (profileRes.status === 409) {
-      const redirectUrl = profileRes.headers.get('X-Inertia-Location');
-      emitLog(port, `> [BML] Profile list returned 409 Redirect to ${redirectUrl}. Following...`);
-      if (redirectUrl) {
+      profileRedirectUrl = profileRes.headers.get('X-Inertia-Location');
+      emitLog(port, `> [BML] Profile list returned 409 Redirect to ${profileRedirectUrl}. Following...`);
+      if (profileRedirectUrl) {
          xsrfToken = await getXsrfToken() || xsrfToken;
-         profileRes = await fetch(redirectUrl, {
+         profileRes = await fetch(profileRedirectUrl, {
            headers: { 
              'Accept': 'text/html, application/xhtml+xml', 
              'X-Inertia': 'true', 
@@ -239,17 +240,42 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
 
     if (!profileRes.ok) {
        if (profileRes.status === 409) {
-          // If it STILL returns 409, try without X-Inertia just to get the cookies/session straightened out
           emitLog(port, `> [BML] Warning: Second 409. Forcing hard page load to sync session...`);
-          profileRes = await fetch(redirectUrl || `${BASE_URL}/web/profile`, {
+          profileRes = await fetch(profileRedirectUrl || `${BASE_URL}/web/profile`, {
              headers: { 'Accept': 'text/html, application/xhtml+xml', 'User-Agent': USER_AGENT }
           });
-          throw new Error(`Session desync. Please try again. HTTP 409 persists.`);
+       } else {
+          throw new Error(`Failed to fetch profiles: HTTP ${profileRes.status}`);
        }
-       throw new Error(`Failed to fetch profiles: HTTP ${profileRes.status}`);
     }
-    const profileData = await profileRes.json();
-    const profiles = profileData.props?.profiles || [];
+    
+    const responseText = await profileRes.text();
+    let profiles = [];
+    
+    try {
+      const profileData = JSON.parse(responseText);
+      profiles = profileData.props?.profiles || [];
+    } catch (err) {
+      emitLog(port, `> [BML] Notice: Profiles response is HTML, falling back to regex extraction...`);
+    }
+
+    // Fallback regex extraction based on tech's logic
+    if (profiles.length === 0) {
+       const patterns = [
+         /\/internetbanking\/web\/profile\/([A-F0-9\-]{36})/gi,
+         /"profileId":\s*"([A-F0-9\-]{36})"/gi,
+         /profileId:\s*'([A-F0-9\-]{36})'/gi,
+         /data-profile-id="([A-F0-9\-]{36})"/gi
+       ];
+       const uniqueIds = new Set();
+       for (const pattern of patterns) {
+           let match;
+           while ((match = pattern.exec(responseText)) !== null) {
+               uniqueIds.add(match[1]);
+           }
+       }
+       profiles = Array.from(uniqueIds).map(id => ({ id, name: id }));
+    }
 
     if (profiles.length === 0) {
       throw new Error("No profiles found on this BML account.");
