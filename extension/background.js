@@ -108,6 +108,8 @@ async function getXsrfToken() {
 }
 
 async function verifyBML(targetAmount, targetAccount, credentials, port) {
+  // Shadow fetch to ensure cookies are sent on all cross-origin requests
+  const fetch = (url, options = {}) => globalThis.fetch(url, { ...options, credentials: 'include' });
   emitLog(port, `> [BML] Initiating Headless Auto-Login Sequence...`);
   
   if (!credentials || !credentials.username || !credentials.password || !credentials.totpSeed) {
