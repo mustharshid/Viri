@@ -178,10 +178,11 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     return currentRes;
   }
 
-  // -- Helper: Get fresh XSRF token from a page (matching Python _get_fresh_xsrf_token) --
+  // -- Helper: Get fresh XSRF token and Inertia Version from a page --
   async function getFreshXsrfToken(path) {
     emitLog(port, `> [BML] Refreshing XSRF token from ${path}...`);
-    await loggedFetch(`${BASE_URL}${path}`, {
+    const res = await loggedFetch(`${BASE_URL}${path}`, {
+      cache: 'no-store',
       headers: {
         'Accept': 'text/html, application/xhtml+xml',
         'User-Agent': USER_AGENT,
@@ -189,7 +190,21 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
         'X-Requested-With': 'XMLHttpRequest'
       }
     });
-    return await getXsrfToken();
+    
+    let version = '';
+    try {
+      const data = await res.clone().json();
+      if (data && data.version) {
+        version = data.version;
+      }
+    } catch (e) {
+      emitLog(port, `> [BML] Could not parse Inertia version: ${e.message}`);
+    }
+
+    // Wait 200ms to ensure Chrome's cookie store reflects any Set-Cookie headers
+    await new Promise(r => setTimeout(r, 200));
+    const token = await getXsrfToken();
+    return { token, version };
   }
 
   try {
@@ -207,13 +222,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     // ═══════════════════════════════════════════════════════════════
     // STEP 1: Initialize Session
     // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [BML] Step 1: Initializing session to get XSRF token...`);
-    await loggedFetch(`${BASE_URL}/web/login`, {
-      headers: { 'Accept': 'text/html, application/xhtml+xml', 'User-Agent': USER_AGENT }
-    });
-
-    let xsrfToken = await getXsrfToken();
-    if (!xsrfToken) throw new Error("Failed to extract initial XSRF token");
+    let { token: xsrfToken, version: inertiaVersion } = await getFreshXsrfToken('/web/login');
 
     // ═══════════════════════════════════════════════════════════════
     // STEP 2: Submit Username/Password
@@ -254,7 +263,9 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     // STEP 3: Verify OTP
     // ═══════════════════════════════════════════════════════════════
     emitLog(port, `> [BML] Step 3B: Submitting TOTP code...`);
-    xsrfToken = await getFreshXsrfToken('/web/login/2fa');
+    const freshData = await getFreshXsrfToken('/web/login/2fa');
+    xsrfToken = freshData.token;
+    inertiaVersion = freshData.version;
 
     const otpCode = await generateTOTP(credentials.totpSeed);
     emitLog(port, `> [TESTING] Submitting OTP: ${otpCode}`);
@@ -265,12 +276,13 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
         'Accept': 'text/html, application/xhtml+xml',
         'Content-Type': 'application/json',
         'X-Inertia': 'true',
+        'X-Inertia-Version': inertiaVersion,
         'X-Requested-With': 'XMLHttpRequest',
         'X-XSRF-TOKEN': xsrfToken,
         'Referer': `${BASE_URL}/web/login/2fa`,
         'User-Agent': USER_AGENT
       },
-      body: JSON.stringify({ otp: otpCode })
+      body: JSON.stringify({ otp: otpCode, channel: 'authenticator' })
     });
 
     if (mfaRes.status === 409) {
