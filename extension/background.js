@@ -199,7 +199,7 @@ async function verifyBML(targetAmount, targetAccount, credentials, port) {
         'Referer': `${BASE_URL}/web/login/2fa`,
         'User-Agent': USER_AGENT
       },
-      body: JSON.stringify({ otp: otpCode })
+      body: JSON.stringify({ otp: otpCode, channel: 'authenticator' })
     });
     
     if (mfaRes.status === 409) {
