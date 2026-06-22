@@ -43,6 +43,72 @@ async function saveScrap(stepName, content) {
   }
 }
 
+async function enableBankLockdown() {
+  const rules = [
+    {
+      id: 10,
+      priority: 1,
+      action: { type: "block" },
+      condition: {
+        urlFilter: "bankofmaldives.com.mv",
+        resourceTypes: ["main_frame", "sub_frame"]
+      }
+    },
+    {
+      id: 11,
+      priority: 1,
+      action: { type: "block" },
+      condition: {
+        urlFilter: "mib.com.mv",
+        resourceTypes: ["main_frame", "sub_frame"]
+      }
+    }
+  ];
+
+  try {
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: [10, 11],
+      addRules: rules
+    });
+    console.log("[Viri Bridge] Bank lockdown rules activated.");
+  } catch (err) {
+    console.error("[Viri Bridge] Failed to activate lockdown rules:", err);
+  }
+}
+
+async function disableBankLockdown() {
+  try {
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: [10, 11]
+    });
+    console.log("[Viri Bridge] Bank lockdown rules deactivated.");
+  } catch (err) {
+    console.error("[Viri Bridge] Failed to deactivate lockdown rules:", err);
+  }
+}
+
+async function clearBankSessions() {
+  const domains = ["bankofmaldives.com.mv", "mib.com.mv"];
+  for (const domain of domains) {
+    try {
+      const cookies = await chrome.cookies.getAll({ domain });
+      for (const cookie of cookies) {
+        const protocol = cookie.secure ? "https://" : "http://";
+        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+        const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
+        await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
+      }
+    } catch (err) {
+      console.error(`[Viri Bridge] Error clearing cookies for ${domain}:`, err);
+    }
+  }
+  console.log("[Viri Bridge] All bank session cookies destroyed.");
+}
+
+// Clear any left-over lockdown rules or sessions on extension startup/reload
+disableBankLockdown();
+clearBankSessions();
+
 // Global active port
 let activePort = null;
 
@@ -50,6 +116,7 @@ chrome.runtime.onConnectExternal.addListener((port) => {
   console.log("[Viri Bridge] PWA Connected via Port:", port.name);
   if (port.name === "viri-verify" || port.name === "bml-auth") {
     activePort = port;
+    enableBankLockdown();
 
     port.onMessage.addListener(async (msg) => {
       // Handle the new frontend structure
@@ -77,6 +144,8 @@ chrome.runtime.onConnectExternal.addListener((port) => {
       if (activePort === port) {
         activePort = null;
       }
+      disableBankLockdown();
+      clearBankSessions();
     });
   }
 });
