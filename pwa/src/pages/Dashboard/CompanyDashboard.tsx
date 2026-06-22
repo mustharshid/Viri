@@ -125,8 +125,8 @@ export default function CompanyDashboard() {
     <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)] flex">
       {/* Sidebar */}
       <aside className="w-64 border-r border-[var(--border-color)] bg-[var(--bg-surface)] p-6 hidden md:block">
-        <div className="mb-8 font-extrabold text-2xl tracking-tight text-white flex items-center gap-1">
-          VIRI<span className="text-[var(--color-success)]">.</span>
+        <div className="mb-8">
+          <img src="/logo_en.png" alt="Viri Logo" className="h-8 object-contain" />
         </div>
         <nav className="space-y-2">
           <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'dashboard' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>

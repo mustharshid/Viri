@@ -50,7 +50,9 @@ export default function Login() {
     <div className="min-h-screen bg-[var(--bg-base)] flex flex-col items-center justify-center p-6 text-[var(--text-primary)]">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <Link to="/" className="text-3xl font-bold tracking-wider inline-block mb-4">VIRI<span className="text-[var(--color-success)]">.</span></Link>
+          <Link to="/" className="inline-block mb-4">
+            <img src="/logo_en.png" alt="Viri Logo" className="h-10 mx-auto object-contain" />
+          </Link>
           <h2 className="text-2xl font-bold">Welcome back</h2>
           <p className="text-[var(--text-secondary)] mt-2">Log in to manage your Viri account.</p>
         </div>
