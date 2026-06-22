@@ -100,6 +100,7 @@ Route::post('/verify-terminal', function (Request $request) {
                     'is_default' => $account->is_default
                 ];
             })
-        ]
+        ],
+        'terminal_name' => $terminal->terminal_name
     ]);
 });

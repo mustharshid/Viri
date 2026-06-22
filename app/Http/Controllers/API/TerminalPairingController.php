@@ -33,7 +33,8 @@ class TerminalPairingController extends Controller
         return response()->json([
             'message' => 'Terminal paired successfully.',
             'hardware_id' => $terminal->hardware_id,
-            'extension_id' => env('VIRI_EXTENSION_ID', 'viri_default_extension_id')
+            'extension_id' => env('VIRI_EXTENSION_ID', 'viri_default_extension_id'),
+            'terminal_name' => $terminal->terminal_name
         ]);
     }
 }

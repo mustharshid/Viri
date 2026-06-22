@@ -70,6 +70,7 @@ function App() {
   // Tenant Information from Server
   const [tenantName, setTenantName] = useState<string>('');
   const [subscriptionTier, setSubscriptionTier] = useState<string>('');
+  const [terminalName, setTerminalName] = useState<string>('');
 
   // Dynamic Totals (keyed by account id string)
   const [totals, setTotals] = useState<Record<string, number>>({});
@@ -141,6 +142,7 @@ function App() {
           if (data.tenant?.name) setTenantName(data.tenant.name);
           if (data.tenant?.tier) setSubscriptionTier(data.tenant.tier);
           if (data.tenant?.extension_id) setExtensionId(data.tenant.extension_id);
+          if (data.terminal_name) setTerminalName(data.terminal_name);
 
           if (accounts.length > 0) {
             const defaultAcc = accounts.find((a: BankAccount) => a.is_default) || accounts[0];
@@ -185,6 +187,7 @@ function App() {
       }
       setHardwareId(data.hardware_id);
       if (data.extension_id) setExtensionId(data.extension_id);
+      if (data.terminal_name) setTerminalName(data.terminal_name);
       
       // Clear legacy PIN when a new terminal is paired
       localStorage.removeItem('viri_terminal_pin');
@@ -367,72 +370,7 @@ function App() {
           >
             Link Terminal
           </button>
-          
-          <button
-            onClick={() => setShowHelp(true)}
-            className="mt-6 text-sm text-[var(--color-success)] opacity-80 hover:opacity-100 underline transition-opacity"
-          >
-            Need help installing the extension?
-          </button>
         </div>
-
-        {/* Help Modal */}
-        {showHelp && (
-          <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in">
-            <div className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto relative shadow-2xl">
-              <button 
-                onClick={() => setShowHelp(false)}
-                className="absolute top-4 right-4 text-[var(--text-secondary)] hover:text-white"
-              >
-                <XCircle size={24} />
-              </button>
-              
-              <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
-                <Shield className="text-[var(--color-success)]" /> Extension Installation Guide
-              </h3>
-              
-              <p className="text-sm text-[var(--text-secondary)] mb-6">
-                The Viri Bridge extension is required to bypass browser security policies and securely connect to the bank's servers locally from your device.
-              </p>
-              
-              <div className="mb-6 flex justify-center">
-                <a href="/extention/viri-connect.zip" download className="btn btn-success flex items-center gap-2">
-                  <MonitorSmartphone size={18} /> Download Viri Extension (.zip)
-                </a>
-              </div>
-
-              <div className="space-y-6 text-left">
-                <div>
-                  <h4 className="font-bold text-white mb-2 border-b border-zinc-800 pb-1">🖥️ Desktop (PC / Mac)</h4>
-                  <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-[var(--color-success)]">
-                    <li>Download the extension <strong>.zip</strong> file above.</li>
-                    <li>Extract/unzip the file into a folder on your computer.</li>
-                    <li>Open Chrome and navigate to <strong>chrome://extensions</strong>.</li>
-                    <li>Turn on <strong>Developer mode</strong> (top right corner).</li>
-                    <li>Click <strong>Load unpacked</strong> and select the extracted folder.</li>
-                  </ol>
-                </div>
-                
-                <div>
-                  <h4 className="font-bold text-white mb-2 border-b border-zinc-800 pb-1">📱 Android Mobile/Tablet</h4>
-                  <p className="text-xs text-yellow-500 mb-2">Note: Standard Google Chrome for Android does not support extensions.</p>
-                  <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-[var(--color-success)]">
-                    <li>Download <strong>Kiwi Browser</strong> from the Google Play Store.</li>
-                    <li>Open this Terminal Setup page inside Kiwi Browser.</li>
-                    <li>Download the extension <strong>.zip</strong> file above.</li>
-                    <li>In Kiwi Browser, tap the 3-dot menu and select <strong>Extensions</strong>.</li>
-                    <li>Turn on <strong>Developer mode</strong>.</li>
-                    <li>Tap <strong>+ (from .zip/.crx/.user.js)</strong> and select the downloaded file.</li>
-                  </ol>
-                </div>
-
-                <div className="bg-red-900/10 border border-red-500/20 p-3 rounded text-xs text-red-400">
-                  <strong>iOS Devices:</strong> Apple restricts installing third-party browser extensions on iPhones and iPads. This terminal requires Windows, Mac, or Android.
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
@@ -519,7 +457,14 @@ function App() {
           >
             <Settings size={18} />
           </button>
-          <span className="badge badge-success">Online</span>
+          <button
+            onClick={() => setShowHelp(true)}
+            className="btn btn-outline p-2 rounded-full text-[var(--color-success)] border-transparent hover:bg-[var(--color-success)]/10"
+            title="Help & Installation Guide"
+          >
+            <Shield size={18} />
+          </button>
+          <span className="badge badge-success">Online{terminalName ? ` - ${terminalName}` : ''}</span>
         </div>
       </div>
 
@@ -857,6 +802,64 @@ function App() {
         )}
 
       </div>
+
+      {/* Help Modal */}
+      {showHelp && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto relative shadow-2xl">
+            <button 
+              onClick={() => setShowHelp(false)}
+              className="absolute top-4 right-4 text-[var(--text-secondary)] hover:text-white"
+            >
+              <XCircle size={24} />
+            </button>
+            
+            <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+              <Shield className="text-[var(--color-success)]" /> Extension Installation Guide
+            </h3>
+            
+            <p className="text-sm text-[var(--text-secondary)] mb-6">
+              The Viri Bridge extension is required to bypass browser security policies and securely connect to the bank's servers locally from your device.
+            </p>
+            
+            <div className="mb-6 flex justify-center">
+              <a href="/extention/viri-connect.zip" download className="btn btn-success flex items-center gap-2">
+                <MonitorSmartphone size={18} /> Download Viri Extension (.zip)
+              </a>
+            </div>
+
+            <div className="space-y-6 text-left">
+              <div>
+                <h4 className="font-bold text-white mb-2 border-b border-zinc-800 pb-1">🖥️ Desktop (PC / Mac)</h4>
+                <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-[var(--color-success)]">
+                  <li>Download the extension <strong>.zip</strong> file above.</li>
+                  <li>Extract/unzip the file into a folder on your computer.</li>
+                  <li>Open Chrome and navigate to <strong>chrome://extensions</strong>.</li>
+                  <li>Turn on <strong>Developer mode</strong> (top right corner).</li>
+                  <li>Click <strong>Load unpacked</strong> and select the extracted folder.</li>
+                </ol>
+              </div>
+              
+              <div>
+                <h4 className="font-bold text-white mb-2 border-b border-zinc-800 pb-1">📱 Android Mobile/Tablet</h4>
+                <p className="text-xs text-yellow-500 mb-2">Note: Standard Google Chrome for Android does not support extensions.</p>
+                <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-[var(--color-success)]">
+                  <li>Download <strong>Kiwi Browser</strong> from the Google Play Store.</li>
+                  <li>Open the Cashier Terminal inside Kiwi Browser.</li>
+                  <li>Download the extension <strong>.zip</strong> file above.</li>
+                  <li>In Kiwi Browser, tap the 3-dot menu and select <strong>Extensions</strong>.</li>
+                  <li>Turn on <strong>Developer mode</strong>.</li>
+                  <li>Tap <strong>+ (from .zip/.crx/.user.js)</strong> and select the downloaded file.</li>
+                </ol>
+              </div>
+
+              <div className="bg-red-900/10 border border-red-500/20 p-3 rounded text-xs text-red-400">
+                <strong>iOS Devices:</strong> Apple restricts installing third-party browser extensions on iPhones and iPads. This terminal requires Windows, Mac, or Android.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
