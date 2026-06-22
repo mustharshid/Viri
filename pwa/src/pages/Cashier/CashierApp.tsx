@@ -462,7 +462,14 @@ function App() {
             className="btn btn-outline p-2 rounded-full text-[var(--color-success)] border-transparent hover:bg-[var(--color-success)]/10"
             title="Help & Installation Guide"
           >
-            <Shield size={18} />
+            <div className="relative flex items-center justify-center w-5 h-5">
+              <div className="w-[18px] h-[18px] rounded-full border border-current flex items-center justify-center relative">
+                <span className="text-[11px] font-bold text-current select-none leading-none mb-[1px]">?</span>
+                <div className="absolute -bottom-[3px] -right-[4px] bg-blue-500 rounded-full w-[10px] h-[10px] flex items-center justify-center border border-[var(--bg-surface)]">
+                  <Lock size={6} className="text-white" />
+                </div>
+              </div>
+            </div>
           </button>
           <span className="badge badge-success">Online{terminalName ? ` - ${terminalName}` : ''}</span>
         </div>
@@ -814,12 +821,20 @@ function App() {
               <XCircle size={24} />
             </button>
             
-            <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
-              <Shield className="text-[var(--color-success)]" /> Extension Installation Guide
+            <h3 className="text-xl font-bold mb-4 flex items-center gap-3">
+              <div className="relative flex items-center justify-center w-6 h-6">
+                <div className="w-[22px] h-[22px] rounded-full border-2 border-[var(--color-success)] flex items-center justify-center relative">
+                  <span className="text-[13px] font-bold text-[var(--color-success)] select-none leading-none mb-[1px]">?</span>
+                  <div className="absolute -bottom-[2px] -right-[3px] bg-blue-500 rounded-full w-[12px] h-[12px] flex items-center justify-center border border-[var(--bg-surface)]">
+                    <Lock size={7} className="text-white" />
+                  </div>
+                </div>
+              </div>
+              Extension Installation Guide
             </h3>
             
-            <p className="text-sm text-[var(--text-secondary)] mb-6">
-              The Viri Bridge extension is required to bypass browser security policies and securely connect to the bank's servers locally from your device.
+            <p className="text-sm text-[var(--text-secondary)] mb-6 leading-relaxed">
+              The Viri Bridge extension is required to establish a secure local connection between your device and the bank’s servers. Your banking credentials are stored securely on your device and are never transmitted to or stored on the Viri servers, ensuring that only you have access to your sensitive information.
             </p>
             
             <div className="mb-6 flex justify-center">
