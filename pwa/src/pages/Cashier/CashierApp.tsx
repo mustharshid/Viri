@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle } from 'lucide-react';
+import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy } from 'lucide-react';
 
 
 interface BankAccount {
@@ -30,6 +30,7 @@ function App() {
   const [isSetupMode, setIsSetupMode] = useState(!hardwareId);
   const [pairingCodeInput, setPairingCodeInput] = useState('');
   const [setupError, setSetupError] = useState<string | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
 
   // Settings
   const [extensionId, setExtensionId] = useState(localStorage.getItem('viri_extension_id') || '');
@@ -93,6 +94,34 @@ function App() {
   }, [bmlUsername, bmlPassword, bmlTotpSeed]);
 
   // Fetch Bank Accounts on Load
+  const clearTerminalData = () => {
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('viri_') && key !== 'viri_backend_url') {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(key => localStorage.removeItem(key));
+
+    setHardwareId('');
+    setPin('');
+    setIsLocked(false);
+    setExtensionId('');
+    setBmlUsername('');
+    setBmlPassword('');
+    setBmlTotpSeed('');
+    setBmlConfigured(false);
+    setMibUsername('');
+    setMibPassword('');
+    setMibTotpSeed('');
+    setMibConfigured(false);
+    setIsSetupMode(true);
+    setBankAccounts([]);
+    setSelectedAccountId('');
+    setShowSettings(false);
+  };
+
   useEffect(() => {
     const fetchAccounts = async () => {
       if (!hardwareId || !backendUrl) return;
@@ -125,8 +154,8 @@ function App() {
             setTotals(newTotals);
           }
         } else {
-          // If the backend rejects the hardware_id, force setup mode
-          setIsSetupMode(true);
+          // If the backend rejects the hardware_id, force setup mode and clear data
+          clearTerminalData();
         }
       } catch (err) {
         console.error("Failed to fetch initial terminal data", err);
@@ -179,6 +208,11 @@ function App() {
     setLogs(prev => [...prev, "> [System] Connection severed. Robot killed."]);
   };
 
+  const copyLogs = () => {
+    navigator.clipboard.writeText(logs.join('\n'));
+    alert("Logs copied to clipboard!");
+  };
+
   const handleVerify = async () => {
     if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
       setError("Please enter a valid transfer amount.");
@@ -205,6 +239,11 @@ function App() {
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         setError(`License check failed: ${errData.error || response.statusText} (${response.status})`);
+        
+        if (response.status === 403 || response.status === 404) {
+          clearTerminalData();
+        }
+        
         setLoading(false);
         return;
       }
@@ -328,7 +367,72 @@ function App() {
           >
             Link Terminal
           </button>
+          
+          <button
+            onClick={() => setShowHelp(true)}
+            className="mt-6 text-sm text-[var(--color-success)] opacity-80 hover:opacity-100 underline transition-opacity"
+          >
+            Need help installing the extension?
+          </button>
         </div>
+
+        {/* Help Modal */}
+        {showHelp && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in">
+            <div className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto relative shadow-2xl">
+              <button 
+                onClick={() => setShowHelp(false)}
+                className="absolute top-4 right-4 text-[var(--text-secondary)] hover:text-white"
+              >
+                <XCircle size={24} />
+              </button>
+              
+              <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                <Shield className="text-[var(--color-success)]" /> Extension Installation Guide
+              </h3>
+              
+              <p className="text-sm text-[var(--text-secondary)] mb-6">
+                The Viri Bridge extension is required to bypass browser security policies and securely connect to the bank's servers locally from your device.
+              </p>
+              
+              <div className="mb-6 flex justify-center">
+                <a href="/extention/viri-connect.zip" download className="btn btn-success flex items-center gap-2">
+                  <MonitorSmartphone size={18} /> Download Viri Extension (.zip)
+                </a>
+              </div>
+
+              <div className="space-y-6 text-left">
+                <div>
+                  <h4 className="font-bold text-white mb-2 border-b border-zinc-800 pb-1">🖥️ Desktop (PC / Mac)</h4>
+                  <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-[var(--color-success)]">
+                    <li>Download the extension <strong>.zip</strong> file above.</li>
+                    <li>Extract/unzip the file into a folder on your computer.</li>
+                    <li>Open Chrome and navigate to <strong>chrome://extensions</strong>.</li>
+                    <li>Turn on <strong>Developer mode</strong> (top right corner).</li>
+                    <li>Click <strong>Load unpacked</strong> and select the extracted folder.</li>
+                  </ol>
+                </div>
+                
+                <div>
+                  <h4 className="font-bold text-white mb-2 border-b border-zinc-800 pb-1">📱 Android Mobile/Tablet</h4>
+                  <p className="text-xs text-yellow-500 mb-2">Note: Standard Google Chrome for Android does not support extensions.</p>
+                  <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-[var(--color-success)]">
+                    <li>Download <strong>Kiwi Browser</strong> from the Google Play Store.</li>
+                    <li>Open this Terminal Setup page inside Kiwi Browser.</li>
+                    <li>Download the extension <strong>.zip</strong> file above.</li>
+                    <li>In Kiwi Browser, tap the 3-dot menu and select <strong>Extensions</strong>.</li>
+                    <li>Turn on <strong>Developer mode</strong>.</li>
+                    <li>Tap <strong>+ (from .zip/.crx/.user.js)</strong> and select the downloaded file.</li>
+                  </ol>
+                </div>
+
+                <div className="bg-red-900/10 border border-red-500/20 p-3 rounded text-xs text-red-400">
+                  <strong>iOS Devices:</strong> Apple restricts installing third-party browser extensions on iPhones and iPads. This terminal requires Windows, Mac, or Android.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -436,8 +540,7 @@ function App() {
               <button
                 onClick={() => {
                   if (confirm("Are you sure you want to unlink this terminal? You will need a new pairing code to use it again.")) {
-                    setHardwareId('');
-                    setIsSetupMode(true);
+                    clearTerminalData();
                   }
                 }}
                 className="text-red-400 hover:text-red-300 text-xs px-2 py-1 border border-red-500/50 rounded"
@@ -719,14 +822,24 @@ function App() {
               <span className="text-xs text-zinc-400 ml-2 font-mono">Viri Bridge Terminal</span>
               {loading && <RefreshCw size={12} className="text-[var(--color-success)] animate-spin ml-2" />}
 
-              {loading && (
-                <button
-                  onClick={killRobot}
-                  className="ml-auto flex items-center gap-1 text-[10px] uppercase font-bold text-red-500 bg-red-950 border border-red-900 px-2 py-1 rounded hover:bg-red-900 transition-colors"
-                >
-                  <XCircle size={12} /> Kill Robot
-                </button>
-              )}
+              <div className="ml-auto flex items-center gap-2">
+                {logs.length > 0 && (
+                  <button
+                    onClick={copyLogs}
+                    className="flex items-center gap-1 text-[10px] uppercase font-bold text-zinc-400 bg-zinc-900 border border-zinc-800 px-2 py-1 rounded hover:bg-zinc-800 transition-colors"
+                  >
+                    <Copy size={12} /> Copy Logs
+                  </button>
+                )}
+                {loading && (
+                  <button
+                    onClick={killRobot}
+                    className="flex items-center gap-1 text-[10px] uppercase font-bold text-red-500 bg-red-950 border border-red-900 px-2 py-1 rounded hover:bg-red-900 transition-colors"
+                  >
+                    <XCircle size={12} /> Kill Robot
+                  </button>
+                )}
+              </div>
             </div>
             <div className="p-4 font-mono text-xs text-[var(--color-success)] h-48 overflow-y-auto flex flex-col gap-1"
               ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}>

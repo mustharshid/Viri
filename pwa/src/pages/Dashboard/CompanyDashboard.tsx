@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info } from 'lucide-react';
+import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download } from 'lucide-react';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group ml-2 cursor-help align-middle">
@@ -182,9 +182,14 @@ export default function CompanyDashboard() {
             </div>
 
             <div className="glass-panel p-6">
-              <h2 className="text-xl font-bold mb-4 border-b border-[var(--border-color)] pb-2 flex items-center">
-                Terminals <Tooltip text="Create terminals to generate unique Hardware IDs. Paste these IDs into the Viri Cashier app on your devices." />
-              </h2>
+              <div className="flex justify-between items-center border-b border-[var(--border-color)] pb-2 mb-4">
+                <h2 className="text-xl font-bold flex items-center">
+                  Terminals <Tooltip text="Create terminals to generate unique Hardware IDs. Paste these IDs into the Viri Cashier app on your devices." />
+                </h2>
+                <a href="/extention/viri-connect.zip" download className="flex items-center gap-1 text-sm text-[var(--color-success)] hover:underline bg-[var(--color-success)]/10 px-3 py-1 rounded transition-colors hover:bg-[var(--color-success)]/20">
+                  <Download size={14} /> Download Extension
+                </a>
+              </div>
               <form onSubmit={createTerminal} className="flex gap-2 mb-4">
                 <input type="text" required placeholder="New Terminal Name (e.g. Counter 1)" className="input-field flex-1" value={newTerminalName} onChange={e => setNewTerminalName(e.target.value)} />
                 <button type="submit" className="btn btn-success p-3"><Plus size={20} /></button>

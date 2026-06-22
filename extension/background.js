@@ -1,15 +1,30 @@
 const BASE_URL = "https://www.bankofmaldives.com.mv/internetbanking";
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
 
+let globalInertiaVersion = "";
+
+function maskString(str) {
+  if (!str) return "undefined";
+  if (str.length <= 2) return "*".repeat(str.length);
+  return str[0] + "*".repeat(str.length - 2) + str[str.length - 1];
+}
+
+function getTimestamp() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+}
+
 function emitLog(port, msg) {
+  const formattedMsg = `[${getTimestamp()}] ${msg}`;
   if (port) {
     try {
-      port.postMessage({ type: "log", message: msg });
+      port.postMessage({ type: "log", message: formattedMsg });
     } catch (e) {
-      console.log(msg);
+      console.log(formattedMsg);
     }
   } else {
-    console.log(msg);
+    console.log(formattedMsg);
   }
 }
 
@@ -40,9 +55,10 @@ chrome.runtime.onConnectExternal.addListener((port) => {
       // Handle the new frontend structure
       if (msg.action === 'VERIFY_TRANSFER') {
         const payload = msg.payload;
-        // payload has targetAmount, targetAccount, credentials
+        // payload has targetAmount, accountNumber, credentials
         try {
-          await runBmlFlow(payload.credentials, payload.account, port, payload.amount);
+          const targetAcc = payload.accountNumber || payload.accountId || payload.account;
+          await runBmlFlow(payload.credentials, targetAcc, port, payload.amount);
         } catch (error) {
           port.postMessage({ type: 'error', error: error.message });
         }
@@ -71,11 +87,30 @@ async function loggedFetch(url, options = {}) {
   const port = activePort;
   let bodyLog = "";
   if (options.body && typeof options.body === 'string') {
-    bodyLog = `\n    Body: ${options.body.substring(0, 100)}...`;
+    let sanitizedBody = options.body;
+    try {
+      const parsedBody = JSON.parse(options.body);
+      if (parsedBody.username) parsedBody.username = maskString(parsedBody.username);
+      if (parsedBody.password) parsedBody.password = maskString(parsedBody.password);
+      if (parsedBody.totpSeed) parsedBody.totpSeed = maskString(parsedBody.totpSeed);
+      sanitizedBody = JSON.stringify(parsedBody);
+    } catch (e) {
+      sanitizedBody = options.body.replace(/"password"\s*:\s*"[^"]*"/g, '"password":"[REDACTED]"');
+    }
+    bodyLog = `\n    Body: ${sanitizedBody.substring(0, 100)}...`;
   }
   emitLog(port, `> [BML] Request: ${method} ${url}${bodyLog}`);
 
   options.credentials = 'include';
+
+  // Automatically inject X-Inertia-Version header if it's an Inertia request and version is set
+  if (options.headers) {
+    const hasInertia = Object.keys(options.headers).some(k => k.toLowerCase() === 'x-inertia' && options.headers[k] === 'true');
+    if (hasInertia && globalInertiaVersion) {
+      const versionKey = Object.keys(options.headers).find(k => k.toLowerCase() === 'x-inertia-version') || 'X-Inertia-Version';
+      options.headers[versionKey] = globalInertiaVersion;
+    }
+  }
 
   try {
     const res = await fetch(url, options);
@@ -130,6 +165,9 @@ async function generateTOTP(secret) {
 async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
   emitLog(port, `> [BML] Starting background auth flow...`);
 
+  let xsrfToken = null;
+  globalInertiaVersion = "";
+
   async function getXsrfToken() {
     return new Promise((resolve) => {
       chrome.cookies.get({ url: "https://www.bankofmaldives.com.mv", name: "XSRF-TOKEN" }, (cookie) => {
@@ -140,9 +178,9 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
 
   // --- TESTING ONLY LOGS: WILL BE REMOVED BEFORE DEPLOYMENT ---
   const currentOtp = await generateTOTP(credentials.totpSeed);
-  emitLog(port, `> [TESTING] BML Username: ${credentials.username}`);
-  emitLog(port, `> [TESTING] BML Password: ${credentials.password}`);
-  emitLog(port, `> [TESTING] BML TOTP Seed: ${credentials.totpSeed}`);
+  emitLog(port, `> [TESTING] BML Username: ${maskString(credentials.username)}`);
+  emitLog(port, `> [TESTING] BML Password: ${maskString(credentials.password)}`);
+  emitLog(port, `> [TESTING] BML TOTP Seed: ${maskString(credentials.totpSeed)}`);
   emitLog(port, `> [TESTING] Target Account: ${targetAccount}`);
   emitLog(port, `> [TESTING] Target Amount: ${targetAmount}`);
   emitLog(port, `> [TESTING] LIVE OTP CODE: ${currentOtp}`);
@@ -161,25 +199,35 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
       emitLog(port, `> [BML] Following Inertia redirect to: ${fullUrl}`);
       
       let token = await getXsrfToken();
+      // Load the page as a regular GET page load (no X-Inertia header) to bypass the version mismatch 409 Conflict
       const redirectHeaders = {
         'Accept': 'text/html, application/xhtml+xml',
-        'X-Inertia': 'true',
-        'X-Requested-With': 'XMLHttpRequest',
         'X-XSRF-TOKEN': token,
         'User-Agent': USER_AGENT
       };
-      if (version) {
-        redirectHeaders['X-Inertia-Version'] = version;
-      }
       
       currentRes = await loggedFetch(fullUrl, {
         headers: redirectHeaders
       });
       
-      const newVersion = currentRes.headers.get('X-Inertia-Version');
-      if (newVersion) version = newVersion;
-      
-      if (currentRes.status === 200) break;
+      if (currentRes.status === 200) {
+        // Parse the version from the HTML data-page attribute
+        try {
+          const html = await currentRes.clone().text();
+          const match = html.match(/data-page="([^"]+)"/);
+          if (match && match[1]) {
+            const dataPage = JSON.parse(match[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
+            if (dataPage.version) {
+              version = dataPage.version;
+              globalInertiaVersion = version;
+              emitLog(port, `> [BML] Updated Inertia Version from redirect HTML: ${globalInertiaVersion}`);
+            }
+          }
+        } catch (e) {
+          emitLog(port, `> [BML] Could not parse version from redirect HTML: ${e.message}`);
+        }
+        break;
+      }
     }
     return currentRes;
   }
@@ -196,12 +244,20 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     if (!isInitialLoad) {
       headers['X-Inertia'] = 'true';
       headers['X-Requested-With'] = 'XMLHttpRequest';
+      if (globalInertiaVersion) {
+        headers['X-Inertia-Version'] = globalInertiaVersion;
+      }
     }
 
-    const res = await loggedFetch(`${BASE_URL}${path}`, {
+    let res = await loggedFetch(`${BASE_URL}${path}`, {
       cache: 'no-store',
       headers: headers
     });
+
+    if (res.status === 409) {
+      emitLog(port, `> [BML] Token refresh returned 409. Following redirects...`);
+      res = await handleInertiaRedirects(res, globalInertiaVersion);
+    }
     
     let version = res.headers.get('X-Inertia-Version') || '';
     if (!version && !isInitialLoad) {
@@ -227,10 +283,15 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
       }
     }
 
-    // Wait 200ms to ensure Chrome's cookie store reflects any Set-Cookie headers
-    await new Promise(r => setTimeout(r, 200));
+    // Wait 10ms to ensure Chrome's cookie store reflects any Set-Cookie headers
+    await new Promise(r => setTimeout(r, 10));
     const token = await getXsrfToken();
-    return { token, version };
+    
+    xsrfToken = token;
+    if (version) {
+      globalInertiaVersion = version;
+    }
+    return token;
   }
 
   try {
@@ -249,7 +310,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     // ═══════════════════════════════════════════════════════════════
     // STEP 1: Initialize Session
     // ═══════════════════════════════════════════════════════════════
-    let { token: xsrfToken, version: inertiaVersion } = await getFreshXsrfToken('/web/login', true);
+    await getFreshXsrfToken('/web/login', true);
 
     // ═══════════════════════════════════════════════════════════════
     // STEP 2: Submit Username/Password
@@ -264,8 +325,8 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
       'Referer': `${BASE_URL}/web/login`,
       'User-Agent': USER_AGENT
     };
-    if (inertiaVersion) {
-      headers['X-Inertia-Version'] = inertiaVersion;
+    if (globalInertiaVersion) {
+      headers['X-Inertia-Version'] = globalInertiaVersion;
     }
 
     const loginRes = await loggedFetch(`${BASE_URL}/web/login`, {
@@ -273,36 +334,102 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
       headers: headers,
       body: JSON.stringify({
         username: credentials.username,
-        password: credentials.password
+        password: credentials.password,
+        code: ""
       })
     });
 
+    let finalLoginRes = loginRes;
     if (loginRes.status === 409) {
       emitLog(port, `> [BML] Login returned 409. Following Inertia redirects...`);
-      await handleInertiaRedirects(loginRes, inertiaVersion);
-    } else if (loginRes.status === 200) {
-      const loginBody = await loginRes.clone().text();
-      await saveScrap('login_failed_200', loginBody);
-      emitLog(port, `> [BML] WARNING: Login returned HTTP 200. Response: ${loginBody.substring(0, 300).replace(/\n/g, ' ')}`);
-      throw new Error(`Login failed: Invalid credentials or server rejected login. HTTP 200 re-render.`);
-    } else if (!loginRes.ok) {
-      const loginBody = await loginRes.clone().text();
-      await saveScrap(`login_failed_${loginRes.status}`, loginBody);
-      throw new Error(`HTTP ${loginRes.status} on login POST.`);
+      finalLoginRes = await handleInertiaRedirects(loginRes, globalInertiaVersion);
+    }
+
+    if (finalLoginRes.status === 200) {
+      const loginBody = await finalLoginRes.clone().text();
+      let is2faPage = false;
+      let parsed = null;
+      try {
+        parsed = JSON.parse(loginBody);
+        if (parsed.component === 'Auth/2FA') {
+          is2faPage = true;
+          if (parsed.version) {
+            globalInertiaVersion = parsed.version;
+          }
+        }
+      } catch (err) {
+        emitLog(port, `> [BML] WARNING: Login response not valid JSON: ${err.message}`);
+      }
+
+      if (is2faPage) {
+        emitLog(port, `> [BML] Login credentials accepted. Transitioning to 2FA stage...`);
+        // Wait 10ms and refresh XSRF token from cookies (which might have changed on successful login)
+        await new Promise(r => setTimeout(r, 10));
+        xsrfToken = await getXsrfToken();
+      } else {
+        await saveScrap('login_failed_200', loginBody);
+        let errorMsg = "Login failed: Invalid credentials or server rejected login. HTTP 200 re-render.";
+        if (parsed && parsed.props && parsed.props.errors) {
+          const errs = JSON.stringify(parsed.props.errors);
+          errorMsg = `Login failed: ${errs}`;
+        }
+        emitLog(port, `> [BML] WARNING: ${errorMsg}`);
+        throw new Error(errorMsg);
+      }
+    } else if (!finalLoginRes.ok) {
+      const loginBody = await finalLoginRes.clone().text();
+      await saveScrap(`login_failed_${finalLoginRes.status}`, loginBody);
+      throw new Error(`HTTP ${finalLoginRes.status} on login POST.`);
     }
 
     // ═══════════════════════════════════════════════════════════════
     // STEP 3: Verify OTP
     // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [BML] Step 3B: Submitting TOTP code...`);
-    const freshData = await getFreshXsrfToken('/web/login/2fa');
-    xsrfToken = freshData.token;
-    inertiaVersion = freshData.version;
+    emitLog(port, `> [BML] Step 3: Loading 2FA Stage...`);
+    
+    // Load the 2FA page as an Inertia request to initialize/sync state
+    const mfaHeaders = {
+      'Accept': 'text/html, application/xhtml+xml',
+      'X-Inertia': 'true',
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-XSRF-TOKEN': xsrfToken,
+      'Referer': `${BASE_URL}/web/login`,
+      'User-Agent': USER_AGENT
+    };
+    if (globalInertiaVersion) {
+      mfaHeaders['X-Inertia-Version'] = globalInertiaVersion;
+    }
 
+    let mfaPageRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
+      headers: mfaHeaders
+    });
+
+    if (mfaPageRes.status === 409) {
+      emitLog(port, `> [BML] 2FA page returned 409. Following redirects...`);
+      mfaPageRes = await handleInertiaRedirects(mfaPageRes, globalInertiaVersion);
+    }
+
+    if (mfaPageRes.status === 200) {
+      const mfaPageBody = await mfaPageRes.clone().text();
+      try {
+        const parsed = JSON.parse(mfaPageBody);
+        if (parsed.version) {
+          globalInertiaVersion = parsed.version;
+        }
+      } catch (err) {
+        emitLog(port, `> [BML] WARNING: 2FA page response not valid JSON: ${err.message}`);
+      }
+    }
+
+    await new Promise(r => setTimeout(r, 10));
+    xsrfToken = await getXsrfToken();
+
+    // Step 3B: Submit OTP with Authenticator channel selection in a single request
+    emitLog(port, `> [BML] Step 3B: Submitting TOTP code...`);
     const otpCode = await generateTOTP(credentials.totpSeed);
     emitLog(port, `> [TESTING] Submitting OTP: ${otpCode}`);
 
-    const mfaHeaders = {
+    const verifyHeaders = {
       'Accept': 'text/html, application/xhtml+xml',
       'Content-Type': 'application/json',
       'X-Inertia': 'true',
@@ -311,26 +438,60 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
       'Referer': `${BASE_URL}/web/login/2fa`,
       'User-Agent': USER_AGENT
     };
-    if (inertiaVersion) {
-      mfaHeaders['X-Inertia-Version'] = inertiaVersion;
+    if (globalInertiaVersion) {
+      verifyHeaders['X-Inertia-Version'] = globalInertiaVersion;
     }
 
-    const mfaRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
+    let mfaRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
       method: 'POST',
-      headers: mfaHeaders,
-      body: JSON.stringify({ otp: otpCode, channel: 'authenticator' })
+      headers: verifyHeaders,
+      body: JSON.stringify({
+        code: otpCode,
+        channel: 'authenticator'
+      })
     });
 
     if (mfaRes.status === 409) {
-      const mfaRedirectUrl = mfaRes.headers.get('X-Inertia-Location');
-      emitLog(port, `> [BML] MFA returned 409 Redirect to ${mfaRedirectUrl}.`);
-      await handleInertiaRedirects(mfaRes, inertiaVersion);
-    } else if (mfaRes.status === 200) {
+      emitLog(port, `> [BML] MFA response returned 409. Following redirects...`);
+      mfaRes = await handleInertiaRedirects(mfaRes, globalInertiaVersion);
+    }
+
+    if (mfaRes.status === 200) {
       const mfaBody = await mfaRes.clone().text();
-      await saveScrap('mfa_failed_200', mfaBody);
-      emitLog(port, `> [BML] WARNING: MFA returned HTTP 200. Response: ${mfaBody.substring(0, 300).replace(/\n/g, ' ')}`);
-      throw new Error(`MFA failed: Server re-rendered 2FA form.`);
-    } else {
+      let is2faPage = false;
+      let parsed = null;
+      try {
+        parsed = JSON.parse(mfaBody);
+        if (parsed.component === 'Auth/2FA') {
+          is2faPage = true;
+        }
+      } catch (err) {
+        emitLog(port, `> [BML] WARNING: MFA response not valid JSON: ${err.message}`);
+      }
+
+      if (is2faPage) {
+        await saveScrap('mfa_failed_200', mfaBody);
+        let errorMsg = "MFA failed: Server re-rendered 2FA form.";
+        if (parsed && parsed.props && parsed.props.errors) {
+          const errs = JSON.stringify(parsed.props.errors);
+          errorMsg = `MFA failed: ${errs}`;
+        }
+        emitLog(port, `> [BML] WARNING: ${errorMsg}`);
+        throw new Error(errorMsg);
+      } else {
+        emitLog(port, `> [BML] MFA OTP accepted.`);
+        if (parsed && parsed.version) {
+          globalInertiaVersion = parsed.version;
+        }
+      }
+    } else if (mfaRes.status === 302 || mfaRes.status === 303) {
+      // If it returns a standard HTTP redirect (e.g. to /web/profile), follow it
+      const redirectUrl = mfaRes.headers.get('Location');
+      emitLog(port, `> [BML] MFA OTP accepted (HTTP ${mfaRes.status}). Redirecting to ${redirectUrl}...`);
+      // Update our token and continue
+      await new Promise(r => setTimeout(r, 10));
+      xsrfToken = await getXsrfToken();
+    } else if (!mfaRes.ok) {
       const mfaBody = await mfaRes.clone().text();
       await saveScrap(`mfa_failed_${mfaRes.status}`, mfaBody);
       throw new Error(`MFA failed with HTTP ${mfaRes.status}`);
@@ -340,7 +501,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     // STEP 4: Fetch and Select Profile
     // ═══════════════════════════════════════════════════════════════
     emitLog(port, `> [BML] Step 4: Fetching Profiles...`);
-    xsrfToken = await getFreshXsrfToken('/web/profile');
+    await getFreshXsrfToken('/web/profile');
 
     let profileRes = await loggedFetch(`${BASE_URL}/web/profile`, {
       headers: {
@@ -361,39 +522,110 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     const responseText = await profileRes.clone().text();
     let profiles = [];
 
+    // Extract profiles helper function to check multiple locations
+    function extractProfilesFromObject(obj) {
+      if (!obj) return null;
+      // Possible locations for profiles list
+      const candidates = [
+        obj.props?.user_profiles,
+        obj.props?.profiles,
+        obj.props?.profile,
+        obj.payload?.user_profiles,
+        obj.payload?.profiles,
+        obj.payload?.profile,
+        obj.user_profiles,
+        obj.profiles,
+        obj.profile
+      ];
+      for (const cand of candidates) {
+        if (cand && Array.isArray(cand) && cand.length > 0) return cand;
+        if (cand && typeof cand === 'object' && !Array.isArray(cand)) return [cand];
+      }
+      return null;
+    }
+
     try {
       const profileData = JSON.parse(responseText);
-      profiles = profileData.props?.profiles || [];
+      profiles = extractProfilesFromObject(profileData) || [];
     } catch (err) {
       const dataPageMatch = /data-page=(['"])(.*?)\1/.exec(responseText);
       if (dataPageMatch) {
         try {
           const decoded = dataPageMatch[2].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
           const pageData = JSON.parse(decoded);
-          profiles = pageData.props?.profiles || [];
+          profiles = extractProfilesFromObject(pageData) || [];
         } catch (e) { }
-      }
-      if (profiles.length === 0) {
-        const patterns = [
-          /\/internetbanking\/web\/profile\/([a-fA-F0-9\-]{36})/gi,
-          /"profileId":\s*"([a-fA-F0-9\-]{36})"/gi,
-          /data-profile-id="([a-fA-F0-9\-]{36})"/gi
-        ];
-        const uniqueIds = new Set();
-        for (const pattern of patterns) {
-          let match;
-          while ((match = pattern.exec(responseText)) !== null) { uniqueIds.add(match[1]); }
-        }
-        profiles = Array.from(uniqueIds).map(id => ({ id, name: id }));
       }
     }
 
+    if (profiles.length === 0) {
+      const patterns = [
+        /\/internetbanking\/web\/profile\/([a-fA-F0-9\-]{36})/gi,
+        /"profileId":\s*"([a-fA-F0-9\-]{36})"/gi,
+        /data-profile-id="([a-fA-F0-9\-]{36})"/gi,
+        /"profile":\s*"([a-fA-F0-9\-]{36})"/gi,
+        /"guid":\s*"([a-fA-F0-9\-]{36})"/gi
+      ];
+      const uniqueIds = new Set();
+      for (const pattern of patterns) {
+        let match;
+        while ((match = pattern.exec(responseText)) !== null) { uniqueIds.add(match[1]); }
+      }
+      profiles = Array.from(uniqueIds).map(id => ({ id, name: id }));
+    }
+
+    let selectedProfileId = null;
     if (profiles.length > 0) {
       const selectedProfile = profiles[0];
-      emitLog(port, `> [BML] Selected Profile: ${selectedProfile.id}`);
-      xsrfToken = await getFreshXsrfToken('/web/profile');
+      const profStr = typeof selectedProfile === 'string' ? selectedProfile : JSON.stringify(selectedProfile);
+      const uuidMatch = profStr.match(/[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}/);
+      if (uuidMatch) {
+        selectedProfileId = uuidMatch[0];
+      }
+    }
 
-      let selectProfileRes = await loggedFetch(`${BASE_URL}/web/profile/${selectedProfile.id}`, {
+    if (!selectedProfileId) {
+      emitLog(port, `> [BML] Profiles not found in /web/profile. Fetching from /api/profile...`);
+      try {
+        const apiProfileRes = await loggedFetch(`${BASE_URL}/api/profile`, {
+          headers: {
+            'Accept': 'application/json, text/plain, */*',
+            'Authorization': 'Bearer',
+            'X-XSRF-TOKEN': xsrfToken,
+            'Referer': `${BASE_URL}/web/profile`,
+            'User-Agent': USER_AGENT
+          }
+        });
+        if (apiProfileRes.ok) {
+          const apiProfileData = await apiProfileRes.json();
+          // Extract from api response
+          const profileList = apiProfileData.payload?.profile || apiProfileData.profile || [];
+          if (Array.isArray(profileList) && profileList.length > 0) {
+            const firstProf = profileList[0];
+            selectedProfileId = firstProf.profile || firstProf.guid || firstProf.id || firstProf.profileId;
+          }
+          if (!selectedProfileId && apiProfileData.payload?.userInfo?.profile) {
+            const up = apiProfileData.payload.userInfo.profile;
+            selectedProfileId = up.guid || up.profile || up.id || up.profileId;
+          }
+          if (!selectedProfileId && apiProfileData.payload?.userInfo?.user_profiles) {
+            const upList = apiProfileData.payload.userInfo.user_profiles;
+            if (Array.isArray(upList) && upList.length > 0) {
+              selectedProfileId = upList[0].profile || upList[0].guid || upList[0].id || upList[0].profileId;
+            }
+          }
+          emitLog(port, `> [BML] Found profile ID from API fallback: ${selectedProfileId}`);
+        }
+      } catch (err) {
+        emitLog(port, `> [BML] API profile fallback failed: ${err.message}`);
+      }
+    }
+
+    if (selectedProfileId) {
+      emitLog(port, `> [BML] Selected Profile: ${selectedProfileId}`);
+      await getFreshXsrfToken('/web/profile');
+
+      let selectProfileRes = await loggedFetch(`${BASE_URL}/web/profile/${selectedProfileId}`, {
         method: 'GET',
         headers: {
           'Accept': 'text/html, application/xhtml+xml',
@@ -415,14 +647,14 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
       emitLog(port, `> [BML] No profiles found. Proceeding with single-profile assumption...`);
     }
 
-    // Add delay to let backend sync
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Add small delay to let backend sync
+    await new Promise(resolve => setTimeout(resolve, 10));
 
     // ═══════════════════════════════════════════════════════════════
     // STEP 5: Navigate to accounts overview  
     // ═══════════════════════════════════════════════════════════════
     emitLog(port, `> [BML] Step 5: Loading Accounts Overview...`);
-    xsrfToken = await getFreshXsrfToken('/vf/accounts/overview');
+    await getFreshXsrfToken('/vf/accounts/overview');
 
     const accountsOverviewRes = await loggedFetch(`${BASE_URL}/vf/accounts/overview`, {
       headers: {
@@ -529,12 +761,11 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     // STEP 8: Cleanup and Report
     // ═══════════════════════════════════════════════════════════════
     try {
-      await loggedFetch(`${BASE_URL}/logout`, {
-        method: 'POST',
+      await loggedFetch(`${BASE_URL}/web/2fa/logout`, {
+        method: 'GET',
         headers: {
-          'Accept': 'text/html, application/xhtml+xml',
-          'X-Inertia': 'true',
-          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Upgrade-Insecure-Requests': '1',
           'X-XSRF-TOKEN': xsrfToken,
           'Referer': `${BASE_URL}/vf/accounts/overview`,
           'User-Agent': USER_AGENT
@@ -557,8 +788,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
         }
       });
     } else {
-      // Fallback for old implementations
-      port.postMessage({ type: "bml_success", balance: balance });
+      throw new Error(`Verification Failed: No recent credit transaction found for ${targetAmount} MVR.`);
     }
 
   } catch (error) {
