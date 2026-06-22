@@ -12,7 +12,7 @@ export default function LandingPage() {
       {/* Navbar */}
       <nav className="relative z-10 w-full flex justify-between items-center px-8 py-6 max-w-7xl mx-auto backdrop-blur-sm">
         <div className="flex items-center gap-2">
-          <img src="/logo_en.png" alt="Viri Logo" className="h-8 object-contain" />
+          <img src="/logo_en.png" alt="Viri Logo" className="h-16 object-contain" />
         </div>
         <div className="flex gap-4 items-center">
           <Link to="/login" className="text-sm font-medium text-gray-300 hover:text-white transition-colors mr-4">Sign in</Link>
@@ -33,7 +33,7 @@ export default function LandingPage() {
           <span className="text-gray-300">Zero-Knowledge Ledger Architecture Live</span>
         </div>
         
-        <img src="/logo_dv_en.png" alt="Viri logo" className="h-28 md:h-36 object-contain mb-8 animate-fade-in" style={{ animationDelay: '0.05s' }} />
+        <img src="/logo_dv_en.png" alt="Viri logo" className="h-56 md:h-72 object-contain mb-8 animate-fade-in" style={{ animationDelay: '0.05s' }} />
         <h1 className="text-6xl md:text-8xl font-heading font-extrabold tracking-tight mb-8 animate-fade-in leading-[1.1]" style={{ animationDelay: '0.1s' }}>
           Secure verifications. <br />
           <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#10b981] via-[#34d399] to-[#3b82f6]">
@@ -188,7 +188,7 @@ export default function LandingPage() {
       <footer className="relative z-10 border-t border-white/10 py-12 bg-black text-center text-gray-500">
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-2">
-            <img src="/logo_en.png" alt="Viri Logo" className="h-6 object-contain" />
+            <img src="/logo_en.png" alt="Viri Logo" className="h-12 object-contain" />
           </div>
           <p>© 2026 Viri Zero-Knowledge Architecture. All rights reserved.</p>
           <div className="flex gap-6">

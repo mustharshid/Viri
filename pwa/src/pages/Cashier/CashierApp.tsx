@@ -345,7 +345,7 @@ function App() {
     return (
       <div className="min-h-screen bg-[var(--bg-base)] flex flex-col items-center justify-center p-4">
         <div className="glass-panel p-8 max-w-sm w-full text-center animate-fade-in shadow-2xl">
-          <img src="/logo_en.png" alt="Viri Logo" className="h-12 mx-auto mb-6 object-contain" />
+          <img src="/logo_en.png" alt="Viri Logo" className="h-24 mx-auto mb-6 object-contain" />
           <h2 className="text-2xl font-bold mb-2">Terminal Setup</h2>
           <p className="text-[var(--text-secondary)] text-sm mb-6">Enter the 6-digit pairing code from your Company Dashboard to link this terminal.</p>
 

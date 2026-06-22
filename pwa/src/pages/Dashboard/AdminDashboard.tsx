@@ -66,7 +66,7 @@ export default function AdminDashboard() {
         <header className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-3">
-              <img src="/logo_en.png" alt="Viri Logo" className="h-8 object-contain" />
+              <img src="/logo_en.png" alt="Viri Logo" className="h-16 object-contain" />
               <span className="text-[var(--text-secondary)] text-lg font-normal border-l border-zinc-700 pl-3">Superadmin Portal</span>
             </h1>
             <p className="text-[var(--text-secondary)]">Manage tenant subscriptions and approvals</p>
