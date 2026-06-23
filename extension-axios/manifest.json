@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Viri Bridge (Axios Version)",
+  "version": "1.0.0",
+  "description": "Viri Decentralized Live Bank Transfer Verification Bridge.",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess",
+    "cookies",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "http://localhost/*",
+      "https://*.viri.app/*",
+      "https://soft.thinksafe.mv/*",
+      "https://viri.thinksafe.mv/*"
+    ]
+  }
+}
