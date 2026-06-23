@@ -1112,7 +1112,9 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     }, port);
 
     if (!authTypeRes.ok) {
-      throw new Error(`MIB getAuthType failed: HTTP ${authTypeRes.status}`);
+      const errText = await authTypeRes.text().catch(() => "");
+      emitLog(port, `> [MIB] getAuthType error body: ${errText}`);
+      throw new Error(`MIB getAuthType failed: HTTP ${authTypeRes.status}. Details: ${errText.substring(0, 200)}`);
     }
 
     let authTypeData;
@@ -1151,7 +1153,9 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     }, port);
 
     if (!xAuthRes.ok) {
-      throw new Error(`MIB xAuth failed: HTTP ${xAuthRes.status}`);
+      const errText = await xAuthRes.text().catch(() => "");
+      emitLog(port, `> [MIB] xAuth error body: ${errText}`);
+      throw new Error(`MIB xAuth failed: HTTP ${xAuthRes.status}. Details: ${errText.substring(0, 200)}`);
     }
 
     let xAuthData;
