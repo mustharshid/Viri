@@ -10,7 +10,7 @@ export default function LandingPage() {
       <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-[#3b82f6] rounded-full mix-blend-screen filter blur-[150px] opacity-20 animate-pulse-glow" style={{ animationDelay: '2s' }}></div>
 
       {/* Navbar */}
-      <nav className="sticky top-0 z-50 w-full flex justify-between items-center px-8 pt-1.5 pb-4 max-w-7xl mx-auto backdrop-blur-md bg-[#09090b]/80 border-b border-white/5">
+      <nav className="sticky top-0 z-50 w-full flex justify-between items-center px-8 pt-1.5 pb-4 max-w-7xl mx-auto backdrop-blur-sm">
         <div className="flex items-center gap-2">
           <img src="/logo_en.png" alt="Viri Logo" className="h-32 object-contain" />
         </div>
