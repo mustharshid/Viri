@@ -10,7 +10,7 @@ export default function LandingPage() {
       <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-[#3b82f6] rounded-full mix-blend-screen filter blur-[150px] opacity-20 animate-pulse-glow" style={{ animationDelay: '2s' }}></div>
 
       {/* Navbar */}
-      <nav className="relative z-10 w-full flex justify-between items-center px-8 py-6 max-w-7xl mx-auto backdrop-blur-sm">
+      <nav className="sticky top-0 z-50 w-full flex justify-between items-center px-8 pt-1.5 pb-4 max-w-7xl mx-auto backdrop-blur-md bg-[#09090b]/80 border-b border-white/5">
         <div className="flex items-center gap-2">
           <img src="/logo_en.png" alt="Viri Logo" className="h-32 object-contain" />
         </div>
@@ -23,7 +23,7 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero Section */}
-      <main className="relative z-10 max-w-7xl mx-auto px-6 pt-24 pb-32 flex flex-col items-center text-center">
+      <main className="relative z-10 max-w-7xl mx-auto px-6 pt-5 pb-32 flex flex-col items-center text-center">
         
         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-sm mb-5 animate-fade-in backdrop-blur-md">
           <span className="relative flex h-2.5 w-2.5">
