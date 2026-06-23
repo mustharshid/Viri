@@ -900,8 +900,7 @@ chrome.declarativeNetRequest.updateDynamicRules({
       action: {
         type: "modifyHeaders",
         requestHeaders: [
-          { header: "Origin", operation: "remove" },
-          { header: "Referer", operation: "remove" }
+          { header: "Origin", operation: "set", value: "https://faisanet.mib.com.mv" }
         ],
         responseHeaders: [
           { header: "Access-Control-Allow-Origin", operation: "set", value: "*" }
