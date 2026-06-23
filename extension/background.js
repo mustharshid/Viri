@@ -1,4 +1,5 @@
 const BASE_URL = "https://www.bankofmaldives.com.mv/internetbanking";
+const MIB_BASE_URL = "https://faisanet.mib.com.mv";
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
 
 let globalInertiaVersion = "";
@@ -122,10 +123,15 @@ chrome.runtime.onConnectExternal.addListener((port) => {
       // Handle the new frontend structure
       if (msg.action === 'VERIFY_TRANSFER') {
         const payload = msg.payload;
-        // payload has targetAmount, accountNumber, credentials
+        const targetAcc = payload.accountNumber || payload.accountId || payload.account;
         try {
-          const targetAcc = payload.accountNumber || payload.accountId || payload.account;
-          await runBmlFlow(payload.credentials, targetAcc, port, payload.amount);
+          if (payload.bank === 'MIB') {
+            // Route to MIB Faisanet flow
+            await runMibFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0');
+          } else {
+            // Default: BML flow
+            await runBmlFlow(payload.credentials, targetAcc, port, payload.amount);
+          }
         } catch (error) {
           port.postMessage({ type: 'error', error: error.message });
         }
@@ -868,7 +874,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
 
 // ─── CORS Header Rules ─────────────────────────────────────────────────────────
 chrome.declarativeNetRequest.updateDynamicRules({
-  removeRuleIds: [1, 2],
+  removeRuleIds: [1, 2, 3],
   addRules: [
     {
       id: 1,
@@ -887,6 +893,615 @@ chrome.declarativeNetRequest.updateDynamicRules({
         urlFilter: "*bankofmaldives*",
         resourceTypes: ["xmlhttprequest"]
       }
+    },
+    {
+      id: 3,
+      priority: 1,
+      action: {
+        type: "modifyHeaders",
+        requestHeaders: [
+          { header: "Origin", operation: "remove" },
+          { header: "Referer", operation: "remove" }
+        ],
+        responseHeaders: [
+          { header: "Access-Control-Allow-Origin", operation: "set", value: "*" }
+        ]
+      },
+      condition: {
+        urlFilter: "*faisanet.mib.com.mv*",
+        resourceTypes: ["xmlhttprequest"]
+      }
     }
   ]
 });
+
+// =============================================================================
+// MIB FAISANET ROBOT FLOW
+// =============================================================================
+
+/**
+ * Extract rTag CSRF token from MIB HTML page
+ */
+function extractRTag(html) {
+  // Try multiple patterns for rTag extraction
+  const patterns = [
+    /rTag\s*=\s*["']([^"']+)["']/,
+    /name=["']rTag["']\s+value=["']([^"']+)["']/,
+    /value=["']([^"']+)["']\s+name=["']rTag["']/,
+    /"rTag"\s*:\s*["']([^"']+)["']/
+  ];
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match) return match[1];
+  }
+  throw new Error('Failed to extract rTag from MIB page');
+}
+
+/**
+ * SHA-256 hash a password using Web Crypto API (available in service workers)
+ */
+async function hashPasswordSHA256(password) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+
+/**
+ * Generate a random client salt (base64 encoded)
+ */
+function generateClientSalt() {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  // Convert to base64-like string
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < 32; i++) {
+    result += chars.charAt(bytes[i % bytes.length] % chars.length);
+  }
+  return result;
+}
+
+/**
+ * Parse profiles from MIB profiles HTML page
+ */
+function parseProfilesFromHtml(html) {
+  const profiles = [];
+  // Look for profile links or data attributes
+  const patterns = [
+    /profileId["']?\s*[:=]\s*["']?(\d+)["']?/gi,
+    /switchProfile\s*\(\s*["']?(\d+)["']?/gi,
+    /data-profile-id=["'](\d+)["']/gi,
+    /name=["']profileId["']\s+value=["'](\d+)["']/gi
+  ];
+  const uniqueIds = new Set();
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(html)) !== null) {
+      uniqueIds.add(match[1]);
+    }
+  }
+  for (const id of uniqueIds) {
+    profiles.push({ id, type: 'unknown' });
+  }
+  return profiles;
+}
+
+/**
+ * Parse account numbers from MIB accounts HTML page
+ */
+function parseAccountsFromHtml(html) {
+  const accounts = [];
+  // Look for account numbers (long numeric strings typical of MIB)
+  const patterns = [
+    /accountNo["']?\s*[:=]\s*["']?(\d{10,20})["']?/gi,
+    /data-account-no=["'](\d{10,20})["']/gi,
+    /account_number["']?\s*[:=]\s*["']?(\d{10,20})["']?/gi,
+    /accountDetails\?accountNo=(\d{10,20})/gi
+  ];
+  const uniqueNos = new Set();
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(html)) !== null) {
+      uniqueNos.add(match[1]);
+    }
+  }
+  for (const no of uniqueNos) {
+    accounts.push({ accountNo: no });
+  }
+  return accounts;
+}
+
+/**
+ * MIB-specific logged fetch with form-urlencoded support
+ */
+async function mibFetch(url, options = {}, port) {
+  const method = options.method || 'GET';
+  let bodyLog = '';
+  if (options.body && typeof options.body === 'string') {
+    // Sanitize sensitive fields from the log
+    let sanitized = options.body;
+    sanitized = sanitized.replace(/pgf01=[^&]*/g, 'pgf01=[REDACTED]');
+    sanitized = sanitized.replace(/pgf03=[^&]*/g, 'pgf03=[REDACTED]');
+    sanitized = sanitized.replace(/otp=[^&]*/g, 'otp=[REDACTED]');
+    bodyLog = `\n    Body: ${sanitized.substring(0, 150)}...`;
+  }
+  emitLog(port, `> [MIB] Request: ${method} ${url}${bodyLog}`);
+
+  options.credentials = 'include';
+
+  try {
+    const res = await fetch(url, options);
+    emitLog(port, `> [MIB] Response: HTTP ${res.status} from ${url}`);
+    return res;
+  } catch (error) {
+    emitLog(port, `> [MIB] Fetch failed: ${error.message} for ${url}`);
+    throw error;
+  }
+}
+
+/**
+ * Build form-urlencoded body string from an object
+ */
+function buildFormBody(params) {
+  return Object.entries(params)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join('&');
+}
+
+/**
+ * The main MIB Faisanet background flow
+ * @param {Object} credentials - {username, password, totpSeed}
+ * @param {string} targetAccount - Account number to check
+ * @param {Object} port - Chrome extension port for communication
+ * @param {string} targetAmount - Amount to verify
+ * @param {string} profileType - '0' for Personal, '1' for Business
+ */
+async function runMibFlow(credentials, targetAccount, port, targetAmount, profileType = '0') {
+  emitLog(port, `> [MIB] Starting MIB Faisanet auth flow...`);
+
+  const mibHeaders = {
+    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+    'X-Requested-With': 'XMLHttpRequest',
+    'User-Agent': USER_AGENT
+  };
+
+  // MIB uses HTTP 203 for "success with redirect" (observed in HAR)
+  function isMibSuccess(status) { return status === 200 || status === 203; }
+
+  let rTag = null;
+
+  try {
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 0: Clear Previous MIB Session Cookies
+    // ═══════════════════════════════════════════════════════════════
+    emitLog(port, `> [MIB] Step 0: Clearing previous MIB session cookies...`);
+    const mibCookies = await chrome.cookies.getAll({ domain: "mib.com.mv" });
+    for (const cookie of mibCookies) {
+      const protocol = cookie.secure ? "https://" : "http://";
+      const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+      const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
+      await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
+    }
+    emitLog(port, `> [MIB] Cleared ${mibCookies.length} MIB cookies.`);
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 1: Initialize Session — GET /auth
+    // ═══════════════════════════════════════════════════════════════
+    emitLog(port, `> [MIB] Step 1: Initializing session...`);
+    const authPageRes = await mibFetch(`${MIB_BASE_URL}/auth`, {
+      headers: { 'User-Agent': USER_AGENT }
+    }, port);
+
+    if (!authPageRes.ok) {
+      throw new Error(`MIB auth page load failed: HTTP ${authPageRes.status}`);
+    }
+
+    const authPageHtml = await authPageRes.text();
+    rTag = extractRTag(authPageHtml);
+    emitLog(port, `> [MIB] ✓ Session initialized. rTag: ${rTag.substring(0, 8)}...`);
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 2: Get Auth Type — POST /aAuth/getAuthType
+    // ═══════════════════════════════════════════════════════════════
+    emitLog(port, `> [MIB] Step 2: Checking auth type for user...`);
+    const authTypeRes = await mibFetch(`${MIB_BASE_URL}/aAuth/getAuthType`, {
+      method: 'POST',
+      headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth` },
+      body: buildFormBody({ rTag, pgf01: credentials.username, retain: '1' })
+    }, port);
+
+    if (!authTypeRes.ok) {
+      throw new Error(`MIB getAuthType failed: HTTP ${authTypeRes.status}`);
+    }
+
+    let authTypeData;
+    try {
+      authTypeData = await authTypeRes.json();
+    } catch (e) {
+      // Some responses may not be JSON, try to read as text
+      const text = await authTypeRes.clone().text();
+      emitLog(port, `> [MIB] Auth type response (non-JSON): ${text.substring(0, 200)}`);
+      // Continue anyway — older versions may not return JSON here
+      authTypeData = { status: 'success' };
+    }
+
+    if (authTypeData.status === 'error') {
+      throw new Error(`MIB auth type error: ${authTypeData.message || 'Unknown error'}`);
+    }
+    emitLog(port, `> [MIB] ✓ Auth type confirmed.`);
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 3: Primary Auth — POST /aAuth/xAuth
+    // ═══════════════════════════════════════════════════════════════
+    emitLog(port, `> [MIB] Step 3: Submitting primary credentials...`);
+    const hashedPassword = await hashPasswordSHA256(credentials.password);
+    const clientSalt = generateClientSalt();
+
+    const xAuthRes = await mibFetch(`${MIB_BASE_URL}/aAuth/xAuth`, {
+      method: 'POST',
+      headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth` },
+      body: buildFormBody({
+        rTag,
+        pgf01: credentials.username,
+        retain: '1',
+        pgf03: hashedPassword,
+        clientSalt: clientSalt
+      })
+    }, port);
+
+    if (!xAuthRes.ok) {
+      throw new Error(`MIB xAuth failed: HTTP ${xAuthRes.status}`);
+    }
+
+    let xAuthData;
+    try {
+      xAuthData = await xAuthRes.json();
+    } catch (e) {
+      const text = await xAuthRes.clone().text();
+      emitLog(port, `> [MIB] xAuth response (non-JSON): ${text.substring(0, 200)}`);
+      // HAR: after xAuth, browser goes to /dashboard (not /auth2FA as old doc said)
+      if (text.includes('dashboard') || text.includes('2FA') || text.includes('redirect') || text.includes('success')) {
+        xAuthData = { status: 'success', redirect: '/dashboard' };
+      } else {
+        throw new Error(`MIB xAuth response not parseable: ${text.substring(0, 100)}`);
+      }
+    }
+
+    if (xAuthData.status === 'error') {
+      throw new Error(`MIB authentication failed: ${xAuthData.message || 'Invalid credentials'}`);
+    }
+    emitLog(port, `> [MIB] ✓ Primary authentication successful.`);
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 4: Load Dashboard — GET /dashboard
+    // HAR: After xAuth, browser navigates to /dashboard.
+    // ═══════════════════════════════════════════════════════════════
+    emitLog(port, `> [MIB] Step 4: Loading dashboard...`);
+    const dashboardPageRes = await mibFetch(`${MIB_BASE_URL}/dashboard`, {
+      headers: {
+        'Referer': `${MIB_BASE_URL}/auth`,
+        'User-Agent': USER_AGENT
+      }
+    }, port);
+
+    if (!dashboardPageRes.ok) {
+      throw new Error(`MIB dashboard page load failed: HTTP ${dashboardPageRes.status}`);
+    }
+
+    const dashHtml = await dashboardPageRes.text();
+    try { rTag = extractRTag(dashHtml); } catch (e) {
+      emitLog(port, `> [MIB] Could not extract rTag from dashboard — keeping previous.`);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 4.5: Load 2FA Page — GET /auth2FA
+    // HAR: The browser is redirected or navigates to /auth2FA.
+    // We must load /auth2FA to initialize the 2FA state on the server and get the correct rTag.
+    // ═══════════════════════════════════════════════════════════════
+    emitLog(port, `> [MIB] Step 4.5: Loading 2FA page...`);
+    const auth2faRes = await mibFetch(`${MIB_BASE_URL}/auth2FA`, {
+      headers: {
+        'Referer': `${MIB_BASE_URL}/dashboard`,
+        'User-Agent': USER_AGENT
+      }
+    }, port);
+
+    if (!auth2faRes.ok) {
+      throw new Error(`MIB 2FA page load failed: HTTP ${auth2faRes.status}`);
+    }
+
+    const auth2faHtml = await auth2faRes.text();
+    try { rTag = extractRTag(auth2faHtml); } catch (e) {
+      emitLog(port, `> [MIB] Could not extract rTag from auth2FA — keeping previous.`);
+    }
+    emitLog(port, `> [MIB] ✓ 2FA page loaded. rTag: ${rTag ? rTag.substring(0, 8) + '...' : 'none'}`);
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 5: Verify OTP — POST /aAuth2FA/verifyOTP
+    // HAR: Returns HTTP 203 (success with redirect). Referer: /auth2FA
+    // ═══════════════════════════════════════════════════════════════
+    emitLog(port, `> [MIB] Step 5: Generating and submitting TOTP...`);
+    const otpCode = await generateTOTP(credentials.totpSeed);
+    emitLog(port, `> [MIB] Generated TOTP code (Authenticator type 3)`);
+
+    const otpRes = await mibFetch(`${MIB_BASE_URL}/aAuth2FA/verifyOTP`, {
+      method: 'POST',
+      headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth2FA` },
+      body: buildFormBody({ otpType: '3', otp: otpCode })
+    }, port);
+
+    // HAR shows HTTP 203 = success with redirect to /profiles
+    if (!isMibSuccess(otpRes.status)) {
+      throw new Error(`MIB OTP verification request failed: HTTP ${otpRes.status}`);
+    }
+
+    let otpData;
+    try {
+      otpData = await otpRes.json();
+    } catch (e) {
+      // HTTP 203 may have empty body — treat as success
+      if (otpRes.status === 203) {
+        otpData = { status: 'success', redirect: '/profiles' };
+      } else {
+        const text = await otpRes.clone().text();
+        if (text.includes('/profiles') || text.includes('success')) {
+          otpData = { status: 'success', redirect: '/profiles' };
+        } else {
+          throw new Error(`MIB OTP response not parseable (HTTP ${otpRes.status}): ${text.substring(0, 100)}`);
+        }
+      }
+    }
+
+    if (otpData.status === 'error') {
+      throw new Error(`MIB OTP verification failed: ${otpData.message || 'Invalid OTP'}`);
+    }
+    emitLog(port, `> [MIB] ✓ OTP verified successfully (HTTP ${otpRes.status}).`);
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 6: Load Profiles — GET /profiles
+    // HAR: Referer: /auth2FA
+    // ═══════════════════════════════════════════════════════════════
+    emitLog(port, `> [MIB] Step 6: Loading profiles page...`);
+    const profilesRes = await mibFetch(`${MIB_BASE_URL}/profiles`, {
+      headers: {
+        'Referer': `${MIB_BASE_URL}/auth2FA`,
+        'User-Agent': USER_AGENT
+      }
+    }, port);
+
+    if (!profilesRes.ok) {
+      throw new Error(`MIB profiles page load failed: HTTP ${profilesRes.status}`);
+    }
+
+    const profilesHtml = await profilesRes.text();
+    rTag = extractRTag(profilesHtml);
+    const profiles = parseProfilesFromHtml(profilesHtml);
+    emitLog(port, `> [MIB] Found ${profiles.length} profile(s).`);
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 7: Switch Profile — POST /aProfileHandler/switchProfile
+    // ═══════════════════════════════════════════════════════════════
+    if (profiles.length > 0) {
+      const selectedProfile = profiles[0];
+      emitLog(port, `> [MIB] Step 7: Switching to profile ${selectedProfile.id} (type: ${profileType === '1' ? 'Business' : 'Personal'})...`);
+
+      const switchRes = await mibFetch(`${MIB_BASE_URL}/aProfileHandler/switchProfile`, {
+        method: 'POST',
+        headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/profiles` },
+        body: buildFormBody({
+          rTag,
+          profileId: selectedProfile.id,
+          profileType: profileType
+        })
+      }, port);
+
+      // HAR shows HTTP 203 = success with redirect to /accounts
+      if (!isMibSuccess(switchRes.status)) {
+        throw new Error(`MIB profile switch failed: HTTP ${switchRes.status}`);
+      }
+
+      let switchData;
+      try {
+        switchData = await switchRes.json();
+      } catch (e) {
+        // HTTP 203 may have empty body — treat as success
+        if (switchRes.status === 203) {
+          switchData = { status: 'success', redirect: '/accounts' };
+        } else {
+          switchData = { status: 'success' };
+        }
+      }
+
+      if (switchData.status === 'error') {
+        throw new Error(`MIB profile switch failed: ${switchData.message || 'Unknown error'}`);
+      }
+      emitLog(port, `> [MIB] ✓ Profile switched successfully (HTTP ${switchRes.status}).`);
+    } else {
+      emitLog(port, `> [MIB] No profiles found. Proceeding with default profile...`);
+    }
+
+    // Small delay to let server sync
+    await new Promise(r => setTimeout(r, 200));
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 8: Load Accounts — GET /accounts
+    // ═══════════════════════════════════════════════════════════════
+    emitLog(port, `> [MIB] Step 8: Loading accounts dashboard...`);
+    const accountsRes = await mibFetch(`${MIB_BASE_URL}/accounts`, {
+      headers: {
+        'Referer': `${MIB_BASE_URL}/profiles`,
+        'User-Agent': USER_AGENT
+      }
+    }, port);
+
+    if (!accountsRes.ok) {
+      throw new Error(`MIB accounts page load failed: HTTP ${accountsRes.status}`);
+    }
+
+    const accountsHtml = await accountsRes.text();
+    const parsedAccounts = parseAccountsFromHtml(accountsHtml);
+    emitLog(port, `> [MIB] Found ${parsedAccounts.length} account(s) in dashboard.`);
+
+    // Find the target account
+    let matchedAccountNo = null;
+    for (const acc of parsedAccounts) {
+      if (acc.accountNo === targetAccount || acc.accountNo.includes(targetAccount) || targetAccount.includes(acc.accountNo)) {
+        matchedAccountNo = acc.accountNo;
+        break;
+      }
+    }
+
+    // If no match found in parsed accounts, use the target directly
+    if (!matchedAccountNo) {
+      emitLog(port, `> [MIB] Target account ${targetAccount} not found in parsed accounts. Using directly...`);
+      matchedAccountNo = targetAccount;
+    } else {
+      emitLog(port, `> [MIB] ✓ Matched account: ${matchedAccountNo}`);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 8B: Load Account Details — GET /accountDetails
+    // HAR: trxHistory was called from /accountDetails page context
+    // ═══════════════════════════════════════════════════════════════
+    emitLog(port, `> [MIB] Step 8B: Loading account details page...`);
+    const accDetailsRes = await mibFetch(`${MIB_BASE_URL}/accountDetails?accountNo=${matchedAccountNo}`, {
+      headers: {
+        'Referer': `${MIB_BASE_URL}/accounts`,
+        'User-Agent': USER_AGENT
+      }
+    }, port);
+
+    if (!accDetailsRes.ok) {
+      emitLog(port, `> [MIB] Account details returned ${accDetailsRes.status}. Continuing anyway...`);
+    } else {
+      emitLog(port, `> [MIB] ✓ Account details page loaded.`);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 9: Fetch Transaction History — POST /ajaxAccounts/trxHistory
+    // HAR: Status 200, empty fromDate/toDate (no date filtering)
+    // ═══════════════════════════════════════════════════════════════
+    emitLog(port, `> [MIB] Step 9: Fetching transaction history for ${matchedAccountNo}...`);
+
+    const historyRes = await mibFetch(`${MIB_BASE_URL}/ajaxAccounts/trxHistory`, {
+      method: 'POST',
+      headers: {
+        ...mibHeaders,
+        'Referer': `${MIB_BASE_URL}/accountDetails?accountNo=${matchedAccountNo}`
+      },
+      body: buildFormBody({
+        accountNo: matchedAccountNo,
+        trxNo: '',
+        trxType: '0',
+        sortTrx: 'date',
+        sortDir: 'desc',
+        fromDate: '',
+        toDate: '',
+        start: '1',
+        end: '10',
+        includeCount: '1'
+      })
+    }, port);
+
+    if (!historyRes.ok) {
+      throw new Error(`MIB transaction history failed: HTTP ${historyRes.status}`);
+    }
+
+    // Parse the transaction history response
+    let historyData;
+    try {
+      historyData = await historyRes.json();
+    } catch (e) {
+      const text = await historyRes.clone().text();
+      emitLog(port, `> [MIB] Transaction history response (non-JSON): ${text.substring(0, 300)}`);
+      throw new Error('MIB transaction history response was not valid JSON');
+    }
+
+    const transactions = historyData?.data?.transactions || historyData?.transactions || [];
+    const targetAmtNum = parseFloat(targetAmount) || 0;
+    emitLog(port, `> [MIB] Found ${transactions.length} transaction(s). Searching for ${targetAmount} MVR credit...`);
+
+    let matchFound = null;
+    for (const tx of transactions) {
+      const txAmount = Math.abs(parseFloat(tx.amount) || 0);
+      const isCredit = parseFloat(tx.amount) > 0 || tx.type === 'credit' || tx.credit;
+
+      if (targetAmtNum > 0 && Math.abs(txAmount - targetAmtNum) < 0.01 && isCredit) {
+        matchFound = tx;
+        emitLog(port, `> [MIB] ✓ MATCH FOUND: ${tx.description || tx.reference || 'Transaction'} — ${tx.amount}`);
+        break;
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 10: Logout and Report
+    // ═══════════════════════════════════════════════════════════════
+    emitLog(port, `> [MIB] Step 10: Logging out and cleaning up...`);
+    try {
+      await mibFetch(`${MIB_BASE_URL}/aAuth/logout`, {
+        method: 'POST',
+        headers: {
+          ...mibHeaders,
+          'Referer': `${MIB_BASE_URL}/accountDetails?accountNo=${matchedAccountNo}`
+        },
+        body: ''
+      }, port);
+      emitLog(port, `> [MIB] ✓ Session destroyed.`);
+    } catch (e) {
+      emitLog(port, `> [MIB] Session destruction failed: ${e.message}`);
+    }
+
+    // Clear MIB cookies after logout
+    const postLogoutCookies = await chrome.cookies.getAll({ domain: "mib.com.mv" });
+    for (const cookie of postLogoutCookies) {
+      const protocol = cookie.secure ? "https://" : "http://";
+      const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+      const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
+      await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
+    }
+
+    // Report result
+    if (matchFound) {
+      emitLog(port, `> [Viri Bridge] MIB VERIFICATION SUCCESS: ${matchFound.reference || matchFound.description || 'Transaction matched'}`);
+      port.postMessage({
+        type: 'success',
+        data: {
+          status: 'CREDITED',
+          reference: matchFound.reference || matchFound.description || 'MIB-MATCH',
+          amount: Math.abs(parseFloat(matchFound.amount)).toFixed(2),
+          timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString()
+        }
+      });
+    } else {
+      throw new Error(`Verification Failed: No recent credit transaction found for ${targetAmount} MVR on MIB account ${targetAccount}.`);
+    }
+
+  } catch (error) {
+    emitLog(port, `> [MIB] FATAL ERROR: ${error.message}`);
+
+    // Attempt cleanup on error
+    try {
+      await fetch(`${MIB_BASE_URL}/aAuth/logout`, {
+        method: 'POST',
+        headers: mibHeaders,
+        body: '',
+        credentials: 'include'
+      });
+    } catch (e) { /* ignore cleanup errors */ }
+
+    // Clear MIB cookies
+    try {
+      const errorCookies = await chrome.cookies.getAll({ domain: "mib.com.mv" });
+      for (const cookie of errorCookies) {
+        const protocol = cookie.secure ? "https://" : "http://";
+        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+        const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
+        await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
+      }
+    } catch (e) { /* ignore cleanup errors */ }
+
+    port.postMessage({ type: 'error', error: error.message });
+  }
+}

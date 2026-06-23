@@ -25,6 +25,7 @@ export default function CompanyDashboard() {
   const [bankName, setBankName] = useState('BML');
   const [accountName, setAccountName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
+  const [mibProfileType, setMibProfileType] = useState('0');
   
   const navigate = useNavigate();
 
@@ -95,7 +96,7 @@ export default function CompanyDashboard() {
     const res = await fetch('/api/company/bank-accounts', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bank_name: bankName, account_name: accountName, account_number: accountNumber })
+      body: JSON.stringify({ bank_name: bankName, account_name: accountName, account_number: accountNumber, mib_profile_type: bankName === 'MIB' ? mibProfileType : '0' })
     });
     
     if (!res.ok) {
@@ -104,6 +105,7 @@ export default function CompanyDashboard() {
     } else {
       setAccountName('');
       setAccountNumber('');
+      setMibProfileType('0');
       fetchData();
     }
   };
@@ -261,6 +263,19 @@ export default function CompanyDashboard() {
                 <input type="text" required placeholder="Account Number" className="input-field" value={accountNumber} onChange={e => setAccountNumber(e.target.value)} />
                 <button type="submit" className="btn btn-success flex justify-center items-center gap-2"><Plus size={18}/> Add Account</button>
               </form>
+              {bankName === 'MIB' && (
+                <div className="mb-6 -mt-2 bg-emerald-900/10 border border-emerald-500/20 p-4 rounded-lg">
+                  <label className="text-sm text-[var(--text-secondary)] mb-2 block">MIB Profile Type</label>
+                  <div className="flex gap-3">
+                    <button type="button" onClick={() => setMibProfileType('0')} className={`flex-1 py-2 px-4 rounded-lg text-sm font-semibold transition-all border ${mibProfileType === '0' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-transparent border-[var(--border-color)] text-[var(--text-secondary)] hover:border-emerald-500/50'}`}>
+                      Personal
+                    </button>
+                    <button type="button" onClick={() => setMibProfileType('1')} className={`flex-1 py-2 px-4 rounded-lg text-sm font-semibold transition-all border ${mibProfileType === '1' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-transparent border-[var(--border-color)] text-[var(--text-secondary)] hover:border-emerald-500/50'}`}>
+                      Business
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="grid md:grid-cols-2 gap-4">
                 {bankAccounts.map(acc => (
                   <div key={acc.id} className="bg-[var(--bg-canvas)] p-4 rounded border border-[var(--border-color)] flex justify-between items-center">
@@ -272,6 +287,9 @@ export default function CompanyDashboard() {
                         <div className="font-bold text-lg">{acc.bank_name === 'BML' ? 'Bank of Maldives' : 'Maldives Islamic Bank'}</div>
                         <div className="text-[var(--text-secondary)]">{acc.account_name}</div>
                         <div className="font-mono text-sm">{acc.account_number}</div>
+                        {acc.bank_name === 'MIB' && (
+                          <div className="text-xs mt-1 text-emerald-400/70">{acc.mib_profile_type === '1' ? '🏢 Business Profile' : '👤 Personal Profile'}</div>
+                        )}
                       </div>
                     </div>
                     <button onClick={() => deleteBankAccount(acc.id)} className="p-2 text-red-400 hover:text-red-300 hover:bg-red-400/10 rounded"><Trash2 size={20}/></button>

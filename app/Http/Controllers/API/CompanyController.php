@@ -76,6 +76,7 @@ class CompanyController extends Controller
             'bank_name' => 'required|string',
             'account_name' => 'required|string',
             'account_number' => 'required|string',
+            'mib_profile_type' => 'nullable|string|in:0,1',
         ]);
 
         $account = BankAccount::create([
@@ -83,6 +84,7 @@ class CompanyController extends Controller
             'bank_name' => $request->bank_name,
             'account_name' => $request->account_name,
             'account_number' => $request->account_number,
+            'mib_profile_type' => $request->mib_profile_type ?? '0',
         ]);
 
         return response()->json(['account' => $account]);

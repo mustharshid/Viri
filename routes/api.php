@@ -97,6 +97,7 @@ Route::post('/verify-terminal', function (Request $request) {
                     'bank_name' => $account->bank_name,
                     'account_name' => $account->account_name,
                     'account_number' => $account->account_number,
+                    'mib_profile_type' => $account->mib_profile_type ?? '0',
                     'is_default' => $account->is_default
                 ];
             })

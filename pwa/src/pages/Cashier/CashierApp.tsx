@@ -7,6 +7,7 @@ interface BankAccount {
   bank_name: string;
   account_name: string;
   account_number: string;
+  mib_profile_type?: string;
   is_default: boolean;
 }
 
@@ -333,6 +334,7 @@ function App() {
         bank: selectedBankName,
         accountId: selectedAccountId,
         accountNumber: selectedAccount ? selectedAccount.account_number : '',
+        mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
         credentials: activeCreds
       }
     });
