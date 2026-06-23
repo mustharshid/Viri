@@ -1019,12 +1019,31 @@ async function mibFetch(url, options = {}, port) {
   const method = options.method || 'GET';
   let bodyLog = '';
   if (options.body && typeof options.body === 'string') {
-    // Sanitize sensitive fields from the log
+    // Sanitize sensitive fields from the log with metadata for debugging
     let sanitized = options.body;
-    sanitized = sanitized.replace(/pgf01=[^&]*/g, 'pgf01=[REDACTED]');
-    sanitized = sanitized.replace(/pgf03=[^&]*/g, 'pgf03=[REDACTED]');
-    sanitized = sanitized.replace(/otp=[^&]*/g, 'otp=[REDACTED]');
-    bodyLog = `\n    Body: ${sanitized.substring(0, 150)}...`;
+    
+    // Extract pgf01 (username) for debugging metadata
+    const pgf01Match = options.body.match(/pgf01=([^&]*)/);
+    if (pgf01Match) {
+      const val = decodeURIComponent(pgf01Match[1]);
+      sanitized = sanitized.replace(/pgf01=[^&]*/g, `pgf01=[REDACTED (len: ${val.length}, starts: '${val[0] || ""}', ends: '${val[val.length - 1] || ""}')]`);
+    }
+    
+    // Extract pgf03 (hashed password)
+    const pgf03Match = options.body.match(/pgf03=([^&]*)/);
+    if (pgf03Match) {
+      const val = decodeURIComponent(pgf03Match[1]);
+      sanitized = sanitized.replace(/pgf03=[^&]*/g, `pgf03=[REDACTED (len: ${val.length}, starts: '${val.substring(0, 4)}')]`);
+    }
+    
+    // Extract otp
+    const otpMatch = options.body.match(/otp=([^&]*)/);
+    if (otpMatch) {
+      const val = decodeURIComponent(otpMatch[1]);
+      sanitized = sanitized.replace(/otp=[^&]*/g, `otp=[REDACTED (len: ${val.length})]`);
+    }
+    
+    bodyLog = `\n    Body: ${sanitized.substring(0, 250)}...`;
   }
   emitLog(port, `> [MIB] Request: ${method} ${url}${bodyLog}`);
 
