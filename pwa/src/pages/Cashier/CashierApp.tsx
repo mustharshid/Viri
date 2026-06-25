@@ -80,9 +80,37 @@ function App() {
   const [tenantName, setTenantName] = useState<string>('');
   const [subscriptionTier, setSubscriptionTier] = useState<string>('');
   const [terminalName, setTerminalName] = useState<string>('');
+  const [lockTimeout, setLockTimeout] = useState<number>(20);
+
+  // Distributed Lock State & Refs
+  const isVerifyingRef = useRef<boolean>(false);
+  const lockedAccountIdRef = useRef<string | null>(null);
+  const heartbeatIntervalRef = useRef<any>(null);
 
   // Dynamic Totals (keyed by account id string)
   const [totals, setTotals] = useState<Record<string, number>>({});
+
+  // Clean up lock on unmount
+  useEffect(() => {
+    return () => {
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+      }
+      const lockedId = lockedAccountIdRef.current;
+      const hId = localStorage.getItem('viri_hardware_id') || hardwareId;
+      const bUrl = localStorage.getItem('viri_backend_url') || backendUrl;
+      if (lockedId && hId && bUrl) {
+        fetch(`${bUrl}/terminal/unlock-account`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hardware_id: hId,
+            bank_account_id: parseInt(lockedId)
+          })
+        }).catch(err => console.error("Unmount unlock failed:", err));
+      }
+    };
+  }, []);
 
   // Persist settings
   useEffect(() => {
@@ -173,6 +201,7 @@ function App() {
 
           if (data.tenant?.name) setTenantName(data.tenant.name);
           if (data.tenant?.tier) setSubscriptionTier(data.tenant.tier);
+          if (data.tenant?.lock_timeout) setLockTimeout(data.tenant.lock_timeout);
           if (data.tenant?.extension_id) setExtensionId(data.tenant.extension_id);
           if (data.terminal_name) setTerminalName(data.terminal_name);
 
@@ -240,11 +269,37 @@ function App() {
     }
   };
 
+  const releaseLock = async () => {
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+
+    const lockedId = lockedAccountIdRef.current;
+    if (lockedId && hardwareId) {
+      lockedAccountIdRef.current = null;
+      try {
+        await fetch(`${backendUrl}/terminal/unlock-account`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hardware_id: hardwareId,
+            bank_account_id: parseInt(lockedId)
+          })
+        });
+      } catch (e) {
+        console.error("Failed to release lock", e);
+      }
+    }
+  };
+
   const killRobot = () => {
+    isVerifyingRef.current = false;
     if (activePortRef.current) {
       activePortRef.current.disconnect();
       activePortRef.current = null;
     }
+    releaseLock();
     setLoading(false);
     setError("Verification aborted by user.");
     setLogs(prev => [...prev, "> [System] Connection severed. Robot killed."]);
@@ -270,6 +325,9 @@ function App() {
     setError(null);
     setResult(null);
     setLastTransactions([]);
+    setLogs([]); // Clear previous logs
+
+    isVerifyingRef.current = true;
 
     // Step 1: License Guard (Query the Laravel backend)
     try {
@@ -288,25 +346,116 @@ function App() {
         }
         
         setLoading(false);
+        isVerifyingRef.current = false;
         return;
       }
     } catch (err: any) {
       setError(`Backend Connection Failed: Could not connect to licensing server at ${backendUrl}. Check your network or settings.`);
       setLoading(false);
+      isVerifyingRef.current = false;
       return;
     }
 
-    // Step 2: Send message to the local extension using a persistent port
+    // Step 2: Acquire Distributed Lease Lock
+    const targetAccountId = selectedAccountId;
+    lockedAccountIdRef.current = targetAccountId;
+
+    setLogs(prev => [...prev, "> [Lock] Requesting session lock for bank account..."]);
+    
+    let lockAcquired = false;
+    const startTime = Date.now();
+    const pollInterval = 2500; // poll every 2.5 seconds
+    const maxTimeoutMs = lockTimeout * 1000;
+
+    while (Date.now() - startTime < maxTimeoutMs) {
+      // Check if user clicked cancel during wait
+      if (!isVerifyingRef.current) {
+        setLogs(prev => [...prev, "> [Lock] Wait cancelled by user."]);
+        lockedAccountIdRef.current = null;
+        return;
+      }
+
+      try {
+        const lockRes = await fetch(`${backendUrl}/terminal/lock-account`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hardware_id: hardwareId,
+            bank_account_id: parseInt(targetAccountId)
+          })
+        });
+
+        if (lockRes.ok) {
+          const lockData = await lockRes.json();
+          if (lockData.status === 'acquired') {
+            lockAcquired = true;
+            setLogs(prev => [...prev, "> [Lock] Session lock acquired successfully."]);
+            break;
+          }
+        } else if (lockRes.status === 409) {
+          const lockData = await lockRes.json().catch(() => ({}));
+          const heldBy = lockData.held_by ? `terminal ${lockData.held_by.substring(0, 8)}...` : "another terminal";
+          const expiresSeconds = lockData.expires_in ?? "?";
+          
+          setLogs(prev => [
+            ...prev,
+            `> [Lock] Session busy: Held by ${heldBy}. Retrying in 2.5s (expires in ${expiresSeconds}s)...`
+          ]);
+        } else {
+          const errText = await lockRes.text();
+          console.error("Lock error response:", errText);
+          setLogs(prev => [...prev, `> [Lock] Server returned error ${lockRes.status}. Retrying...`]);
+        }
+      } catch (err) {
+        console.error("Lock request exception:", err);
+        setLogs(prev => [...prev, "> [Lock] Connection issue while locking. Retrying..."]);
+      }
+
+      // Wait 2.5s before next attempt
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+    }
+
+    if (!lockAcquired) {
+      setError("Bank session busy: Held by another terminal. Please try again later.");
+      setLogs(prev => [...prev, "> [Lock] Timeout: Could not acquire bank session lock."]);
+      setLoading(false);
+      lockedAccountIdRef.current = null;
+      isVerifyingRef.current = false;
+      return;
+    }
+
+    // Start Heartbeat interval
+    heartbeatIntervalRef.current = setInterval(async () => {
+      if (!lockedAccountIdRef.current) return;
+      try {
+        const hbRes = await fetch(`${backendUrl}/terminal/heartbeat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hardware_id: hardwareId,
+            bank_account_id: parseInt(targetAccountId)
+          })
+        });
+        if (!hbRes.ok) {
+          console.warn("Heartbeat failed, lock might be lost");
+          setLogs(prev => [...prev, "> [Lock Warning] Heartbeat failed. Lock may have been stolen or expired."]);
+        }
+      } catch (hbErr) {
+        console.error("Heartbeat exception:", hbErr);
+      }
+    }, 5000);
+
+    // Step 3: Send message to the local extension using a persistent port
     if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
       setError("Browser extension API not detected. Make sure you are using Chrome and the extension is loaded.");
       setLoading(false);
+      releaseLock();
+      isVerifyingRef.current = false;
       return;
     }
 
     const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
     const selectedBankName = selectedAccount ? selectedAccount.bank_name : 'BML';
-
-    setLogs([]); // Clear previous logs
 
     let port;
     try {
@@ -314,6 +463,8 @@ function App() {
     } catch (e: any) {
       setError(`Extension connection failed: ${e.message}. Is the Extension ID correct?`);
       setLoading(false);
+      releaseLock();
+      isVerifyingRef.current = false;
       return;
     }
 
@@ -321,7 +472,7 @@ function App() {
 
     // Add connection error handling
     port.onDisconnect.addListener(() => {
-      if (!activePortRef.current) return; // We manually disconnected it, or kill switch was used
+      if (!isVerifyingRef.current) return; // We manually disconnected it, or kill switch was used
 
       if (chrome.runtime.lastError) {
         setError(`Extension connection failed: ${chrome.runtime.lastError.message}`);
@@ -330,6 +481,8 @@ function App() {
       }
       setLoading(false);
       activePortRef.current = null;
+      releaseLock();
+      isVerifyingRef.current = false;
     });
 
     port.onMessage.addListener((response: any) => {
@@ -348,12 +501,16 @@ function App() {
         setAmount(''); // clear input on success
         port.disconnect();
         activePortRef.current = null;
+        releaseLock();
+        isVerifyingRef.current = false;
       } else if (response.type === 'error') {
         setLoading(false);
         setError(response.error || "Verification failed.");
         setLastTransactions(response.transactions || []);
         port.disconnect();
         activePortRef.current = null;
+        releaseLock();
+        isVerifyingRef.current = false;
       }
     });
 
@@ -368,17 +525,27 @@ function App() {
       totpSeed: mibTotpSeed
     };
 
-    port.postMessage({
-      action: 'VERIFY_TRANSFER',
-      payload: {
-        amount: parseFloat(amount).toFixed(2),
-        bank: selectedBankName,
-        accountId: selectedAccountId,
-        accountNumber: selectedAccount ? selectedAccount.account_number : '',
-        mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
-        credentials: activeCreds
-      }
-    });
+    try {
+      port.postMessage({
+        action: 'VERIFY_TRANSFER',
+        payload: {
+          amount: parseFloat(amount).toFixed(2),
+          bank: selectedBankName,
+          accountId: selectedAccountId,
+          accountNumber: selectedAccount ? selectedAccount.account_number : '',
+          mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
+          credentials: activeCreds
+        }
+      });
+    } catch (msgErr: any) {
+      console.error("Failed to post message to extension:", msgErr);
+      setError(`Failed to start verification: ${msgErr.message}`);
+      setLoading(false);
+      port.disconnect();
+      activePortRef.current = null;
+      releaseLock();
+      isVerifyingRef.current = false;
+    }
   };
 
   const companyName = tenantName || "Unregistered Terminal";

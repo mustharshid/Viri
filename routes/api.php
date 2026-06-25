@@ -7,6 +7,7 @@ use App\Http\Controllers\API\AuthController;
 use App\Http\Controllers\API\CompanyController;
 use App\Http\Controllers\API\SuperadminController;
 use App\Http\Controllers\API\TerminalPairingController;
+use App\Http\Controllers\API\BankAccountLockController;
 
 /*
 |--------------------------------------------------------------------------
@@ -89,6 +90,7 @@ Route::post('/verify-terminal', function (Request $request) {
             'name' => $tenant->name,
             'logo' => $tenant->company_logo,
             'tier' => $tier,
+            'lock_timeout' => $tenant->lock_timeout ?? 20,
             'verifications_used' => $tenant->verifications_count,
             'extension_id' => env('VIRI_EXTENSION_ID', 'viri_default_extension_id'),
             'bank_accounts' => $tenant->bankAccounts->map(function($account) {
@@ -105,3 +107,7 @@ Route::post('/verify-terminal', function (Request $request) {
         'terminal_name' => $terminal->terminal_name
     ]);
 });
+
+Route::post('/terminal/lock-account', [BankAccountLockController::class, 'lockAccount']);
+Route::post('/terminal/heartbeat', [BankAccountLockController::class, 'heartbeat']);
+Route::post('/terminal/unlock-account', [BankAccountLockController::class, 'unlockAccount']);

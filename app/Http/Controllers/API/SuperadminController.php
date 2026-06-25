@@ -27,11 +27,15 @@ class SuperadminController extends Controller
         $request->validate([
             'status' => 'required|in:pending,active,suspended',
             'subscription_tier' => 'required|in:free,499,999,1999',
+            'lock_timeout' => 'sometimes|integer|min:5|max:300',
         ]);
 
         $tenant = Tenant::findOrFail($id);
         $tenant->status = $request->status;
         $tenant->subscription_tier = $request->subscription_tier;
+        if ($request->has('lock_timeout')) {
+            $tenant->lock_timeout = $request->lock_timeout;
+        }
         $tenant->save();
 
         // Also approve the primary user if it's active

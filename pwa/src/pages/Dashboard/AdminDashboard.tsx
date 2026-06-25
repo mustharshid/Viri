@@ -48,12 +48,16 @@ export default function AdminDashboard() {
     navigate('/login');
   };
 
-  const updateCompany = async (id: number, status: string, tier: string) => {
+  const updateCompany = async (id: number, status: string, tier: string, lockTimeout?: number) => {
     const token = localStorage.getItem('viri_token');
+    const payload: any = { status, subscription_tier: tier };
+    if (lockTimeout !== undefined) {
+      payload.lock_timeout = lockTimeout;
+    }
     await fetch(`/api/admin/companies/${id}`, {
       method: 'PUT',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status, subscription_tier: tier })
+      body: JSON.stringify(payload)
     });
     fetchData();
   };
@@ -85,6 +89,7 @@ export default function AdminDashboard() {
                 <th className="py-3 px-4">Subscription Tier</th>
                 <th className="py-3 px-4">Verifications (Used)</th>
                 <th className="py-3 px-4">Terminals</th>
+                <th className="py-3 px-4">Lock Timeout</th>
                 <th className="py-3 px-4">Actions</th>
               </tr>
             </thead>
@@ -111,6 +116,29 @@ export default function AdminDashboard() {
                   </td>
                   <td className="py-4 px-4 font-mono text-sm">{company.verifications_count}</td>
                   <td className="py-4 px-4 font-mono text-sm">{company.terminals?.length || 0}</td>
+                  <td className="py-4 px-4 flex items-center gap-1.5">
+                    <input 
+                      type="number"
+                      min="5"
+                      max="300"
+                      className="input-field py-1 px-2 h-auto text-sm w-16 font-mono"
+                      value={company.lock_timeout ?? 20}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        if (!isNaN(val)) {
+                          const updated = companies.map(c => c.id === company.id ? { ...c, lock_timeout: val } : c);
+                          setCompanies(updated);
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const val = parseInt(e.target.value);
+                        if (!isNaN(val)) {
+                          updateCompany(company.id, company.status, company.subscription_tier, val);
+                        }
+                      }}
+                    />
+                    <span className="text-xs text-[var(--text-secondary)]">s</span>
+                  </td>
                   <td className="py-4 px-4">
                     {company.status === 'pending' ? (
                       <button 

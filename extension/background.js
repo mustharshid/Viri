@@ -238,7 +238,7 @@ function normalizeTransactions(rawTxList, bankType) {
   if (!Array.isArray(rawTxList)) return [];
   const sliced = rawTxList.slice(0, 3);
   return sliced.map(tx => {
-    let date = tx.date || tx.bookingDate || tx.valueDate || '';
+    let date = tx.transactionDate || tx.valueDate || tx.trxDate || tx.bookingDate || tx.postDate || tx.date || '';
     if (date) {
       try {
         const d = new Date(date);
@@ -278,40 +278,45 @@ function normalizeTransactions(rawTxList, bankType) {
         .join('\n');
     }
 
+    // Append other descriptive fields if they contain new information (for BML/MIB details support)
+    const detailFields = [
+      tx.descr1, tx.descr2, tx.descr3,
+      tx.remarks, tx.remarks1, tx.remarks2, tx.remarks3,
+      tx.narrative, tx.narrative1, tx.narrative2, tx.narration,
+      tx.particulars,
+      tx.senderName, tx.sender_name, tx.sender,
+      tx.remitterName, tx.remitter_name, tx.remitter,
+      tx.name, tx.partyName, tx.party_name, tx.party,
+      tx.opponentName, tx.opponent_name, tx.opponent,
+      tx.alias,
+      tx.description2, tx.description3
+    ];
+    for (const field of detailFields) {
+      if (field && typeof field === 'string') {
+        const val = field.trim().replace(/[ \t]+/g, ' ');
+        if (val && val !== tx.description?.trim() && !details.includes(val)) {
+          details += `\n${val}`;
+        }
+      }
+    }
+
     // Append Reference (Ref: ...) if present and not already in details
     const ref = tx.reference || tx.trxNumber2 || tx.refNo || tx.ref;
-    if (ref) {
-      const refTrimmed = String(ref).trim();
-      if (refTrimmed && !details.includes(refTrimmed)) {
-        details += `\nRef: ${refTrimmed}`;
-      }
+    const refTrimmed = ref ? String(ref).trim() : '';
+    if (refTrimmed && !details.includes(refTrimmed)) {
+      details += `\nRef: ${refTrimmed}`;
     }
 
     // Append Transaction ID (ID: ...) if present and not already in details
-    const txId = tx.id || tx.transactionId || tx.trxId;
-    if (txId) {
-      const idTrimmed = String(txId).trim();
-      if (idTrimmed && !details.includes(idTrimmed)) {
-        details += `\nID: ${idTrimmed}`;
-      }
-    }
-
-    // Append Post Date if present
-    const postDateVal = tx.postDate || tx.bookingDate;
-    if (postDateVal) {
-      const postDateStr = String(postDateVal).trim();
-      if (postDateStr && !details.includes(postDateStr)) {
-        details += `\nPost Date: ${postDateStr}`;
-      }
-    }
-
-    // Append Transaction Date if present
-    const transDateVal = tx.transactionDate || tx.valueDate || tx.trxDate || tx.date;
-    if (transDateVal) {
-      const transDateStr = String(transDateVal).trim();
-      if (transDateStr && !details.includes(transDateStr)) {
-        details += `\nTrans Date: ${transDateStr}`;
-      }
+    // Prioritize user-facing readable IDs over internal API UUIDs (like tx.id)
+    const txId = tx.journalNo || tx.journalNumber || tx.receiptNo || tx.referenceNo || tx.referenceNumber || tx.trxNumber || tx.trxId || tx.id || tx.transactionId || tx.uuid || tx.paymentId || tx.journal;
+    const idTrimmed = txId ? String(txId).trim() : '';
+    if (idTrimmed && idTrimmed !== refTrimmed && !details.includes(idTrimmed) && !idTrimmed.match(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/)) {
+      // Exclude UUIDs from being shown as the transaction ID if possible
+      details += `\nID: ${idTrimmed}`;
+    } else if (idTrimmed && idTrimmed !== refTrimmed && !details.includes(idTrimmed)) {
+      // Fallback to UUID only if no other user-facing ID was found
+      details += `\nID: ${idTrimmed}`;
     }
 
     let amount = parseFloat(tx.amount || tx.baseAmount) || 0;
@@ -941,6 +946,10 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     }
 
     const mergedHistory = [...pendingTxs, ...history];
+    if (mergedHistory.length > 0) {
+      emitLog(port, `> [BML] Diagnostic - First transaction keys: ${Object.keys(mergedHistory[0]).join(', ')}`);
+      emitLog(port, `> [BML] Diagnostic - First transaction raw: ${JSON.stringify(mergedHistory[0])}`);
+    }
     last3Txs = normalizeTransactions(mergedHistory, 'BML');
     const targetAmtNum = parseFloat(targetAmount) || 0;
 
@@ -1605,19 +1614,33 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
       throw new Error('MIB transaction history response was not valid JSON');
     }
 
-    const transactions = historyData?.data?.transactions || historyData?.transactions || [];
+    emitLog(port, `> [MIB] Raw history response: ${JSON.stringify(historyData)}`);
+
+    let transactions = [];
+    if (historyData) {
+      if (Array.isArray(historyData.data)) {
+        transactions = historyData.data;
+      } else if (historyData.data && Array.isArray(historyData.data.transactions)) {
+        transactions = historyData.data.transactions;
+      } else if (Array.isArray(historyData.transactions)) {
+        transactions = historyData.transactions;
+      } else if (Array.isArray(historyData)) {
+        transactions = historyData;
+      }
+    }
+
     last3Txs = normalizeTransactions(transactions, 'MIB');
     const targetAmtNum = parseFloat(targetAmount) || 0;
     emitLog(port, `> [MIB] Found ${transactions.length} transaction(s). Searching for ${targetAmount} MVR credit...`);
 
     let matchFound = null;
     for (const tx of transactions) {
-      const txAmount = Math.abs(parseFloat(tx.amount) || 0);
-      const isCredit = parseFloat(tx.amount) > 0 || tx.type === 'credit' || tx.credit;
+      const txAmount = Math.abs(parseFloat(tx.amount || tx.baseAmount) || 0);
+      const isCredit = parseFloat(tx.amount || tx.baseAmount) > 0 || tx.type === 'credit' || tx.credit || tx.trxType === 'credit';
 
       if (targetAmtNum > 0 && Math.abs(txAmount - targetAmtNum) < 0.01 && isCredit) {
         matchFound = tx;
-        emitLog(port, `> [MIB] ✓ MATCH FOUND: ${tx.description || tx.reference || 'Transaction'} — ${tx.amount}`);
+        emitLog(port, `> [MIB] ✓ MATCH FOUND: ${tx.description || tx.descr1 || tx.reference || 'Transaction'} — ${tx.amount || tx.baseAmount}`);
         break;
       }
     }
@@ -1656,8 +1679,8 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
         type: 'success',
         data: {
           status: 'CREDITED',
-          reference: matchFound.reference || matchFound.description || 'MIB-MATCH',
-          amount: Math.abs(parseFloat(matchFound.amount)).toFixed(2),
+          reference: matchFound.reference || matchFound.descr1 || matchFound.description || 'MIB-MATCH',
+          amount: Math.abs(parseFloat(matchFound.amount || matchFound.baseAmount)).toFixed(2),
           timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString()
         },
         transactions: last3Txs

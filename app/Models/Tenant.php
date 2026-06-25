@@ -11,7 +11,8 @@ class Tenant extends Model
         'name',
         'company_logo',
         'status',
-        'license_expires_at'
+        'license_expires_at',
+        'lock_timeout'
     ];
 
     protected $casts = [
