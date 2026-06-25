@@ -191,8 +191,12 @@ function App() {
             setTotals(newTotals);
           }
         } else {
-          // If the backend rejects the hardware_id, force setup mode and clear data
-          clearTerminalData();
+          // Only clear data and trigger setup mode if backend explicitly rejects the terminal with 403 or 404
+          if (response.status === 403 || response.status === 404) {
+            clearTerminalData();
+          } else {
+            console.error(`Verification server returned non-ok status during loading: ${response.status}`);
+          }
         }
       } catch (err) {
         console.error("Failed to fetch initial terminal data", err);
