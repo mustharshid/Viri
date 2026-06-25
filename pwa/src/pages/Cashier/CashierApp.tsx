@@ -803,6 +803,17 @@ function App() {
     );
   }
 
+  const activeStepIndex = (loading || progress.stage === 'success' || progress.stage === 'error') 
+    ? (progress.stage === 'init' ? 1 
+      : (progress.stage === 'lock' || progress.stage === 'auth' ? 2 
+        : (progress.stage === 'fetch' ? 3 
+          : (progress.stage === 'match' ? 4 
+            : (progress.stage === 'success' ? 5 
+              : (progress.percent >= 95 ? 4 
+                : (progress.percent >= 75 ? 3 
+                  : (progress.percent >= 45 ? 2 : 1))))))))
+    : (result ? 5 : 0);
+
   return (
     <div className="min-h-screen p-4 md:p-8 flex flex-col items-center">
 
@@ -1130,64 +1141,110 @@ function App() {
             )}
           </button>
 
-          {/* Multi-stage Progress Bar & Dynamic Status Panel */}
-          {loading && (
-            <div className="mt-6 p-4 rounded-xl bg-black/40 border border-[var(--border-color)] animate-fade-in">
-              <div className="flex justify-between items-center mb-2">
-                <span 
-                  key={progress.text} 
-                  className={`text-sm font-semibold truncate transition-all duration-300 flex items-center gap-2 ${
-                    progress.stage === 'success' ? 'text-[var(--color-success)] animate-pulse' :
-                    progress.stage === 'lock' ? 'text-[var(--color-warning)]' : 'text-cyan-400'
-                  }`}
-                  style={{ animationDuration: '0.8s' }}
-                >
-                  {progress.stage === 'success' ? (
-                    <CheckCircle className="shrink-0 animate-scale-checkmark" size={16} />
+          {/* Multi-stage Progress Stepper Panel */}
+          <div className="mt-6 p-5 rounded-xl bg-black/40 border border-[var(--border-color)] animate-fade-in">
+            <div className="flex justify-between items-center mb-6">
+              <span 
+                key={progress.text || 'idle'} 
+                className={`text-sm font-semibold truncate transition-all duration-300 flex items-center gap-2 ${
+                  activeStepIndex === 5 ? 'text-[var(--color-success)] animate-pulse' :
+                  progress.stage === 'lock' ? 'text-[var(--color-warning)]' : 
+                  activeStepIndex > 0 ? 'text-blue-400' : 'text-zinc-500'
+                }`}
+                style={{ animationDuration: '0.8s' }}
+              >
+                {loading ? (
+                  progress.stage === 'success' ? (
+                    <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
                   ) : progress.stage === 'lock' ? (
                     <span className="relative flex h-2 w-2 mr-1">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-warning)] opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-warning)]"></span>
                     </span>
                   ) : (
-                    <Loader2 className="animate-spin shrink-0 text-cyan-400" size={16} />
-                  )}
-                  {progress.text || "Processing..."}
+                    <Loader2 className="animate-spin shrink-0 text-blue-400" size={16} />
+                  )
+                ) : activeStepIndex === 5 ? (
+                  <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : null}
+                {loading ? (progress.text || "Processing...") : (activeStepIndex === 5 ? "Transfer Verified!" : (progress.stage === 'error' ? "Verification failed." : "Ready for verification."))}
+              </span>
+              
+              {loading && timeLeft !== null && progress.stage !== 'success' && (
+                <span className="text-[10px] text-[var(--text-secondary)] font-mono shrink-0">
+                  Est. remaining: ~{timeLeft}s
                 </span>
-                
-                {timeLeft !== null && progress.stage !== 'success' && (
-                  <span className="text-[10px] text-[var(--text-secondary)] font-mono shrink-0">
-                    Est. remaining: ~{timeLeft}s
-                  </span>
-                )}
-              </div>
-
-              {/* Progress Bar Track */}
-              <div className="w-full bg-zinc-800 h-2.5 rounded-full overflow-hidden border border-zinc-700/50">
-                <div 
-                  className={`h-full rounded-full transition-all duration-500 ease-out ${
-                    progress.stage === 'success' 
-                      ? 'bg-[var(--color-success)] shadow-[0_0_10px_var(--color-success-glow)]' 
-                      : progress.stage === 'lock'
-                        ? 'bg-[var(--color-warning)] animate-pulse'
-                        : progress.isIndeterminate 
-                          ? 'animate-shimmer' 
-                          : 'bg-gradient-to-r from-blue-500 to-cyan-400'
-                  }`}
-                  style={{ width: `${progress.percent}%` }}
-                />
-              </div>
-
-              {/* Stage Stepper Labels */}
-              <div className="flex justify-between mt-2.5 text-[10px] text-zinc-500 font-medium px-0.5">
-                <span className={progress.percent >= 20 ? 'text-zinc-300' : ''}>Start</span>
-                <span className={progress.percent >= 45 ? 'text-zinc-300' : ''}>Auth</span>
-                <span className={progress.percent >= 75 ? 'text-zinc-300' : ''}>Fetch</span>
-                <span className={progress.percent >= 95 ? 'text-zinc-300' : ''}>Match</span>
-                <span className={progress.percent >= 100 ? 'text-[var(--color-success)] font-semibold' : ''}>Verify</span>
-              </div>
+              )}
             </div>
-          )}
+
+            {/* Stepper progress track */}
+            <div className="relative flex justify-between items-center w-full mt-4 mb-2 px-1 select-none">
+              {/* Connecting Line Track */}
+              <div className="absolute left-6 right-6 top-[15px] h-[3px] bg-zinc-800 -z-10 rounded-full flex overflow-hidden">
+                {/* Line Segment 1 (Start -> Auth) */}
+                <div className={`flex-1 h-full transition-all duration-500 ${
+                  activeStepIndex >= 2 ? 'bg-emerald-500' :
+                  activeStepIndex === 1 ? 'bg-gradient-to-r from-blue-500 to-zinc-700' : 'bg-zinc-700'
+                }`} />
+                {/* Line Segment 2 (Auth -> Fetch) */}
+                <div className={`flex-1 h-full transition-all duration-500 ${
+                  activeStepIndex >= 3 ? 'bg-emerald-500' :
+                  activeStepIndex === 2 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
+                }`} />
+                {/* Line Segment 3 (Fetch -> Match) */}
+                <div className={`flex-1 h-full transition-all duration-500 ${
+                  activeStepIndex >= 4 ? 'bg-emerald-500' :
+                  activeStepIndex === 3 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
+                }`} />
+                {/* Line Segment 4 (Match -> Verify) */}
+                <div className={`flex-1 h-full transition-all duration-500 ${
+                  activeStepIndex >= 5 ? 'bg-emerald-500' :
+                  activeStepIndex === 4 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
+                }`} />
+              </div>
+
+              {/* Stepper Nodes */}
+              {[
+                { id: 1, label: 'Start' },
+                { id: 2, label: 'Auth' },
+                { id: 3, label: 'Fetch' },
+                { id: 4, label: 'Match' },
+                { id: 5, label: 'Verify' }
+              ].map((step) => {
+                const isCompleted = activeStepIndex > step.id || activeStepIndex === 5;
+                const isActive = activeStepIndex === step.id && activeStepIndex !== 5;
+                
+                return (
+                  <div key={step.id} className="flex flex-col items-center z-10">
+                    <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs transition-all duration-500 ${
+                      isCompleted 
+                        ? 'bg-emerald-500 border-emerald-500 text-white shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                        : isActive
+                          ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_12px_rgba(59,130,246,0.3)] animate-pulse-glow'
+                          : 'bg-zinc-950 border-zinc-800 text-zinc-500'
+                    }`}>
+                      {isCompleted ? (
+                        <svg className="w-4 h-4 text-white animate-scale-checkmark" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        <span>{step.id}</span>
+                      )}
+                    </div>
+                    <span className={`text-[10px] mt-2 font-semibold transition-colors duration-500 ${
+                      isCompleted ? 'text-emerald-400 font-bold' : isActive ? 'text-blue-400 font-bold' : 'text-zinc-500'
+                    }`}>
+                      {step.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
           {/* Recent Transactions Table */}
           {lastTransactions && lastTransactions.length > 0 && (
