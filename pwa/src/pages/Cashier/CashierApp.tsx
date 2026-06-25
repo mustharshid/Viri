@@ -736,7 +736,7 @@ function App() {
                       return (
                         <tr key={idx} className="hover:bg-white/5 transition-colors">
                           <td className="px-4 py-3 text-[var(--text-secondary)] whitespace-nowrap">{tx.date}</td>
-                          <td className="px-4 py-3 text-[var(--text-primary)] max-w-[220px] truncate" title={tx.details}>{tx.details}</td>
+                          <td className="px-4 py-3 text-[var(--text-primary)] max-w-[250px] whitespace-pre-line break-words leading-relaxed text-[11px]" title={tx.details}>{tx.details}</td>
                           <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${isCredit ? 'text-[var(--color-success)]' : 'text-red-400'}`}>
                             {tx.amount}
                           </td>

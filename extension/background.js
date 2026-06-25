@@ -254,17 +254,72 @@ function normalizeTransactions(rawTxList, bankType) {
       } catch (e) {}
     }
     
-    let details = tx.description || tx.remarks || tx.narrative || tx.particulars || 'Transaction';
-    if (typeof details === 'string') {
-      details = details.replace(/\s+/g, ' ').trim();
+    // Extract base description/remarks
+    let details = 'Transaction';
+    if (bankType === 'MIB') {
+      let mibDescParts = [];
+      if (tx.descr1) mibDescParts.push(tx.descr1.trim());
+      if (tx.descr2) mibDescParts.push(tx.descr2.trim());
+      if (tx.descr3) mibDescParts.push(tx.descr3.trim());
+      if (mibDescParts.length > 0) {
+        details = mibDescParts.join('\n');
+      } else {
+        details = tx.description || tx.remarks || tx.narrative || tx.particulars || 'Transaction';
+      }
+    } else {
+      details = tx.description || tx.remarks || tx.narrative || tx.particulars || 'Transaction';
     }
-    
-    let amount = parseFloat(tx.amount) || 0;
+
+    if (typeof details === 'string') {
+      // Clean up multiple spaces/tabs within each line, preserving line breaks
+      details = details.split('\n')
+        .map(line => line.replace(/[ \t]+/g, ' ').trim())
+        .filter(Boolean)
+        .join('\n');
+    }
+
+    // Append Reference (Ref: ...) if present and not already in details
+    const ref = tx.reference || tx.trxNumber2 || tx.refNo || tx.ref;
+    if (ref) {
+      const refTrimmed = String(ref).trim();
+      if (refTrimmed && !details.includes(refTrimmed)) {
+        details += `\nRef: ${refTrimmed}`;
+      }
+    }
+
+    // Append Transaction ID (ID: ...) if present and not already in details
+    const txId = tx.id || tx.transactionId || tx.trxId;
+    if (txId) {
+      const idTrimmed = String(txId).trim();
+      if (idTrimmed && !details.includes(idTrimmed)) {
+        details += `\nID: ${idTrimmed}`;
+      }
+    }
+
+    // Append Post Date if present
+    const postDateVal = tx.postDate || tx.bookingDate;
+    if (postDateVal) {
+      const postDateStr = String(postDateVal).trim();
+      if (postDateStr && !details.includes(postDateStr)) {
+        details += `\nPost Date: ${postDateStr}`;
+      }
+    }
+
+    // Append Transaction Date if present
+    const transDateVal = tx.transactionDate || tx.valueDate || tx.trxDate || tx.date;
+    if (transDateVal) {
+      const transDateStr = String(transDateVal).trim();
+      if (transDateStr && !details.includes(transDateStr)) {
+        details += `\nTrans Date: ${transDateStr}`;
+      }
+    }
+
+    let amount = parseFloat(tx.amount || tx.baseAmount) || 0;
     let formattedAmount = '';
     if (bankType === 'MIB') {
       formattedAmount = `${amount >= 0 ? '+' : ''}${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     } else {
-      const isCredit = tx.type === 'credit' || !tx.minus || amount > 0;
+      const isCredit = tx.type === 'credit' || amount > 0;
       formattedAmount = `${isCredit ? '+' : '-'}${Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
     
@@ -839,6 +894,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     // STEP 7: Scrape History for the amount
     // ═══════════════════════════════════════════════════════════════
     emitLog(port, `> [BML] Step 7: Scraping recent transaction history...`);
+    // Fetch today's transactions
     const historyUrl = `${BASE_URL}/api/account/${bmlAccountId}/history/today`;
     const histRes = await fetch(historyUrl, {
       method: 'GET',
@@ -851,20 +907,45 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
       }
     });
 
-    if (!histRes.ok) {
-      // Just finish early with success type but we couldn't fetch history. 
-      // Some old clients expect just `bml_success`
-      port.postMessage({ type: "bml_success", balance: balance });
-      return;
+    // Fetch pending transactions
+    const pendingUrl = `${BASE_URL}/api/history/pending/${bmlAccountId}`;
+    const pendingRes = await fetch(pendingUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json, text/plain, */*',
+        'Authorization': 'Bearer',
+        'X-XSRF-TOKEN': xsrfToken,
+        'Referer': `${BASE_URL}/vf/accounts/${bmlAccountId}`,
+        'User-Agent': USER_AGENT
+      }
+    });
+
+    if (!histRes.ok && !pendingRes.ok) {
+      const errText = await histRes.clone().text().catch(() => "");
+      emitLog(port, `> [BML] History & Pending fetch failed: HTTP ${histRes.status} / ${pendingRes.status} - ${errText.substring(0, 200)}`);
+      throw new Error(`Failed to fetch BML account history: HTTP ${histRes.status}`);
     }
 
-    const histData = await histRes.json();
-    const history = histData.transactions || histData.payload?.history || [];
-    last3Txs = normalizeTransactions(history, 'BML');
+    let history = [];
+    if (histRes.ok) {
+      const histData = await histRes.json();
+      emitLog(port, `> [BML] Raw history response: ${JSON.stringify(histData)}`);
+      history = histData.transactions || histData.payload?.history || [];
+    }
+
+    let pendingTxs = [];
+    if (pendingRes.ok) {
+      const pendingData = await pendingRes.json();
+      emitLog(port, `> [BML] Raw pending response: ${JSON.stringify(pendingData)}`);
+      pendingTxs = pendingData.transactions || pendingData.payload?.history || pendingData.payload?.pending || pendingData.payload?.transactions || [];
+    }
+
+    const mergedHistory = [...pendingTxs, ...history];
+    last3Txs = normalizeTransactions(mergedHistory, 'BML');
     const targetAmtNum = parseFloat(targetAmount) || 0;
 
     let matchFound = null;
-    for (const tx of history) {
+    for (const tx of mergedHistory) {
       const isCredit = tx.type === 'credit' || !tx.minus || parseFloat(tx.amount) > 0;
       if (targetAmtNum > 0 && Math.abs(parseFloat(tx.amount) - targetAmtNum) < 0.01 && isCredit) {
         matchFound = tx;
