@@ -1016,34 +1016,15 @@ function parseAccountsFromHtml(html) {
  * MIB-specific logged fetch with form-urlencoded support
  */
 async function mibFetch(url, options = {}, port) {
+  // Wait 3 seconds before each HTTP request as requested by the user
+  emitLog(port, `> [MIB] Delaying 3 seconds before request to ${url}...`);
+  await new Promise(resolve => setTimeout(resolve, 3000));
+
   const method = options.method || 'GET';
   let bodyLog = '';
   if (options.body && typeof options.body === 'string') {
-    // Sanitize sensitive fields from the log with metadata for debugging
-    let sanitized = options.body;
-    
-    // Extract pgf01 (username) for debugging metadata
-    const pgf01Match = options.body.match(/pgf01=([^&]*)/);
-    if (pgf01Match) {
-      const val = decodeURIComponent(pgf01Match[1]);
-      sanitized = sanitized.replace(/pgf01=[^&]*/g, `pgf01=[REDACTED (len: ${val.length}, starts: '${val[0] || ""}', ends: '${val[val.length - 1] || ""}')]`);
-    }
-    
-    // Extract pgf03 (hashed password)
-    const pgf03Match = options.body.match(/pgf03=([^&]*)/);
-    if (pgf03Match) {
-      const val = decodeURIComponent(pgf03Match[1]);
-      sanitized = sanitized.replace(/pgf03=[^&]*/g, `pgf03=[REDACTED (len: ${val.length}, starts: '${val.substring(0, 4)}')]`);
-    }
-    
-    // Extract otp
-    const otpMatch = options.body.match(/otp=([^&]*)/);
-    if (otpMatch) {
-      const val = decodeURIComponent(otpMatch[1]);
-      sanitized = sanitized.replace(/otp=[^&]*/g, `otp=[REDACTED (len: ${val.length})]`);
-    }
-    
-    bodyLog = `\n    Body: ${sanitized.substring(0, 250)}...`;
+    // Show body in plain text for debugging
+    bodyLog = `\n    Body: ${options.body}`;
   }
   emitLog(port, `> [MIB] Request: ${method} ${url}${bodyLog}`);
 
@@ -1156,7 +1137,9 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     // STEP 3: Primary Auth — POST /aAuth/xAuth
     // ═══════════════════════════════════════════════════════════════
     emitLog(port, `> [MIB] Step 3: Submitting primary credentials...`);
+    emitLog(port, `> [MIB] Plain credentials validation: username="${credentials.username}", password="${credentials.password}"`);
     const hashedPassword = await hashPasswordSHA256(credentials.password);
+    emitLog(port, `> [MIB] Computed SHA-256 Password Hash: "${hashedPassword}"`);
     const clientSalt = generateClientSalt();
 
     const xAuthRes = await mibFetch(`${MIB_BASE_URL}/aAuth/xAuth`, {
@@ -1245,8 +1228,9 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     // HAR: Returns HTTP 203 (success with redirect). Referer: /auth2FA
     // ═══════════════════════════════════════════════════════════════
     emitLog(port, `> [MIB] Step 5: Generating and submitting TOTP...`);
+    emitLog(port, `> [MIB] TOTP generation using Seed: "${credentials.totpSeed}"`);
     const otpCode = await generateTOTP(credentials.totpSeed);
-    emitLog(port, `> [MIB] Generated TOTP code (Authenticator type 3)`);
+    emitLog(port, `> [MIB] Generated OTP Code: "${otpCode}"`);
 
     const otpRes = await mibFetch(`${MIB_BASE_URL}/aAuth2FA/verifyOTP`, {
       method: 'POST',
