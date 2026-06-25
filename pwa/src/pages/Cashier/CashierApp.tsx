@@ -16,6 +16,14 @@ function App() {
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [isDefault, setIsDefault] = useState(true);
+  const [defaultAccountId, setDefaultAccountId] = useState<string>(() => {
+    return localStorage.getItem('viri_default_account_id') || '';
+  });
+  const [lastTransactions, setLastTransactions] = useState<{
+    date: string;
+    details: string;
+    amount: string;
+  }[]>([]);
 
   // Hardware bound Terminal ID
   const [hardwareId, setHardwareId] = useState(() => {
@@ -95,6 +103,29 @@ function App() {
     localStorage.setItem('viri_bml_totp_seed', bmlTotpSeed);
   }, [bmlUsername, bmlPassword, bmlTotpSeed]);
 
+  // Synchronize isDefault check box with selectedAccountId and defaultAccountId
+  useEffect(() => {
+    if (!selectedAccountId || bankAccounts.length === 0) return;
+
+    if (defaultAccountId) {
+      setIsDefault(selectedAccountId === defaultAccountId);
+    } else {
+      const activeAcc = bankAccounts.find(a => a.id.toString() === selectedAccountId);
+      setIsDefault(activeAcc ? activeAcc.is_default : false);
+    }
+  }, [selectedAccountId, defaultAccountId, bankAccounts]);
+
+  const handleDefaultToggle = (checked: boolean) => {
+    setIsDefault(checked);
+    if (checked) {
+      localStorage.setItem('viri_default_account_id', selectedAccountId);
+      setDefaultAccountId(selectedAccountId);
+    } else {
+      localStorage.removeItem('viri_default_account_id');
+      setDefaultAccountId('');
+    }
+  };
+
   // Fetch Bank Accounts on Load
   const clearTerminalData = () => {
     const keysToRemove = [];
@@ -146,7 +177,10 @@ function App() {
           if (data.terminal_name) setTerminalName(data.terminal_name);
 
           if (accounts.length > 0) {
-            const defaultAcc = accounts.find((a: BankAccount) => a.is_default) || accounts[0];
+            const savedDefaultId = localStorage.getItem('viri_default_account_id');
+            const defaultAcc = (savedDefaultId && accounts.find((a: BankAccount) => a.id.toString() === savedDefaultId))
+              || accounts.find((a: BankAccount) => a.is_default)
+              || accounts[0];
             setSelectedAccountId(defaultAcc.id.toString());
 
             // Initialize totals to 0 if not set
@@ -231,6 +265,7 @@ function App() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setLastTransactions([]);
 
     // Step 1: License Guard (Query the Laravel backend)
     try {
@@ -299,6 +334,7 @@ function App() {
       } else if (response.type === 'success') {
         setLoading(false);
         setResult(response.data);
+        setLastTransactions(response.transactions || []);
         // Increment totals dynamically
         const addedAmount = parseFloat(amount);
         setTotals(prev => ({
@@ -311,6 +347,7 @@ function App() {
       } else if (response.type === 'error') {
         setLoading(false);
         setError(response.error || "Verification failed.");
+        setLastTransactions(response.transactions || []);
         port.disconnect();
         activePortRef.current = null;
       }
@@ -674,6 +711,40 @@ function App() {
             </div>
           )}
 
+          {/* Recent Transactions Table */}
+          {lastTransactions && lastTransactions.length > 0 && (
+            <div className="mb-6 animate-fade-in">
+              <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">
+                Recent Transactions
+              </h3>
+              <div className="overflow-x-auto rounded-xl border border-[var(--border-color)] bg-black/30">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-[var(--border-color)] bg-white/5 text-[var(--text-secondary)] uppercase tracking-wider font-semibold">
+                      <th className="px-4 py-2.5">Date</th>
+                      <th className="px-4 py-2.5">Details</th>
+                      <th className="px-4 py-2.5 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border-color)] font-mono">
+                    {lastTransactions.map((tx, idx) => {
+                      const isCredit = tx.amount.startsWith('+');
+                      return (
+                        <tr key={idx} className="hover:bg-white/5 transition-colors">
+                          <td className="px-4 py-3 text-[var(--text-secondary)] whitespace-nowrap">{tx.date}</td>
+                          <td className="px-4 py-3 text-[var(--text-primary)] max-w-[220px] truncate" title={tx.details}>{tx.details}</td>
+                          <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${isCredit ? 'text-[var(--color-success)]' : 'text-red-400'}`}>
+                            {tx.amount}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           <div className="input-group">
             <label className="input-label">Target Amount (MVR)</label>
             <input
@@ -714,7 +785,7 @@ function App() {
                 type="checkbox"
                 checked={isDefault}
                 disabled={loading}
-                onChange={(e) => setIsDefault(e.target.checked)}
+                onChange={(e) => handleDefaultToggle(e.target.checked)}
               />
               <span className="slider"></span>
             </label>

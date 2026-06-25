@@ -234,11 +234,50 @@ async function generateTOTP(secret) {
   return otp;
 }
 
+function normalizeTransactions(rawTxList, bankType) {
+  if (!Array.isArray(rawTxList)) return [];
+  const sliced = rawTxList.slice(0, 3);
+  return sliced.map(tx => {
+    let date = tx.date || tx.bookingDate || tx.valueDate || '';
+    if (date) {
+      try {
+        const d = new Date(date);
+        if (!isNaN(d.getTime())) {
+          date = d.toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          });
+        }
+      } catch (e) {}
+    }
+    
+    let details = tx.description || tx.remarks || tx.narrative || tx.particulars || 'Transaction';
+    if (typeof details === 'string') {
+      details = details.replace(/\s+/g, ' ').trim();
+    }
+    
+    let amount = parseFloat(tx.amount) || 0;
+    let formattedAmount = '';
+    if (bankType === 'MIB') {
+      formattedAmount = `${amount >= 0 ? '+' : ''}${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    } else {
+      const isCredit = tx.type === 'credit' || !tx.minus || amount > 0;
+      formattedAmount = `${isCredit ? '+' : '-'}${Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    
+    return { date, details, amount: formattedAmount };
+  });
+}
+
 // -------------------------------------------------------------
 // The main BML background flow
 // -------------------------------------------------------------
 async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
   emitLog(port, `> [BML] Starting background auth flow...`);
+  let last3Txs = [];
 
   let xsrfToken = null;
   globalInertiaVersion = "";
@@ -821,6 +860,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
 
     const histData = await histRes.json();
     const history = histData.transactions || histData.payload?.history || [];
+    last3Txs = normalizeTransactions(history, 'BML');
     const targetAmtNum = parseFloat(targetAmount) || 0;
 
     let matchFound = null;
@@ -860,7 +900,8 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
           reference: matchFound.reference || matchFound.id || "BML-MATCH",
           amount: Math.abs(matchFound.amount).toFixed(2),
           timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString()
-        }
+        },
+        transactions: last3Txs
       });
     } else {
       throw new Error(`Verification Failed: No recent credit transaction found for ${targetAmount} MVR.`);
@@ -868,7 +909,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
 
   } catch (error) {
     emitLog(port, `> [BML] FATAL ERROR: ${error.message}`);
-    port.postMessage({ type: "error", error: error.message });
+    port.postMessage({ type: "error", error: error.message, transactions: last3Txs || [] });
   }
 }
 
@@ -927,7 +968,8 @@ function extractRTag(html) {
     /rTag\s*=\s*["']([^"']+)["']/,
     /name=["']rTag["']\s+value=["']([^"']+)["']/,
     /value=["']([^"']+)["']\s+name=["']rTag["']/,
-    /"rTag"\s*:\s*["']([^"']+)["']/
+    /"rTag"\s*:\s*["']([^"']+)["']/,
+    /data-rt=["']([^"']+)["']/
   ];
   for (const pattern of patterns) {
     const match = html.match(pattern);
@@ -948,16 +990,15 @@ async function hashPasswordSHA256(password) {
 }
 
 /**
- * Generate a random client salt (base64 encoded)
+ * Generate a random client salt of specified length
  */
-function generateClientSalt() {
-  const bytes = new Uint8Array(24);
-  crypto.getRandomValues(bytes);
-  // Convert to base64-like string
+function generateClientSalt(length = 32) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
   let result = '';
-  for (let i = 0; i < 32; i++) {
-    result += chars.charAt(bytes[i % bytes.length] % chars.length);
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(bytes[i] % chars.length);
   }
   return result;
 }
@@ -967,23 +1008,46 @@ function generateClientSalt() {
  */
 function parseProfilesFromHtml(html) {
   const profiles = [];
-  // Look for profile links or data attributes
-  const patterns = [
-    /profileId["']?\s*[:=]\s*["']?(\d+)["']?/gi,
-    /switchProfile\s*\(\s*["']?(\d+)["']?/gi,
-    /data-profile-id=["'](\d+)["']/gi,
-    /name=["']profileId["']\s+value=["'](\d+)["']/gi
-  ];
-  const uniqueIds = new Set();
-  for (const pattern of patterns) {
-    let match;
-    while ((match = pattern.exec(html)) !== null) {
-      uniqueIds.add(match[1]);
+  
+  // 1. Parse profile cards from elements with class="profile-card"
+  const cardPattern = /<[^>]+class="[^"]*profile-card[^"]*"[^>]*>/gi;
+  let match;
+  while ((match = cardPattern.exec(html)) !== null) {
+    const cardHtml = match[0];
+    const rtMatch = /data-rt=["']([^"']+)["']/i.exec(cardHtml);
+    const typeMatch = /data-profiletype\s*=\s*["']([^"']+)["']/i.exec(cardHtml);
+    const idMatch = /data-profileid=["']([^"']+)["']/i.exec(cardHtml);
+    
+    if (idMatch) {
+      profiles.push({
+        id: idMatch[1],
+        type: typeMatch ? typeMatch[1] : '0',
+        rTag: rtMatch ? rtMatch[1] : null
+      });
     }
   }
-  for (const id of uniqueIds) {
-    profiles.push({ id, type: 'unknown' });
+  
+  // 2. Fallback for other structures
+  if (profiles.length === 0) {
+    const patterns = [
+      /profileId["']?\s*[:=]\s*["']?(\d+)["']?/gi,
+      /switchProfile\s*\(\s*["']?(\d+)["']?/gi,
+      /data-profile-id=["'](\d+)["']/gi,
+      /data-profileid=["'](\d+)["']/gi,
+      /name=["']profileId["']\s+value=["'](\d+)["']/gi
+    ];
+    const uniqueIds = new Set();
+    for (const pattern of patterns) {
+      let match;
+      while ((match = pattern.exec(html)) !== null) {
+        uniqueIds.add(match[1]);
+      }
+    }
+    for (const id of uniqueIds) {
+      profiles.push({ id, type: 'unknown', rTag: null });
+    }
   }
+  
   return profiles;
 }
 
@@ -1016,10 +1080,6 @@ function parseAccountsFromHtml(html) {
  * MIB-specific logged fetch with form-urlencoded support
  */
 async function mibFetch(url, options = {}, port) {
-  // Wait 3 seconds before each HTTP request as requested by the user
-  emitLog(port, `> [MIB] Delaying 3 seconds before request to ${url}...`);
-  await new Promise(resolve => setTimeout(resolve, 3000));
-
   const method = options.method || 'GET';
   let bodyLog = '';
   if (options.body && typeof options.body === 'string') {
@@ -1059,6 +1119,7 @@ function buildFormBody(params) {
  */
 async function runMibFlow(credentials, targetAccount, port, targetAmount, profileType = '0') {
   emitLog(port, `> [MIB] Starting MIB Faisanet auth flow...`);
+  let last3Txs = [];
 
   const mibHeaders = {
     'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
@@ -1131,32 +1192,62 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     if (authTypeData.status === 'error') {
       throw new Error(`MIB auth type error: ${authTypeData.message || 'Unknown error'}`);
     }
-    emitLog(port, `> [MIB] ✓ Auth type confirmed.`);
+    emitLog(port, `> [MIB] ✓ Auth type confirmed: ${JSON.stringify(authTypeData)}`);
+
+    const loginTypeParams = authTypeData?.data?.[0] || {};
+    const loginType = loginTypeParams.loginType;
+    const userSalt = loginTypeParams.userSalt;
 
     // ═══════════════════════════════════════════════════════════════
-    // STEP 3: Primary Auth — POST /aAuth/xAuth
+    // STEP 3: Primary Auth — POST /aAuth (Simple) or /aAuth/xAuth (Salted)
     // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [MIB] Step 3: Submitting primary credentials...`);
-    emitLog(port, `> [MIB] Plain credentials validation: username="${credentials.username}", password="${credentials.password}"`);
-    const hashedPassword = await hashPasswordSHA256(credentials.password);
-    emitLog(port, `> [MIB] Computed SHA-256 Password Hash: "${hashedPassword}"`);
-    const clientSalt = generateClientSalt();
+    let xAuthRes;
+    if (loginType === 0) {
+      emitLog(port, `> [MIB] Step 3: Submitting primary credentials (simple auth)...`);
+      xAuthRes = await mibFetch(`${MIB_BASE_URL}/aAuth`, {
+        method: 'POST',
+        headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth` },
+        body: buildFormBody({
+          rTag,
+          pgf01: credentials.username,
+          pgf02: credentials.password,
+          retain: '1'
+        })
+      }, port);
+    } else {
+      emitLog(port, `> [MIB] Step 3: Submitting primary credentials (salted auth)...`);
+      emitLog(port, `> [MIB] Plain credentials validation: username="${credentials.username}", password="${credentials.password}"`);
+      const clientSalt = generateClientSalt(32);
+      
+      // Hashing formula:
+      // h1 = sha256(password)
+      // h2 = sha256(h1 + userSalt)
+      // pgf03 = sha256(clientSalt + h2)
+      const passHash = await hashPasswordSHA256(credentials.password);
+      const saltedHash = await hashPasswordSHA256(passHash + (userSalt || ""));
+      const clientSaltedHash = await hashPasswordSHA256(clientSalt + saltedHash);
+      
+      emitLog(port, `> [MIB] Computed Client Salt: "${clientSalt}"`);
+      emitLog(port, `> [MIB] Computed SHA-256 Pass Hash: "${passHash}"`);
+      emitLog(port, `> [MIB] Computed Salted Hash: "${saltedHash}"`);
+      emitLog(port, `> [MIB] Computed pgf03 Hash: "${clientSaltedHash}"`);
 
-    const xAuthRes = await mibFetch(`${MIB_BASE_URL}/aAuth/xAuth`, {
-      method: 'POST',
-      headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth` },
-      body: buildFormBody({
-        rTag,
-        pgf01: credentials.username,
-        retain: '1',
-        pgf03: hashedPassword,
-        clientSalt: clientSalt
-      })
-    }, port);
+      xAuthRes = await mibFetch(`${MIB_BASE_URL}/aAuth/xAuth`, {
+        method: 'POST',
+        headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth` },
+        body: buildFormBody({
+          rTag,
+          pgf01: credentials.username,
+          retain: '1',
+          pgf03: clientSaltedHash,
+          clientSalt: clientSalt
+        })
+      }, port);
+    }
 
     if (!xAuthRes.ok) {
       const errText = await xAuthRes.text().catch(() => "");
-      emitLog(port, `> [MIB] xAuth error body: ${errText}`);
+      emitLog(port, `> [MIB] xAuth failed: HTTP ${xAuthRes.status}. Details: ${errText}`);
       throw new Error(`MIB xAuth failed: HTTP ${xAuthRes.status}. Details: ${errText.substring(0, 200)}`);
     }
 
@@ -1174,8 +1265,8 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
       }
     }
 
-    if (xAuthData.status === 'error') {
-      throw new Error(`MIB authentication failed: ${xAuthData.message || 'Invalid credentials'}`);
+    if (xAuthData && (xAuthData.success === false || xAuthData.status === 'error')) {
+      throw new Error(`MIB authentication failed: ${xAuthData.reasonText || xAuthData.message || 'Invalid credentials'}`);
     }
     emitLog(port, `> [MIB] ✓ Primary authentication successful.`);
 
@@ -1282,7 +1373,13 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     }
 
     const profilesHtml = await profilesRes.text();
-    rTag = extractRTag(profilesHtml);
+    await saveScrap('profiles_page', profilesHtml);
+    try {
+      rTag = extractRTag(profilesHtml);
+    } catch (e) {
+      emitLog(port, `> [MIB] DEBUG: profilesHtml content snippet: ${profilesHtml.substring(0, 1000)}`);
+      throw e;
+    }
     const profiles = parseProfilesFromHtml(profilesHtml);
     emitLog(port, `> [MIB] Found ${profiles.length} profile(s).`);
 
@@ -1290,14 +1387,16 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     // STEP 7: Switch Profile — POST /aProfileHandler/switchProfile
     // ═══════════════════════════════════════════════════════════════
     if (profiles.length > 0) {
-      const selectedProfile = profiles[0];
-      emitLog(port, `> [MIB] Step 7: Switching to profile ${selectedProfile.id} (type: ${profileType === '1' ? 'Business' : 'Personal'})...`);
+      // Find matching profile type if possible, otherwise default to first
+      const selectedProfile = profiles.find(p => p.type === profileType) || profiles[0];
+      const activeRTag = selectedProfile.rTag || rTag;
+      emitLog(port, `> [MIB] Step 7: Switching to profile ${selectedProfile.id} (type: ${selectedProfile.type}, payload profileType requested: ${profileType})...`);
 
       const switchRes = await mibFetch(`${MIB_BASE_URL}/aProfileHandler/switchProfile`, {
         method: 'POST',
         headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/profiles` },
         body: buildFormBody({
-          rTag,
+          rTag: activeRTag,
           profileId: selectedProfile.id,
           profileType: profileType
         })
@@ -1426,6 +1525,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     }
 
     const transactions = historyData?.data?.transactions || historyData?.transactions || [];
+    last3Txs = normalizeTransactions(transactions, 'MIB');
     const targetAmtNum = parseFloat(targetAmount) || 0;
     emitLog(port, `> [MIB] Found ${transactions.length} transaction(s). Searching for ${targetAmount} MVR credit...`);
 
@@ -1478,20 +1578,27 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
           reference: matchFound.reference || matchFound.description || 'MIB-MATCH',
           amount: Math.abs(parseFloat(matchFound.amount)).toFixed(2),
           timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString()
-        }
+        },
+        transactions: last3Txs
       });
     } else {
       throw new Error(`Verification Failed: No recent credit transaction found for ${targetAmount} MVR on MIB account ${targetAccount}.`);
     }
 
   } catch (error) {
-    emitLog(port, `> [MIB] FATAL ERROR: ${error.message}`);
+    if (port) {
+      emitLog(port, `> [MIB] FATAL ERROR: ${error.message}`);
+    }
 
     // Attempt cleanup on error
     try {
       await fetch(`${MIB_BASE_URL}/aAuth/logout`, {
         method: 'POST',
-        headers: mibHeaders,
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'X-Requested-With': 'XMLHttpRequest',
+          'User-Agent': USER_AGENT
+        },
         body: '',
         credentials: 'include'
       });
@@ -1508,6 +1615,10 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
       }
     } catch (e) { /* ignore cleanup errors */ }
 
-    port.postMessage({ type: 'error', error: error.message });
+    if (port) {
+      try {
+        port.postMessage({ type: 'error', error: error.message, transactions: last3Txs || [] });
+      } catch (e) { /* port might already be dead */ }
+    }
   }
 }
