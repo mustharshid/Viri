@@ -95,12 +95,50 @@ function App() {
     isIndeterminate: boolean;
   }
 
-  const [progress, setProgress] = useState<ProgressState>({
+  const [progress, rawSetProgress] = useState<ProgressState>({
     stage: 'idle',
     text: '',
     percent: 0,
     isIndeterminate: false
   });
+
+  const getStepIndexForStage = (stage: string, percent: number): number => {
+    if (stage === 'init') return 1;
+    if (stage === 'lock' || stage === 'auth') return 2;
+    if (stage === 'fetch') return 3;
+    if (stage === 'match') return 4;
+    if (stage === 'success') return 5;
+    if (stage === 'error') {
+      if (percent >= 95) return 4;
+      if (percent >= 75) return 3;
+      if (percent >= 45) return 2;
+      return 1;
+    }
+    return 0;
+  };
+
+  const setProgress = (nextVal: ProgressState | ((prev: ProgressState) => ProgressState)) => {
+    rawSetProgress(prev => {
+      const next = typeof nextVal === 'function' ? nextVal(prev) : nextVal;
+      
+      // Allow reset to idle or initial connection state (Step 1)
+      if (next.stage === 'idle' || (next.stage === 'init' && next.percent <= 10)) {
+        return next;
+      }
+      
+      const currentIdx = getStepIndexForStage(prev.stage, prev.percent);
+      const nextIdx = getStepIndexForStage(next.stage, next.percent);
+      
+      // Prevent backward progress
+      if (nextIdx < currentIdx) {
+        return {
+          ...prev,
+          text: next.text || prev.text
+        };
+      }
+      return next;
+    });
+  };
   
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
 
