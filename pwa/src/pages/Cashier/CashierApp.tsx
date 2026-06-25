@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy } from 'lucide-react';
+import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2 } from 'lucide-react';
 
 
 interface BankAccount {
@@ -86,6 +86,41 @@ function App() {
   const isVerifyingRef = useRef<boolean>(false);
   const lockedAccountIdRef = useRef<string | null>(null);
   const heartbeatIntervalRef = useRef<any>(null);
+
+  // Progress State & Countdown Timer
+  interface ProgressState {
+    stage: 'idle' | 'init' | 'auth' | 'lock' | 'fetch' | 'match' | 'success' | 'error';
+    text: string;
+    percent: number;
+    isIndeterminate: boolean;
+  }
+
+  const [progress, setProgress] = useState<ProgressState>({
+    stage: 'idle',
+    text: '',
+    percent: 0,
+    isIndeterminate: false
+  });
+  
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+
+  useEffect(() => {
+    let timer: any = null;
+    if (loading && timeLeft !== null && timeLeft > 3) {
+      timer = setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev === null) return null;
+          if (prev <= 3) return 3;
+          return prev - 1;
+        });
+      }, 1000);
+    } else if (!loading) {
+      setTimeLeft(null);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [loading, timeLeft]);
 
   // Dynamic Totals (keyed by account id string)
   const [totals, setTotals] = useState<Record<string, number>>({});
@@ -269,6 +304,90 @@ function App() {
     }
   };
 
+  const parseLogForProgress = (logLine: string): { stage: 'idle' | 'init' | 'auth' | 'lock' | 'fetch' | 'match' | 'success' | 'error'; text: string; percent: number; isIndeterminate: boolean } | null => {
+    const lower = logLine.toLowerCase();
+    
+    // Slow response / internet connection unstable triggers (psychological messaging overrides)
+    if (lower.includes('slow') || lower.includes('still processing') || lower.includes('processing your request') || lower.includes('taking longer')) {
+      return {
+        stage: 'fetch',
+        text: 'Bank is processing your request (this may take a few extra seconds)...',
+        percent: 80,
+        isIndeterminate: true
+      };
+    }
+    if (lower.includes('unstable') || lower.includes('connection is unstable') || lower.includes('failed to fetch') || lower.includes('retrying securely')) {
+      return {
+        stage: 'init',
+        text: 'Connection is unstable. Retrying securely...',
+        percent: 30,
+        isIndeterminate: true
+      };
+    }
+
+    // Step 0 & 1: Initialization / Connection
+    if (lower.includes('clearing previous') || lower.includes('session cookies') || lower.includes('session initialized') || lower.includes('step 0') || lower.includes('step 1') || lower.includes('initializing session')) {
+      return {
+        stage: 'init',
+        text: 'Preparing secure session...',
+        percent: 25,
+        isIndeterminate: true
+      };
+    }
+
+    // Step 2 & 3: Authentication (Login)
+    if (lower.includes('submitting primary') || lower.includes('salted auth') || lower.includes('getauthtype') || lower.includes('step 2') || lower.includes('step 3') || lower.includes('authenticating')) {
+      return {
+        stage: 'auth',
+        text: 'Authenticating credentials...',
+        percent: 45,
+        isIndeterminate: false
+      };
+    }
+
+    // Step 4: Authentication (OTP Verification)
+    if (lower.includes('otp') || lower.includes('totp') || lower.includes('passcode') || lower.includes('2fa') || lower.includes('code') || lower.includes('step 4')) {
+      return {
+        stage: 'auth',
+        text: 'Verifying one-time passcode...',
+        percent: 60,
+        isIndeterminate: false
+      };
+    }
+
+    // Step 5 & 6: Data Retrieval (Fetching transactions)
+    if (lower.includes('retrieving') || lower.includes('accounts') || lower.includes('ledger') || lower.includes('history') || lower.includes('step 5') || lower.includes('step 6') || lower.includes('latest transactions') || lower.includes('fetching latest')) {
+      return {
+        stage: 'fetch',
+        text: 'Fetching latest transactions...',
+        percent: 75,
+        isIndeterminate: true
+      };
+    }
+
+    // Step 7: Downloading activity
+    if (lower.includes('downloading') || lower.includes('scraping') || lower.includes('step 7')) {
+      return {
+        stage: 'fetch',
+        text: 'Downloading account activity...',
+        percent: 85,
+        isIndeterminate: true
+      };
+    }
+
+    // Step 8+: Matching / Verification
+    if (lower.includes('matching') || lower.includes('verifying transaction') || lower.includes('scanning') || lower.includes('step 8') || lower.includes('transfer verified')) {
+      return {
+        stage: 'match',
+        text: 'Scanning for matching transfer...',
+        percent: 95,
+        isIndeterminate: true
+      };
+    }
+
+    return null;
+  };
+
   const releaseLock = async () => {
     if (heartbeatIntervalRef.current) {
       clearInterval(heartbeatIntervalRef.current);
@@ -321,6 +440,10 @@ function App() {
       return;
     }
 
+    const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
+    const selectedBankName = selectedAccount ? selectedAccount.bank_name : 'BML';
+    const fullBankName = selectedBankName === 'MIB' ? 'Maldives Islamic Bank' : 'Bank of Maldives';
+
     setLoading(true);
     setError(null);
     setResult(null);
@@ -328,6 +451,13 @@ function App() {
     setLogs([]); // Clear previous logs
 
     isVerifyingRef.current = true;
+    setProgress({
+      stage: 'init',
+      text: `Initiating secure connection to ${fullBankName}...`,
+      percent: 10,
+      isIndeterminate: true
+    });
+    setTimeLeft(25);
 
     // Step 1: License Guard (Query the Laravel backend)
     try {
@@ -347,12 +477,16 @@ function App() {
         
         setLoading(false);
         isVerifyingRef.current = false;
+        setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+        setTimeLeft(null);
         return;
       }
     } catch (err: any) {
       setError(`Backend Connection Failed: Could not connect to licensing server at ${backendUrl}. Check your network or settings.`);
       setLoading(false);
       isVerifyingRef.current = false;
+      setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+      setTimeLeft(null);
       return;
     }
 
@@ -360,18 +494,27 @@ function App() {
     const targetAccountId = selectedAccountId;
     lockedAccountIdRef.current = targetAccountId;
 
+    setProgress({
+      stage: 'lock',
+      text: 'Preparing secure session...',
+      percent: 20,
+      isIndeterminate: true
+    });
     setLogs(prev => [...prev, "> [Lock] Requesting session lock for bank account..."]);
     
     let lockAcquired = false;
     const startTime = Date.now();
     const pollInterval = 2500; // poll every 2.5 seconds
     const maxTimeoutMs = lockTimeout * 1000;
+    let attempts = 0;
 
     while (Date.now() - startTime < maxTimeoutMs) {
       // Check if user clicked cancel during wait
       if (!isVerifyingRef.current) {
         setLogs(prev => [...prev, "> [Lock] Wait cancelled by user."]);
         lockedAccountIdRef.current = null;
+        setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+        setTimeLeft(null);
         return;
       }
 
@@ -389,6 +532,12 @@ function App() {
           const lockData = await lockRes.json();
           if (lockData.status === 'acquired') {
             lockAcquired = true;
+            setProgress({
+              stage: 'init',
+              text: 'Preparing secure session...',
+              percent: 25,
+              isIndeterminate: true
+            });
             setLogs(prev => [...prev, "> [Lock] Session lock acquired successfully."]);
             break;
           }
@@ -397,6 +546,23 @@ function App() {
           const heldBy = lockData.held_by ? `terminal ${lockData.held_by.substring(0, 8)}...` : "another terminal";
           const expiresSeconds = lockData.expires_in ?? "?";
           
+          attempts++;
+          if (attempts > 2) {
+            setProgress({
+              stage: 'lock',
+              text: 'This account is busy. Retrying in 5 seconds...',
+              percent: 15,
+              isIndeterminate: true
+            });
+          } else {
+            setProgress({
+              stage: 'lock',
+              text: 'Another terminal is currently using this account. You are next in line...',
+              percent: 15,
+              isIndeterminate: true
+            });
+          }
+
           setLogs(prev => [
             ...prev,
             `> [Lock] Session busy: Held by ${heldBy}. Retrying in 2.5s (expires in ${expiresSeconds}s)...`
@@ -421,6 +587,8 @@ function App() {
       setLoading(false);
       lockedAccountIdRef.current = null;
       isVerifyingRef.current = false;
+      setProgress({ stage: 'error', text: 'Session busy', percent: 100, isIndeterminate: false });
+      setTimeLeft(null);
       return;
     }
 
@@ -451,11 +619,10 @@ function App() {
       setLoading(false);
       releaseLock();
       isVerifyingRef.current = false;
+      setProgress({ stage: 'error', text: 'Extension not found', percent: 100, isIndeterminate: false });
+      setTimeLeft(null);
       return;
     }
-
-    const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
-    const selectedBankName = selectedAccount ? selectedAccount.bank_name : 'BML';
 
     let port;
     try {
@@ -465,6 +632,8 @@ function App() {
       setLoading(false);
       releaseLock();
       isVerifyingRef.current = false;
+      setProgress({ stage: 'error', text: 'Connection failed', percent: 100, isIndeterminate: false });
+      setTimeLeft(null);
       return;
     }
 
@@ -479,6 +648,8 @@ function App() {
       } else {
         setError("Connection to background robot lost unexpectedly. Is the extension installed and enabled?");
       }
+      setProgress({ stage: 'error', text: 'Connection lost', percent: 100, isIndeterminate: false });
+      setTimeLeft(null);
       setLoading(false);
       activePortRef.current = null;
       releaseLock();
@@ -488,22 +659,32 @@ function App() {
     port.onMessage.addListener((response: any) => {
       if (response.type === 'log') {
         setLogs(prev => [...prev, response.message]);
+        const parsed = parseLogForProgress(response.message);
+        if (parsed) {
+          setProgress(parsed);
+        }
       } else if (response.type === 'success') {
-        setLoading(false);
-        setResult(response.data);
-        setLastTransactions(response.transactions || []);
-        // Increment totals dynamically
-        const addedAmount = parseFloat(amount);
-        setTotals(prev => ({
-          ...prev,
-          [selectedAccountId]: (prev[selectedAccountId] || 0) + addedAmount
-        }));
-        setAmount(''); // clear input on success
-        port.disconnect();
-        activePortRef.current = null;
-        releaseLock();
-        isVerifyingRef.current = false;
+        setProgress({ stage: 'success', text: '✅ Transfer Verified!', percent: 100, isIndeterminate: false });
+        setTimeLeft(null);
+        setTimeout(() => {
+          setLoading(false);
+          setResult(response.data);
+          setLastTransactions(response.transactions || []);
+          // Increment totals dynamically
+          const addedAmount = parseFloat(amount);
+          setTotals(prev => ({
+            ...prev,
+            [selectedAccountId]: (prev[selectedAccountId] || 0) + addedAmount
+          }));
+          setAmount(''); // clear input on success
+          port.disconnect();
+          activePortRef.current = null;
+          releaseLock();
+          isVerifyingRef.current = false;
+        }, 1500); // 1.5s reinforcement checkmark flash
       } else if (response.type === 'error') {
+        setProgress({ stage: 'error', text: 'Verification failed', percent: 100, isIndeterminate: false });
+        setTimeLeft(null);
         setLoading(false);
         setError(response.error || "Verification failed.");
         setLastTransactions(response.transactions || []);
@@ -545,6 +726,8 @@ function App() {
       activePortRef.current = null;
       releaseLock();
       isVerifyingRef.current = false;
+      setProgress({ stage: 'error', text: 'Send failed', percent: 100, isIndeterminate: false });
+      setTimeLeft(null);
     }
   };
 
@@ -882,39 +1065,6 @@ function App() {
             </div>
           )}
 
-          {/* Recent Transactions Table */}
-          {lastTransactions && lastTransactions.length > 0 && (
-            <div className="mb-6 animate-fade-in">
-              <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">
-                Recent Transactions
-              </h3>
-              <div className="overflow-x-auto rounded-xl border border-[var(--border-color)] bg-black/30">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-[var(--border-color)] bg-white/5 text-[var(--text-secondary)] uppercase tracking-wider font-semibold">
-                      <th className="px-4 py-2.5">Date</th>
-                      <th className="px-4 py-2.5">Details</th>
-                      <th className="px-4 py-2.5 text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--border-color)] font-mono">
-                    {lastTransactions.map((tx, idx) => {
-                      const isCredit = tx.amount.startsWith('+');
-                      return (
-                        <tr key={idx} className="hover:bg-white/5 transition-colors">
-                          <td className="px-4 py-3 text-[var(--text-secondary)] whitespace-nowrap">{tx.date}</td>
-                          <td className="px-4 py-3 text-[var(--text-primary)] max-w-[250px] whitespace-pre-line break-words leading-relaxed text-[11px]" title={tx.details}>{tx.details}</td>
-                          <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${isCredit ? 'text-[var(--color-success)]' : 'text-red-400'}`}>
-                            {tx.amount}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
 
           <div className="input-group">
             <label className="input-label">Target Amount (MVR)</label>
@@ -979,6 +1129,99 @@ function App() {
               </>
             )}
           </button>
+
+          {/* Multi-stage Progress Bar & Dynamic Status Panel */}
+          {loading && (
+            <div className="mt-6 p-4 rounded-xl bg-black/40 border border-[var(--border-color)] animate-fade-in">
+              <div className="flex justify-between items-center mb-2">
+                <span 
+                  key={progress.text} 
+                  className={`text-sm font-semibold truncate transition-all duration-300 flex items-center gap-2 ${
+                    progress.stage === 'success' ? 'text-[var(--color-success)] animate-pulse' :
+                    progress.stage === 'lock' ? 'text-[var(--color-warning)]' : 'text-cyan-400'
+                  }`}
+                  style={{ animationDuration: '0.8s' }}
+                >
+                  {progress.stage === 'success' ? (
+                    <CheckCircle className="shrink-0 animate-scale-checkmark" size={16} />
+                  ) : progress.stage === 'lock' ? (
+                    <span className="relative flex h-2 w-2 mr-1">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-warning)] opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-warning)]"></span>
+                    </span>
+                  ) : (
+                    <Loader2 className="animate-spin shrink-0 text-cyan-400" size={16} />
+                  )}
+                  {progress.text || "Processing..."}
+                </span>
+                
+                {timeLeft !== null && progress.stage !== 'success' && (
+                  <span className="text-[10px] text-[var(--text-secondary)] font-mono shrink-0">
+                    Est. remaining: ~{timeLeft}s
+                  </span>
+                )}
+              </div>
+
+              {/* Progress Bar Track */}
+              <div className="w-full bg-zinc-800 h-2.5 rounded-full overflow-hidden border border-zinc-700/50">
+                <div 
+                  className={`h-full rounded-full transition-all duration-500 ease-out ${
+                    progress.stage === 'success' 
+                      ? 'bg-[var(--color-success)] shadow-[0_0_10px_var(--color-success-glow)]' 
+                      : progress.stage === 'lock'
+                        ? 'bg-[var(--color-warning)] animate-pulse'
+                        : progress.isIndeterminate 
+                          ? 'animate-shimmer' 
+                          : 'bg-gradient-to-r from-blue-500 to-cyan-400'
+                  }`}
+                  style={{ width: `${progress.percent}%` }}
+                />
+              </div>
+
+              {/* Stage Stepper Labels */}
+              <div className="flex justify-between mt-2.5 text-[10px] text-zinc-500 font-medium px-0.5">
+                <span className={progress.percent >= 20 ? 'text-zinc-300' : ''}>Start</span>
+                <span className={progress.percent >= 45 ? 'text-zinc-300' : ''}>Auth</span>
+                <span className={progress.percent >= 75 ? 'text-zinc-300' : ''}>Fetch</span>
+                <span className={progress.percent >= 95 ? 'text-zinc-300' : ''}>Match</span>
+                <span className={progress.percent >= 100 ? 'text-[var(--color-success)] font-semibold' : ''}>Verify</span>
+              </div>
+            </div>
+          )}
+
+          {/* Recent Transactions Table */}
+          {lastTransactions && lastTransactions.length > 0 && (
+            <div className="mt-6 animate-fade-in">
+              <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">
+                Recent Transactions
+              </h3>
+              <div className="overflow-x-auto rounded-xl border border-[var(--border-color)] bg-black/30">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-[var(--border-color)] bg-white/5 text-[var(--text-secondary)] uppercase tracking-wider font-semibold">
+                      <th className="px-4 py-2.5">Date</th>
+                      <th className="px-4 py-2.5">Details</th>
+                      <th className="px-4 py-2.5 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border-color)] font-mono">
+                    {lastTransactions.map((tx, idx) => {
+                      const isCredit = tx.amount.startsWith('+');
+                      return (
+                        <tr key={idx} className="hover:bg-white/5 transition-colors">
+                          <td className="px-4 py-3 text-[var(--text-secondary)] whitespace-nowrap">{tx.date}</td>
+                          <td className="px-4 py-3 text-[var(--text-primary)] max-w-[250px] whitespace-pre-line break-words leading-relaxed text-[11px]" title={tx.details}>{tx.details}</td>
+                          <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${isCredit ? 'text-[var(--color-success)]' : 'text-red-400'}`}>
+                            {tx.amount}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Analytics Node */}

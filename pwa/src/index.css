@@ -143,3 +143,35 @@ h1, h2, h3, h4, h5, h6, .font-heading {
   transition: all 0.3s;
   border: 1px solid var(--border-color);
 }
+
+/* Progress Bar & Status Animations */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.8) 25%, rgba(45, 212, 191, 0.8) 50%, rgba(59, 130, 246, 0.8) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite linear;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.5; }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+@keyframes scale-checkmark {
+  0% { transform: scale(0.3); opacity: 0; }
+  50% { transform: scale(1.1); }
+  80% { transform: scale(0.95); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-scale-checkmark {
+  animation: scale-checkmark 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
