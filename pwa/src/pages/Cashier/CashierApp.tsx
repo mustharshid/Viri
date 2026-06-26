@@ -1989,6 +1989,16 @@ function App() {
                       const isBml = activeLedgerAcc.bank_name === 'BML';
                       const isSyncing = loading && loadingMode === 'ledger';
                       const isLockedByVerify = loading && loadingMode !== 'ledger';
+                      const activeLedgerStepIndex = (loading && loadingMode === 'ledger') || progress.stage === 'success' || progress.stage === 'error'
+                        ? (progress.stage === 'init' || progress.stage === 'lock' ? 1
+                          : (progress.stage === 'auth' ? 2
+                            : (progress.stage === 'fetch' ? 3
+                              : (progress.stage === 'match' ? 4
+                                : (progress.stage === 'success' ? 5
+                                  : (progress.percent >= 95 ? 4
+                                    : (progress.percent >= 75 ? 3
+                                      : (progress.percent >= 45 ? 2 : 1))))))))
+                        : (cache.balance !== 'Not synced' && cache.balance !== 'Not found' ? 5 : 0);
 
                       return (
                         <div className="glass-panel p-5 w-full space-y-4">
@@ -2011,99 +2021,97 @@ function App() {
                             </button>
                           </div>
 
-                          {/* 5-stage Progress Stepper (visible during ledger sync activity) */}
-                          {loadingMode === 'ledger' && (loading || progress.stage === 'success' || progress.stage === 'error') && (
-                            <div className="p-4 rounded-xl bg-black/40 border border-[var(--border-color)] animate-fade-in space-y-4">
-                              <div className="flex justify-between items-center">
-                                <span className={`text-xs font-semibold flex items-center gap-2 ${
-                                  activeStepIndex === 5 ? 'text-[var(--color-success)] animate-pulse' :
-                                  progress.stage === 'lock' ? 'text-[var(--color-warning)]' :
-                                  activeStepIndex > 0 ? 'text-blue-400' : 'text-zinc-500'
-                                }`}>
-                                  {loading ? (
-                                    progress.stage === 'success' ? (
-                                      <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                      </svg>
-                                    ) : progress.stage === 'lock' ? (
-                                      <span className="relative flex h-2 w-2 mr-1">
-                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-warning)] opacity-75"></span>
-                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-warning)]"></span>
-                                      </span>
-                                    ) : (
-                                      <Loader2 className="animate-spin shrink-0 text-blue-400" size={14} />
-                                    )
-                                  ) : activeStepIndex === 5 ? (
+                          {/* 5-stage Progress Stepper (always visible) */}
+                          <div className="p-4 rounded-xl bg-black/40 border border-[var(--border-color)] animate-fade-in space-y-4">
+                            <div className="flex justify-between items-center">
+                              <span className={`text-xs font-semibold flex items-center gap-2 ${
+                                activeLedgerStepIndex === 5 ? 'text-[var(--color-success)] animate-pulse' :
+                                loadingMode === 'ledger' && progress.stage === 'lock' ? 'text-[var(--color-warning)]' :
+                                activeLedgerStepIndex > 0 ? 'text-blue-400' : 'text-zinc-500'
+                              }`}>
+                                {loading && loadingMode === 'ledger' ? (
+                                  progress.stage === 'success' ? (
                                     <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
                                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                                     </svg>
-                                  ) : null}
-                                  {loading ? (progress.text || "Processing...") : (activeStepIndex === 5 ? "Ledger Synced!" : (progress.stage === 'error' ? "Sync failed." : ""))}
+                                  ) : progress.stage === 'lock' ? (
+                                    <span className="relative flex h-2 w-2 mr-1">
+                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-warning)] opacity-75"></span>
+                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-warning)]"></span>
+                                    </span>
+                                  ) : (
+                                    <Loader2 className="animate-spin shrink-0 text-blue-400" size={14} />
+                                  )
+                                ) : activeLedgerStepIndex === 5 ? (
+                                  <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                  </svg>
+                                ) : null}
+                                {loading && loadingMode === 'ledger' ? (progress.text || "Processing...") : (activeLedgerStepIndex === 5 ? "Ledger Synced!" : (progress.stage === 'error' ? "Sync failed." : "Ready for sync."))}
+                              </span>
+                              {loading && loadingMode === 'ledger' && timeLeft !== null && progress.stage !== 'success' && (
+                                <span className="text-[9px] text-[var(--text-secondary)] font-mono shrink-0">
+                                  Est. remaining: ~{timeLeft}s
                                 </span>
-                                {loading && timeLeft !== null && progress.stage !== 'success' && (
-                                  <span className="text-[9px] text-[var(--text-secondary)] font-mono shrink-0">
-                                    Est. remaining: ~{timeLeft}s
-                                  </span>
-                                )}
-                              </div>
-
-                              <div className="relative flex justify-between items-center w-full px-1 select-none">
-                                <div className="absolute left-6 right-6 top-[13px] h-[2px] bg-zinc-800 -z-10 rounded-full flex overflow-hidden">
-                                  <div className={`flex-1 h-full transition-all duration-500 ${
-                                    activeStepIndex >= 2 ? 'bg-emerald-500' :
-                                    activeStepIndex === 1 ? 'bg-gradient-to-r from-blue-500 to-zinc-700' : 'bg-zinc-700'
-                                  }`} />
-                                  <div className={`flex-1 h-full transition-all duration-500 ${
-                                    activeStepIndex >= 3 ? 'bg-emerald-500' :
-                                    activeStepIndex === 2 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
-                                  }`} />
-                                  <div className={`flex-1 h-full transition-all duration-500 ${
-                                    activeStepIndex >= 4 ? 'bg-emerald-500' :
-                                    activeStepIndex === 3 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
-                                  }`} />
-                                  <div className={`flex-1 h-full transition-all duration-500 ${
-                                    activeStepIndex >= 5 ? 'bg-emerald-500' :
-                                    activeStepIndex === 4 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
-                                  }`} />
-                                </div>
-
-                                {[
-                                  { id: 1, label: 'Start' },
-                                  { id: 2, label: 'Auth' },
-                                  { id: 3, label: 'Fetch' },
-                                  { id: 4, label: 'Match' },
-                                  { id: 5, label: 'Verify' }
-                                ].map((step) => {
-                                  const isCompleted = activeStepIndex > step.id || activeStepIndex === 5;
-                                  const isActive = activeStepIndex === step.id && activeStepIndex !== 5;
-                                  return (
-                                    <div key={step.id} className="flex flex-col items-center z-10">
-                                      <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center font-bold text-[10px] transition-all duration-500 ${
-                                        isCompleted 
-                                          ? 'bg-emerald-500 border-emerald-500 text-white shadow-[0_0_10px_rgba(16,185,129,0.3)]'
-                                          : isActive
-                                            ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_10px_rgba(59,130,246,0.3)]'
-                                            : 'bg-zinc-950 border-zinc-800 text-zinc-500'
-                                      }`}>
-                                        {isCompleted ? (
-                                          <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                          </svg>
-                                        ) : (
-                                          <span>{step.id}</span>
-                                        )}
-                                      </div>
-                                      <span className={`text-[9px] mt-1 font-semibold transition-colors duration-500 ${
-                                        isCompleted ? 'text-emerald-400 font-bold' : isActive ? 'text-blue-400 font-bold' : 'text-zinc-500'
-                                      }`}>
-                                        {step.label}
-                                      </span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
+                              )}
                             </div>
-                          )}
+
+                            <div className="relative flex justify-between items-center w-full px-1 select-none">
+                              <div className="absolute left-6 right-6 top-[13px] h-[2px] bg-zinc-800 -z-10 rounded-full flex overflow-hidden">
+                                <div className={`flex-1 h-full transition-all duration-500 ${
+                                  activeLedgerStepIndex >= 2 ? 'bg-emerald-500' :
+                                  activeLedgerStepIndex === 1 ? 'bg-gradient-to-r from-blue-500 to-zinc-700' : 'bg-zinc-700'
+                                }`} />
+                                <div className={`flex-1 h-full transition-all duration-500 ${
+                                  activeLedgerStepIndex >= 3 ? 'bg-emerald-500' :
+                                  activeLedgerStepIndex === 2 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
+                                }`} />
+                                <div className={`flex-1 h-full transition-all duration-500 ${
+                                  activeLedgerStepIndex >= 4 ? 'bg-emerald-500' :
+                                  activeLedgerStepIndex === 3 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
+                                }`} />
+                                <div className={`flex-1 h-full transition-all duration-500 ${
+                                  activeLedgerStepIndex >= 5 ? 'bg-emerald-500' :
+                                  activeLedgerStepIndex === 4 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
+                                }`} />
+                              </div>
+
+                              {[
+                                { id: 1, label: 'Start' },
+                                { id: 2, label: 'Auth' },
+                                { id: 3, label: 'Fetch' },
+                                { id: 4, label: 'Match' },
+                                { id: 5, label: 'Verify' }
+                              ].map((step) => {
+                                const isCompleted = activeLedgerStepIndex > step.id || activeLedgerStepIndex === 5;
+                                const isActive = activeLedgerStepIndex === step.id && activeLedgerStepIndex !== 5;
+                                return (
+                                  <div key={step.id} className="flex flex-col items-center z-10">
+                                    <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center font-bold text-[10px] transition-all duration-500 ${
+                                      isCompleted 
+                                        ? 'bg-emerald-500 border-emerald-500 text-white shadow-[0_0_10px_rgba(16,185,129,0.3)]'
+                                        : isActive
+                                          ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_10px_rgba(59,130,246,0.3)]'
+                                          : 'bg-zinc-950 border-zinc-800 text-zinc-500'
+                                    }`}>
+                                      {isCompleted ? (
+                                        <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                        </svg>
+                                      ) : (
+                                        <span>{step.id}</span>
+                                      )}
+                                    </div>
+                                    <span className={`text-[9px] mt-1 font-semibold transition-colors duration-500 ${
+                                      isCompleted ? 'text-emerald-400 font-bold' : isActive ? 'text-blue-400 font-bold' : 'text-zinc-500'
+                                    }`}>
+                                      {step.label}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
 
                           <div className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-black/30 flex flex-col font-sans">
                             {isSyncing && cache.transactions.length === 0 ? (
