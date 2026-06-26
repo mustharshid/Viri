@@ -33,7 +33,7 @@ export default function LandingPage() {
           <span className="text-gray-300">Zero-Knowledge Ledger Architecture Live</span>
         </div>
         
-        <img src="/logo_dv_en.png" alt="Viri logo" className="h-56 md:h-72 object-contain mb-3 animate-fade-in" style={{ animationDelay: '0.05s' }} />
+        <img src="/logo_dv_en.png" alt="Viri logo" className="h-[134px] md:h-[173px] object-contain mb-3 animate-fade-in" style={{ animationDelay: '0.05s' }} />
         <h1 className="text-6xl md:text-8xl font-heading font-extrabold tracking-tight mb-8 animate-fade-in leading-[1.1]" style={{ animationDelay: '0.1s' }}>
           Secure verifications. <br />
           <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#10b981] via-[#34d399] to-[#3b82f6]">

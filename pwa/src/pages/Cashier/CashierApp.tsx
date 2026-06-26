@@ -1295,7 +1295,7 @@ function App() {
       <main className="flex-1 h-screen overflow-y-auto p-4 md:p-8 flex flex-col items-center">
 
         {/* Trust Badge */}
-        <div className="w-full max-w-xl mb-6 p-3 bg-[var(--bg-surface)] border border-[var(--color-success)] border-opacity-30 rounded-lg flex items-center gap-3">
+        <div className="w-full max-w-xl lg:max-w-full mb-6 p-3 bg-[var(--bg-surface)] border border-[var(--color-success)] border-opacity-30 rounded-lg flex items-center gap-3">
           <Shield className="text-[var(--color-success)] shrink-0" size={24} />
           <p className="text-sm text-[var(--text-secondary)]">
             <strong className="text-[var(--text-primary)]">Viri Zero-Knowledge Architecture:</strong> Financial passwords are fully encrypted and stored strictly on this local terminal machine.
@@ -1304,7 +1304,7 @@ function App() {
 
         {showSettings ? (
           /* Extension Settings Panel */
-          <div className="w-full max-w-xl lg:max-w-4xl mb-6 glass-panel border-[var(--color-accent)] animate-fade-in">
+          <div className="w-full max-w-xl lg:max-w-full mb-6 glass-panel border-[var(--color-accent)] animate-fade-in">
             <h3 className="text-md font-semibold mb-2 flex items-center gap-2">
               <Settings size={16} /> Viri Terminal Settings
             </h3>
@@ -1485,7 +1485,7 @@ function App() {
           <>
             {/* View Tab 1: Verification */}
             {activeTab === 'verify' && (
-              <div className="w-full max-w-xl lg:max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-8 items-start animate-fade-in">
+              <div className="w-full max-w-xl lg:max-w-full grid grid-cols-1 lg:grid-cols-12 gap-8 items-start animate-fade-in">
                 {/* Header */}
                 <div className="w-full flex justify-between items-center lg:col-span-12 border-b border-[var(--border-color)] pb-4">
                   <div>
@@ -1814,7 +1814,7 @@ function App() {
 
             {/* View Tab 2: Transaction Ledger */}
             {activeTab === 'ledger' && (
-              <div className="w-full max-w-xl lg:max-w-6xl w-full animate-fade-in flex flex-col gap-6">
+              <div className="w-full max-w-xl lg:max-w-full w-full animate-fade-in flex flex-col gap-6">
                 {/* Section Header */}
                 <div className="w-full flex justify-between items-center border-b border-[var(--border-color)] pb-4">
                   <div>
