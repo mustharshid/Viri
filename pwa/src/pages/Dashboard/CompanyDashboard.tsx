@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download } from 'lucide-react';
+import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock } from 'lucide-react';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group ml-2 cursor-help align-middle">
@@ -88,6 +88,32 @@ export default function CompanyDashboard() {
     const token = localStorage.getItem('viri_token');
     await fetch(`/api/company/terminals/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` }});
     fetchData();
+  };
+
+  const enableDebug = async (id: number) => {
+    try {
+      const token = localStorage.getItem('viri_token');
+      const response = await fetch(`/api/company/terminals/${id}/enable-debug`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setTerminals(prev => prev.map(t => t.id === id ? { 
+          ...t, 
+          debug_one_time_code: data.debug_one_time_code, 
+          allow_debug_until: data.allow_debug_until 
+        } : t));
+      } else {
+        alert("Failed to enable debug access.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error enabling debug access.");
+    }
   };
 
   const createBankAccount = async (e: React.FormEvent) => {
@@ -232,14 +258,55 @@ export default function CompanyDashboard() {
                             <button onClick={() => deleteTerminal(term.id)} className="btn btn-outline text-xs py-1 px-2 border-red-500 text-red-500">Delete & Recreate</button>
                           </div>
                         ) : (
-                          <div className="flex justify-between items-center bg-emerald-900/20 p-3 rounded border border-[var(--color-success)] border-opacity-30">
-                            <span className="flex items-center gap-2 text-sm text-[var(--color-success)] font-medium">
-                              <CheckCircle2 size={16}/> Configured
-                            </span>
-                            <div className="flex items-center gap-2 text-xs font-mono text-[var(--text-secondary)]">
-                              ID: ...{term.hardware_id.slice(-8)}
-                              <button onClick={() => copyToClipboard(term.hardware_id)} className="hover:text-white" title="Copy Hardware ID"><Copy size={14}/></button>
+                          <div className="flex flex-col gap-2 w-full">
+                            <div className="flex justify-between items-center bg-emerald-900/20 p-3 rounded border border-[var(--color-success)] border-opacity-30">
+                              <span className="flex items-center gap-2 text-sm text-[var(--color-success)] font-medium">
+                                <CheckCircle2 size={16}/> Configured
+                              </span>
+                              <div className="flex items-center gap-2 text-xs font-mono text-[var(--text-secondary)]">
+                                ID: ...{term.hardware_id.slice(-8)}
+                                <button onClick={() => copyToClipboard(term.hardware_id)} className="hover:text-white" title="Copy Hardware ID"><Copy size={14}/></button>
+                              </div>
                             </div>
+
+                            {term.allow_debug_until && new Date(term.allow_debug_until).getTime() > now && term.debug_one_time_code ? (
+                              <div className="bg-blue-950/40 border border-blue-500/30 p-3 rounded flex flex-col gap-2">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-xs font-semibold text-blue-400 flex items-center gap-1.5">
+                                    <Bug size={14} /> Superadmin Debug Enabled
+                                  </span>
+                                  <span className="text-xs font-mono text-blue-300 flex items-center gap-1">
+                                    <Clock size={12} />
+                                    {Math.max(0, Math.floor((new Date(term.allow_debug_until).getTime() - now) / 60000))}:
+                                    {Math.max(0, Math.floor(((new Date(term.allow_debug_until).getTime() - now) % 60000) / 1000)).toString().padStart(2, '0')}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between items-center bg-black/30 px-3 py-2 rounded border border-blue-900/40">
+                                  <div>
+                                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider">One-Time Code</div>
+                                    <div className="text-lg font-mono font-bold text-blue-300 tracking-wider">{term.debug_one_time_code}</div>
+                                  </div>
+                                  <button type="button" onClick={() => {
+                                    navigator.clipboard.writeText(term.debug_one_time_code);
+                                    alert('One-time code copied!');
+                                  }} className="btn btn-outline text-[10px] py-1 px-2 border-blue-500 text-blue-400 hover:bg-blue-500 hover:text-white transition-colors flex items-center gap-1">
+                                    <Copy size={10} /> Copy Code
+                                  </button>
+                                </div>
+                                <p className="text-[10px] text-zinc-500 leading-normal">
+                                  🔐 <strong>Zero-Knowledge:</strong> No username or password will be sent to the super admin even if debug mode is enabled.
+                                </p>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col gap-1.5 w-full">
+                                <button type="button" onClick={() => enableDebug(term.id)} className="btn btn-outline border-blue-500/50 text-blue-400 hover:bg-blue-500 hover:text-white py-2 text-xs w-full flex items-center justify-center gap-1.5 transition-colors">
+                                  <Bug size={14} /> Allow Superadmin Debug Access
+                                </button>
+                                <p className="text-[10px] text-zinc-500 text-center leading-normal">
+                                  No username or password will be sent to the super admin even if debug mode is enabled.
+                                </p>
+                              </div>
+                            )}
                           </div>
                         )
                       )}

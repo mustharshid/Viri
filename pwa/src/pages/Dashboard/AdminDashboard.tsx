@@ -1,11 +1,17 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle, LogOut } from 'lucide-react';
+import { CheckCircle, LogOut, Terminal, X, Copy } from 'lucide-react';
 
 export default function AdminDashboard() {
   const [companies, setCompanies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+
+  const [selectedTerminal, setSelectedTerminal] = useState<any | null>(null);
+  const [oneTimeCode, setOneTimeCode] = useState('');
+  const [modalLogs, setModalLogs] = useState<string[] | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [modalLoading, setModalLoading] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -62,6 +68,48 @@ export default function AdminDashboard() {
     fetchData();
   };
 
+  const openDebugLogModal = (terminal: any) => {
+    setSelectedTerminal(terminal);
+    setOneTimeCode('');
+    setModalLogs(null);
+    setModalError(null);
+    setModalLoading(false);
+  };
+
+  const closeDebugLogModal = () => {
+    setSelectedTerminal(null);
+  };
+
+  const fetchTerminalLogs = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTerminal) return;
+    setModalLoading(true);
+    setModalError(null);
+    try {
+      const token = localStorage.getItem('viri_token');
+      const response = await fetch(`/api/admin/terminals/${selectedTerminal.id}/view-log`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({ one_time_code: oneTimeCode })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setModalLogs(data.logs || []);
+      } else {
+        setModalError(data.error || 'Failed to fetch logs.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setModalError('Network error while fetching logs.');
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
   if (loading) return <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center text-white">Loading...</div>;
 
   return (
@@ -115,7 +163,27 @@ export default function AdminDashboard() {
                     </select>
                   </td>
                   <td className="py-4 px-4 font-mono text-sm">{company.verifications_count}</td>
-                  <td className="py-4 px-4 font-mono text-sm">{company.terminals?.length || 0}</td>
+                  <td className="py-4 px-4">
+                    <div className="flex flex-col gap-1.5 max-w-[200px]">
+                      {company.terminals && company.terminals.length > 0 ? (
+                        company.terminals.map((term: any) => (
+                          <div key={term.id} className="flex items-center justify-between gap-2 py-1 border-b border-zinc-800 last:border-0">
+                            <span className="font-medium text-xs text-zinc-300 truncate" title={term.terminal_name}>
+                              {term.terminal_name}
+                            </span>
+                            <button 
+                              onClick={() => openDebugLogModal(term)} 
+                              className="text-[10px] text-blue-400 hover:text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded hover:bg-blue-500/10 transition-all flex items-center gap-1 font-mono"
+                            >
+                              <Terminal size={10} /> Logs
+                            </button>
+                          </div>
+                        ))
+                      ) : (
+                        <span className="text-zinc-500 italic text-xs">None</span>
+                      )}
+                    </div>
+                  </td>
                   <td className="py-4 px-4 flex items-center gap-1.5">
                     <input 
                       type="number"
@@ -162,6 +230,95 @@ export default function AdminDashboard() {
           </table>
           {companies.length === 0 && <div className="text-center py-8 text-[var(--text-secondary)]">No companies registered yet.</div>}
         </div>
+
+        {/* Debug Logs Viewer Modal */}
+        {selectedTerminal && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in">
+            <div className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl p-6 max-w-lg w-full max-h-[85vh] flex flex-col relative shadow-2xl">
+              <button 
+                onClick={closeDebugLogModal} 
+                className="absolute top-4 right-4 text-[var(--text-secondary)] hover:text-white transition-colors"
+                title="Close"
+              >
+                <X size={20} />
+              </button>
+
+              <h3 className="text-lg font-bold mb-2 flex items-center gap-2 pr-8">
+                <Terminal size={18} className="text-blue-400" />
+                Debug Logs: {selectedTerminal.terminal_name}
+              </h3>
+              <p className="text-xs text-[var(--text-secondary)] mb-4">
+                Enter the 6-digit debug code generated by the tenant admin to view this terminal's logs.
+              </p>
+
+              {modalError && (
+                <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded text-xs text-red-400">
+                  {modalError}
+                </div>
+              )}
+
+              {modalLogs === null ? (
+                <form onSubmit={fetchTerminalLogs} className="flex flex-col gap-4 mt-2">
+                  <div className="input-group">
+                    <label className="input-label">One-Time Debug Code</label>
+                    <input 
+                      type="text" 
+                      required 
+                      placeholder="e.g. A8B39F" 
+                      maxLength={6}
+                      className="input-field text-center text-2xl tracking-widest font-mono py-3" 
+                      value={oneTimeCode} 
+                      onChange={e => setOneTimeCode(e.target.value.replace(/[^a-zA-Z0-9]/g, ''))}
+                      disabled={modalLoading}
+                    />
+                  </div>
+                  <button 
+                    type="submit" 
+                    className="btn btn-success py-3 text-sm justify-center font-bold"
+                    disabled={modalLoading || oneTimeCode.length < 6}
+                  >
+                    {modalLoading ? 'Fetching logs...' : 'Retrieve Logs'}
+                  </button>
+                </form>
+              ) : (
+                <div className="flex flex-col flex-1 overflow-hidden mt-2">
+                  <div className="bg-black/50 border border-zinc-800 rounded-lg p-4 font-mono text-xs text-green-400 h-80 overflow-y-auto flex flex-col gap-1.5 scrollbar-thin">
+                    {modalLogs.length === 0 ? (
+                      <span className="text-zinc-500 italic">No logs uploaded for the last run.</span>
+                    ) : (
+                      modalLogs.map((logLine, idx) => (
+                        <div key={idx} className="whitespace-pre-wrap leading-relaxed border-b border-zinc-900/50 pb-1.5 last:border-0">
+                          {logLine}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <div className="flex gap-3 mt-4">
+                    <button 
+                      onClick={() => {
+                        navigator.clipboard.writeText(modalLogs.join('\n'));
+                        alert('Logs copied to clipboard!');
+                      }}
+                      className="btn btn-outline text-xs py-2 px-4 flex-1 justify-center gap-1.5"
+                      disabled={modalLogs.length === 0}
+                    >
+                      <Copy size={14} /> Copy All Logs
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setModalLogs(null);
+                        setOneTimeCode('');
+                      }} 
+                      className="btn btn-outline border-zinc-700 hover:bg-zinc-800 text-xs py-2 px-4 flex-1 justify-center"
+                    >
+                      Back
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
       </div>
     </div>
