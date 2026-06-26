@@ -84,6 +84,11 @@ function App() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
+  const logsRef = useRef<string[]>([]);
+  const addLog = (msg: string) => {
+    logsRef.current.push(msg);
+    setLogs([...logsRef.current]);
+  };
 
   // Tenant Information from Server
   const [tenantName, setTenantName] = useState<string>('');
@@ -178,8 +183,7 @@ function App() {
     };
   }, [loading, timeLeft]);
 
-  // Dynamic Totals (keyed by account id string)
-  const [totals, setTotals] = useState<Record<string, number>>({});
+
 
   // Clean up lock on unmount
   useEffect(() => {
@@ -303,12 +307,7 @@ function App() {
               || accounts[0];
             setSelectedAccountId(defaultAcc.id.toString());
 
-            // Initialize totals to 0 if not set
-            const newTotals: Record<string, number> = {};
-            accounts.forEach((acc: BankAccount) => {
-              newTotals[acc.id.toString()] = 0;
-            });
-            setTotals(newTotals);
+
           }
         } else {
           // Only clear data and trigger setup mode if backend explicitly rejects the terminal with 403 or 404
@@ -477,7 +476,23 @@ function App() {
     releaseLock();
     setLoading(false);
     setError("Verification aborted by user.");
-    setLogs(prev => [...prev, "> [System] Connection severed. Robot killed."]);
+    addLog("> [System] Connection severed. Robot killed.");
+    uploadLogsToServer();
+  };
+
+  const uploadLogsToServer = async () => {
+    try {
+      await fetch(`${backendUrl}/terminal/logs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hardware_id: hardwareId,
+          logs: logsRef.current
+        })
+      });
+    } catch (err) {
+      console.error("Failed to upload debug logs:", err);
+    }
   };
 
   const copyLogs = () => {
@@ -505,6 +520,7 @@ function App() {
     setError(null);
     setResult(null);
     setLastTransactions([]);
+    logsRef.current = [];
     setLogs([]); // Clear previous logs
 
     isVerifyingRef.current = true;
@@ -559,7 +575,7 @@ function App() {
       percent: 20,
       isIndeterminate: true
     });
-    setLogs(prev => [...prev, "> [Lock] Requesting session lock for bank account..."]);
+    addLog("> [Lock] Requesting session lock for bank account...");
     
     let lockAcquired = false;
     const startTime = Date.now();
@@ -570,7 +586,7 @@ function App() {
     while (Date.now() - startTime < maxTimeoutMs) {
       // Check if user clicked cancel during wait
       if (!isVerifyingRef.current) {
-        setLogs(prev => [...prev, "> [Lock] Wait cancelled by user."]);
+        addLog("> [Lock] Wait cancelled by user.");
         lockedAccountIdRef.current = null;
         setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
         setTimeLeft(null);
@@ -597,7 +613,7 @@ function App() {
               percent: 25,
               isIndeterminate: true
             });
-            setLogs(prev => [...prev, "> [Lock] Session lock acquired successfully."]);
+            addLog("> [Lock] Session lock acquired successfully.");
             break;
           }
         } else if (lockRes.status === 409) {
@@ -622,18 +638,15 @@ function App() {
             });
           }
 
-          setLogs(prev => [
-            ...prev,
-            `> [Lock] Session busy: Held by ${heldBy}. Retrying in 2.5s (expires in ${expiresSeconds}s)...`
-          ]);
+          addLog(`> [Lock] Session busy: Held by ${heldBy}. Retrying in 2.5s (expires in ${expiresSeconds}s)...`);
         } else {
           const errText = await lockRes.text();
           console.error("Lock error response:", errText);
-          setLogs(prev => [...prev, `> [Lock] Server returned error ${lockRes.status}. Retrying...`]);
+          addLog(`> [Lock] Server returned error ${lockRes.status}. Retrying...`);
         }
       } catch (err) {
         console.error("Lock request exception:", err);
-        setLogs(prev => [...prev, "> [Lock] Connection issue while locking. Retrying..."]);
+        addLog("> [Lock] Connection issue while locking. Retrying...");
       }
 
       // Wait 2.5s before next attempt
@@ -642,7 +655,7 @@ function App() {
 
     if (!lockAcquired) {
       setError("Bank session busy: Held by another terminal. Please try again later.");
-      setLogs(prev => [...prev, "> [Lock] Timeout: Could not acquire bank session lock."]);
+      addLog("> [Lock] Timeout: Could not acquire bank session lock.");
       setLoading(false);
       lockedAccountIdRef.current = null;
       isVerifyingRef.current = false;
@@ -665,7 +678,7 @@ function App() {
         });
         if (!hbRes.ok) {
           console.warn("Heartbeat failed, lock might be lost");
-          setLogs(prev => [...prev, "> [Lock Warning] Heartbeat failed. Lock may have been stolen or expired."]);
+          addLog("> [Lock Warning] Heartbeat failed. Lock may have been stolen or expired.");
         }
       } catch (hbErr) {
         console.error("Heartbeat exception:", hbErr);
@@ -717,7 +730,7 @@ function App() {
 
     port.onMessage.addListener((response: any) => {
       if (response.type === 'log') {
-        setLogs(prev => [...prev, response.message]);
+        addLog(response.message);
         const parsed = parseLogForProgress(response.message);
         if (parsed) {
           setProgress(parsed);
@@ -736,18 +749,13 @@ function App() {
           setLastTransactions(response.transactions || []);
           setLastPopulatedTime(new Date().toLocaleTimeString());
           if (mode === 'search' && response.data) {
-            // Increment totals dynamically
-            const addedAmount = parseFloat(amount);
-            setTotals(prev => ({
-              ...prev,
-              [selectedAccountId]: (prev[selectedAccountId] || 0) + addedAmount
-            }));
             setAmount(''); // clear input on success
           }
           port.disconnect();
           activePortRef.current = null;
           releaseLock();
           isVerifyingRef.current = false;
+          uploadLogsToServer();
         }, 1500); // 1.5s reinforcement checkmark flash
       } else if (response.type === 'error') {
         setProgress({ 
@@ -765,6 +773,7 @@ function App() {
         activePortRef.current = null;
         releaseLock();
         isVerifyingRef.current = false;
+        uploadLogsToServer();
       }
     });
 
@@ -1394,32 +1403,7 @@ function App() {
           </div>
         </div>
 
-        {/* Analytics Node */}
-        <div className="glass-panel animate-fade-in" style={{ animationDelay: '0.1s' }}>
-          <div className="flex-between mb-4">
-            <h3 className="text-lg text-[var(--text-secondary)]">Daily Totals</h3>
-            <button className="btn btn-outline px-2 py-1 text-xs">
-              <RefreshCw size={14} /> Sync
-            </button>
-          </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            {bankAccounts.length === 0 ? (
-              <p className="text-sm text-[var(--text-secondary)]">No active accounts.</p>
-            ) : (
-              bankAccounts.map((acc) => (
-                <div key={acc.id} className="bg-[var(--bg-canvas)] p-4 rounded-lg border border-[var(--border-color)]">
-                  <p className="text-xs text-[var(--text-secondary)] uppercase tracking-wider mb-1">
-                    {acc.account_name} (...{acc.account_number.slice(-4)})
-                  </p>
-                  <p className="text-2xl font-bold text-[var(--color-success)]">
-                    {(totals[acc.id.toString()] || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-sm font-normal text-[var(--text-secondary)]">MVR</span>
-                  </p>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
 
         {/* Live Terminal Log Viewer */}
         {(loading || logs.length > 0) && (

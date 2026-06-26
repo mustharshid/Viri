@@ -48,6 +48,24 @@ class CompanyController extends Controller
         return response()->json(['message' => 'Terminal deleted']);
     }
 
+    public function enableDebug(Request $request, $id)
+    {
+        $terminal = Terminal::where('tenant_id', $request->user()->tenant_id)->findOrFail($id);
+
+        $code = strtoupper(substr(md5(uniqid(mt_rand(), true)), 0, 6));
+
+        $terminal->update([
+            'debug_one_time_code' => $code,
+            'allow_debug_until' => now()->addHours(2)
+        ]);
+
+        return response()->json([
+            'message' => 'Debug access enabled for 2 hours.',
+            'debug_one_time_code' => $code,
+            'allow_debug_until' => $terminal->allow_debug_until->toIso8601String()
+        ]);
+    }
+
     // === BANK ACCOUNTS ===
     public function getBankAccounts(Request $request)
     {

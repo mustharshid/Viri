@@ -358,7 +358,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
   emitLog(port, `> [TESTING] BML TOTP Seed: ${maskString(credentials.totpSeed)}`);
   emitLog(port, `> [TESTING] Target Account: ${targetAccount}`);
   emitLog(port, `> [TESTING] Target Amount: ${targetAmount}`);
-  emitLog(port, `> [TESTING] LIVE OTP CODE: ${currentOtp}`);
+  emitLog(port, `> [TESTING] LIVE OTP CODE: ${maskString(currentOtp)}`);
   // -------------------------------------------------------------
 
   // -- Helper: Follow Inertia 409 redirect chain (matching Python _handle_inertia_response) --
@@ -602,7 +602,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
     // Step 3B: Submit OTP with Authenticator channel selection in a single request
     emitLog(port, `> [BML] Step 3B: Submitting TOTP code...`);
     const otpCode = await generateTOTP(credentials.totpSeed);
-    emitLog(port, `> [TESTING] Submitting OTP: ${otpCode}`);
+    emitLog(port, `> [TESTING] Submitting OTP: ${maskString(otpCode)}`);
 
     const verifyHeaders = {
       'Accept': 'text/html, application/xhtml+xml',
@@ -1188,8 +1188,23 @@ async function mibFetch(url, options = {}, port) {
   const method = options.method || 'GET';
   let bodyLog = '';
   if (options.body && typeof options.body === 'string') {
-    // Show body in plain text for debugging
-    bodyLog = `\n    Body: ${options.body}`;
+    let sanitizedBody = options.body;
+    try {
+      const urlParams = new URLSearchParams(options.body);
+      if (urlParams.has('pgf01')) {
+        urlParams.set('pgf01', maskString(urlParams.get('pgf01')));
+      }
+      if (urlParams.has('pgf02')) {
+        urlParams.set('pgf02', maskString(urlParams.get('pgf02')));
+      }
+      if (urlParams.has('otp')) {
+        urlParams.set('otp', maskString(urlParams.get('otp')));
+      }
+      sanitizedBody = urlParams.toString();
+    } catch (e) {
+      sanitizedBody = options.body.replace(/(pgf02|otp)=([^&]*)/gi, '$1=[REDACTED]');
+    }
+    bodyLog = `\n    Body: ${sanitizedBody}`;
   }
   emitLog(port, `> [MIB] Request: ${method} ${url}${bodyLog}`);
 
@@ -1321,7 +1336,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
       }, port);
     } else {
       emitLog(port, `> [MIB] Step 3: Submitting primary credentials (salted auth)...`);
-      emitLog(port, `> [MIB] Plain credentials validation: username="${credentials.username}", password="${credentials.password}"`);
+      emitLog(port, `> [MIB] Plain credentials validation: username="${maskString(credentials.username)}", password="${maskString(credentials.password)}"`);
       const clientSalt = generateClientSalt(32);
       
       // Hashing formula:
@@ -1424,9 +1439,9 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     // HAR: Returns HTTP 203 (success with redirect). Referer: /auth2FA
     // ═══════════════════════════════════════════════════════════════
     emitLog(port, `> [MIB] Step 5: Generating and submitting TOTP...`);
-    emitLog(port, `> [MIB] TOTP generation using Seed: "${credentials.totpSeed}"`);
+    emitLog(port, `> [MIB] TOTP generation using Seed: "${maskString(credentials.totpSeed)}"`);
     const otpCode = await generateTOTP(credentials.totpSeed);
-    emitLog(port, `> [MIB] Generated OTP Code: "${otpCode}"`);
+    emitLog(port, `> [MIB] Generated OTP Code: "${maskString(otpCode)}"`);
 
     const otpRes = await mibFetch(`${MIB_BASE_URL}/aAuth2FA/verifyOTP`, {
       method: 'POST',

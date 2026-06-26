@@ -13,11 +13,15 @@ class Terminal extends Model
         'hardware_id',
         'status',
         'pairing_code',
-        'pairing_code_expires_at'
+        'pairing_code_expires_at',
+        'debug_logs',
+        'allow_debug_until',
+        'debug_one_time_code'
     ];
 
     protected $casts = [
-        'pairing_code_expires_at' => 'datetime'
+        'pairing_code_expires_at' => 'datetime',
+        'allow_debug_until' => 'datetime'
     ];
 
     public function tenant(): BelongsTo

@@ -31,11 +31,13 @@ Route::middleware('auth:sanctum')->group(function () {
     // Note: In production, add a role middleware here
     Route::get('/admin/companies', [SuperadminController::class, 'listCompanies']);
     Route::put('/admin/companies/{id}', [SuperadminController::class, 'updateCompany']);
+    Route::post('/admin/terminals/{id}/view-log', [SuperadminController::class, 'viewTerminalLog']);
 
     // Company Admin Routes
     Route::get('/company/terminals', [CompanyController::class, 'getTerminals']);
     Route::post('/company/terminals', [CompanyController::class, 'createTerminal']);
     Route::delete('/company/terminals/{id}', [CompanyController::class, 'deleteTerminal']);
+    Route::post('/company/terminals/{id}/enable-debug', [CompanyController::class, 'enableDebug']);
 
     Route::get('/company/bank-accounts', [CompanyController::class, 'getBankAccounts']);
     Route::post('/company/bank-accounts', [CompanyController::class, 'createBankAccount']);
@@ -111,3 +113,4 @@ Route::post('/verify-terminal', function (Request $request) {
 Route::post('/terminal/lock-account', [BankAccountLockController::class, 'lockAccount']);
 Route::post('/terminal/heartbeat', [BankAccountLockController::class, 'heartbeat']);
 Route::post('/terminal/unlock-account', [BankAccountLockController::class, 'unlockAccount']);
+Route::post('/terminal/logs', [TerminalPairingController::class, 'uploadLogs']);

@@ -37,4 +37,26 @@ class TerminalPairingController extends Controller
             'terminal_name' => $terminal->terminal_name
         ]);
     }
+
+    public function uploadLogs(Request $request)
+    {
+        $request->validate([
+            'hardware_id' => 'required|string',
+            'logs' => 'required|array'
+        ]);
+
+        $terminal = Terminal::where('hardware_id', $request->hardware_id)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$terminal) {
+            return response()->json(['error' => 'Terminal unauthorized or inactive'], 403);
+        }
+
+        $terminal->update([
+            'debug_logs' => json_encode($request->logs)
+        ]);
+
+        return response()->json(['message' => 'Logs uploaded successfully.']);
+    }
 }

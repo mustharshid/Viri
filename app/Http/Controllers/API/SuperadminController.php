@@ -45,4 +45,34 @@ class SuperadminController extends Controller
 
         return response()->json(['message' => 'Company updated successfully', 'company' => $tenant]);
     }
+
+    public function viewTerminalLog(Request $request, $id)
+    {
+        $request->validate([
+            'one_time_code' => 'required|string'
+        ]);
+
+        $terminal = \App\Models\Terminal::findOrFail($id);
+
+        if (!$terminal->allow_debug_until || now()->greaterThan($terminal->allow_debug_until)) {
+            return response()->json(['error' => 'Debug access is not enabled or has expired for this terminal.'], 403);
+        }
+
+        if (!$terminal->debug_one_time_code || $terminal->debug_one_time_code !== strtoupper($request->one_time_code)) {
+            return response()->json(['error' => 'Invalid debug one-time code.'], 403);
+        }
+
+        $logs = json_decode($terminal->debug_logs, true) ?? [];
+
+        // Clear the one-time code immediately upon first successful view
+        $terminal->update([
+            'debug_one_time_code' => null,
+            'allow_debug_until' => null
+        ]);
+
+        return response()->json([
+            'terminal_name' => $terminal->terminal_name,
+            'logs' => $logs
+        ]);
+    }
 }
