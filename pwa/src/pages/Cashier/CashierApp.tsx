@@ -767,16 +767,7 @@ function App() {
           setResult(response.data || null);
           setLastTransactions(response.transactions || []);
           setLastPopulatedTime(new Date().toLocaleTimeString());
-          if (selectedAccountId) {
-            setLedgerCache(prev => ({
-              ...prev,
-              [selectedAccountId]: {
-                balance: response.balance || (prev[selectedAccountId]?.balance || 'Not found'),
-                lastUpdated: new Date().toLocaleTimeString(),
-                transactions: response.transactions || []
-              }
-            }));
-          }
+
           if (mode === 'search' && response.data) {
             setAmount(''); // clear input on success
           }
@@ -1051,6 +1042,7 @@ function App() {
         setTimeLeft(null);
         setTimeout(() => {
           setLoading(false);
+          setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
           setLedgerCache(prev => ({
             ...prev,
             [targetAccountId]: {
@@ -1078,6 +1070,7 @@ function App() {
         }));
         setTimeout(() => {
           setLoading(false);
+          setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
           port.disconnect();
           activePortRef.current = null;
           releaseLock();
@@ -1847,7 +1840,7 @@ function App() {
                           No bank accounts configured. Please contact the administrator.
                         </div>
                       ) : (
-                        <div className="flex flex-wrap lg:flex-col gap-2.5">
+                        <div className="flex flex-row lg:flex-col gap-2.5 overflow-x-auto lg:overflow-x-visible pb-2 lg:pb-0 scrollbar-thin w-full">
                           {bankAccounts.map(acc => {
                             const isSelected = selectedLedgerAccountId === acc.id.toString();
                             const isBml = acc.bank_name === 'BML';
@@ -1855,7 +1848,7 @@ function App() {
                               <button
                                 key={acc.id}
                                 onClick={() => setSelectedLedgerAccountId(acc.id.toString())}
-                                className={`px-4 py-3 rounded-xl border text-left flex flex-col gap-1 transition-all min-w-[140px] flex-1 ${
+                                className={`px-4 py-3 rounded-xl border text-left flex flex-col gap-1 transition-all shrink-0 lg:shrink w-[260px] lg:w-full ${
                                   isSelected
                                     ? isBml
                                       ? 'bg-red-950/20 border-red-500/80 shadow-[0_0_15px_rgba(239,68,68,0.15)]'
@@ -1868,11 +1861,11 @@ function App() {
                                 }`}>
                                   {acc.bank_name === 'MIB' ? 'Maldives Islamic Bank' : 'Bank of Maldives'}
                                 </span>
-                                <span className="text-xs font-semibold text-white truncate max-w-[180px]">
+                                <span className="text-xs font-semibold text-white truncate max-w-full">
                                   {acc.account_name}
                                 </span>
                                 <span className="text-[11px] font-mono text-[var(--text-secondary)]">
-                                  ...{acc.account_number.slice(-6)}
+                                  {acc.account_number}
                                 </span>
                               </button>
                             );
@@ -1892,15 +1885,13 @@ function App() {
                         transactions: []
                       };
 
-                      const isBml = activeLedgerAcc.bank_name === 'BML';
-                      const isSyncing = loading && loadingMode === 'ledger';
                       const isLockedByVerify = loading && loadingMode !== 'ledger';
 
                       return (
                         <div className="space-y-6">
                           
                           {/* Summary Card */}
-                          <div className="glass-panel p-6 border-[var(--border-color)] bg-gradient-to-br from-zinc-950 to-zinc-900/60 relative overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                          <div className="glass-panel p-6 border-[var(--border-color)] bg-gradient-to-br from-zinc-950 to-zinc-900/60 relative overflow-hidden flex flex-col justify-between items-start gap-4">
                             <div className="space-y-1">
                               <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold font-sans">Available Balance</span>
                               <div className={`text-3xl font-bold tracking-tight ${
@@ -1913,19 +1904,6 @@ function App() {
                                 Last updated: {cache.lastUpdated}
                               </div>
                             </div>
-
-                            <button
-                              onClick={() => syncLedger(selectedLedgerAccountId)}
-                              disabled={isSyncing || isLockedByVerify}
-                              className={`btn ${
-                                isBml ? 'btn-outline border-red-500/50 hover:bg-red-500 hover:text-white' : 'btn-success'
-                              } py-3 px-6 text-sm font-semibold justify-center gap-2 transition-all ${
-                                isSyncing || isLockedByVerify ? 'opacity-50 cursor-not-allowed' : ''
-                              }`}
-                            >
-                              <RefreshCw size={16} className={isSyncing ? 'animate-spin' : ''} />
-                              {isSyncing ? 'Syncing...' : 'Sync Balance & History'}
-                            </button>
                           </div>
 
                           {/* Locking Overlay notification */}
@@ -2008,12 +1986,126 @@ function App() {
                         transactions: []
                       };
 
+                      const isBml = activeLedgerAcc.bank_name === 'BML';
                       const isSyncing = loading && loadingMode === 'ledger';
+                      const isLockedByVerify = loading && loadingMode !== 'ledger';
 
                       return (
                         <div className="glass-panel p-5 w-full space-y-4">
-                          <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider font-sans">Statement Entries ({cache.transactions.length})</h3>
-                          <div className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-black/30 flex flex-col divide-y divide-[var(--border-color)] font-sans">
+                          {/* Panel Header with Title and Sync Button */}
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-[var(--border-color)] pb-4">
+                            <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider font-sans">
+                              Statement Entries ({cache.transactions.length})
+                            </h3>
+                            <button
+                              onClick={() => syncLedger(selectedLedgerAccountId)}
+                              disabled={isSyncing || isLockedByVerify}
+                              className={`btn ${
+                                isBml ? 'btn-outline border-red-500/50 hover:bg-red-500 hover:text-white' : 'btn-success'
+                              } py-2.5 px-5 text-xs font-semibold flex items-center justify-center gap-2 transition-all shrink-0 ${
+                                isSyncing || isLockedByVerify ? 'opacity-50 cursor-not-allowed' : ''
+                              }`}
+                            >
+                              <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
+                              {isSyncing ? 'Syncing...' : 'Sync Balance & History'}
+                            </button>
+                          </div>
+
+                          {/* 5-stage Progress Stepper (visible during ledger sync activity) */}
+                          {loadingMode === 'ledger' && (loading || progress.stage === 'success' || progress.stage === 'error') && (
+                            <div className="p-4 rounded-xl bg-black/40 border border-[var(--border-color)] animate-fade-in space-y-4">
+                              <div className="flex justify-between items-center">
+                                <span className={`text-xs font-semibold flex items-center gap-2 ${
+                                  activeStepIndex === 5 ? 'text-[var(--color-success)] animate-pulse' :
+                                  progress.stage === 'lock' ? 'text-[var(--color-warning)]' :
+                                  activeStepIndex > 0 ? 'text-blue-400' : 'text-zinc-500'
+                                }`}>
+                                  {loading ? (
+                                    progress.stage === 'success' ? (
+                                      <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    ) : progress.stage === 'lock' ? (
+                                      <span className="relative flex h-2 w-2 mr-1">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-warning)] opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-warning)]"></span>
+                                      </span>
+                                    ) : (
+                                      <Loader2 className="animate-spin shrink-0 text-blue-400" size={14} />
+                                    )
+                                  ) : activeStepIndex === 5 ? (
+                                    <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                    </svg>
+                                  ) : null}
+                                  {loading ? (progress.text || "Processing...") : (activeStepIndex === 5 ? "Ledger Synced!" : (progress.stage === 'error' ? "Sync failed." : ""))}
+                                </span>
+                                {loading && timeLeft !== null && progress.stage !== 'success' && (
+                                  <span className="text-[9px] text-[var(--text-secondary)] font-mono shrink-0">
+                                    Est. remaining: ~{timeLeft}s
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="relative flex justify-between items-center w-full px-1 select-none">
+                                <div className="absolute left-6 right-6 top-[13px] h-[2px] bg-zinc-800 -z-10 rounded-full flex overflow-hidden">
+                                  <div className={`flex-1 h-full transition-all duration-500 ${
+                                    activeStepIndex >= 2 ? 'bg-emerald-500' :
+                                    activeStepIndex === 1 ? 'bg-gradient-to-r from-blue-500 to-zinc-700' : 'bg-zinc-700'
+                                  }`} />
+                                  <div className={`flex-1 h-full transition-all duration-500 ${
+                                    activeStepIndex >= 3 ? 'bg-emerald-500' :
+                                    activeStepIndex === 2 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
+                                  }`} />
+                                  <div className={`flex-1 h-full transition-all duration-500 ${
+                                    activeStepIndex >= 4 ? 'bg-emerald-500' :
+                                    activeStepIndex === 3 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
+                                  }`} />
+                                  <div className={`flex-1 h-full transition-all duration-500 ${
+                                    activeStepIndex >= 5 ? 'bg-emerald-500' :
+                                    activeStepIndex === 4 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
+                                  }`} />
+                                </div>
+
+                                {[
+                                  { id: 1, label: 'Start' },
+                                  { id: 2, label: 'Auth' },
+                                  { id: 3, label: 'Fetch' },
+                                  { id: 4, label: 'Match' },
+                                  { id: 5, label: 'Verify' }
+                                ].map((step) => {
+                                  const isCompleted = activeStepIndex > step.id || activeStepIndex === 5;
+                                  const isActive = activeStepIndex === step.id && activeStepIndex !== 5;
+                                  return (
+                                    <div key={step.id} className="flex flex-col items-center z-10">
+                                      <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center font-bold text-[10px] transition-all duration-500 ${
+                                        isCompleted 
+                                          ? 'bg-emerald-500 border-emerald-500 text-white shadow-[0_0_10px_rgba(16,185,129,0.3)]'
+                                          : isActive
+                                            ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_10px_rgba(59,130,246,0.3)]'
+                                            : 'bg-zinc-950 border-zinc-800 text-zinc-500'
+                                      }`}>
+                                        {isCompleted ? (
+                                          <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                          </svg>
+                                        ) : (
+                                          <span>{step.id}</span>
+                                        )}
+                                      </div>
+                                      <span className={`text-[9px] mt-1 font-semibold transition-colors duration-500 ${
+                                        isCompleted ? 'text-emerald-400 font-bold' : isActive ? 'text-blue-400 font-bold' : 'text-zinc-500'
+                                      }`}>
+                                        {step.label}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-black/30 flex flex-col font-sans">
                             {isSyncing && cache.transactions.length === 0 ? (
                               <div className="p-12 text-center text-zinc-500 flex flex-col items-center gap-3">
                                 <Loader2 className="animate-spin text-zinc-600" size={32} />
@@ -2024,30 +2116,81 @@ function App() {
                                 No statement entries available. Click "Sync" to fetch recent history.
                               </div>
                             ) : (
-                              <div className="max-h-[65vh] lg:max-h-[70vh] overflow-y-auto divide-y divide-zinc-900 scrollbar-thin">
-                                {cache.transactions.map((tx, idx) => {
-                                  const isCredit = tx.amount.startsWith('+');
-                                  return (
-                                    <div key={idx} className="p-4 flex justify-between items-start hover:bg-white/[0.02] transition-colors gap-4">
-                                      <div className="space-y-1 flex-1">
-                                        <div className="text-xs font-mono text-zinc-500">{tx.date}</div>
-                                        <div className="text-[11px] text-zinc-200 whitespace-pre-line leading-relaxed break-words max-w-md">{tx.details}</div>
-                                      </div>
-                                      <div className="text-right space-y-1 shrink-0">
-                                        <div className={`font-mono font-bold text-sm leading-none ${
-                                          isCredit ? 'text-[var(--color-success)]' : 'text-red-400'
-                                        }`}>
-                                          {tx.amount}
+                              <div className="max-h-[65vh] lg:max-h-[70vh] overflow-y-auto scrollbar-thin">
+                                {/* Desktop Table Layout */}
+                                <div className="hidden md:block overflow-x-auto">
+                                  <table className="w-full text-left border-collapse">
+                                    <thead>
+                                      <tr className="border-b border-zinc-800/80 text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">
+                                        <th className="py-3 px-4 font-medium">Date & Time</th>
+                                        <th className="py-3 px-4 font-medium">Description</th>
+                                        <th className="py-3 px-4 font-medium">Details</th>
+                                        <th className="py-3 px-4 font-medium text-right">Amount / Balance</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-zinc-900/50">
+                                      {cache.transactions.map((tx, idx) => {
+                                        const isCredit = tx.amount.startsWith('+');
+                                        const detailsParts = tx.details.split('\n');
+                                        const description = (detailsParts[0] || '').trim();
+                                        const details = detailsParts.slice(1).join('\n').trim();
+                                        
+                                        return (
+                                          <tr key={idx} className="hover:bg-white/[0.02] transition-colors group">
+                                            <td className="py-3.5 px-4 text-xs font-mono text-zinc-400 whitespace-nowrap align-top">
+                                              {tx.date}
+                                            </td>
+                                            <td className="py-3.5 px-4 text-xs font-semibold text-zinc-200 align-top">
+                                              {description}
+                                            </td>
+                                            <td className="py-3.5 px-4 text-[11px] text-zinc-400 font-mono whitespace-pre-line leading-relaxed align-top break-words max-w-xs lg:max-w-md">
+                                              {details || <span className="text-zinc-600 italic">-</span>}
+                                            </td>
+                                            <td className="py-3.5 px-4 text-right align-top whitespace-nowrap">
+                                              <div className={`font-mono font-bold text-sm leading-none ${
+                                                isCredit ? 'text-[var(--color-success)]' : 'text-red-400'
+                                              }`}>
+                                                {tx.amount}
+                                              </div>
+                                              {tx.runningBalance && (
+                                                <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1.5">
+                                                  Bal: MVR {tx.runningBalance}
+                                                </div>
+                                              )}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+
+                                {/* Mobile List Layout */}
+                                <div className="block md:hidden divide-y divide-zinc-900/50">
+                                  {cache.transactions.map((tx, idx) => {
+                                    const isCredit = tx.amount.startsWith('+');
+                                    return (
+                                      <div key={idx} className="p-4 flex justify-between items-start hover:bg-white/[0.02] transition-colors gap-4">
+                                        <div className="space-y-1 flex-1">
+                                          <div className="text-xs font-mono text-zinc-500">{tx.date}</div>
+                                          <div className="text-[11px] text-zinc-200 whitespace-pre-line leading-relaxed break-words max-w-md">{tx.details}</div>
                                         </div>
-                                        {tx.runningBalance && (
-                                          <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1">
-                                            Bal: MVR {tx.runningBalance}
+                                        <div className="text-right space-y-1 shrink-0">
+                                          <div className={`font-mono font-bold text-sm leading-none ${
+                                            isCredit ? 'text-[var(--color-success)]' : 'text-red-400'
+                                          }`}>
+                                            {tx.amount}
                                           </div>
-                                        )}
+                                          {tx.runningBalance && (
+                                            <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1">
+                                              Bal: MVR {tx.runningBalance}
+                                            </div>
+                                          )}
+                                        </div>
                                       </div>
-                                    </div>
-                                  );
-                                })}
+                                    );
+                                  })}
+                                </div>
                               </div>
                             )}
                           </div>
