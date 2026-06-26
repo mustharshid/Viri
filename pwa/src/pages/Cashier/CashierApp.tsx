@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History } from 'lucide-react';
+import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3 } from 'lucide-react';
 
 
 interface BankAccount {
@@ -9,6 +9,20 @@ interface BankAccount {
   account_number: string;
   mib_profile_type?: string;
   is_default: boolean;
+}
+
+interface LedgerTransaction {
+  date: string;
+  details: string;
+  amount: string;
+  runningBalance?: string;
+}
+
+interface LedgerData {
+  balance: string;
+  lastUpdated: string;
+  transactions: LedgerTransaction[];
+  error?: string;
 }
 
 function App() {
@@ -66,13 +80,17 @@ function App() {
 
   // Verification State
   const [loading, setLoading] = useState(false);
-  const [loadingMode, setLoadingMode] = useState<'search' | 'history' | null>(null);
+  const [loadingMode, setLoadingMode] = useState<'search' | 'history' | 'ledger' | null>(null);
 
   useEffect(() => {
     if (!loading) {
       setLoadingMode(null);
     }
   }, [loading]);
+
+  const [activeTab, setActiveTab] = useState<'verify' | 'ledger' | 'reports'>('verify');
+  const [ledgerCache, setLedgerCache] = useState<Record<string, LedgerData>>({});
+  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<string>('');
 
   const activePortRef = useRef<chrome.runtime.Port | null>(null);
   const [initLoading, setInitLoading] = useState(false);
@@ -306,6 +324,7 @@ function App() {
               || accounts.find((a: BankAccount) => a.is_default)
               || accounts[0];
             setSelectedAccountId(defaultAcc.id.toString());
+            setSelectedLedgerAccountId(defaultAcc.id.toString());
 
 
           }
@@ -748,6 +767,16 @@ function App() {
           setResult(response.data || null);
           setLastTransactions(response.transactions || []);
           setLastPopulatedTime(new Date().toLocaleTimeString());
+          if (selectedAccountId) {
+            setLedgerCache(prev => ({
+              ...prev,
+              [selectedAccountId]: {
+                balance: response.balance || (prev[selectedAccountId]?.balance || 'Not found'),
+                lastUpdated: new Date().toLocaleTimeString(),
+                transactions: response.transactions || []
+              }
+            }));
+          }
           if (mode === 'search' && response.data) {
             setAmount(''); // clear input on success
           }
@@ -811,6 +840,273 @@ function App() {
       isVerifyingRef.current = false;
       setProgress({ stage: 'error', text: 'Send failed', percent: 100, isIndeterminate: false });
       setTimeLeft(null);
+    }
+  };
+
+  const syncLedger = async (targetAccountId: string) => {
+    if (!targetAccountId) return;
+    if (!extensionId) {
+      setError("Extension ID is not configured. Click the gear icon at the top to configure the extension.");
+      setShowSettings(true);
+      return;
+    }
+
+    const selectedAccount = bankAccounts.find(a => a.id.toString() === targetAccountId);
+    if (!selectedAccount) return;
+    const selectedBankName = selectedAccount.bank_name;
+    const fullBankName = selectedBankName === 'MIB' ? 'Maldives Islamic Bank' : 'Bank of Maldives';
+
+    const activeCreds = selectedBankName === 'BML' ? {
+      username: bmlUsername,
+      password: bmlPassword,
+      totpSeed: bmlTotpSeed
+    } : {
+      username: mibUsername,
+      password: mibPassword,
+      totpSeed: mibTotpSeed
+    };
+
+    if (!activeCreds.username || !activeCreds.password || !activeCreds.totpSeed) {
+      setError(`Credentials for ${selectedBankName} are incomplete. Click Settings to configure them.`);
+      setShowSettings(true);
+      return;
+    }
+
+    setLoading(true);
+    setLoadingMode('ledger');
+    setError(null);
+    logsRef.current = [];
+    setLogs([]);
+
+    isVerifyingRef.current = true;
+    setProgress({
+      stage: 'init',
+      text: `Syncing transaction ledger with ${fullBankName}...`,
+      percent: 10,
+      isIndeterminate: true
+    });
+    setTimeLeft(25);
+
+    try {
+      const response = await fetch(`${backendUrl}/verify-terminal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hardware_id: hardwareId })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        setError(`License check failed: ${errData.error || response.statusText}`);
+        setLoading(false);
+        isVerifyingRef.current = false;
+        setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+        setTimeLeft(null);
+        return;
+      }
+    } catch (err: any) {
+      setError(`Backend Connection Failed: ${err.message}`);
+      setLoading(false);
+      isVerifyingRef.current = false;
+      setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+      setTimeLeft(null);
+      return;
+    }
+
+    lockedAccountIdRef.current = targetAccountId;
+
+    setProgress({
+      stage: 'lock',
+      text: 'Acquiring bank session lock...',
+      percent: 20,
+      isIndeterminate: true
+    });
+    addLog("> [Lock] Requesting session lock for bank account...");
+    
+    let lockAcquired = false;
+    const startTime = Date.now();
+    const pollInterval = 2500;
+    const maxTimeoutMs = lockTimeout * 1000;
+
+    while (Date.now() - startTime < maxTimeoutMs) {
+      if (!isVerifyingRef.current) {
+        addLog("> [Lock] Wait cancelled by user.");
+        lockedAccountIdRef.current = null;
+        setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+        setTimeLeft(null);
+        return;
+      }
+
+      try {
+        const lockRes = await fetch(`${backendUrl}/terminal/lock-account`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hardware_id: hardwareId,
+            bank_account_id: parseInt(targetAccountId)
+          })
+        });
+
+        if (lockRes.ok) {
+          const lockData = await lockRes.json();
+          if (lockData.status === 'acquired') {
+            lockAcquired = true;
+            setProgress({
+              stage: 'init',
+              text: 'Preparing secure session...',
+              percent: 25,
+              isIndeterminate: true
+            });
+            addLog("> [Lock] Session lock acquired successfully.");
+            break;
+          }
+        } else if (lockRes.status === 409) {
+          const lockData = await lockRes.json().catch(() => ({}));
+          const heldBy = lockData.held_by ? `terminal ${lockData.held_by.substring(0, 8)}...` : "another terminal";
+          const expiresSeconds = lockData.expires_in ?? "?";
+          addLog(`> [Lock] Session busy: Held by ${heldBy}. Retrying in 2.5s (expires in ${expiresSeconds}s)...`);
+          setProgress({
+            stage: 'lock',
+            text: `Waiting for session lock (held by ${heldBy})...`,
+            percent: 15,
+            isIndeterminate: true
+          });
+        }
+      } catch (err) {
+        addLog("> [Lock] Connection issue while locking. Retrying...");
+      }
+
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+    }
+
+    if (!lockAcquired) {
+      setError("Bank session busy: Held by another terminal. Please try again later.");
+      addLog("> [Lock] Timeout: Could not acquire bank session lock.");
+      setLoading(false);
+      lockedAccountIdRef.current = null;
+      isVerifyingRef.current = false;
+      setProgress({ stage: 'error', text: 'Session busy', percent: 100, isIndeterminate: false });
+      setTimeLeft(null);
+      return;
+    }
+
+    heartbeatIntervalRef.current = setInterval(async () => {
+      if (!lockedAccountIdRef.current) return;
+      try {
+        await fetch(`${backendUrl}/terminal/heartbeat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hardware_id: hardwareId,
+            bank_account_id: parseInt(targetAccountId)
+          })
+        });
+      } catch (hbErr) {
+        console.error("Heartbeat exception:", hbErr);
+      }
+    }, 5000);
+
+    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
+      setError("Browser extension API not detected.");
+      setLoading(false);
+      releaseLock();
+      isVerifyingRef.current = false;
+      return;
+    }
+
+    let port;
+    try {
+      port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
+    } catch (e: any) {
+      setError(`Extension connection failed: ${e.message}`);
+      setLoading(false);
+      releaseLock();
+      isVerifyingRef.current = false;
+      return;
+    }
+
+    activePortRef.current = port;
+
+    port.onDisconnect.addListener(() => {
+      if (!isVerifyingRef.current) return;
+      setError("Connection to background robot lost unexpectedly.");
+      setProgress({ stage: 'error', text: 'Connection lost', percent: 100, isIndeterminate: false });
+      setLoading(false);
+      activePortRef.current = null;
+      releaseLock();
+      isVerifyingRef.current = false;
+    });
+
+    port.onMessage.addListener((response: any) => {
+      if (response.type === 'log') {
+        addLog(response.message);
+        const parsed = parseLogForProgress(response.message);
+        if (parsed) setProgress(parsed);
+      } else if (response.type === 'success') {
+        setProgress({ 
+          stage: 'success', 
+          text: '✅ Ledger Synced Successfully!', 
+          percent: 100, 
+          isIndeterminate: false 
+        });
+        setTimeLeft(null);
+        setTimeout(() => {
+          setLoading(false);
+          setLedgerCache(prev => ({
+            ...prev,
+            [targetAccountId]: {
+              balance: response.balance || 'Not found',
+              lastUpdated: new Date().toLocaleTimeString(),
+              transactions: response.transactions || []
+            }
+          }));
+          port.disconnect();
+          activePortRef.current = null;
+          releaseLock();
+          isVerifyingRef.current = false;
+          uploadLogsToServer();
+        }, 1500);
+      } else if (response.type === 'error') {
+        setError(response.error || "An unknown error occurred during sync.");
+        setProgress({ stage: 'error', text: 'Sync failed', percent: 100, isIndeterminate: false });
+        setTimeLeft(null);
+        setLedgerCache(prev => ({
+          ...prev,
+          [targetAccountId]: {
+            ...prev[targetAccountId],
+            error: response.error || "An unknown error occurred during sync."
+          }
+        }));
+        setTimeout(() => {
+          setLoading(false);
+          port.disconnect();
+          activePortRef.current = null;
+          releaseLock();
+          isVerifyingRef.current = false;
+          uploadLogsToServer();
+        }, 1500);
+      }
+    });
+
+    try {
+      port.postMessage({
+        action: 'VERIFY_TRANSFER',
+        payload: {
+          mode: 'ledger',
+          amount: '0.00',
+          bank: selectedBankName,
+          accountId: targetAccountId,
+          accountNumber: selectedAccount ? selectedAccount.account_number : '',
+          mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
+          credentials: activeCreds
+        }
+      });
+    } catch (msgErr: any) {
+      setError(`Failed to start sync: ${msgErr.message}`);
+      setLoading(false);
+      port.disconnect();
+      activePortRef.current = null;
+      releaseLock();
+      isVerifyingRef.current = false;
     }
   };
 
@@ -903,517 +1199,741 @@ function App() {
                   : (progress.percent >= 45 ? 2 : 1))))))))
     : (result ? 5 : 0);
 
-  return (
-    <div className="min-h-screen p-4 md:p-8 flex flex-col items-center">
-
-      {/* Trust Badge */}
-      <div className="w-full max-w-xl mb-6 p-3 bg-[var(--bg-surface)] border border-[var(--color-success)] border-opacity-30 rounded-lg flex items-center gap-3">
-        <Shield className="text-[var(--color-success)] shrink-0" size={24} />
-        <p className="text-sm text-[var(--text-secondary)]">
-          <strong className="text-[var(--text-primary)]">Viri Zero-Knowledge Architecture:</strong> Financial passwords are fully encrypted and stored strictly on this local terminal machine.
-        </p>
-      </div>
-
-      {/* Header */}
-      <div className="w-full max-w-xl flex-between mb-8">
-        <div>
-          <h1 className="text-2xl tracking-tight">{companyName}</h1>
-          <p className="text-sm text-[var(--text-secondary)]">Powered by Viri {planName && <span className="opacity-70 px-1">• {planName} Plan</span>}</p>
-        </div>
+  const Sidebar = () => (
+    <aside className="w-16 md:w-64 border-r border-[var(--border-color)] bg-[var(--bg-surface)] flex flex-col items-center md:items-stretch justify-between py-6 shrink-0 transition-all duration-300">
+      {/* Top section: Brand / Logo */}
+      <div className="flex flex-col items-center md:items-start px-4 mb-8">
         <div className="flex items-center gap-3">
-          {pin && (
-            <button
-              onClick={() => setIsLocked(true)}
-              className="btn btn-outline p-2 rounded-full hover:bg-[var(--color-warning)] hover:text-black hover:border-transparent transition-colors"
-              title="Lock Terminal"
-            >
-              <Lock size={18} />
-            </button>
-          )}
-          <button
-            onClick={() => {
-              if (showSettings) {
-                setShowSettings(false);
-              } else {
-                if (pin) {
-                  const check = prompt("Enter Terminal PIN to open settings:");
-                  if (check !== pin) {
-                    alert("Incorrect PIN");
-                    return;
-                  }
-                }
-                setShowSettings(true);
-              }
-            }}
-            className={`btn btn-outline p-2 rounded-full ${showSettings ? 'text-[var(--color-success)] border-[var(--color-success)]' : ''}`}
-            title="Terminal Settings"
-          >
-            <Settings size={18} />
-          </button>
-          <button
-            onClick={() => setShowHelp(true)}
-            className="btn btn-outline p-2 rounded-full text-[var(--color-success)] border-transparent hover:bg-[var(--color-success)]/10"
-            title="Help & Installation Guide"
-          >
-            <div className="relative flex items-center justify-center w-5 h-5">
-              <div className="w-[18px] h-[18px] rounded-full border border-current flex items-center justify-center relative">
-                <span className="text-[11px] font-bold text-current select-none leading-none mb-[1px]">?</span>
-                <div className="absolute -bottom-[3px] -right-[4px] bg-blue-500 rounded-full w-[10px] h-[10px] flex items-center justify-center border border-[var(--bg-surface)]">
-                  <Lock size={6} className="text-white" />
-                </div>
-              </div>
-            </div>
-          </button>
-          <span className="badge badge-success">Online{terminalName ? ` - ${terminalName}` : ''}</span>
+          <div className="w-8 h-8 rounded bg-[var(--color-success)]/10 flex items-center justify-center border border-[var(--color-success)]/30 shrink-0">
+            <Shield className="text-[var(--color-success)]" size={18} />
+          </div>
+          <span className="font-bold text-sm text-white hidden md:inline truncate">{companyName}</span>
         </div>
+        <span className="text-[9px] text-zinc-500 font-mono mt-1 hidden md:inline">TERMINAL PWA</span>
       </div>
 
-      {/* Extension Settings Panel */}
-      {showSettings && (
-        <div className="w-full max-w-xl mb-6 glass-panel border-[var(--color-accent)] animate-fade-in">
-          <h3 className="text-md font-semibold mb-2 flex items-center gap-2">
-            <Settings size={16} /> Viri Terminal Settings
-          </h3>
-          <p className="text-xs text-[var(--text-secondary)] mb-4">
-            System configuration and local credentials. System config is pushed by the server and read-only.
+      {/* Nav items */}
+      <nav className="flex-1 w-full px-2 space-y-1.5 flex flex-col items-center md:items-stretch">
+        <button
+          onClick={() => { setShowSettings(false); setActiveTab('verify'); }}
+          className={`w-10 h-10 md:w-full md:h-auto flex items-center justify-center md:justify-start gap-3 px-3 py-2.5 rounded-lg transition-colors text-xs font-semibold ${
+            activeTab === 'verify' && !showSettings
+              ? 'bg-[var(--color-success)] text-black font-bold'
+              : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
+          }`}
+          title="Verification"
+        >
+          <MonitorSmartphone size={16} />
+          <span className="hidden md:inline">Verification</span>
+        </button>
+
+        <button
+          onClick={() => { setShowSettings(false); setActiveTab('ledger'); }}
+          className={`w-10 h-10 md:w-full md:h-auto flex items-center justify-center md:justify-start gap-3 px-3 py-2.5 rounded-lg transition-colors text-xs font-semibold ${
+            activeTab === 'ledger' && !showSettings
+              ? 'bg-[var(--color-success)] text-black font-bold'
+              : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
+          }`}
+          title="Transaction Ledger"
+        >
+          <BookOpen size={16} />
+          <span className="hidden md:inline">Transaction Ledger</span>
+        </button>
+
+        <button
+          disabled
+          className="w-10 h-10 md:w-full md:h-auto flex items-center justify-center md:justify-start gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold text-zinc-600 cursor-not-allowed"
+          title="Reports (Coming soon)"
+        >
+          <BarChart3 size={16} />
+          <span className="hidden md:inline">Reports (Soon)</span>
+        </button>
+      </nav>
+
+      {/* Bottom section: Settings & Locking */}
+      <div className="w-full px-2 space-y-2 flex flex-col items-center md:items-stretch">
+        {pin && (
+          <button
+            onClick={() => setIsLocked(true)}
+            className="w-10 h-10 md:w-full md:h-auto flex items-center justify-center md:justify-start gap-3 px-3 py-2.5 rounded-lg transition-colors text-xs font-semibold hover:bg-red-955/20 text-red-400 hover:text-red-300 border border-transparent hover:border-red-900/30"
+            title="Lock Terminal"
+          >
+            <Lock size={16} />
+            <span className="hidden md:inline">Lock Terminal</span>
+          </button>
+        )}
+
+        <button
+          onClick={() => {
+            if (showSettings) {
+              setShowSettings(false);
+            } else {
+              if (pin) {
+                const check = prompt("Enter Terminal PIN to open settings:");
+                if (check !== pin) {
+                  alert("Incorrect PIN");
+                  return;
+                }
+              }
+              setShowSettings(true);
+            }
+          }}
+          className={`w-10 h-10 md:w-full md:h-auto flex items-center justify-center md:justify-start gap-3 px-3 py-2.5 rounded-lg transition-colors text-xs font-semibold border ${
+            showSettings
+              ? 'bg-zinc-800 text-[var(--color-success)] border-[var(--color-success)]'
+              : 'hover:bg-white/5 text-[var(--text-secondary)] border-transparent hover:text-white'
+          }`}
+          title="Settings"
+        >
+          <Settings size={16} />
+          <span className="hidden md:inline">Settings</span>
+        </button>
+      </div>
+    </aside>
+  );
+
+  return (
+    <div className="min-h-screen flex bg-[var(--bg-base)] text-[var(--text-primary)] w-screen overflow-hidden">
+      
+      {/* Sidebar Navigation */}
+      <Sidebar />
+
+      {/* Main Content Area */}
+      <main className="flex-1 h-screen overflow-y-auto p-4 md:p-8 flex flex-col items-center">
+
+        {/* Trust Badge */}
+        <div className="w-full max-w-xl mb-6 p-3 bg-[var(--bg-surface)] border border-[var(--color-success)] border-opacity-30 rounded-lg flex items-center gap-3">
+          <Shield className="text-[var(--color-success)] shrink-0" size={24} />
+          <p className="text-sm text-[var(--text-secondary)]">
+            <strong className="text-[var(--text-primary)]">Viri Zero-Knowledge Architecture:</strong> Financial passwords are fully encrypted and stored strictly on this local terminal machine.
           </p>
-
-          <div className="input-group">
-            <label className="input-label">Terminal Status</label>
-            <div className="p-3 bg-black/30 border border-[var(--border-color)] rounded text-sm text-[var(--color-success)] font-mono flex items-center justify-between">
-              <span>Connected to {companyName}</span>
-              <button
-                onClick={() => {
-                  if (confirm("Are you sure you want to unlink this terminal? You will need a new pairing code to use it again.")) {
-                    clearTerminalData();
-                  }
-                }}
-                className="text-red-400 hover:text-red-300 text-xs px-2 py-1 border border-red-500/50 rounded"
-              >
-                Unlink
-              </button>
-            </div>
-          </div>
-
-          <div className="input-group mt-3">
-            <label className="input-label">Viri Bridge Extension ID (System)</label>
-            <input
-              type="text"
-              className="input-field opacity-60 cursor-not-allowed"
-              value={extensionId}
-              readOnly
-            />
-          </div>
-
-          <div className="input-group mt-3">
-            <label className="input-label">Viri Backend API Endpoint (System)</label>
-            <input
-              type="text"
-              className="input-field opacity-60 cursor-not-allowed"
-              value={backendUrl}
-              readOnly
-            />
-          </div>
-
-          <div className="input-group mt-3">
-            <label className="input-label">Terminal Lock PIN (Optional)</label>
-            <input
-              type="password"
-              className="input-field text-transparent"
-              style={{ textShadow: '0 0 0 white' }}
-              placeholder={pin ? "PIN Set (Hidden)" : "Not Set"}
-              maxLength={4}
-              value=""
-              onChange={(e) => {
-                const val = e.target.value.replace(/\D/g, '');
-                setPin(val);
-                localStorage.setItem('viri_terminal_pin', val);
-              }}
-            />
-            <span className="text-[10px] text-[var(--text-secondary)]">
-              Type a 4-digit PIN to update. Input length is hidden.
-            </span>
-          </div>
-
-          {/* Robot Credentials Section */}
-          <div className="mt-6 pt-6 border-t border-[var(--border-color)]">
-            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
-              <Shield size={14} className="text-[var(--color-warning)]" />
-              Bank Credentials (Per Bank)
-            </h4>
-            <p className="text-xs text-[var(--text-secondary)] mb-4">
-              Stored securely on this local machine. These credentials are NEVER sent to the Viri servers.
-            </p>
-
-            {/* BML Credentials */}
-            <div className="mb-4 p-3 border border-zinc-800 rounded bg-black/20">
-              <div className="flex-between mb-2">
-                <span className="text-sm font-bold">Bank of Maldives (BML)</span>
-                {bmlConfigured ? (
-                  <span className="badge badge-success flex items-center gap-1"><CheckCircle size={10} /> Configured</span>
-                ) : (
-                  <span className="badge border border-yellow-600 text-yellow-500">Not Configured</span>
-                )}
-              </div>
-
-              {!bmlConfigured ? (
-                <div className="space-y-3">
-                  <input type="text" className="input-field text-sm" placeholder="Username" value={bmlUsername} onChange={e => setBmlUsername(e.target.value)} />
-                  <input type="password" className="input-field text-sm" placeholder="Password" value={bmlPassword} onChange={e => setBmlPassword(e.target.value)} />
-                  <input type="password" className="input-field text-sm font-mono" placeholder="Authenticator Seed" value={bmlTotpSeed} onChange={e => setBmlTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())} />
-                  <button className="btn btn-success w-full py-2 text-sm" onClick={() => {
-                    localStorage.setItem('viri_bml_username', bmlUsername);
-                    localStorage.setItem('viri_bml_password', bmlPassword);
-                    localStorage.setItem('viri_bml_totp_seed', bmlTotpSeed);
-                    setBmlConfigured(true);
-                  }}>Save BML Credentials</button>
-                </div>
-              ) : (
-                <button className="text-xs text-red-400 hover:text-red-300 underline" onClick={() => {
-                  setBmlUsername(''); setBmlPassword(''); setBmlTotpSeed(''); setBmlConfigured(false);
-                  localStorage.removeItem('viri_bml_username'); localStorage.removeItem('viri_bml_password'); localStorage.removeItem('viri_bml_totp_seed');
-                }}>Reset Credentials</button>
-              )}
-            </div>
-
-            {/* MIB Credentials */}
-            <div className="p-3 border border-zinc-800 rounded bg-black/20">
-              <div className="flex-between mb-2">
-                <span className="text-sm font-bold">Maldives Islamic Bank (MIB)</span>
-                {mibConfigured ? (
-                  <span className="badge badge-success flex items-center gap-1"><CheckCircle size={10} /> Configured</span>
-                ) : (
-                  <span className="badge border border-yellow-600 text-yellow-500">Not Configured</span>
-                )}
-              </div>
-
-              {!mibConfigured ? (
-                <div className="space-y-3">
-                  <input type="text" className="input-field text-sm" placeholder="Username" value={mibUsername} onChange={e => setMibUsername(e.target.value)} />
-                  <input type="password" className="input-field text-sm" placeholder="Password" value={mibPassword} onChange={e => setMibPassword(e.target.value)} />
-                  <input type="password" className="input-field text-sm font-mono" placeholder="Authenticator Seed" value={mibTotpSeed} onChange={e => setMibTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())} />
-                  <button className="btn btn-success w-full py-2 text-sm" onClick={() => {
-                    localStorage.setItem('viri_mib_username', mibUsername);
-                    localStorage.setItem('viri_mib_password', mibPassword);
-                    localStorage.setItem('viri_mib_totp_seed', mibTotpSeed);
-                    setMibConfigured(true);
-                  }}>Save MIB Credentials</button>
-                </div>
-              ) : (
-                <button className="text-xs text-red-400 hover:text-red-300 underline" onClick={() => {
-                  setMibUsername(''); setMibPassword(''); setMibTotpSeed(''); setMibConfigured(false);
-                  localStorage.removeItem('viri_mib_username'); localStorage.removeItem('viri_mib_password'); localStorage.removeItem('viri_mib_totp_seed');
-                }}>Reset Credentials</button>
-              )}
-            </div>
-          </div>
-
-          {/* Bank Accounts Manager */}
-          <div className="mt-6 pt-6 border-t border-[var(--border-color)]">
-            <h4 className="text-sm font-semibold mb-3">Managed Bank Accounts</h4>
-            <p className="text-xs text-[var(--text-secondary)] mb-4">Accounts are synced automatically from your company dashboard. You cannot add or remove accounts directly from the terminal.</p>
-
-            <div className="space-y-2 mb-4">
-              {bankAccounts.length === 0 ? (
-                <p className="text-xs text-[var(--text-secondary)] italic">No accounts configured. Please add them in the company dashboard.</p>
-              ) : (
-                bankAccounts.map(acc => (
-                  <div key={acc.id} className="p-3 bg-[var(--bg-canvas)] border border-[var(--border-color)] rounded-md text-sm">
-                    <div className="font-medium text-[var(--text-primary)]">{acc.bank_name} - {acc.account_name}</div>
-                    <div className="text-[var(--text-secondary)] text-xs mt-1">Account Number: {acc.account_number}</div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
         </div>
-      )}
 
-      <div className="w-full max-w-xl grid gap-6">
-
-        {/* Main Verification Panel */}
-        <div className="glass-panel animate-fade-in">
-          <div className="mb-6 flex-between">
-            <h2 className="text-xl">Verify Transfer</h2>
-            <div className="flex bg-[var(--bg-canvas)] rounded-lg p-1 border border-[var(--border-color)]">
-              {/* Removed hardcoded BML/MIB buttons since we now use the dynamic accounts dropdown below */}
-              {initLoading && <span className="text-xs text-[var(--text-secondary)] px-2">Loading...</span>}
-            </div>
-          </div>
-
-          {/* Error Alert */}
-          {error && (
-            <div className="mb-4 p-3 bg-[var(--color-warning-bg)] border border-[var(--color-warning)] border-opacity-30 rounded-lg flex items-center gap-3 text-sm text-[var(--color-warning)]">
-              <AlertTriangle className="shrink-0" size={18} />
-              <p>{error}</p>
-            </div>
-          )}
-
-          {/* Success Result Panel */}
-          {result && (
-            <div className="mb-6 p-4 bg-[var(--color-success-bg)] border border-[var(--color-success)] border-opacity-30 rounded-lg animate-fade-in">
-              <div className="flex items-center gap-2 mb-2">
-                <CheckCircle className="text-[var(--color-success)]" size={18} />
-                <span className="font-semibold text-[var(--color-success)]">Transfer Verified</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-xs text-[var(--text-secondary)] mt-2">
-                <div>Status: <span className="font-mono text-[var(--text-primary)]">{result.status}</span></div>
-                <div>Reference: <span className="font-mono text-[var(--text-primary)]">{result.reference}</span></div>
-                <div>Amount: <span className="font-mono text-[var(--text-primary)]">{result.amount} MVR</span></div>
-                <div>Time: <span className="font-mono text-[var(--text-primary)]">{new Date(result.timestamp).toLocaleTimeString()}</span></div>
-              </div>
-            </div>
-          )}
-
-
-          <div className="input-group">
-            <label className="input-label">Target Amount (MVR)</label>
-            <input
-              type="number"
-              className="input-field text-2xl font-semibold"
-              placeholder="0.00"
-              value={amount}
-              disabled={loading}
-              onChange={(e) => setAmount(e.target.value)}
-            />
-          </div>
-
-          <div className="input-group mt-4">
-            <label className="input-label">Receiving Account</label>
-            <select
-              className="input-field appearance-none cursor-pointer"
-              value={selectedAccountId}
-              disabled={loading || bankAccounts.length === 0}
-              onChange={(e) => setSelectedAccountId(e.target.value)}
-            >
-              {bankAccounts.length === 0 && (
-                <option value="">No accounts configured</option>
-              )}
-              {bankAccounts.map((acc) => (
-                <option key={acc.id} value={acc.id.toString()}>
-                  {acc.bank_name} - {acc.account_name} (...{acc.account_number.slice(-4)})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex items-center justify-between mt-4 mb-8">
-            <label className="text-sm text-[var(--text-secondary)] flex items-center gap-2 cursor-pointer">
-              <span>Set as Default Account</span>
-            </label>
-            <label className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={isDefault}
-                disabled={loading}
-                onChange={(e) => handleDefaultToggle(e.target.checked)}
-              />
-              <span className="slider"></span>
-            </label>
-          </div>
-
-          <div className="flex gap-4">
-            <button
-              onClick={() => handleVerify('search')}
-              disabled={loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0}
-              className={`flex-1 btn btn-success py-3 text-lg justify-center gap-2 ${
-                loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 ? 'opacity-70 cursor-not-allowed' : ''
-              }`}
-            >
-              {loading && loadingMode === 'search' ? (
-                <>
-                  <RefreshCw size={20} className="animate-spin" />
-                  Searching...
-                </>
-              ) : (
-                <>
-                  <Search size={20} />
-                  Search
-                </>
-              )}
-            </button>
-            <button
-              onClick={() => handleVerify('history')}
-              disabled={loading || !isCredentialsComplete}
-              className={`flex-1 btn btn-outline py-3 text-lg justify-center gap-2 ${
-                loading || !isCredentialsComplete ? 'opacity-70 cursor-not-allowed' : ''
-              }`}
-            >
-              {loading && loadingMode === 'history' ? (
-                <>
-                  <RefreshCw size={20} className="animate-spin" />
-                  Fetching...
-                </>
-              ) : (
-                <>
-                  <History size={20} />
-                  History
-                </>
-              )}
-            </button>
-          </div>
-          
-          {!isCredentialsComplete && (
-            <p className="text-xs text-[var(--color-warning)] mt-2.5 text-center leading-relaxed">
-              ⚠️ Please complete all bank credentials (username, password, authenticator seed) in settings before proceeding.
+        {showSettings ? (
+          /* Extension Settings Panel */
+          <div className="w-full max-w-xl mb-6 glass-panel border-[var(--color-accent)] animate-fade-in">
+            <h3 className="text-md font-semibold mb-2 flex items-center gap-2">
+              <Settings size={16} /> Viri Terminal Settings
+            </h3>
+            <p className="text-xs text-[var(--text-secondary)] mb-4">
+              System configuration and local credentials. System config is pushed by the server and read-only.
             </p>
-          )}
 
-          {/* Multi-stage Progress Stepper Panel */}
-          <div className="mt-6 p-5 rounded-xl bg-black/40 border border-[var(--border-color)] animate-fade-in">
-            <div className="flex justify-between items-center mb-6">
-              <span 
-                key={progress.text || 'idle'} 
-                className={`text-sm font-semibold truncate transition-all duration-300 flex items-center gap-2 ${
-                  activeStepIndex === 5 ? 'text-[var(--color-success)] animate-pulse' :
-                  progress.stage === 'lock' ? 'text-[var(--color-warning)]' : 
-                  activeStepIndex > 0 ? 'text-blue-400' : 'text-zinc-500'
-                }`}
-                style={{ animationDuration: '0.8s' }}
-              >
-                {loading ? (
-                  progress.stage === 'success' ? (
-                    <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  ) : progress.stage === 'lock' ? (
-                    <span className="relative flex h-2 w-2 mr-1">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-warning)] opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-warning)]"></span>
-                    </span>
-                  ) : (
-                    <Loader2 className="animate-spin shrink-0 text-blue-400" size={16} />
-                  )
-                ) : activeStepIndex === 5 ? (
-                  <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                ) : null}
-                {loading ? (progress.text || "Processing...") : (activeStepIndex === 5 ? "Transfer Verified!" : (progress.stage === 'error' ? "Verification failed." : "Ready for verification."))}
-              </span>
-              
-              {loading && timeLeft !== null && progress.stage !== 'success' && (
-                <span className="text-[10px] text-[var(--text-secondary)] font-mono shrink-0">
-                  Est. remaining: ~{timeLeft}s
-                </span>
-              )}
+            <div className="input-group">
+              <label className="input-label">Terminal Status</label>
+              <div className="p-3 bg-black/30 border border-[var(--border-color)] rounded text-sm text-[var(--color-success)] font-mono flex items-center justify-between">
+                <span>Connected to {companyName}</span>
+                <button
+                  onClick={() => {
+                    if (confirm("Are you sure you want to unlink this terminal? You will need a new pairing code to use it again.")) {
+                      clearTerminalData();
+                    }
+                  }}
+                  className="text-red-400 hover:text-red-300 text-xs px-2 py-1 border border-red-500/50 rounded"
+                >
+                  Unlink
+                </button>
+              </div>
             </div>
 
-            {/* Stepper progress track */}
-            <div className="relative flex justify-between items-center w-full mt-4 mb-2 px-1 select-none">
-              {/* Connecting Line Track */}
-              <div className="absolute left-6 right-6 top-[15px] h-[3px] bg-zinc-800 -z-10 rounded-full flex overflow-hidden">
-                {/* Line Segment 1 (Start -> Auth) */}
-                <div className={`flex-1 h-full transition-all duration-500 ${
-                  activeStepIndex >= 2 ? 'bg-emerald-500' :
-                  activeStepIndex === 1 ? 'bg-gradient-to-r from-blue-500 to-zinc-700' : 'bg-zinc-700'
-                }`} />
-                {/* Line Segment 2 (Auth -> Fetch) */}
-                <div className={`flex-1 h-full transition-all duration-500 ${
-                  activeStepIndex >= 3 ? 'bg-emerald-500' :
-                  activeStepIndex === 2 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
-                }`} />
-                {/* Line Segment 3 (Fetch -> Match) */}
-                <div className={`flex-1 h-full transition-all duration-500 ${
-                  activeStepIndex >= 4 ? 'bg-emerald-500' :
-                  activeStepIndex === 3 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
-                }`} />
-                {/* Line Segment 4 (Match -> Verify) */}
-                <div className={`flex-1 h-full transition-all duration-500 ${
-                  activeStepIndex >= 5 ? 'bg-emerald-500' :
-                  activeStepIndex === 4 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
-                }`} />
+            <div className="input-group mt-3">
+              <label className="input-label">Viri Bridge Extension ID (System)</label>
+              <input
+                type="text"
+                className="input-field opacity-60 cursor-not-allowed"
+                value={extensionId}
+                readOnly
+              />
+            </div>
+
+            <div className="input-group mt-3">
+              <label className="input-label">Viri Backend API Endpoint (System)</label>
+              <input
+                type="text"
+                className="input-field opacity-60 cursor-not-allowed"
+                value={backendUrl}
+                readOnly
+              />
+            </div>
+
+            <div className="input-group mt-3">
+              <label className="input-label">Terminal Lock PIN (Optional)</label>
+              <input
+                type="password"
+                className="input-field text-transparent"
+                style={{ textShadow: '0 0 0 white' }}
+                placeholder={pin ? "PIN Set (Hidden)" : "Not Set"}
+                maxLength={4}
+                value=""
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '');
+                  setPin(val);
+                  localStorage.setItem('viri_terminal_pin', val);
+                }}
+              />
+              <span className="text-[10px] text-[var(--text-secondary)]">
+                Type a 4-digit PIN to update. Input length is hidden.
+              </span>
+            </div>
+
+            {/* Robot Credentials Section */}
+            <div className="mt-6 pt-6 border-t border-[var(--border-color)]">
+              <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                <Shield size={14} className="text-[var(--color-warning)]" />
+                Bank Credentials (Per Bank)
+              </h4>
+              <p className="text-xs text-[var(--text-secondary)] mb-4">
+                Stored securely on this local machine. These credentials are NEVER sent to the Viri servers.
+              </p>
+
+              {/* BML Credentials */}
+              <div className="mb-4 p-3 border border-zinc-800 rounded bg-black/20">
+                <div className="flex-between mb-2">
+                  <span className="text-sm font-bold">Bank of Maldives (BML)</span>
+                  {bmlConfigured ? (
+                    <span className="badge badge-success flex items-center gap-1"><CheckCircle size={10} /> Configured</span>
+                  ) : (
+                    <span className="badge border border-yellow-600 text-yellow-500">Not Configured</span>
+                  )}
+                </div>
+
+                {!bmlConfigured ? (
+                  <div className="space-y-3">
+                    <input type="text" className="input-field text-sm" placeholder="Username" value={bmlUsername} onChange={e => setBmlUsername(e.target.value)} />
+                    <input type="password" className="input-field text-sm" placeholder="Password" value={bmlPassword} onChange={e => setBmlPassword(e.target.value)} />
+                    <input type="password" className="input-field text-sm font-mono" placeholder="Authenticator Seed" value={bmlTotpSeed} onChange={e => setBmlTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())} />
+                    <button className="btn btn-success w-full py-2 text-sm" onClick={() => {
+                      localStorage.setItem('viri_bml_username', bmlUsername);
+                      localStorage.setItem('viri_bml_password', bmlPassword);
+                      localStorage.setItem('viri_bml_totp_seed', bmlTotpSeed);
+                      setBmlConfigured(true);
+                    }}>Save BML Credentials</button>
+                  </div>
+                ) : (
+                  <button className="text-xs text-red-400 hover:text-red-300 underline" onClick={() => {
+                    setBmlUsername(''); setBmlPassword(''); setBmlTotpSeed(''); setBmlConfigured(false);
+                    localStorage.removeItem('viri_bml_username'); localStorage.removeItem('viri_bml_password'); localStorage.removeItem('viri_bml_totp_seed');
+                  }}>Reset Credentials</button>
+                )}
               </div>
 
-              {/* Stepper Nodes */}
-              {[
-                { id: 1, label: 'Start' },
-                { id: 2, label: 'Auth' },
-                { id: 3, label: 'Fetch' },
-                { id: 4, label: 'Match' },
-                { id: 5, label: 'Verify' }
-              ].map((step) => {
-                const isCompleted = activeStepIndex > step.id || activeStepIndex === 5;
-                const isActive = activeStepIndex === step.id && activeStepIndex !== 5;
-                
-                return (
-                  <div key={step.id} className="flex flex-col items-center z-10">
-                    <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs transition-all duration-500 ${
-                      isCompleted 
-                        ? 'bg-emerald-500 border-emerald-500 text-white shadow-[0_0_12px_rgba(16,185,129,0.3)]'
-                        : isActive
-                          ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_12px_rgba(59,130,246,0.3)] animate-pulse-glow'
-                          : 'bg-zinc-950 border-zinc-800 text-zinc-500'
-                    }`}>
-                      {isCompleted ? (
-                        <svg className="w-4 h-4 text-white animate-scale-checkmark" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
+              {/* MIB Credentials */}
+              <div className="p-3 border border-zinc-800 rounded bg-black/20">
+                <div className="flex-between mb-2">
+                  <span className="text-sm font-bold">Maldives Islamic Bank (MIB)</span>
+                  {mibConfigured ? (
+                    <span className="badge badge-success flex items-center gap-1"><CheckCircle size={10} /> Configured</span>
+                  ) : (
+                    <span className="badge border border-yellow-600 text-yellow-500">Not Configured</span>
+                  )}
+                </div>
+
+                {!mibConfigured ? (
+                  <div className="space-y-3">
+                    <input type="text" className="input-field text-sm" placeholder="Username" value={mibUsername} onChange={e => setMibUsername(e.target.value)} />
+                    <input type="password" className="input-field text-sm" placeholder="Password" value={mibPassword} onChange={e => setMibPassword(e.target.value)} />
+                    <input type="password" className="input-field text-sm font-mono" placeholder="Authenticator Seed" value={mibTotpSeed} onChange={e => setMibTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())} />
+                    <button className="btn btn-success w-full py-2 text-sm" onClick={() => {
+                      localStorage.setItem('viri_mib_username', mibUsername);
+                      localStorage.setItem('viri_mib_password', mibPassword);
+                      localStorage.setItem('viri_mib_totp_seed', mibTotpSeed);
+                      setMibConfigured(true);
+                    }}>Save MIB Credentials</button>
+                  </div>
+                ) : (
+                  <button className="text-xs text-red-400 hover:text-red-300 underline" onClick={() => {
+                    setMibUsername(''); setMibPassword(''); setMibTotpSeed(''); setMibConfigured(false);
+                    localStorage.removeItem('viri_mib_username'); localStorage.removeItem('viri_mib_password'); localStorage.removeItem('viri_mib_totp_seed');
+                  }}>Reset Credentials</button>
+                )}
+              </div>
+            </div>
+
+            {/* Bank Accounts Manager */}
+            <div className="mt-6 pt-6 border-t border-[var(--border-color)]">
+              <h4 className="text-sm font-semibold mb-3">Managed Bank Accounts</h4>
+              <p className="text-xs text-[var(--text-secondary)] mb-4">Accounts are synced automatically from your company dashboard. You cannot add or remove accounts directly from the terminal.</p>
+
+              <div className="space-y-2 mb-4">
+                {bankAccounts.length === 0 ? (
+                  <p className="text-xs text-[var(--text-secondary)] italic">No accounts configured. Please add them in the company dashboard.</p>
+                ) : (
+                  bankAccounts.map(acc => (
+                    <div key={acc.id} className="p-3 bg-[var(--bg-canvas)] border border-[var(--border-color)] rounded-md text-sm">
+                      <div className="font-medium text-[var(--text-primary)]">{acc.bank_name} - {acc.account_name}</div>
+                      <div className="text-[var(--text-secondary)] text-xs mt-1">Account Number: {acc.account_number}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* View Tab 1: Verification */}
+            {activeTab === 'verify' && (
+              <div className="w-full max-w-xl grid gap-6 animate-fade-in">
+                {/* Header */}
+                <div className="w-full flex justify-between items-center">
+                  <div>
+                    <h1 className="text-2xl tracking-tight text-white font-bold">{companyName}</h1>
+                    <p className="text-xs text-[var(--text-secondary)]">Powered by Viri {planName && <span className="opacity-70 px-1">• {planName} Plan</span>}</p>
+                  </div>
+                  <span className="badge badge-success shrink-0">Online{terminalName ? ` - ${terminalName}` : ''}</span>
+                </div>
+
+                <div className="glass-panel">
+                  <div className="mb-6 flex-between">
+                    <h2 className="text-xl">Verify Transfer</h2>
+                    <div className="flex bg-[var(--bg-canvas)] rounded-lg p-1 border border-[var(--border-color)]">
+                      {initLoading && <span className="text-xs text-[var(--text-secondary)] px-2">Loading...</span>}
+                    </div>
+                  </div>
+
+                  {/* Error Alert */}
+                  {error && (
+                    <div className="mb-4 p-3 bg-[var(--color-warning-bg)] border border-[var(--color-warning)] border-opacity-30 rounded-lg flex items-center gap-3 text-sm text-[var(--color-warning)]">
+                      <AlertTriangle className="shrink-0" size={18} />
+                      <p>{error}</p>
+                    </div>
+                  )}
+
+                  {/* Success Result Panel */}
+                  {result && (
+                    <div className="mb-6 p-4 bg-[var(--color-success-bg)] border border-[var(--color-success)] border-opacity-30 rounded-lg animate-fade-in">
+                      <div className="flex items-center gap-2 mb-2">
+                        <CheckCircle className="text-[var(--color-success)]" size={18} />
+                        <span className="font-semibold text-[var(--color-success)]">Transfer Verified</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs text-[var(--text-secondary)] mt-2">
+                        <div>Status: <span className="font-mono text-[var(--text-primary)]">{result.status}</span></div>
+                        <div>Reference: <span className="font-mono text-[var(--text-primary)]">{result.reference}</span></div>
+                        <div>Amount: <span className="font-mono text-[var(--text-primary)]">{result.amount} MVR</span></div>
+                        <div>Time: <span className="font-mono text-[var(--text-primary)]">{new Date(result.timestamp).toLocaleTimeString()}</span></div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="input-group">
+                    <label className="input-label">Target Amount (MVR)</label>
+                    <input
+                      type="number"
+                      className="input-field text-2xl font-semibold"
+                      placeholder="0.00"
+                      value={amount}
+                      disabled={loading}
+                      onChange={(e) => setAmount(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="input-group mt-4">
+                    <label className="input-label">Receiving Account</label>
+                    <select
+                      className="input-field appearance-none cursor-pointer"
+                      value={selectedAccountId}
+                      disabled={loading || bankAccounts.length === 0}
+                      onChange={(e) => setSelectedAccountId(e.target.value)}
+                    >
+                      {bankAccounts.length === 0 && (
+                        <option value="">No accounts configured</option>
+                      )}
+                      {bankAccounts.map((acc) => (
+                        <option key={acc.id} value={acc.id.toString()}>
+                          {acc.bank_name} - {acc.account_name} (...{acc.account_number.slice(-4)})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center justify-between mt-4 mb-8">
+                    <label className="text-sm text-[var(--text-secondary)] flex items-center gap-2 cursor-pointer">
+                      <span>Set as Default Account</span>
+                    </label>
+                    <label className="toggle-switch">
+                      <input
+                        type="checkbox"
+                        checked={isDefault}
+                        disabled={loading}
+                        onChange={(e) => handleDefaultToggle(e.target.checked)}
+                      />
+                      <span className="slider"></span>
+                    </label>
+                  </div>
+
+                  <div className="flex gap-4">
+                    <button
+                      onClick={() => handleVerify('search')}
+                      disabled={loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0}
+                      className={`flex-1 btn btn-success py-3 text-lg justify-center gap-2 ${
+                        loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 ? 'opacity-70 cursor-not-allowed' : ''
+                      }`}
+                    >
+                      {loading && loadingMode === 'search' ? (
+                        <>
+                          <RefreshCw size={20} className="animate-spin" />
+                          Searching...
+                        </>
                       ) : (
-                        <span>{step.id}</span>
+                        <>
+                          <Search size={20} />
+                          Search
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleVerify('history')}
+                      disabled={loading || !isCredentialsComplete}
+                      className={`flex-1 btn btn-outline py-3 text-lg justify-center gap-2 ${
+                        loading || !isCredentialsComplete ? 'opacity-70 cursor-not-allowed' : ''
+                      }`}
+                    >
+                      {loading && loadingMode === 'history' ? (
+                        <>
+                          <RefreshCw size={20} className="animate-spin" />
+                          Fetching...
+                        </>
+                      ) : (
+                        <>
+                          <History size={20} />
+                          History
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  
+                  {!isCredentialsComplete && (
+                    <p className="text-xs text-[var(--color-warning)] mt-2.5 text-center leading-relaxed">
+                      ⚠️ Please complete all bank credentials (username, password, authenticator seed) in settings before proceeding.
+                    </p>
+                  )}
+
+                  {/* Multi-stage Progress Stepper Panel */}
+                  <div className="mt-6 p-5 rounded-xl bg-black/40 border border-[var(--border-color)] animate-fade-in">
+                    <div className="flex justify-between items-center mb-6">
+                      <span 
+                        key={progress.text || 'idle'} 
+                        className={`text-sm font-semibold truncate transition-all duration-300 flex items-center gap-2 ${
+                          activeStepIndex === 5 ? 'text-[var(--color-success)] animate-pulse' :
+                          progress.stage === 'lock' ? 'text-[var(--color-warning)]' : 
+                          activeStepIndex > 0 ? 'text-blue-400' : 'text-zinc-500'
+                        }`}
+                        style={{ animationDuration: '0.8s' }}
+                      >
+                        {loading ? (
+                          progress.stage === 'success' ? (
+                            <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          ) : progress.stage === 'lock' ? (
+                            <span className="relative flex h-2 w-2 mr-1">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-warning)] opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-warning)]"></span>
+                            </span>
+                          ) : (
+                            <Loader2 className="animate-spin shrink-0 text-blue-400" size={16} />
+                          )
+                        ) : activeStepIndex === 5 ? (
+                          <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        ) : null}
+                        {loading ? (progress.text || "Processing...") : (activeStepIndex === 5 ? "Transfer Verified!" : (progress.stage === 'error' ? "Verification failed." : "Ready for verification."))}
+                      </span>
+                      
+                      {loading && timeLeft !== null && progress.stage !== 'success' && (
+                        <span className="text-[10px] text-[var(--text-secondary)] font-mono shrink-0">
+                          Est. remaining: ~{timeLeft}s
+                        </span>
                       )}
                     </div>
-                    <span className={`text-[10px] mt-2 font-semibold transition-colors duration-500 ${
-                      isCompleted ? 'text-emerald-400 font-bold' : isActive ? 'text-blue-400 font-bold' : 'text-zinc-500'
-                    }`}>
-                      {step.label}
-                    </span>
+
+                    {/* Stepper progress track */}
+                    <div className="relative flex justify-between items-center w-full mt-4 mb-2 px-1 select-none">
+                      {/* Connecting Line Track */}
+                      <div className="absolute left-6 right-6 top-[15px] h-[3px] bg-zinc-800 -z-10 rounded-full flex overflow-hidden">
+                        <div className={`flex-1 h-full transition-all duration-500 ${
+                          activeStepIndex >= 2 ? 'bg-emerald-500' :
+                          activeStepIndex === 1 ? 'bg-gradient-to-r from-blue-500 to-zinc-700' : 'bg-zinc-700'
+                        }`} />
+                        <div className={`flex-1 h-full transition-all duration-500 ${
+                          activeStepIndex >= 3 ? 'bg-emerald-500' :
+                          activeStepIndex === 2 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
+                        }`} />
+                        <div className={`flex-1 h-full transition-all duration-500 ${
+                          activeStepIndex >= 4 ? 'bg-emerald-500' :
+                          activeStepIndex === 3 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
+                        }`} />
+                        <div className={`flex-1 h-full transition-all duration-500 ${
+                          activeStepIndex >= 5 ? 'bg-emerald-500' :
+                          activeStepIndex === 4 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
+                        }`} />
+                      </div>
+
+                      {/* Stepper Nodes */}
+                      {[
+                        { id: 1, label: 'Start' },
+                        { id: 2, label: 'Auth' },
+                        { id: 3, label: 'Fetch' },
+                        { id: 4, label: 'Match' },
+                        { id: 5, label: 'Verify' }
+                      ].map((step) => {
+                        const isCompleted = activeStepIndex > step.id || activeStepIndex === 5;
+                        const isActive = activeStepIndex === step.id && activeStepIndex !== 5;
+                        
+                        return (
+                          <div key={step.id} className="flex flex-col items-center z-10">
+                            <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs transition-all duration-500 ${
+                              isCompleted 
+                                ? 'bg-emerald-500 border-emerald-500 text-white shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                                : isActive
+                                  ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_12px_rgba(59,130,246,0.3)] animate-pulse-glow'
+                                  : 'bg-zinc-950 border-zinc-800 text-zinc-500'
+                            }`}>
+                              {isCompleted ? (
+                                <svg className="w-4 h-4 text-white animate-scale-checkmark" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
+                              ) : (
+                                <span>{step.id}</span>
+                              )}
+                            </div>
+                            <span className={`text-[10px] mt-2 font-semibold transition-colors duration-500 ${
+                              isCompleted ? 'text-emerald-400 font-bold' : isActive ? 'text-blue-400 font-bold' : 'text-zinc-500'
+                            }`}>
+                              {step.label}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                );
-              })}
-            </div>
-          </div>
 
-          {/* Recent Transactions Table */}
-          <div className="mt-6 animate-fade-in">
-            <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">
-              Recent Transactions {lastPopulatedTime && `[${lastPopulatedTime}]`}
-            </h3>
-            <div className="overflow-x-auto rounded-xl border border-[var(--border-color)] bg-black/30">
-              {lastTransactions && lastTransactions.length > 0 ? (
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-[var(--border-color)] bg-white/5 text-[var(--text-secondary)] uppercase tracking-wider font-semibold">
-                      <th className="px-4 py-2.5">Date</th>
-                      <th className="px-4 py-2.5">Details</th>
-                      <th className="px-4 py-2.5 text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--border-color)] font-mono">
-                    {lastTransactions.map((tx, idx) => {
-                      const isCredit = tx.amount.startsWith('+');
-                      return (
-                        <tr key={idx} className="hover:bg-white/5 transition-colors">
-                          <td className="px-4 py-3 text-[var(--text-secondary)] whitespace-nowrap">{tx.date}</td>
-                          <td className="px-4 py-3 text-[var(--text-primary)] max-w-[250px] whitespace-pre-line break-words leading-relaxed text-[11px]" title={tx.details}>{tx.details}</td>
-                          <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${isCredit ? 'text-[var(--color-success)]' : 'text-red-400'}`}>
-                            {tx.amount}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              ) : (
-                <div className="p-8 text-center text-zinc-500 italic">
-                  No recent history available.
+                  {/* Recent Transactions Table */}
+                  <div className="mt-6 animate-fade-in">
+                    <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">
+                      Recent Transactions {lastPopulatedTime && `[${lastPopulatedTime}]`}
+                    </h3>
+                    <div className="overflow-x-auto rounded-xl border border-[var(--border-color)] bg-black/30">
+                      {lastTransactions && lastTransactions.length > 0 ? (
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="border-b border-[var(--border-color)] bg-white/5 text-[var(--text-secondary)] uppercase tracking-wider font-semibold">
+                              <th className="px-4 py-2.5">Date</th>
+                              <th className="px-4 py-2.5">Details</th>
+                              <th className="px-4 py-2.5 text-right">Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[var(--border-color)] font-mono">
+                            {lastTransactions.map((tx, idx) => {
+                              const isCredit = tx.amount.startsWith('+');
+                              return (
+                                <tr key={idx} className="hover:bg-white/5 transition-colors">
+                                  <td className="px-4 py-3 text-[var(--text-secondary)] whitespace-nowrap">{tx.date}</td>
+                                  <td className="px-4 py-3 text-[var(--text-primary)] max-w-[250px] whitespace-pre-line break-words leading-relaxed text-[11px]" title={tx.details}>{tx.details}</td>
+                                  <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${isCredit ? 'text-[var(--color-success)]' : 'text-red-400'}`}>
+                                    {tx.amount}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <div className="p-8 text-center text-zinc-500 italic">
+                          No recent history available.
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              )}
-            </div>
-          </div>
-        </div>
+              </div>
+            )}
 
+            {/* View Tab 2: Transaction Ledger */}
+            {activeTab === 'ledger' && (
+              <div className="w-full max-w-2xl animate-fade-in flex flex-col">
+                {/* Section Header */}
+                <div className="w-full flex justify-between items-center mb-6">
+                  <div>
+                    <h2 className="text-2xl font-bold text-white tracking-tight">Transaction Ledger</h2>
+                    <p className="text-xs text-[var(--text-secondary)]">Real-time statements fetched directly from your bank</p>
+                  </div>
+                  
+                  {loading && loadingMode === 'ledger' && (
+                    <div className="flex items-center gap-2 bg-blue-950/40 text-blue-400 border border-blue-900/50 px-3 py-1 rounded-full text-xs font-semibold">
+                      <Loader2 className="animate-spin" size={14} /> Synchronizing...
+                    </div>
+                  )}
+                </div>
 
+                {/* Account Tabs Switcher */}
+                <div className="w-full mb-6">
+                  <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold mb-2.5 block">Select Bank Account:</label>
+                  {bankAccounts.length === 0 ? (
+                    <div className="p-4 bg-zinc-900/30 border border-zinc-800 rounded-lg text-center text-zinc-500 italic text-sm">
+                      No bank accounts configured. Please contact the administrator.
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2.5">
+                      {bankAccounts.map(acc => {
+                        const isSelected = selectedLedgerAccountId === acc.id.toString();
+                        const isBml = acc.bank_name === 'BML';
+                        return (
+                          <button
+                            key={acc.id}
+                            onClick={() => setSelectedLedgerAccountId(acc.id.toString())}
+                            className={`px-4 py-3 rounded-xl border text-left flex flex-col gap-1 transition-all min-w-[140px] flex-1 ${
+                              isSelected
+                                ? isBml
+                                  ? 'bg-red-950/20 border-red-500/80 shadow-[0_0_15px_rgba(239,68,68,0.15)]'
+                                  : 'bg-emerald-950/20 border-emerald-500/80 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
+                                : 'bg-[var(--bg-surface)] border-[var(--border-color)] hover:border-zinc-700'
+                            }`}
+                          >
+                            <span className={`text-[10px] uppercase font-bold tracking-wider ${
+                              isBml ? 'text-red-400' : 'text-emerald-400'
+                            }`}>
+                              {acc.bank_name === 'MIB' ? 'Maldives Islamic Bank' : 'Bank of Maldives'}
+                            </span>
+                            <span className="text-xs font-semibold text-white truncate max-w-[180px]">
+                              {acc.account_name}
+                            </span>
+                            <span className="text-[11px] font-mono text-[var(--text-secondary)]">
+                              ...{acc.account_number.slice(-6)}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Account Summary & Refresh Bar */}
+                {selectedLedgerAccountId && (() => {
+                  const activeLedgerAcc = bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId);
+                  if (!activeLedgerAcc) return null;
+                  
+                  const cache = ledgerCache[selectedLedgerAccountId] || {
+                    balance: 'Not synced',
+                    lastUpdated: 'Never',
+                    transactions: []
+                  };
+
+                  const isBml = activeLedgerAcc.bank_name === 'BML';
+                  const isSyncing = loading && loadingMode === 'ledger';
+                  const isLockedByVerify = loading && loadingMode !== 'ledger';
+
+                  return (
+                    <div className="space-y-6">
+                      
+                      {/* Summary Card */}
+                      <div className="glass-panel p-6 border-[var(--border-color)] bg-gradient-to-br from-zinc-950 to-zinc-900/60 relative overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div className="space-y-1">
+                          <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Available Balance</span>
+                          <div className={`text-3xl font-bold tracking-tight ${
+                            cache.balance === 'Not synced' ? 'text-zinc-500' : 'text-white'
+                          }`}>
+                            {cache.balance !== 'Not synced' && cache.balance !== 'Not found' ? `MVR ${cache.balance}` : cache.balance}
+                          </div>
+                          <div className="text-[10px] text-[var(--text-secondary)] flex items-center gap-1.5 font-mono">
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-zinc-600"></span>
+                            Last updated: {cache.lastUpdated}
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => syncLedger(selectedLedgerAccountId)}
+                          disabled={isSyncing || isLockedByVerify}
+                          className={`btn ${
+                            isBml ? 'btn-outline border-red-500/50 hover:bg-red-500 hover:text-white' : 'btn-success'
+                          } py-3 px-6 text-sm font-semibold justify-center gap-2 transition-all ${
+                            isSyncing || isLockedByVerify ? 'opacity-50 cursor-not-allowed' : ''
+                          }`}
+                        >
+                          <RefreshCw size={16} className={isSyncing ? 'animate-spin' : ''} />
+                          {isSyncing ? 'Syncing...' : 'Sync Balance & History'}
+                        </button>
+                      </div>
+
+                      {/* Locking Overlay notification */}
+                      {isLockedByVerify && (
+                        <div className="p-3.5 bg-red-950/20 border border-red-900/30 rounded-xl text-xs text-red-400 flex items-center gap-2 animate-pulse">
+                          <AlertTriangle size={14} className="shrink-0" />
+                          <span>Ledger synchronization disabled. A transfer verification is currently in progress.</span>
+                        </div>
+                      )}
+
+                      {/* Sync Error Block */}
+                      {cache.error && (
+                        <div className="p-3.5 bg-red-900/20 border border-red-500/30 rounded-xl text-xs text-red-400 leading-normal flex items-start gap-2.5">
+                          <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                          <div>
+                            <strong className="block font-bold mb-0.5">Sync Failed:</strong>
+                            {cache.error}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Transaction Feed */}
+                      <div className="space-y-3">
+                        <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Statement Entries ({cache.transactions.length})</h3>
+                        <div className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-black/30 flex flex-col divide-y divide-[var(--border-color)]">
+                          {isSyncing && cache.transactions.length === 0 ? (
+                            <div className="p-12 text-center text-zinc-500 flex flex-col items-center gap-3">
+                              <Loader2 className="animate-spin text-zinc-600" size={32} />
+                              <span className="italic text-sm">Logging into bank account securely...</span>
+                            </div>
+                          ) : cache.transactions.length === 0 ? (
+                            <div className="p-12 text-center text-zinc-500 italic text-sm">
+                              No statement entries available. Click "Sync" above to fetch recent history.
+                            </div>
+                          ) : (
+                            <div className="max-h-[50vh] overflow-y-auto divide-y divide-zinc-900 scrollbar-thin">
+                              {cache.transactions.map((tx, idx) => {
+                                const isCredit = tx.amount.startsWith('+');
+                                return (
+                                  <div key={idx} className="p-4 flex justify-between items-start hover:bg-white/[0.02] transition-colors gap-4">
+                                    <div className="space-y-1 flex-1">
+                                      <div className="text-xs font-mono text-zinc-500">{tx.date}</div>
+                                      <div className="text-[11px] font-sans text-zinc-200 whitespace-pre-line leading-relaxed break-words max-w-md">{tx.details}</div>
+                                    </div>
+                                    <div className="text-right space-y-1 shrink-0">
+                                      <div className={`font-mono font-bold text-sm leading-none ${
+                                        isCredit ? 'text-[var(--color-success)]' : 'text-red-400'
+                                      }`}>
+                                        {tx.amount}
+                                      </div>
+                                      {tx.runningBalance && (
+                                        <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1">
+                                          Bal: MVR {tx.runningBalance}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </>
+        )}
 
         {/* Live Terminal Log Viewer */}
         {(loading || logs.length > 0) && (
-          <div className="w-full bg-black border border-zinc-800 rounded-lg overflow-hidden animate-fade-in shadow-2xl mt-4 mb-12">
+          <div className="w-full max-w-xl bg-black border border-zinc-800 rounded-lg overflow-hidden animate-fade-in shadow-2xl mt-8 mb-12">
             <div className="bg-zinc-900 px-4 py-2 border-b border-zinc-800 flex items-center gap-2">
               <div className="w-3 h-3 rounded-full bg-red-500"></div>
               <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
               <span className="text-xs text-zinc-400 ml-2 font-mono">Viri Bridge Terminal</span>
-              {loading && <RefreshCw size={12} className="text-[var(--color-success)] animate-spin ml-2" />}
+              {loading && <Loader2 size={12} className="text-[var(--color-success)] animate-spin ml-2" />}
 
               <div className="ml-auto flex items-center gap-2">
                 {logs.length > 0 && (
@@ -1427,14 +1947,14 @@ function App() {
                 {loading && (
                   <button
                     onClick={killRobot}
-                    className="flex items-center gap-1 text-[10px] uppercase font-bold text-red-500 bg-red-950 border border-red-900 px-2 py-1 rounded hover:bg-red-900 transition-colors"
+                    className="flex items-center gap-1 text-[10px] uppercase font-bold text-red-500 bg-red-955 border border-red-900 px-2 py-1 rounded hover:bg-red-900 transition-colors"
                   >
                     <XCircle size={12} /> Kill Robot
                   </button>
                 )}
               </div>
             </div>
-            <div className="p-4 font-mono text-xs text-[var(--color-success)] h-48 overflow-y-auto flex flex-col gap-1"
+            <div className="p-4 font-mono text-xs text-[var(--color-success)] h-48 overflow-y-auto flex flex-col gap-1 scrollbar-thin"
               ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}>
               {logs.length === 0 ? (
                 <span className="text-zinc-500">Waiting for extension connection...</span>
@@ -1449,12 +1969,12 @@ function App() {
           </div>
         )}
 
-      </div>
+      </main>
 
       {/* Help Modal */}
       {showHelp && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto relative shadow-2xl">
+          <div className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto relative shadow-2xl scrollbar-thin">
             <button 
               onClick={() => setShowHelp(false)}
               className="absolute top-4 right-4 text-[var(--text-secondary)] hover:text-white"

@@ -235,9 +235,9 @@ async function generateTOTP(secret) {
   return otp;
 }
 
-function normalizeTransactions(rawTxList, bankType) {
+function normalizeTransactions(rawTxList, bankType, limit = 50) {
   if (!Array.isArray(rawTxList)) return [];
-  const sliced = rawTxList.slice(0, 3);
+  const sliced = limit ? rawTxList.slice(0, limit) : rawTxList;
   return sliced.map(tx => {
     let date = tx.transactionDate || tx.valueDate || tx.trxDate || tx.bookingDate || tx.postDate || tx.date || '';
     if (date) {
@@ -328,8 +328,17 @@ function normalizeTransactions(rawTxList, bankType) {
       const isCredit = tx.type === 'credit' || amount > 0;
       formattedAmount = `${isCredit ? '+' : '-'}${Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
+
+    const runningBal = tx.runningBalance || tx.balance || tx.closingBalance || tx.endingBalance;
+    let formattedRunningBal = '';
+    if (runningBal !== undefined && runningBal !== null) {
+      const balNum = parseFloat(runningBal);
+      if (!isNaN(balNum)) {
+        formattedRunningBal = balNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+    }
     
-    return { date, details, amount: formattedAmount };
+    return { date, details, amount: formattedAmount, runningBalance: formattedRunningBal };
   });
 }
 
@@ -959,13 +968,15 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
         const isCredit = tx.type === 'credit' || !tx.minus || parseFloat(tx.amount) > 0;
         return targetAmtNum > 0 && Math.abs(parseFloat(tx.amount) - targetAmtNum) < 0.01 && isCredit;
       });
-      last3Txs = normalizeTransactions(matchingTxs, 'BML');
+      last3Txs = normalizeTransactions(matchingTxs, 'BML', 3);
       if (matchingTxs.length > 0) {
         matchFound = matchingTxs[0];
       }
+    } else if (mode === 'ledger') {
+      last3Txs = normalizeTransactions(mergedHistory, 'BML', 50);
     } else {
       // mode === 'history'
-      last3Txs = normalizeTransactions(mergedHistory, 'BML');
+      last3Txs = normalizeTransactions(mergedHistory, 'BML', 3);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -987,11 +998,12 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
       emitLog(port, `> [BML] Session destruction failed or skipped: ${e.message}`);
     }
 
-    if (mode === 'history') {
-      emitLog(port, `> [Viri Bridge] HISTORY FETCH SUCCESS.`);
+    if (mode === 'history' || mode === 'ledger') {
+      emitLog(port, `> [Viri Bridge] BML ${mode.toUpperCase()} FETCH SUCCESS.`);
       port.postMessage({
         type: 'success',
         data: null,
+        balance: balance,
         transactions: last3Txs
       });
     } else {
@@ -1005,6 +1017,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
             amount: Math.abs(matchFound.amount).toFixed(2),
             timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString()
           },
+          balance: balance,
           transactions: last3Txs
         });
       } else {
@@ -1598,10 +1611,22 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
       }
     }, port);
 
+    let mibBalance = "Not found";
     if (!accDetailsRes.ok) {
       emitLog(port, `> [MIB] Account details returned ${accDetailsRes.status}. Continuing anyway...`);
     } else {
       emitLog(port, `> [MIB] ✓ Account details page loaded.`);
+      try {
+        const detailsHtml = await accDetailsRes.clone().text();
+        const balanceMatch = detailsHtml.match(/Available\s+Balance.*?(\d{1,3}(?:,\d{3})*\.\d{2})/i)
+                          || detailsHtml.match(/Balance.*?(\d{1,3}(?:,\d{3})*\.\d{2})/i);
+        if (balanceMatch) {
+          mibBalance = balanceMatch[1];
+          emitLog(port, `> [MIB] 💰 Balance: ${mibBalance} MVR`);
+        }
+      } catch (err) {
+        emitLog(port, `> [MIB] Error parsing balance: ${err.message}`);
+      }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1669,15 +1694,18 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
         const isCredit = parseFloat(tx.amount || tx.baseAmount) > 0 || tx.type === 'credit' || tx.credit || tx.trxType === 'credit';
         return targetAmtNum > 0 && Math.abs(txAmount - targetAmtNum) < 0.01 && isCredit;
       });
-      last3Txs = normalizeTransactions(matchingTxs, 'MIB');
+      last3Txs = normalizeTransactions(matchingTxs, 'MIB', 3);
       if (matchingTxs.length > 0) {
         matchFound = matchingTxs[0];
         emitLog(port, `> [MIB] ✓ MATCH FOUND: ${matchFound.description || matchFound.descr1 || matchFound.reference || 'Transaction'} — ${matchFound.amount || matchFound.baseAmount}`);
       }
+    } else if (mode === 'ledger') {
+      emitLog(port, `> [MIB] Found ${transactions.length} transaction(s). Fetching ledger history...`);
+      last3Txs = normalizeTransactions(transactions, 'MIB', 50);
     } else {
       // mode === 'history'
       emitLog(port, `> [MIB] Found ${transactions.length} transaction(s). Fetching recent history...`);
-      last3Txs = normalizeTransactions(transactions, 'MIB');
+      last3Txs = normalizeTransactions(transactions, 'MIB', 3);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1708,11 +1736,12 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     }
 
     // Report result
-    if (mode === 'history') {
-      emitLog(port, `> [Viri Bridge] MIB HISTORY FETCH SUCCESS.`);
+    if (mode === 'history' || mode === 'ledger') {
+      emitLog(port, `> [Viri Bridge] MIB ${mode.toUpperCase()} FETCH SUCCESS.`);
       port.postMessage({
         type: 'success',
         data: null,
+        balance: mibBalance,
         transactions: last3Txs
       });
     } else {
@@ -1726,6 +1755,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
             amount: Math.abs(parseFloat(matchFound.amount || matchFound.baseAmount)).toFixed(2),
             timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString()
           },
+          balance: mibBalance,
           transactions: last3Txs
         });
       } else {
