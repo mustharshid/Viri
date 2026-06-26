@@ -124,13 +124,14 @@ chrome.runtime.onConnectExternal.addListener((port) => {
       if (msg.action === 'VERIFY_TRANSFER') {
         const payload = msg.payload;
         const targetAcc = payload.accountNumber || payload.accountId || payload.account;
+        const mode = payload.mode || 'search';
         try {
           if (payload.bank === 'MIB') {
             // Route to MIB Faisanet flow
-            await runMibFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0');
+            await runMibFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode);
           } else {
             // Default: BML flow
-            await runBmlFlow(payload.credentials, targetAcc, port, payload.amount);
+            await runBmlFlow(payload.credentials, targetAcc, port, payload.amount, mode);
           }
         } catch (error) {
           port.postMessage({ type: 'error', error: error.message });
@@ -335,7 +336,7 @@ function normalizeTransactions(rawTxList, bankType) {
 // -------------------------------------------------------------
 // The main BML background flow
 // -------------------------------------------------------------
-async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
+async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode = 'search') {
   emitLog(port, `> [BML] Starting background auth flow...`);
   let last3Txs = [];
 
@@ -950,16 +951,21 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
       emitLog(port, `> [BML] Diagnostic - First transaction keys: ${Object.keys(mergedHistory[0]).join(', ')}`);
       emitLog(port, `> [BML] Diagnostic - First transaction raw: ${JSON.stringify(mergedHistory[0])}`);
     }
-    last3Txs = normalizeTransactions(mergedHistory, 'BML');
     const targetAmtNum = parseFloat(targetAmount) || 0;
 
     let matchFound = null;
-    for (const tx of mergedHistory) {
-      const isCredit = tx.type === 'credit' || !tx.minus || parseFloat(tx.amount) > 0;
-      if (targetAmtNum > 0 && Math.abs(parseFloat(tx.amount) - targetAmtNum) < 0.01 && isCredit) {
-        matchFound = tx;
-        break;
+    if (mode === 'search') {
+      const matchingTxs = mergedHistory.filter(tx => {
+        const isCredit = tx.type === 'credit' || !tx.minus || parseFloat(tx.amount) > 0;
+        return targetAmtNum > 0 && Math.abs(parseFloat(tx.amount) - targetAmtNum) < 0.01 && isCredit;
+      });
+      last3Txs = normalizeTransactions(matchingTxs, 'BML');
+      if (matchingTxs.length > 0) {
+        matchFound = matchingTxs[0];
       }
+    } else {
+      // mode === 'history'
+      last3Txs = normalizeTransactions(mergedHistory, 'BML');
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -981,20 +987,29 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
       emitLog(port, `> [BML] Session destruction failed or skipped: ${e.message}`);
     }
 
-    if (matchFound) {
-      emitLog(port, `> [Viri Bridge] EXACT MATCH: Ref ${matchFound.reference || matchFound.id}`);
+    if (mode === 'history') {
+      emitLog(port, `> [Viri Bridge] HISTORY FETCH SUCCESS.`);
       port.postMessage({
         type: 'success',
-        data: {
-          status: 'CREDITED',
-          reference: matchFound.reference || matchFound.id || "BML-MATCH",
-          amount: Math.abs(matchFound.amount).toFixed(2),
-          timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString()
-        },
+        data: null,
         transactions: last3Txs
       });
     } else {
-      throw new Error(`Verification Failed: No recent credit transaction found for ${targetAmount} MVR.`);
+      if (matchFound) {
+        emitLog(port, `> [Viri Bridge] EXACT MATCH: Ref ${matchFound.reference || matchFound.id}`);
+        port.postMessage({
+          type: 'success',
+          data: {
+            status: 'CREDITED',
+            reference: matchFound.reference || matchFound.id || "BML-MATCH",
+            amount: Math.abs(matchFound.amount).toFixed(2),
+            timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString()
+          },
+          transactions: last3Txs
+        });
+      } else {
+        throw new Error(`Verification Failed: No recent credit transaction found for ${targetAmount} MVR.`);
+      }
     }
 
   } catch (error) {
@@ -1207,7 +1222,7 @@ function buildFormBody(params) {
  * @param {string} targetAmount - Amount to verify
  * @param {string} profileType - '0' for Personal, '1' for Business
  */
-async function runMibFlow(credentials, targetAccount, port, targetAmount, profileType = '0') {
+async function runMibFlow(credentials, targetAccount, port, targetAmount, profileType = '0', mode = 'search') {
   emitLog(port, `> [MIB] Starting MIB Faisanet auth flow...`);
   let last3Txs = [];
 
@@ -1629,20 +1644,25 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
       }
     }
 
-    last3Txs = normalizeTransactions(transactions, 'MIB');
     const targetAmtNum = parseFloat(targetAmount) || 0;
-    emitLog(port, `> [MIB] Found ${transactions.length} transaction(s). Searching for ${targetAmount} MVR credit...`);
 
     let matchFound = null;
-    for (const tx of transactions) {
-      const txAmount = Math.abs(parseFloat(tx.amount || tx.baseAmount) || 0);
-      const isCredit = parseFloat(tx.amount || tx.baseAmount) > 0 || tx.type === 'credit' || tx.credit || tx.trxType === 'credit';
-
-      if (targetAmtNum > 0 && Math.abs(txAmount - targetAmtNum) < 0.01 && isCredit) {
-        matchFound = tx;
-        emitLog(port, `> [MIB] ✓ MATCH FOUND: ${tx.description || tx.descr1 || tx.reference || 'Transaction'} — ${tx.amount || tx.baseAmount}`);
-        break;
+    if (mode === 'search') {
+      emitLog(port, `> [MIB] Found ${transactions.length} transaction(s). Searching for ${targetAmount} MVR credit...`);
+      const matchingTxs = transactions.filter(tx => {
+        const txAmount = Math.abs(parseFloat(tx.amount || tx.baseAmount) || 0);
+        const isCredit = parseFloat(tx.amount || tx.baseAmount) > 0 || tx.type === 'credit' || tx.credit || tx.trxType === 'credit';
+        return targetAmtNum > 0 && Math.abs(txAmount - targetAmtNum) < 0.01 && isCredit;
+      });
+      last3Txs = normalizeTransactions(matchingTxs, 'MIB');
+      if (matchingTxs.length > 0) {
+        matchFound = matchingTxs[0];
+        emitLog(port, `> [MIB] ✓ MATCH FOUND: ${matchFound.description || matchFound.descr1 || matchFound.reference || 'Transaction'} — ${matchFound.amount || matchFound.baseAmount}`);
       }
+    } else {
+      // mode === 'history'
+      emitLog(port, `> [MIB] Found ${transactions.length} transaction(s). Fetching recent history...`);
+      last3Txs = normalizeTransactions(transactions, 'MIB');
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1673,20 +1693,29 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     }
 
     // Report result
-    if (matchFound) {
-      emitLog(port, `> [Viri Bridge] MIB VERIFICATION SUCCESS: ${matchFound.reference || matchFound.description || 'Transaction matched'}`);
+    if (mode === 'history') {
+      emitLog(port, `> [Viri Bridge] MIB HISTORY FETCH SUCCESS.`);
       port.postMessage({
         type: 'success',
-        data: {
-          status: 'CREDITED',
-          reference: matchFound.reference || matchFound.descr1 || matchFound.description || 'MIB-MATCH',
-          amount: Math.abs(parseFloat(matchFound.amount || matchFound.baseAmount)).toFixed(2),
-          timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString()
-        },
+        data: null,
         transactions: last3Txs
       });
     } else {
-      throw new Error(`Verification Failed: No recent credit transaction found for ${targetAmount} MVR on MIB account ${targetAccount}.`);
+      if (matchFound) {
+        emitLog(port, `> [Viri Bridge] MIB VERIFICATION SUCCESS: ${matchFound.reference || matchFound.description || 'Transaction matched'}`);
+        port.postMessage({
+          type: 'success',
+          data: {
+            status: 'CREDITED',
+            reference: matchFound.reference || matchFound.descr1 || matchFound.description || 'MIB-MATCH',
+            amount: Math.abs(parseFloat(matchFound.amount || matchFound.baseAmount)).toFixed(2),
+            timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString()
+          },
+          transactions: last3Txs
+        });
+      } else {
+        throw new Error(`Verification Failed: No recent credit transaction found for ${targetAmount} MVR on MIB account ${targetAccount}.`);
+      }
     }
 
   } catch (error) {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2 } from 'lucide-react';
+import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History } from 'lucide-react';
 
 
 interface BankAccount {
@@ -24,6 +24,7 @@ function App() {
     details: string;
     amount: string;
   }[]>([]);
+  const [lastPopulatedTime, setLastPopulatedTime] = useState<string>('');
 
   // Hardware bound Terminal ID
   const [hardwareId, setHardwareId] = useState(() => {
@@ -65,6 +66,14 @@ function App() {
 
   // Verification State
   const [loading, setLoading] = useState(false);
+  const [loadingMode, setLoadingMode] = useState<'search' | 'history' | null>(null);
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadingMode(null);
+    }
+  }, [loading]);
+
   const activePortRef = useRef<chrome.runtime.Port | null>(null);
   const [initLoading, setInitLoading] = useState(false);
   const [result, setResult] = useState<{
@@ -129,13 +138,22 @@ function App() {
       const currentIdx = getStepIndexForStage(prev.stage, prev.percent);
       const nextIdx = getStepIndexForStage(next.stage, next.percent);
       
-      // Prevent backward progress
+      // Prevent backward progress in terms of stage step index
       if (nextIdx < currentIdx) {
         return {
           ...prev,
           text: next.text || prev.text
         };
       }
+      
+      // Prevent backward progress in terms of percentage (even if stage index is equal or greater)
+      if (next.percent < prev.percent) {
+        return {
+          ...next,
+          percent: prev.percent
+        };
+      }
+      
       return next;
     });
   };
@@ -467,8 +485,8 @@ function App() {
     alert("Logs copied to clipboard!");
   };
 
-  const handleVerify = async () => {
-    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+  const handleVerify = async (mode: 'search' | 'history' = 'search') => {
+    if (mode === 'search' && (!amount || isNaN(Number(amount)) || Number(amount) <= 0)) {
       setError("Please enter a valid transfer amount.");
       return;
     }
@@ -483,6 +501,7 @@ function App() {
     const fullBankName = selectedBankName === 'MIB' ? 'Maldives Islamic Bank' : 'Bank of Maldives';
 
     setLoading(true);
+    setLoadingMode(mode);
     setError(null);
     setResult(null);
     setLastTransactions([]);
@@ -491,7 +510,9 @@ function App() {
     isVerifyingRef.current = true;
     setProgress({
       stage: 'init',
-      text: `Initiating secure connection to ${fullBankName}...`,
+      text: mode === 'history' 
+        ? `Fetching transaction history from ${fullBankName}...`
+        : `Searching for transfer on ${fullBankName}...`,
       percent: 10,
       isIndeterminate: true
     });
@@ -702,30 +723,44 @@ function App() {
           setProgress(parsed);
         }
       } else if (response.type === 'success') {
-        setProgress({ stage: 'success', text: '✅ Transfer Verified!', percent: 100, isIndeterminate: false });
+        setProgress({ 
+          stage: 'success', 
+          text: mode === 'history' ? '✅ History Fetched!' : '✅ Transfer Verified!', 
+          percent: 100, 
+          isIndeterminate: false 
+        });
         setTimeLeft(null);
         setTimeout(() => {
           setLoading(false);
-          setResult(response.data);
+          setResult(response.data || null);
           setLastTransactions(response.transactions || []);
-          // Increment totals dynamically
-          const addedAmount = parseFloat(amount);
-          setTotals(prev => ({
-            ...prev,
-            [selectedAccountId]: (prev[selectedAccountId] || 0) + addedAmount
-          }));
-          setAmount(''); // clear input on success
+          setLastPopulatedTime(new Date().toLocaleTimeString());
+          if (mode === 'search' && response.data) {
+            // Increment totals dynamically
+            const addedAmount = parseFloat(amount);
+            setTotals(prev => ({
+              ...prev,
+              [selectedAccountId]: (prev[selectedAccountId] || 0) + addedAmount
+            }));
+            setAmount(''); // clear input on success
+          }
           port.disconnect();
           activePortRef.current = null;
           releaseLock();
           isVerifyingRef.current = false;
         }, 1500); // 1.5s reinforcement checkmark flash
       } else if (response.type === 'error') {
-        setProgress({ stage: 'error', text: 'Verification failed', percent: 100, isIndeterminate: false });
+        setProgress({ 
+          stage: 'error', 
+          text: mode === 'history' ? 'Fetch failed' : 'Verification failed', 
+          percent: 100, 
+          isIndeterminate: false 
+        });
         setTimeLeft(null);
         setLoading(false);
-        setError(response.error || "Verification failed.");
+        setError(response.error || (mode === 'history' ? "Failed to fetch history." : "Verification failed."));
         setLastTransactions(response.transactions || []);
+        setLastPopulatedTime(new Date().toLocaleTimeString());
         port.disconnect();
         activePortRef.current = null;
         releaseLock();
@@ -748,7 +783,8 @@ function App() {
       port.postMessage({
         action: 'VERIFY_TRANSFER',
         payload: {
-          amount: parseFloat(amount).toFixed(2),
+          mode: mode,
+          amount: mode === 'search' ? parseFloat(amount).toFixed(2) : '0.00',
           bank: selectedBankName,
           accountId: selectedAccountId,
           accountNumber: selectedAccount ? selectedAccount.account_number : '',
@@ -771,6 +807,12 @@ function App() {
 
   const companyName = tenantName || "Unregistered Terminal";
   const planName = subscriptionTier === 'free' ? 'Free Trial' : (subscriptionTier === '499' ? 'Standard' : (subscriptionTier === '999' ? 'Pro' : ''));
+
+  const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
+  const selectedBankName = selectedAccount ? selectedAccount.bank_name : 'BML';
+  const isCredentialsComplete = selectedBankName === 'BML'
+    ? (!!bmlUsername.trim() && !!bmlPassword.trim() && !!bmlTotpSeed.trim())
+    : (!!mibUsername.trim() && !!mibPassword.trim() && !!mibTotpSeed.trim());
 
   if (isSetupMode) {
     return (
@@ -1161,23 +1203,52 @@ function App() {
             </label>
           </div>
 
-          <button
-            onClick={handleVerify}
-            disabled={loading}
-            className={`btn btn-success w-full py-3 text-lg justify-center gap-2 ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
-          >
-            {loading ? (
-              <>
-                <RefreshCw size={20} className="animate-spin" />
-                Verifying...
-              </>
-            ) : (
-              <>
-                <CheckCircle size={20} />
-                Verify Transfer
-              </>
-            )}
-          </button>
+          <div className="flex gap-4">
+            <button
+              onClick={() => handleVerify('search')}
+              disabled={loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0}
+              className={`flex-1 btn btn-success py-3 text-lg justify-center gap-2 ${
+                loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 ? 'opacity-70 cursor-not-allowed' : ''
+              }`}
+            >
+              {loading && loadingMode === 'search' ? (
+                <>
+                  <RefreshCw size={20} className="animate-spin" />
+                  Searching...
+                </>
+              ) : (
+                <>
+                  <Search size={20} />
+                  Search
+                </>
+              )}
+            </button>
+            <button
+              onClick={() => handleVerify('history')}
+              disabled={loading || !isCredentialsComplete}
+              className={`flex-1 btn btn-outline py-3 text-lg justify-center gap-2 ${
+                loading || !isCredentialsComplete ? 'opacity-70 cursor-not-allowed' : ''
+              }`}
+            >
+              {loading && loadingMode === 'history' ? (
+                <>
+                  <RefreshCw size={20} className="animate-spin" />
+                  Fetching...
+                </>
+              ) : (
+                <>
+                  <History size={20} />
+                  History
+                </>
+              )}
+            </button>
+          </div>
+          
+          {!isCredentialsComplete && (
+            <p className="text-xs text-[var(--color-warning)] mt-2.5 text-center leading-relaxed">
+              ⚠️ Please complete all bank credentials (username, password, authenticator seed) in settings before proceeding.
+            </p>
+          )}
 
           {/* Multi-stage Progress Stepper Panel */}
           <div className="mt-6 p-5 rounded-xl bg-black/40 border border-[var(--border-color)] animate-fade-in">
@@ -1285,12 +1356,12 @@ function App() {
           </div>
 
           {/* Recent Transactions Table */}
-          {lastTransactions && lastTransactions.length > 0 && (
-            <div className="mt-6 animate-fade-in">
-              <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">
-                Recent Transactions
-              </h3>
-              <div className="overflow-x-auto rounded-xl border border-[var(--border-color)] bg-black/30">
+          <div className="mt-6 animate-fade-in">
+            <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">
+              Recent Transactions {lastPopulatedTime && `[${lastPopulatedTime}]`}
+            </h3>
+            <div className="overflow-x-auto rounded-xl border border-[var(--border-color)] bg-black/30">
+              {lastTransactions && lastTransactions.length > 0 ? (
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="border-b border-[var(--border-color)] bg-white/5 text-[var(--text-secondary)] uppercase tracking-wider font-semibold">
@@ -1314,9 +1385,13 @@ function App() {
                     })}
                   </tbody>
                 </table>
-              </div>
+              ) : (
+                <div className="p-8 text-center text-zinc-500 italic">
+                  No recent history available.
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
 
         {/* Analytics Node */}
