@@ -21,6 +21,7 @@ class CompanyController extends Controller
     {
         $request->validate([
             'name' => 'required|string',
+            'permissions' => 'nullable|array'
         ]);
 
         $tenant = $request->user()->tenant;
@@ -41,13 +42,74 @@ class CompanyController extends Controller
         // Generate a 6-digit pairing code
         $pairingCode = str_pad(mt_rand(0, 999999), 6, '0', STR_PAD_LEFT);
 
+        $permissions = $request->input('permissions', []);
+        $tier = $tenant->subscription_tier;
+
+        if ($tier === 'free' || $tier === '499') {
+            $permissions = [
+                'verification_enabled' => true,
+                'ledger_enabled' => false,
+                'ledger_show_balance' => false,
+                'ledger_show_debit' => false,
+                'reports_enabled' => false
+            ];
+        } else {
+            $permissions = [
+                'verification_enabled' => true,
+                'ledger_enabled' => filter_var($permissions['ledger_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'ledger_show_balance' => filter_var($permissions['ledger_show_balance'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'ledger_show_debit' => filter_var($permissions['ledger_show_debit'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'reports_enabled' => filter_var($permissions['reports_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN)
+            ];
+        }
+
         $terminal = Terminal::create([
             'tenant_id' => $tenantId,
             'terminal_name' => $request->name,
             'hardware_id' => $hardwareId,
             'pairing_code' => $pairingCode,
             'pairing_code_expires_at' => now()->addMinutes(10),
-            'status' => 'active'
+            'status' => 'active',
+            'permissions' => $permissions
+        ]);
+
+        return response()->json(['terminal' => $terminal]);
+    }
+
+    public function updateTerminal(Request $request, $id)
+    {
+        $request->validate([
+            'name' => 'required|string',
+            'permissions' => 'nullable|array'
+        ]);
+
+        $tenant = $request->user()->tenant;
+        $terminal = Terminal::where('tenant_id', $tenant->id)->findOrFail($id);
+
+        $permissions = $request->input('permissions', []);
+        $tier = $tenant->subscription_tier;
+
+        if ($tier === 'free' || $tier === '499') {
+            $permissions = [
+                'verification_enabled' => true,
+                'ledger_enabled' => false,
+                'ledger_show_balance' => false,
+                'ledger_show_debit' => false,
+                'reports_enabled' => false
+            ];
+        } else {
+            $permissions = [
+                'verification_enabled' => true,
+                'ledger_enabled' => filter_var($permissions['ledger_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'ledger_show_balance' => filter_var($permissions['ledger_show_balance'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'ledger_show_debit' => filter_var($permissions['ledger_show_debit'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'reports_enabled' => filter_var($permissions['reports_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN)
+            ];
+        }
+
+        $terminal->update([
+            'terminal_name' => $request->name,
+            'permissions' => $permissions
         ]);
 
         return response()->json(['terminal' => $terminal]);

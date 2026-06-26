@@ -16,13 +16,32 @@ class Terminal extends Model
         'pairing_code_expires_at',
         'debug_logs',
         'allow_debug_until',
-        'debug_one_time_code'
+        'debug_one_time_code',
+        'permissions'
     ];
 
     protected $casts = [
         'pairing_code_expires_at' => 'datetime',
-        'allow_debug_until' => 'datetime'
+        'allow_debug_until' => 'datetime',
+        'permissions' => 'array'
     ];
+
+    public function getPermissionsAttribute($value)
+    {
+        $defaults = [
+            'verification_enabled' => true,
+            'ledger_enabled' => true,
+            'ledger_show_balance' => true,
+            'ledger_show_debit' => true,
+            'reports_enabled' => false
+        ];
+
+        if (!$value) {
+            return $defaults;
+        }
+
+        return array_merge($defaults, json_decode($value, true) ?: []);
+    }
 
     public function tenant(): BelongsTo
     {

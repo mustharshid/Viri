@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock } from 'lucide-react';
+import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X } from 'lucide-react';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group ml-2 cursor-help align-middle">
@@ -23,6 +23,16 @@ export default function CompanyDashboard() {
   // Forms
   const [newTerminalName, setNewTerminalName] = useState('');
   const [bankName, setBankName] = useState('BML');
+  const [isTerminalModalOpen, setIsTerminalModalOpen] = useState(false);
+  const [editingTerminal, setEditingTerminal] = useState<any>(null);
+  const [terminalFormName, setTerminalFormName] = useState('');
+  const [permissionsForm, setPermissionsForm] = useState({
+    verification_enabled: true,
+    ledger_enabled: false,
+    ledger_show_balance: false,
+    ledger_show_debit: false,
+    reports_enabled: false
+  });
   const [accountName, setAccountName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
   const [mibProfileType, setMibProfileType] = useState('0');
@@ -86,16 +96,89 @@ export default function CompanyDashboard() {
     navigate('/login');
   };
 
-  const createTerminal = async (e: React.FormEvent) => {
+  const handleAddTerminalClick = async (e: React.FormEvent) => {
     e.preventDefault();
-    const token = localStorage.getItem('viri_token');
-    await fetch('/api/company/terminals', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newTerminalName })
+    if (!newTerminalName.trim()) return;
+
+    const tier = user?.tenant?.subscription_tier;
+    if (tier === 'free' || tier === '499') {
+      const token = localStorage.getItem('viri_token');
+      const response = await fetch('/api/company/terminals', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          name: newTerminalName,
+          permissions: {
+            verification_enabled: true,
+            ledger_enabled: false,
+            ledger_show_balance: false,
+            ledger_show_debit: false,
+            reports_enabled: false
+          }
+        })
+      });
+      if (response.ok) {
+        setNewTerminalName('');
+        fetchData();
+      } else {
+        const errData = await response.json();
+        alert(errData.message || 'Failed to create terminal');
+      }
+    } else {
+      setEditingTerminal(null);
+      setTerminalFormName(newTerminalName);
+      setPermissionsForm({
+        verification_enabled: true,
+        ledger_enabled: false,
+        ledger_show_balance: false,
+        ledger_show_debit: false,
+        reports_enabled: false
+      });
+      setIsTerminalModalOpen(true);
+    }
+  };
+
+  const openEditModal = (term: any) => {
+    setEditingTerminal(term);
+    setTerminalFormName(term.terminal_name);
+    setPermissionsForm({
+      verification_enabled: term.permissions?.verification_enabled ?? true,
+      ledger_enabled: term.permissions?.ledger_enabled ?? false,
+      ledger_show_balance: term.permissions?.ledger_show_balance ?? false,
+      ledger_show_debit: term.permissions?.ledger_show_debit ?? false,
+      reports_enabled: term.permissions?.reports_enabled ?? false
     });
-    setNewTerminalName('');
-    fetchData();
+    setIsTerminalModalOpen(true);
+  };
+
+  const saveTerminal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!terminalFormName.trim()) return;
+
+    const token = localStorage.getItem('viri_token');
+    const isEdit = !!editingTerminal;
+    const url = isEdit ? `/api/company/terminals/${editingTerminal.id}` : '/api/company/terminals';
+    const method = isEdit ? 'PUT' : 'POST';
+
+    const response = await fetch(url, {
+      method: method,
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: terminalFormName,
+        permissions: permissionsForm
+      })
+    });
+
+    if (response.ok) {
+      setIsTerminalModalOpen(false);
+      setNewTerminalName('');
+      setTerminalFormName('');
+      setEditingTerminal(null);
+      fetchData();
+    } else {
+      const errData = await response.json();
+      alert(errData.message || 'Failed to save terminal');
+    }
   };
 
   const deleteTerminal = async (id: number) => {
@@ -242,7 +325,7 @@ export default function CompanyDashboard() {
                   </a>
                 </div>
               </div>
-              <form onSubmit={createTerminal} className="flex gap-2 mb-4">
+              <form onSubmit={handleAddTerminalClick} className="flex gap-2 mb-4">
                 <input type="text" required placeholder="New Terminal Name (e.g. Counter 1)" className="input-field flex-1" value={newTerminalName} onChange={e => setNewTerminalName(e.target.value)} />
                 <button type="submit" className="btn btn-success p-3"><Plus size={20} /></button>
               </form>
@@ -259,7 +342,10 @@ export default function CompanyDashboard() {
                           <MonitorSmartphone size={18} className="text-[var(--text-secondary)]" /> 
                           {term.terminal_name}
                         </strong>
-                        <button onClick={() => deleteTerminal(term.id)} className="text-red-400 hover:text-red-300" title="Delete Terminal"><Trash2 size={16}/></button>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => openEditModal(term)} className="text-zinc-400 hover:text-white" title="Edit Terminal"><Edit size={16}/></button>
+                          <button onClick={() => deleteTerminal(term.id)} className="text-red-400 hover:text-red-300" title="Delete Terminal"><Trash2 size={16}/></button>
+                        </div>
                       </div>
 
                       {term.pairing_code && !isExpired ? (
@@ -533,6 +619,210 @@ export default function CompanyDashboard() {
         )}
 
       </main>
+
+      {isTerminalModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-zinc-700/80 rounded-xl max-w-2xl w-full p-6 shadow-2xl relative animate-in fade-in zoom-in duration-200">
+            <button 
+              type="button"
+              onClick={() => setIsTerminalModalOpen(false)} 
+              className="absolute top-4 right-4 text-zinc-400 hover:text-white p-1 rounded-full hover:bg-white/5 transition-colors"
+            >
+              <X size={20} />
+            </button>
+
+            <h2 className="text-xl font-bold text-white mb-6">
+              {editingTerminal ? 'Edit Cashier Terminal' : 'Configure Terminal Permissions'}
+            </h2>
+
+            <form onSubmit={saveTerminal} className="space-y-6">
+              <div>
+                <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">
+                  Terminal Name
+                </label>
+                <input 
+                  type="text" 
+                  required 
+                  placeholder="e.g. Counter 1" 
+                  className="input-field w-full" 
+                  value={terminalFormName} 
+                  onChange={e => setTerminalFormName(e.target.value)} 
+                />
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">
+                  Terminal Tools & Permissions
+                </h3>
+
+                <div className="space-y-4 bg-black/30 p-4 rounded-lg border border-zinc-800">
+                  {/* Verification Panel */}
+                  <div className="flex items-start gap-3">
+                    <input 
+                      type="checkbox" 
+                      id="perm-verification"
+                      checked={permissionsForm.verification_enabled} 
+                      disabled 
+                      className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
+                    />
+                    <div>
+                      <label htmlFor="perm-verification" className="text-sm font-medium text-white flex items-center gap-1.5 cursor-not-allowed">
+                        Verification Panel <span className="text-[10px] bg-[var(--color-success)]/15 text-[var(--color-success)] px-1.5 py-0.5 rounded font-mono">REQUIRED</span>
+                      </label>
+                      <p className="text-xs text-[var(--text-secondary)]">Allows cashier to verify incoming MVR bank transfer screenshots.</p>
+                    </div>
+                  </div>
+
+                  {/* Transaction Ledger */}
+                  <div className="flex items-start gap-3">
+                    <input 
+                      type="checkbox" 
+                      id="perm-ledger"
+                      checked={permissionsForm.ledger_enabled} 
+                      disabled={user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
+                      onChange={e => setPermissionsForm(prev => ({ 
+                        ...prev, 
+                        ledger_enabled: e.target.checked,
+                        ledger_show_balance: e.target.checked ? prev.ledger_show_balance : false,
+                        ledger_show_debit: e.target.checked ? prev.ledger_show_debit : false
+                      }))}
+                      className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
+                    />
+                    <div>
+                      <label htmlFor="perm-ledger" className={`text-sm font-medium flex items-center gap-1.5 ${user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499' ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
+                        Transaction Ledger
+                      </label>
+                      <p className="text-xs text-[var(--text-secondary)]">Allows cashier to view account transaction ledger/history.</p>
+                    </div>
+                  </div>
+
+                  {/* Transaction Ledger Sub-options */}
+                  {(permissionsForm.ledger_enabled || user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499') && (
+                    <div className="pl-8 space-y-3 border-l border-zinc-800 ml-2.5 my-2">
+                      <div className="flex items-start gap-3">
+                        <input 
+                          type="checkbox" 
+                          id="perm-ledger-balance"
+                          checked={permissionsForm.ledger_show_balance} 
+                          disabled={!permissionsForm.ledger_enabled || user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
+                          onChange={e => setPermissionsForm(prev => ({ ...prev, ledger_show_balance: e.target.checked }))}
+                          className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-30"
+                        />
+                        <div>
+                          <label htmlFor="perm-ledger-balance" className={`text-xs font-medium ${(!permissionsForm.ledger_enabled || user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499') ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-300 cursor-pointer'}`}>
+                            Show Account Balance
+                          </label>
+                          <p className="text-[10px] text-[var(--text-secondary)]">Expose real-time balance metrics for connected accounts.</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-3">
+                        <input 
+                          type="checkbox" 
+                          id="perm-ledger-debit"
+                          checked={permissionsForm.ledger_show_debit} 
+                          disabled={!permissionsForm.ledger_enabled || user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
+                          onChange={e => setPermissionsForm(prev => ({ ...prev, ledger_show_debit: e.target.checked }))}
+                          className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-30"
+                        />
+                        <div>
+                          <label htmlFor="perm-ledger-debit" className={`text-xs font-medium ${(!permissionsForm.ledger_enabled || user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499') ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-300 cursor-pointer'}`}>
+                            Show Outward Transactions (DEBIT)
+                          </label>
+                          <p className="text-[10px] text-[var(--text-secondary)]">Display outward transfers and charges alongside credits.</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Reports */}
+                  <div className="flex items-start gap-3">
+                    <input 
+                      type="checkbox" 
+                      id="perm-reports"
+                      checked={permissionsForm.reports_enabled} 
+                      disabled
+                      className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-30"
+                    />
+                    <div>
+                      <label htmlFor="perm-reports" className="text-sm font-medium text-zinc-500 cursor-not-allowed flex items-center gap-1.5">
+                        Reports <span className="text-[10px] text-zinc-400 font-mono italic">(Coming soon)</span>
+                      </label>
+                      <p className="text-xs text-[var(--text-secondary)]">Allows viewing analytics reports on the terminal screen.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Starter Tier Locked Premium Card */}
+              {(user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499') && (
+                <div className="relative overflow-hidden bg-zinc-950 border border-zinc-800 rounded-lg p-5">
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-32 bg-purple-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+                  <div className="flex justify-between items-center mb-3">
+                    <h4 className="text-xs uppercase tracking-wider font-bold text-zinc-500 flex items-center gap-1.5">
+                      🔒 Feature Preview: Transaction Ledger
+                    </h4>
+                    <span className="text-[10px] bg-purple-500/10 border border-purple-500/30 text-purple-400 px-2 py-0.5 rounded font-medium">Growth / Enterprise</span>
+                  </div>
+
+                  <div className="blur-[2px] opacity-25 select-none pointer-events-none transition-all duration-300">
+                    <div className="flex justify-between items-end border-b border-zinc-800 pb-2 mb-3">
+                      <div>
+                        <div className="text-[9px] text-zinc-400">Available Balance</div>
+                        <div className="text-sm font-bold font-mono text-emerald-400">MVR 124,539.20</div>
+                      </div>
+                      <div className="text-[9px] text-zinc-500 font-mono">Last synced: Just now</div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-[10px] border-b border-zinc-900 pb-1.5">
+                        <span className="text-zinc-300">Transfer from Ahmed Niyaz</span>
+                        <span className="font-mono text-emerald-400 font-bold">+MVR 500.00</span>
+                      </div>
+                      <div className="flex justify-between text-[10px] border-b border-zinc-900 pb-1.5">
+                        <span className="text-zinc-300">BML POS Terminal Charge</span>
+                        <span className="font-mono text-red-400 font-bold">-MVR 45.00</span>
+                      </div>
+                      <div className="flex justify-between text-[10px] pb-0.5">
+                        <span className="text-zinc-300">Transfer from Aminath Ali</span>
+                        <span className="font-mono text-emerald-400 font-bold">+MVR 2,400.00</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/95 to-zinc-950/80 flex flex-col items-center justify-center text-center p-6">
+                    <div className="w-10 h-10 rounded-full bg-purple-950/60 border border-purple-500/30 flex items-center justify-center text-purple-400 mb-2">
+                      <Shield size={18} />
+                    </div>
+                    <p className="text-xs font-semibold text-zinc-200 max-w-sm mb-1">
+                      Unlock full Cashier features in Growth & Enterprise plans!
+                    </p>
+                    <p className="text-[10px] text-zinc-400 max-w-sm">
+                      Enable real-time bank statements, ledger views, debit filtering and live balance indicators right on the terminal counters.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 border-t border-zinc-800 pt-5 mt-6">
+                <button 
+                  type="button" 
+                  onClick={() => setIsTerminalModalOpen(false)} 
+                  className="btn btn-outline border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white py-2 px-4 text-sm"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="btn btn-success py-2 px-6 text-sm font-semibold"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

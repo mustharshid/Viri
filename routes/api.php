@@ -36,6 +36,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Company Admin Routes
     Route::get('/company/terminals', [CompanyController::class, 'getTerminals']);
     Route::post('/company/terminals', [CompanyController::class, 'createTerminal']);
+    Route::put('/company/terminals/{id}', [CompanyController::class, 'updateTerminal']);
     Route::delete('/company/terminals/{id}', [CompanyController::class, 'deleteTerminal']);
     Route::post('/company/terminals/{id}/enable-debug', [CompanyController::class, 'enableDebug']);
 
@@ -106,7 +107,14 @@ Route::post('/verify-terminal', function (Request $request) {
                 ];
             })
         ],
-        'terminal_name' => $terminal->terminal_name
+        'terminal_name' => $terminal->terminal_name,
+        'permissions' => ($tier === 'free' || $tier === '499') ? [
+            'verification_enabled' => true,
+            'ledger_enabled' => false,
+            'ledger_show_balance' => false,
+            'ledger_show_debit' => false,
+            'reports_enabled' => false
+        ] : $terminal->permissions
     ]);
 });
 

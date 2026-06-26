@@ -28,6 +28,13 @@ interface LedgerData {
 function App() {
   const [amount, setAmount] = useState('');
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [permissions, setPermissions] = useState<any>({
+    verification_enabled: true,
+    ledger_enabled: true,
+    ledger_show_balance: true,
+    ledger_show_debit: true,
+    reports_enabled: false
+  });
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [isDefault, setIsDefault] = useState(true);
   const [defaultAccountId, setDefaultAccountId] = useState<string>(() => {
@@ -317,6 +324,15 @@ function App() {
           if (data.tenant?.lock_timeout) setLockTimeout(data.tenant.lock_timeout);
           if (data.tenant?.extension_id) setExtensionId(data.tenant.extension_id);
           if (data.terminal_name) setTerminalName(data.terminal_name);
+          if (data.permissions) {
+            setPermissions({
+              verification_enabled: data.permissions.verification_enabled ?? true,
+              ledger_enabled: data.permissions.ledger_enabled ?? true,
+              ledger_show_balance: data.permissions.ledger_show_balance ?? true,
+              ledger_show_debit: data.permissions.ledger_show_debit ?? true,
+              reports_enabled: data.permissions.reports_enabled ?? false
+            });
+          }
 
           if (accounts.length > 0) {
             const savedDefaultId = localStorage.getItem('viri_default_account_id');
@@ -344,6 +360,15 @@ function App() {
     };
     fetchAccounts();
   }, [hardwareId, backendUrl]);
+
+  useEffect(() => {
+    if (!permissions.ledger_enabled && activeTab === 'ledger') {
+      setActiveTab('verify');
+    }
+    if (!permissions.reports_enabled && activeTab === 'reports') {
+      setActiveTab('verify');
+    }
+  }, [permissions, activeTab]);
 
   const handlePair = async () => {
     if (!pairingCodeInput || pairingCodeInput.length !== 6) {
@@ -1220,27 +1245,31 @@ function App() {
           <span className="hidden md:inline">Verification</span>
         </button>
 
-        <button
-          onClick={() => { setShowSettings(false); setActiveTab('ledger'); }}
-          className={`w-10 h-10 md:w-full md:h-auto flex items-center justify-center md:justify-start gap-3 px-3 py-2.5 rounded-lg transition-colors text-xs font-semibold ${
-            activeTab === 'ledger' && !showSettings
-              ? 'bg-[var(--color-success)] text-black font-bold'
-              : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
-          }`}
-          title="Transaction Ledger"
-        >
-          <BookOpen size={16} />
-          <span className="hidden md:inline">Transaction Ledger</span>
-        </button>
+        {permissions.ledger_enabled && (
+          <button
+            onClick={() => { setShowSettings(false); setActiveTab('ledger'); }}
+            className={`w-10 h-10 md:w-full md:h-auto flex items-center justify-center md:justify-start gap-3 px-3 py-2.5 rounded-lg transition-colors text-xs font-semibold ${
+              activeTab === 'ledger' && !showSettings
+                ? 'bg-[var(--color-success)] text-black font-bold'
+                : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
+            }`}
+            title="Transaction Ledger"
+          >
+            <BookOpen size={16} />
+            <span className="hidden md:inline">Transaction Ledger</span>
+          </button>
+        )}
 
-        <button
-          disabled
-          className="w-10 h-10 md:w-full md:h-auto flex items-center justify-center md:justify-start gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold text-zinc-600 cursor-not-allowed"
-          title="Reports (Coming soon)"
-        >
-          <BarChart3 size={16} />
-          <span className="hidden md:inline">Reports (Soon)</span>
-        </button>
+        {permissions.reports_enabled && (
+          <button
+            disabled
+            className="w-10 h-10 md:w-full md:h-auto flex items-center justify-center md:justify-start gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold text-zinc-600 cursor-not-allowed"
+            title="Reports (Coming soon)"
+          >
+            <BarChart3 size={16} />
+            <span className="hidden md:inline">Reports (Soon)</span>
+          </button>
+        )}
       </nav>
 
       {/* Bottom section: Settings & Locking */}
@@ -1884,27 +1913,28 @@ function App() {
                         lastUpdated: 'Never',
                         transactions: []
                       };
-
                       const isLockedByVerify = loading && loadingMode !== 'ledger';
 
                       return (
                         <div className="space-y-6">
                           
                           {/* Summary Card */}
-                          <div className="glass-panel p-6 border-[var(--border-color)] bg-gradient-to-br from-zinc-950 to-zinc-900/60 relative overflow-hidden flex flex-col justify-between items-start gap-4">
-                            <div className="space-y-1">
-                              <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold font-sans">Available Balance</span>
-                              <div className={`text-3xl font-bold tracking-tight ${
-                                cache.balance === 'Not synced' ? 'text-zinc-500' : 'text-white'
-                              }`}>
-                                {cache.balance !== 'Not synced' && cache.balance !== 'Not found' ? `MVR ${cache.balance}` : cache.balance}
-                              </div>
-                              <div className="text-[10px] text-[var(--text-secondary)] flex items-center gap-1.5 font-mono">
-                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-zinc-600"></span>
-                                Last updated: {cache.lastUpdated}
+                          {permissions.ledger_show_balance && (
+                            <div className="glass-panel p-6 border-[var(--border-color)] bg-gradient-to-br from-zinc-950 to-zinc-900/60 relative overflow-hidden flex flex-col justify-between items-start gap-4">
+                              <div className="space-y-1">
+                                <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold font-sans">Available Balance</span>
+                                <div className={`text-3xl font-bold tracking-tight ${
+                                  cache.balance === 'Not synced' ? 'text-zinc-500' : 'text-white'
+                                }`}>
+                                  {cache.balance !== 'Not synced' && cache.balance !== 'Not found' ? `MVR ${cache.balance}` : cache.balance}
+                                </div>
+                                <div className="text-[10px] text-[var(--text-secondary)] flex items-center gap-1.5 font-mono">
+                                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-zinc-600"></span>
+                                  Last updated: {cache.lastUpdated}
+                                </div>
                               </div>
                             </div>
-                          </div>
+                          )}
 
                           {/* Locking Overlay notification */}
                           {isLockedByVerify && (
@@ -1986,6 +2016,13 @@ function App() {
                         transactions: []
                       };
 
+                      const displayedTransactions = cache.transactions.filter(tx => {
+                        if (!permissions.ledger_show_debit) {
+                          return tx.amount.startsWith('+');
+                        }
+                        return true;
+                      });
+
                       const isBml = activeLedgerAcc.bank_name === 'BML';
                       const isSyncing = loading && loadingMode === 'ledger';
                       const isLockedByVerify = loading && loadingMode !== 'ledger';
@@ -2005,7 +2042,7 @@ function App() {
                           {/* Panel Header with Title and Sync Button */}
                           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-[var(--border-color)] pb-4">
                             <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider font-sans">
-                              Statement Entries ({cache.transactions.length})
+                              Statement Entries ({displayedTransactions.length})
                             </h3>
                             <button
                               onClick={() => syncLedger(selectedLedgerAccountId)}
@@ -2114,12 +2151,12 @@ function App() {
                           </div>
 
                           <div className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-black/30 flex flex-col font-sans">
-                            {isSyncing && cache.transactions.length === 0 ? (
+                            {isSyncing && displayedTransactions.length === 0 ? (
                               <div className="p-12 text-center text-zinc-500 flex flex-col items-center gap-3">
                                 <Loader2 className="animate-spin text-zinc-600" size={32} />
                                 <span className="italic text-sm">Logging into bank account securely...</span>
                               </div>
-                            ) : cache.transactions.length === 0 ? (
+                            ) : displayedTransactions.length === 0 ? (
                               <div className="p-12 text-center text-zinc-500 italic text-sm">
                                 No statement entries available. Click "Sync" to fetch recent history.
                               </div>
@@ -2137,7 +2174,7 @@ function App() {
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-zinc-900/50">
-                                      {cache.transactions.map((tx, idx) => {
+                                      {displayedTransactions.map((tx, idx) => {
                                         const isCredit = tx.amount.startsWith('+');
                                         const detailsParts = tx.details.split('\n');
                                         const description = (detailsParts[0] || '').trim();
@@ -2160,7 +2197,7 @@ function App() {
                                               }`}>
                                                 {tx.amount}
                                               </div>
-                                              {tx.runningBalance && (
+                                              {permissions.ledger_show_balance && tx.runningBalance && (
                                                 <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1.5">
                                                   Bal: MVR {tx.runningBalance}
                                                 </div>
@@ -2175,7 +2212,7 @@ function App() {
 
                                 {/* Mobile List Layout */}
                                 <div className="block md:hidden divide-y divide-zinc-900/50">
-                                  {cache.transactions.map((tx, idx) => {
+                                  {displayedTransactions.map((tx, idx) => {
                                     const isCredit = tx.amount.startsWith('+');
                                     return (
                                       <div key={idx} className="p-4 flex justify-between items-start hover:bg-white/[0.02] transition-colors gap-4">
@@ -2189,7 +2226,7 @@ function App() {
                                           }`}>
                                             {tx.amount}
                                           </div>
-                                          {tx.runningBalance && (
+                                          {permissions.ledger_show_balance && tx.runningBalance && (
                                             <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1">
                                               Bal: MVR {tx.runningBalance}
                                             </div>

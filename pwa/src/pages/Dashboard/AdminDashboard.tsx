@@ -1,6 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle, LogOut, Terminal, X, Copy, Lock } from 'lucide-react';
+import { CheckCircle, LogOut, Terminal, X, Copy, Lock, Info } from 'lucide-react';
+
+const Tooltip = ({ text }: { text: string }) => (
+  <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
+    <Info size={14} className="text-[var(--text-secondary)] hover:text-white transition-colors" />
+    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-3 bg-zinc-900 border border-zinc-700 text-white text-xs leading-relaxed rounded shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 font-normal normal-case">
+      {text}
+      <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-zinc-700"></div>
+    </div>
+  </div>
+);
 
 export default function AdminDashboard() {
   const [companies, setCompanies] = useState<any[]>([]);
@@ -177,12 +187,12 @@ export default function AdminDashboard() {
             <thead>
               <tr className="border-b border-[var(--border-color)] text-[var(--text-secondary)]">
                 <th className="py-3 px-4">Company Name</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Subscription Tier</th>
-                <th className="py-3 px-4">Verifications (Used)</th>
-                <th className="py-3 px-4">Terminals</th>
-                <th className="py-3 px-4">Lock Timeout</th>
-                <th className="py-3 px-4">Actions</th>
+                <th className="py-3 px-4">Status <Tooltip text="Account approval status (Pending/Active/Suspended)." /></th>
+                <th className="py-3 px-4">Subscription Tier <Tooltip text="Billing plan selection controlling account limits." /></th>
+                <th className="py-3 px-4">Verifications (Used) <Tooltip text="Total checks processed vs billing cycle limit." /></th>
+                <th className="py-3 px-4">Terminals <Tooltip text="Current active terminals vs the max terminals limit (editable by superadmin to buy/allocate extra terminals)." /></th>
+                <th className="py-3 px-4">Lock Timeout <Tooltip text="Maximum inactive duration before terminals lock automatically." /></th>
+                <th className="py-3 px-4">Actions <Tooltip text="Approve or suspend company operations." /></th>
               </tr>
             </thead>
             <tbody>
