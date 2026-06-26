@@ -23,7 +23,19 @@ class CompanyController extends Controller
             'name' => 'required|string',
         ]);
 
-        $tenantId = $request->user()->tenant_id;
+        $tenant = $request->user()->tenant;
+        $tenantId = $tenant->id;
+
+        // Check subscription terminal limits
+        $currentTerminals = Terminal::where('tenant_id', $tenantId)->count();
+        $maxTerminals = $tenant->max_terminals ?? 1;
+
+        if ($currentTerminals >= $maxTerminals) {
+            return response()->json([
+                'message' => 'Cashier terminal limit reached for your subscription plan. Please contact support or upgrade.'
+            ], 403);
+        }
+
         // Generate a random hardware ID
         $hardwareId = 'term_' . bin2hex(random_bytes(8));
         // Generate a 6-digit pairing code

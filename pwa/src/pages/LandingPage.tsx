@@ -150,6 +150,7 @@ export default function LandingPage() {
             <div className="text-5xl font-extrabold mb-8 font-heading">MVR 499<span className="text-xl font-normal text-gray-500">/mo</span></div>
             <ul className="space-y-4 mb-10 flex-1 text-gray-300">
               <li className="flex gap-3 items-center"><CheckCircle size={20} className="text-[#10b981]"/> Up to 300 Verifications</li>
+              <li className="flex gap-3 items-center"><CheckCircle size={20} className="text-[#10b981]"/> 1 Cashier Terminal</li>
               <li className="flex gap-3 items-center"><CheckCircle size={20} className="text-[#10b981]"/> 2 Bank Accounts</li>
               <li className="flex gap-3 items-center"><CheckCircle size={20} className="text-[#10b981]"/> Standard Support</li>
             </ul>
@@ -163,6 +164,7 @@ export default function LandingPage() {
             <div className="text-5xl font-extrabold mb-8 font-heading">MVR 999<span className="text-xl font-normal text-gray-500">/mo</span></div>
             <ul className="space-y-4 mb-10 flex-1 text-gray-200">
               <li className="flex gap-3 items-center"><CheckCircle size={20} className="text-[#10b981]"/> <strong>Unlimited</strong> Verifications</li>
+              <li className="flex gap-3 items-center"><CheckCircle size={20} className="text-[#10b981]"/> 1 Cashier Terminal, additional CT at 499/-</li>
               <li className="flex gap-3 items-center"><CheckCircle size={20} className="text-[#10b981]"/> 4 Bank Accounts</li>
               <li className="flex gap-3 items-center"><CheckCircle size={20} className="text-[#10b981]"/> Priority Support</li>
             </ul>
@@ -175,6 +177,7 @@ export default function LandingPage() {
             <div className="text-5xl font-extrabold mb-8 font-heading">MVR 1999<span className="text-xl font-normal text-gray-500">/mo</span></div>
             <ul className="space-y-4 mb-10 flex-1 text-gray-300">
               <li className="flex gap-3 items-center"><CheckCircle size={20} className="text-[#10b981]"/> <strong>Unlimited</strong> Verifications</li>
+              <li className="flex gap-3 items-center"><CheckCircle size={20} className="text-[#10b981]"/> 2 Cashier Terminals, additional CT at 399/-</li>
               <li className="flex gap-3 items-center"><CheckCircle size={20} className="text-[#10b981]"/> 20 Bank Accounts</li>
               <li className="flex gap-3 items-center"><CheckCircle size={20} className="text-[#10b981]"/> 24/7 Dedicated Support</li>
             </ul>

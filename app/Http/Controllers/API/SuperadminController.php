@@ -28,6 +28,7 @@ class SuperadminController extends Controller
             'status' => 'required|in:pending,active,suspended',
             'subscription_tier' => 'required|in:free,499,999,1999',
             'lock_timeout' => 'sometimes|integer|min:5|max:300',
+            'max_terminals' => 'sometimes|integer|min:1',
         ]);
 
         $tenant = Tenant::findOrFail($id);
@@ -36,6 +37,22 @@ class SuperadminController extends Controller
         if ($request->has('lock_timeout')) {
             $tenant->lock_timeout = $request->lock_timeout;
         }
+
+        // Handle max terminals updating and dynamic baselines
+        $maxTerminals = $request->has('max_terminals') ? $request->max_terminals : ($tenant->max_terminals ?? 1);
+        if ($tenant->subscription_tier === 'free' || $tenant->subscription_tier === '499') {
+            $maxTerminals = 1;
+        } elseif ($tenant->subscription_tier === '999') {
+            if ($maxTerminals < 1) {
+                $maxTerminals = 1;
+            }
+        } elseif ($tenant->subscription_tier === '1999') {
+            if ($maxTerminals < 2) {
+                $maxTerminals = 2;
+            }
+        }
+        $tenant->max_terminals = $maxTerminals;
+
         $tenant->save();
 
         // Also approve the primary user if it's active

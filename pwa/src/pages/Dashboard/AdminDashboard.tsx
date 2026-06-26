@@ -1,11 +1,20 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle, LogOut, Terminal, X, Copy } from 'lucide-react';
+import { CheckCircle, LogOut, Terminal, X, Copy, Lock } from 'lucide-react';
 
 export default function AdminDashboard() {
   const [companies, setCompanies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+
+  const [securityPin] = useState(() => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    let result = '';
+    for (let i = 0; i < 4; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+  });
 
   const [selectedTerminal, setSelectedTerminal] = useState<any | null>(null);
   const [oneTimeCode, setOneTimeCode] = useState('');
@@ -55,11 +64,27 @@ export default function AdminDashboard() {
     navigate('/login');
   };
 
-  const updateCompany = async (id: number, status: string, tier: string, lockTimeout?: number) => {
+  const updateCompany = async (id: number, status: string, tier: string, lockTimeout?: number, maxTerminals?: number) => {
+    const currentCompany = companies.find(c => c.id === id);
+    const isStatusChanged = currentCompany && currentCompany.status !== status;
+    const isTierChanged = currentCompany && currentCompany.subscription_tier !== tier;
+
+    if (isStatusChanged || isTierChanged) {
+      const userPin = window.prompt(`To confirm this action, please enter the 4-letter security PIN displayed at the top of the panel (${securityPin}):`);
+      if (!userPin || userPin.toUpperCase() !== securityPin) {
+        alert("Invalid or empty PIN. Action aborted.");
+        fetchData();
+        return;
+      }
+    }
+
     const token = localStorage.getItem('viri_token');
     const payload: any = { status, subscription_tier: tier };
     if (lockTimeout !== undefined) {
       payload.lock_timeout = lockTimeout;
+    }
+    if (maxTerminals !== undefined) {
+      payload.max_terminals = maxTerminals;
     }
     await fetch(`/api/admin/companies/${id}`, {
       method: 'PUT',
@@ -131,6 +156,22 @@ export default function AdminDashboard() {
           </button>
         </header>
 
+        {/* Security Confirmation PIN display */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-6 flex items-center justify-between shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-yellow-500/10 flex items-center justify-center text-yellow-500">
+              <Lock size={20} />
+            </div>
+            <div>
+              <h4 className="font-bold text-white text-sm">Security Confirmation PIN</h4>
+              <p className="text-xs text-zinc-400">Enter this PIN to confirm company status updates or subscription plan changes.</p>
+            </div>
+          </div>
+          <div className="bg-zinc-800 border border-zinc-700 px-4 py-2 rounded-lg">
+            <span className="font-mono text-xl font-extrabold text-yellow-400 tracking-widest">{securityPin}</span>
+          </div>
+        </div>
+
         <div className="glass-panel p-6 overflow-x-auto">
           <table className="w-full text-left">
             <thead>
@@ -157,34 +198,61 @@ export default function AdminDashboard() {
                     <select 
                       className="input-field py-1 px-2 h-auto text-sm"
                       value={company.subscription_tier}
-                      onChange={(e) => updateCompany(company.id, company.status, e.target.value)}
+                      onChange={(e) => updateCompany(company.id, company.status, e.target.value, company.lock_timeout, company.max_terminals)}
                     >
-                      <option value="free">Free</option>
-                      <option value="499">MVR 499</option>
-                      <option value="999">MVR 999</option>
-                      <option value="1999">MVR 1999</option>
+                      <option value="free">Free (1 Cashier Terminal)</option>
+                      <option value="499">Starter - MVR 499 (1 Cashier Terminal)</option>
+                      <option value="999">Growth - MVR 999 (1 Cashier Terminal, add. CT at 499/-)</option>
+                      <option value="1999">Enterprise - MVR 1999 (2 Cashier Terminals, add. CT at 399/-)</option>
                     </select>
                   </td>
-                  <td className="py-4 px-4 font-mono text-sm">{company.verifications_count}</td>
+                  <td className="py-4 px-4 font-mono text-sm">
+                    {company.verifications_count} / {company.subscription_tier === 'free' ? 20 : (company.subscription_tier === '499' ? 300 : 'Unlimited')}
+                  </td>
                   <td className="py-4 px-4">
-                    <div className="flex flex-col gap-1.5 max-w-[200px]">
-                      {company.terminals && company.terminals.length > 0 ? (
-                        company.terminals.map((term: any) => (
-                          <div key={term.id} className="flex items-center justify-between gap-2 py-1 border-b border-zinc-800 last:border-0">
-                            <span className="font-medium text-xs text-zinc-300 truncate" title={term.terminal_name}>
-                              {term.terminal_name}
-                            </span>
-                            <button 
-                              onClick={() => openDebugLogModal(term)} 
-                              className="text-[10px] text-blue-400 hover:text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded hover:bg-blue-500/10 transition-all flex items-center gap-1 font-mono"
-                            >
-                              <Terminal size={10} /> Logs
-                            </button>
-                          </div>
-                        ))
-                      ) : (
-                        <span className="text-zinc-500 italic text-xs">None</span>
-                      )}
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-1.5 mb-1.5 border-b border-zinc-800 pb-1.5">
+                        <span className="text-xs text-[var(--text-secondary)] font-mono">Limit:</span>
+                        <input 
+                          type="number"
+                          min="1"
+                          className="input-field py-0.5 px-1.5 h-auto text-xs w-14 font-mono text-center"
+                          value={company.max_terminals ?? 1}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value);
+                            if (!isNaN(val)) {
+                              const updated = companies.map(c => c.id === company.id ? { ...c, max_terminals: val } : c);
+                              setCompanies(updated);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const val = parseInt(e.target.value);
+                            if (!isNaN(val)) {
+                              updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, val);
+                            }
+                          }}
+                        />
+                        <span className="text-xs text-zinc-400 font-mono">({company.terminals?.length ?? 0} used)</span>
+                      </div>
+                      <div className="flex flex-col gap-1.5 max-w-[200px]">
+                        {company.terminals && company.terminals.length > 0 ? (
+                          company.terminals.map((term: any) => (
+                            <div key={term.id} className="flex items-center justify-between gap-2 py-1 border-b border-zinc-800 last:border-0">
+                              <span className="font-medium text-xs text-zinc-300 truncate" title={term.terminal_name}>
+                                {term.terminal_name}
+                              </span>
+                              <button 
+                                onClick={() => openDebugLogModal(term)} 
+                                className="text-[10px] text-blue-400 hover:text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded hover:bg-blue-500/10 transition-all flex items-center gap-1 font-mono"
+                              >
+                                <Terminal size={10} /> Logs
+                              </button>
+                            </div>
+                          ))
+                        ) : (
+                          <span className="text-zinc-500 italic text-xs">None</span>
+                        )}
+                      </div>
                     </div>
                   </td>
                   <td className="py-4 px-4 flex items-center gap-1.5">
@@ -204,7 +272,7 @@ export default function AdminDashboard() {
                       onBlur={(e) => {
                         const val = parseInt(e.target.value);
                         if (!isNaN(val)) {
-                          updateCompany(company.id, company.status, company.subscription_tier, val);
+                          updateCompany(company.id, company.status, company.subscription_tier, val, company.max_terminals);
                         }
                       }}
                     />
@@ -213,14 +281,14 @@ export default function AdminDashboard() {
                   <td className="py-4 px-4">
                     {company.status === 'pending' ? (
                       <button 
-                        onClick={() => updateCompany(company.id, 'active', company.subscription_tier)}
+                        onClick={() => updateCompany(company.id, 'active', company.subscription_tier, company.lock_timeout, company.max_terminals)}
                         className="btn btn-success text-xs py-1 px-3 flex items-center gap-1"
                       >
                         <CheckCircle size={14} /> Approve
                       </button>
                     ) : (
                       <button 
-                        onClick={() => updateCompany(company.id, 'pending', company.subscription_tier)}
+                        onClick={() => updateCompany(company.id, 'pending', company.subscription_tier, company.lock_timeout, company.max_terminals)}
                         className="btn btn-outline text-xs py-1 px-3 border-yellow-500/50 text-yellow-500 hover:bg-yellow-500/10"
                       >
                         Suspend

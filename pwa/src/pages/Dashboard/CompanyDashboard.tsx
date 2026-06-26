@@ -29,6 +29,20 @@ export default function CompanyDashboard() {
   
   const navigate = useNavigate();
 
+  const getVerificationLimit = () => {
+    const tier = user?.tenant?.subscription_tier;
+    if (tier === 'free') return '20';
+    if (tier === '499') return '300';
+    return 'Unlimited';
+  };
+
+  const getBankAccountLimit = () => {
+    const tier = user?.tenant?.subscription_tier;
+    if (tier === '1999') return 20;
+    if (tier === '999') return 4;
+    return 2; // free & 499
+  };
+
   useEffect(() => {
     fetchData();
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -194,9 +208,14 @@ export default function CompanyDashboard() {
         {activeTab === 'dashboard' && (
           <div className="grid md:grid-cols-2 gap-8">
             <div className="glass-panel p-6">
-              <h2 className="text-xl font-bold mb-4 border-b border-[var(--border-color)] pb-2 flex items-center">
-                Subscription Details <Tooltip text="Your current billing tier and monthly verification usage limits." />
-              </h2>
+              <div className="flex justify-between items-center border-b border-[var(--border-color)] pb-2 mb-4">
+                <h2 className="text-xl font-bold flex items-center">
+                  Subscription Details <Tooltip text="Your current billing tier and monthly verification usage limits." />
+                </h2>
+                <span className="text-xs font-semibold text-[var(--text-secondary)]">
+                  {getVerificationLimit()} Verifications/ {user?.tenant?.verifications_count ?? 0} used
+                </span>
+              </div>
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-[var(--text-secondary)]">Current Tier:</span>
@@ -214,9 +233,14 @@ export default function CompanyDashboard() {
                 <h2 className="text-xl font-bold flex items-center">
                   Terminals <Tooltip text="Create terminals to generate unique Hardware IDs. Paste these IDs into the Viri Cashier app on your devices." />
                 </h2>
-                <a href="/extention/viri-connect.zip" download className="flex items-center gap-1 text-sm text-[var(--color-success)] hover:underline bg-[var(--color-success)]/10 px-3 py-1 rounded transition-colors hover:bg-[var(--color-success)]/20">
-                  <Download size={14} /> Download Extension
-                </a>
+                <div className="flex items-center gap-4">
+                  <span className="text-xs font-semibold text-[var(--text-secondary)]">
+                    {user?.tenant?.max_terminals ?? 1} Cashier Terminals/ {terminals.length} used
+                  </span>
+                  <a href="/extention/viri-connect.zip" download className="flex items-center gap-1 text-sm text-[var(--color-success)] hover:underline bg-[var(--color-success)]/10 px-3 py-1 rounded transition-colors hover:bg-[var(--color-success)]/20">
+                    <Download size={14} /> Download Extension
+                  </a>
+                </div>
               </div>
               <form onSubmit={createTerminal} className="flex gap-2 mb-4">
                 <input type="text" required placeholder="New Terminal Name (e.g. Counter 1)" className="input-field flex-1" value={newTerminalName} onChange={e => setNewTerminalName(e.target.value)} />
@@ -318,9 +342,14 @@ export default function CompanyDashboard() {
             </div>
 
             <div className="glass-panel p-6 md:col-span-2">
-              <h2 className="text-xl font-bold mb-4 border-b border-[var(--border-color)] pb-2 flex items-center">
-                Bank Accounts <Tooltip text="Add the bank accounts where you receive transfers. These will be automatically checked by the terminals." />
-              </h2>
+              <div className="flex justify-between items-center border-b border-[var(--border-color)] pb-2 mb-4">
+                <h2 className="text-xl font-bold flex items-center">
+                  Bank Accounts <Tooltip text="Add the bank accounts where you receive transfers. These will be automatically checked by the terminals." />
+                </h2>
+                <span className="text-xs font-semibold text-[var(--text-secondary)]">
+                  {getBankAccountLimit()} Bank Accounts/ {bankAccounts.length} used
+                </span>
+              </div>
               <form onSubmit={createBankAccount} className="grid md:grid-cols-4 gap-4 mb-6">
                 <select className="input-field" value={bankName} onChange={e => setBankName(e.target.value)}>
                   <option value="BML">Bank of Maldives (BML)</option>
@@ -422,13 +451,14 @@ export default function CompanyDashboard() {
               <p className="text-[var(--text-secondary)]">Choose the plan that best fits your business needs.</p>
             </div>
             
-            <div className="grid md:grid-cols-3 gap-6">
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
               {/* Free Plan */}
               <div className="glass-panel p-8 border-t-4 border-t-zinc-500 flex flex-col">
                 <h3 className="text-xl font-bold text-zinc-300">Free Tier</h3>
                 <div className="text-3xl font-bold my-4">MVR 0 <span className="text-base font-normal text-[var(--text-secondary)]">/mo</span></div>
                 <ul className="space-y-3 mb-8 flex-1">
                   <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-zinc-500" /> 20 verifications / month</li>
+                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-zinc-500" /> 1 Cashier Terminal</li>
                   <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-zinc-500" /> 2 Bank Accounts</li>
                   <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-zinc-500" /> Standard Support</li>
                 </ul>
@@ -437,32 +467,48 @@ export default function CompanyDashboard() {
                 </button>
               </div>
 
-              {/* 499 Plan */}
-              <div className="glass-panel p-8 border-t-4 border-t-emerald-500 relative flex flex-col scale-105 shadow-2xl shadow-emerald-900/20 z-10">
-                <div className="absolute top-0 right-0 bg-emerald-500 text-black text-xs font-bold px-3 py-1 rounded-bl-lg">POPULAR</div>
-                <h3 className="text-xl font-bold text-emerald-400">Standard</h3>
+              {/* Starter Plan */}
+              <div className="glass-panel p-8 border-t-4 border-t-emerald-500 relative flex flex-col shadow-2xl shadow-emerald-900/10">
+                <h3 className="text-xl font-bold text-emerald-400">Starter</h3>
                 <div className="text-3xl font-bold my-4">MVR 499 <span className="text-base font-normal text-[var(--text-secondary)]">/mo</span></div>
                 <ul className="space-y-3 mb-8 flex-1">
                   <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-emerald-500" /> 300 verifications / month</li>
+                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-emerald-500" /> 1 Cashier Terminal</li>
                   <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-emerald-500" /> 2 Bank Accounts</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-emerald-500" /> Priority Support</li>
+                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-emerald-500" /> Standard Support</li>
                 </ul>
                 <button disabled={user?.tenant?.subscription_tier === '499'} className="btn btn-success w-full disabled:opacity-50 disabled:bg-emerald-900">
                   {user?.tenant?.subscription_tier === '499' ? 'Current Plan' : 'Upgrade'}
                 </button>
               </div>
 
-              {/* 999 Plan */}
+              {/* Growth Plan */}
               <div className="glass-panel p-8 border-t-4 border-t-purple-500 flex flex-col">
-                <h3 className="text-xl font-bold text-purple-400">Pro</h3>
+                <h3 className="text-xl font-bold text-purple-400">Growth</h3>
                 <div className="text-3xl font-bold my-4">MVR 999 <span className="text-base font-normal text-[var(--text-secondary)]">/mo</span></div>
                 <ul className="space-y-3 mb-8 flex-1">
                   <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-purple-500" /> Unlimited verifications</li>
+                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-purple-500" /> 1 Cashier Terminal, additional CT at 499/-</li>
                   <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-purple-500" /> 4 Bank Accounts</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-purple-500" /> 24/7 Dedicated Support</li>
+                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-purple-500" /> Priority Support</li>
                 </ul>
                 <button disabled={user?.tenant?.subscription_tier === '999'} className="btn bg-purple-600 hover:bg-purple-500 text-white w-full disabled:opacity-50">
                   {user?.tenant?.subscription_tier === '999' ? 'Current Plan' : 'Upgrade'}
+                </button>
+              </div>
+
+              {/* Enterprise Plan */}
+              <div className="glass-panel p-8 border-t-4 border-t-blue-500 flex flex-col">
+                <h3 className="text-xl font-bold text-blue-400">Enterprise</h3>
+                <div className="text-3xl font-bold my-4">MVR 1999 <span className="text-base font-normal text-[var(--text-secondary)]">/mo</span></div>
+                <ul className="space-y-3 mb-8 flex-1">
+                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-blue-500" /> Unlimited verifications</li>
+                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-blue-500" /> 2 Cashier Terminals, additional CT at 399/-</li>
+                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-blue-500" /> 20 Bank Accounts</li>
+                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-blue-500" /> 24/7 Dedicated Support</li>
+                </ul>
+                <button disabled={user?.tenant?.subscription_tier === '1999'} className="btn bg-blue-600 hover:bg-blue-500 text-white w-full disabled:opacity-50">
+                  {user?.tenant?.subscription_tier === '1999' ? 'Current Plan' : 'Upgrade'}
                 </button>
               </div>
             </div>
