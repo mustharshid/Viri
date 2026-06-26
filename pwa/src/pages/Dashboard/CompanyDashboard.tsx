@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X } from 'lucide-react';
+import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw } from 'lucide-react';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group ml-2 cursor-help align-middle">
@@ -35,6 +35,7 @@ export default function CompanyDashboard() {
   });
   const [accountName, setAccountName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
+  const [accountLabel, setAccountLabel] = useState('');
   const [mibProfileType, setMibProfileType] = useState('0');
   
   const navigate = useNavigate();
@@ -213,13 +214,46 @@ export default function CompanyDashboard() {
     }
   };
 
+  const regeneratePairingCode = async (id: number) => {
+    try {
+      const token = localStorage.getItem('viri_token');
+      const response = await fetch(`/api/company/terminals/${id}/regenerate-pairing-code`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setTerminals(prev => prev.map(t => t.id === id ? { 
+          ...t, 
+          pairing_code: data.pairing_code, 
+          pairing_code_expires_at: data.pairing_code_expires_at 
+        } : t));
+      } else {
+        const data = await response.json().catch(() => ({}));
+        alert(data.message || "Failed to regenerate pairing code.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error regenerating pairing code.");
+    }
+  };
+
   const createBankAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     const token = localStorage.getItem('viri_token');
     const res = await fetch('/api/company/bank-accounts', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bank_name: bankName, account_name: accountName, account_number: accountNumber, mib_profile_type: bankName === 'MIB' ? mibProfileType : '0' })
+      body: JSON.stringify({ 
+        bank_name: bankName, 
+        account_name: accountName, 
+        account_number: accountNumber, 
+        mib_profile_type: bankName === 'MIB' ? mibProfileType : '0',
+        label: accountLabel 
+      })
     });
     
     if (!res.ok) {
@@ -228,6 +262,7 @@ export default function CompanyDashboard() {
     } else {
       setAccountName('');
       setAccountNumber('');
+      setAccountLabel('');
       setMibProfileType('0');
       fetchData();
     }
@@ -365,7 +400,10 @@ export default function CompanyDashboard() {
                         term.pairing_code && isExpired ? (
                           <div className="flex justify-between items-center bg-red-900/20 p-3 rounded border border-red-500/20">
                             <span className="text-red-400 text-sm">Pairing Code Expired</span>
-                            <button onClick={() => deleteTerminal(term.id)} className="btn btn-outline text-xs py-1 px-2 border-red-500 text-red-500">Delete & Recreate</button>
+                            <div className="flex gap-2">
+                              <button onClick={() => regeneratePairingCode(term.id)} className="btn btn-outline text-xs py-1 px-2 border-yellow-500 text-yellow-500 hover:bg-yellow-500 hover:text-black transition-colors">Regenerate Code</button>
+                              <button onClick={() => deleteTerminal(term.id)} className="btn btn-outline text-xs py-1 px-2 border-red-500 text-red-500 hover:bg-red-500 hover:text-white transition-colors">Delete</button>
+                            </div>
                           </div>
                         ) : (
                           <div className="flex flex-col gap-2 w-full">
@@ -378,6 +416,10 @@ export default function CompanyDashboard() {
                                 <button onClick={() => copyToClipboard(term.hardware_id)} className="hover:text-white" title="Copy Hardware ID"><Copy size={14}/></button>
                               </div>
                             </div>
+
+                            <button type="button" onClick={() => regeneratePairingCode(term.id)} className="btn btn-outline border-yellow-500/50 text-yellow-400 hover:bg-yellow-500 hover:text-black py-2 text-xs w-full flex items-center justify-center gap-1.5 transition-colors">
+                              <RefreshCw size={14} /> Reconnect / Pair Device
+                            </button>
 
                             {term.allow_debug_until && new Date(term.allow_debug_until).getTime() > now && term.debug_one_time_code ? (
                               <div className="bg-blue-950/40 border border-blue-500/30 p-3 rounded flex flex-col gap-2">
@@ -436,13 +478,14 @@ export default function CompanyDashboard() {
                   {getBankAccountLimit()} Bank Accounts/ {bankAccounts.length} used
                 </span>
               </div>
-              <form onSubmit={createBankAccount} className="grid md:grid-cols-4 gap-4 mb-6">
+              <form onSubmit={createBankAccount} className="grid md:grid-cols-5 gap-4 mb-6">
                 <select className="input-field" value={bankName} onChange={e => setBankName(e.target.value)}>
                   <option value="BML">Bank of Maldives (BML)</option>
                   <option value="MIB">Maldives Islamic Bank (MIB)</option>
                 </select>
                 <input type="text" required placeholder="Account Name" className="input-field" value={accountName} onChange={e => setAccountName(e.target.value)} />
                 <input type="text" required placeholder="Account Number" className="input-field" value={accountNumber} onChange={e => setAccountNumber(e.target.value)} />
+                <input type="text" placeholder="Label (e.g. Counter 1)" className="input-field" value={accountLabel} onChange={e => setAccountLabel(e.target.value)} />
                 <button type="submit" className="btn btn-success flex justify-center items-center gap-2"><Plus size={18}/> Add Account</button>
               </form>
               {bankName === 'MIB' && (
@@ -462,11 +505,22 @@ export default function CompanyDashboard() {
                 {bankAccounts.map(acc => (
                   <div key={acc.id} className="bg-[var(--bg-canvas)] p-4 rounded border border-[var(--border-color)] flex justify-between items-center">
                     <div className="flex gap-4 items-center">
-                      <div className={`w-12 h-12 rounded-lg flex items-center justify-center font-bold text-white shadow-lg ${acc.bank_name === 'BML' ? 'bg-red-600' : 'bg-emerald-600'}`}>
-                        {acc.bank_name}
+                      <div className="w-12 h-12 rounded-lg bg-zinc-950 flex items-center justify-center p-1.5 shadow-lg border border-zinc-800 shrink-0">
+                        <img 
+                          src={acc.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'} 
+                          alt={acc.bank_name} 
+                          className="w-full h-full object-contain" 
+                        />
                       </div>
                       <div>
-                        <div className="font-bold text-lg">{acc.bank_name === 'BML' ? 'Bank of Maldives' : 'Maldives Islamic Bank'}</div>
+                        <div className="font-bold text-lg">
+                          {acc.label ? acc.label : (acc.bank_name === 'BML' ? 'Bank of Maldives' : 'Maldives Islamic Bank')}
+                        </div>
+                        {acc.label && (
+                          <div className="text-xs text-[var(--color-success)] font-semibold uppercase tracking-wider">
+                            {acc.bank_name === 'BML' ? 'Bank of Maldives' : 'Maldives Islamic Bank'}
+                          </div>
+                        )}
                         <div className="text-[var(--text-secondary)]">{acc.account_name}</div>
                         <div className="font-mono text-sm">{acc.account_number}</div>
                         {acc.bank_name === 'MIB' && (

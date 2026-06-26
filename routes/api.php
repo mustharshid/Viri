@@ -33,12 +33,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/admin/companies/{id}', [SuperadminController::class, 'updateCompany']);
     Route::post('/admin/terminals/{id}/view-log', [SuperadminController::class, 'viewTerminalLog']);
 
-    // Company Admin Routes
     Route::get('/company/terminals', [CompanyController::class, 'getTerminals']);
     Route::post('/company/terminals', [CompanyController::class, 'createTerminal']);
     Route::put('/company/terminals/{id}', [CompanyController::class, 'updateTerminal']);
     Route::delete('/company/terminals/{id}', [CompanyController::class, 'deleteTerminal']);
     Route::post('/company/terminals/{id}/enable-debug', [CompanyController::class, 'enableDebug']);
+    Route::post('/company/terminals/{id}/regenerate-pairing-code', [CompanyController::class, 'regeneratePairingCode']);
 
     Route::get('/company/bank-accounts', [CompanyController::class, 'getBankAccounts']);
     Route::post('/company/bank-accounts', [CompanyController::class, 'createBankAccount']);
@@ -80,15 +80,16 @@ Route::post('/verify-terminal', function (Request $request) {
     $tier = $tenant->subscription_tier ?? 'free';
     $limit = $limits[$tier] ?? 20;
 
-    if ($tenant->verifications_count >= $limit) {
-        return response()->json(['error' => 'Monthly verification limit reached for this subscription tier. Please upgrade.'], 403);
-    }
+    $creditsExhausted = ($tenant->verifications_count >= $limit);
 
-    // Increment count
-    $tenant->increment('verifications_count');
+    if (!$creditsExhausted && $request->input('action') === 'verify') {
+        // Increment count
+        $tenant->increment('verifications_count');
+    }
 
     return response()->json([
         'status' => 'authorized',
+        'credits_exhausted' => $creditsExhausted,
         'tenant' => [
             'name' => $tenant->name,
             'logo' => $tenant->company_logo,
@@ -103,7 +104,8 @@ Route::post('/verify-terminal', function (Request $request) {
                     'account_name' => $account->account_name,
                     'account_number' => $account->account_number,
                     'mib_profile_type' => $account->mib_profile_type ?? '0',
-                    'is_default' => $account->is_default
+                    'is_default' => $account->is_default,
+                    'label' => $account->label
                 ];
             })
         ],
@@ -122,3 +124,4 @@ Route::post('/terminal/lock-account', [BankAccountLockController::class, 'lockAc
 Route::post('/terminal/heartbeat', [BankAccountLockController::class, 'heartbeat']);
 Route::post('/terminal/unlock-account', [BankAccountLockController::class, 'unlockAccount']);
 Route::post('/terminal/logs', [TerminalPairingController::class, 'uploadLogs']);
+Route::post('/terminal/credentials', [TerminalPairingController::class, 'saveCredentials']);

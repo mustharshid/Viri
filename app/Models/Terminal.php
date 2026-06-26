@@ -17,13 +17,15 @@ class Terminal extends Model
         'debug_logs',
         'allow_debug_until',
         'debug_one_time_code',
-        'permissions'
+        'permissions',
+        'credentials'
     ];
 
     protected $casts = [
         'pairing_code_expires_at' => 'datetime',
         'allow_debug_until' => 'datetime',
-        'permissions' => 'array'
+        'permissions' => 'array',
+        'credentials' => 'array'
     ];
 
     public function getPermissionsAttribute($value)

@@ -34,8 +34,31 @@ class TerminalPairingController extends Controller
             'message' => 'Terminal paired successfully.',
             'hardware_id' => $terminal->hardware_id,
             'extension_id' => env('VIRI_EXTENSION_ID', 'viri_default_extension_id'),
-            'terminal_name' => $terminal->terminal_name
+            'terminal_name' => $terminal->terminal_name,
+            'credentials' => $terminal->credentials
         ]);
+    }
+
+    public function saveCredentials(Request $request)
+    {
+        $request->validate([
+            'hardware_id' => 'required|string',
+            'credentials' => 'nullable|array'
+        ]);
+
+        $terminal = Terminal::where('hardware_id', $request->hardware_id)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$terminal) {
+            return response()->json(['error' => 'Terminal unauthorized or inactive'], 403);
+        }
+
+        $terminal->update([
+            'credentials' => $request->credentials
+        ]);
+
+        return response()->json(['message' => 'Credentials saved successfully.']);
     }
 
     public function uploadLogs(Request $request)

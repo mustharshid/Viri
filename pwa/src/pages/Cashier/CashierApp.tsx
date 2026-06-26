@@ -9,6 +9,7 @@ interface BankAccount {
   account_number: string;
   mib_profile_type?: string;
   is_default: boolean;
+  label?: string;
 }
 
 interface LedgerTransaction {
@@ -35,6 +36,7 @@ function App() {
     ledger_show_debit: true,
     reports_enabled: false
   });
+  const [creditsExhausted, setCreditsExhausted] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [isDefault, setIsDefault] = useState(true);
   const [defaultAccountId, setDefaultAccountId] = useState<string>(() => {
@@ -84,6 +86,84 @@ function App() {
   const [mibPassword, setMibPassword] = useState(localStorage.getItem('viri_mib_password') || '');
   const [mibTotpSeed, setMibTotpSeed] = useState(localStorage.getItem('viri_mib_totp_seed') || '');
   const [mibConfigured, setMibConfigured] = useState(!!localStorage.getItem('viri_mib_username'));
+
+  const syncCredentialsToServer = async (customCreds?: any) => {
+    const hId = localStorage.getItem('viri_hardware_id') || hardwareId;
+    const bUrl = localStorage.getItem('viri_backend_url') || backendUrl;
+    if (!hId || !bUrl) return;
+
+    const bml_username = customCreds?.bml_username !== undefined ? customCreds.bml_username : localStorage.getItem('viri_bml_username') || '';
+    const bml_password = customCreds?.bml_password !== undefined ? customCreds.bml_password : localStorage.getItem('viri_bml_password') || '';
+    const bml_totp_seed = customCreds?.bml_totp_seed !== undefined ? customCreds.bml_totp_seed : localStorage.getItem('viri_bml_totp_seed') || '';
+
+    const mib_username = customCreds?.mib_username !== undefined ? customCreds.mib_username : localStorage.getItem('viri_mib_username') || '';
+    const mib_password = customCreds?.mib_password !== undefined ? customCreds.mib_password : localStorage.getItem('viri_mib_password') || '';
+    const mib_totp_seed = customCreds?.mib_totp_seed !== undefined ? customCreds.mib_totp_seed : localStorage.getItem('viri_mib_totp_seed') || '';
+
+    try {
+      await fetch(`${bUrl}/terminal/credentials`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hardware_id: hId,
+          credentials: {
+            bml_username,
+            bml_password,
+            bml_totp_seed,
+            mib_username,
+            mib_password,
+            mib_totp_seed
+          }
+        })
+      });
+    } catch (e) {
+      console.error("Error syncing credentials to server:", e);
+    }
+  };
+
+  const saveBmlCredentials = async () => {
+    localStorage.setItem('viri_bml_username', bmlUsername);
+    localStorage.setItem('viri_bml_password', bmlPassword);
+    localStorage.setItem('viri_bml_totp_seed', bmlTotpSeed);
+    setBmlConfigured(true);
+    await syncCredentialsToServer({
+      bml_username: bmlUsername,
+      bml_password: bmlPassword,
+      bml_totp_seed: bmlTotpSeed
+    });
+  };
+
+  const resetBmlCredentials = async () => {
+    setBmlUsername(''); setBmlPassword(''); setBmlTotpSeed(''); setBmlConfigured(false);
+    localStorage.removeItem('viri_bml_username'); localStorage.removeItem('viri_bml_password'); localStorage.removeItem('viri_bml_totp_seed');
+    await syncCredentialsToServer({
+      bml_username: '',
+      bml_password: '',
+      bml_totp_seed: ''
+    });
+  };
+
+  const saveMibCredentials = async () => {
+    localStorage.setItem('viri_mib_username', mibUsername);
+    localStorage.setItem('viri_mib_password', mibPassword);
+    localStorage.setItem('viri_mib_totp_seed', mibTotpSeed);
+    setMibConfigured(true);
+    await syncCredentialsToServer({
+      mib_username: mibUsername,
+      mib_password: mibPassword,
+      mib_totp_seed: mibTotpSeed
+    });
+  };
+
+  const resetMibCredentials = async () => {
+    setMibUsername(''); setMibPassword(''); setMibTotpSeed(''); setMibConfigured(false);
+    localStorage.removeItem('viri_mib_username'); localStorage.removeItem('viri_mib_password'); localStorage.removeItem('viri_mib_totp_seed');
+    await syncCredentialsToServer({
+      mib_username: '',
+      mib_password: '',
+      mib_totp_seed: ''
+    });
+  };
 
   // Verification State
   const [loading, setLoading] = useState(false);
@@ -333,6 +413,9 @@ function App() {
               reports_enabled: data.permissions.reports_enabled ?? false
             });
           }
+          if (data.credits_exhausted !== undefined) {
+            setCreditsExhausted(data.credits_exhausted);
+          }
 
           if (accounts.length > 0) {
             const savedDefaultId = localStorage.getItem('viri_default_account_id');
@@ -390,6 +473,38 @@ function App() {
       setHardwareId(data.hardware_id);
       if (data.extension_id) setExtensionId(data.extension_id);
       if (data.terminal_name) setTerminalName(data.terminal_name);
+
+      // Restore credentials if they exist in the response
+      if (data.credentials) {
+        const creds = data.credentials;
+        if (creds.bml_username) {
+          localStorage.setItem('viri_bml_username', creds.bml_username);
+          setBmlUsername(creds.bml_username);
+        }
+        if (creds.bml_password) {
+          localStorage.setItem('viri_bml_password', creds.bml_password);
+          setBmlPassword(creds.bml_password);
+        }
+        if (creds.bml_totp_seed) {
+          localStorage.setItem('viri_bml_totp_seed', creds.bml_totp_seed);
+          setBmlTotpSeed(creds.bml_totp_seed);
+        }
+        setBmlConfigured(!!creds.bml_username);
+
+        if (creds.mib_username) {
+          localStorage.setItem('viri_mib_username', creds.mib_username);
+          setMibUsername(creds.mib_username);
+        }
+        if (creds.mib_password) {
+          localStorage.setItem('viri_mib_password', creds.mib_password);
+          setMibPassword(creds.mib_password);
+        }
+        if (creds.mib_totp_seed) {
+          localStorage.setItem('viri_mib_totp_seed', creds.mib_totp_seed);
+          setMibTotpSeed(creds.mib_totp_seed);
+        }
+        setMibConfigured(!!creds.mib_username);
+      }
       
       // Clear legacy PIN when a new terminal is paired
       localStorage.removeItem('viri_terminal_pin');
@@ -583,7 +698,7 @@ function App() {
       const response = await fetch(`${backendUrl}/verify-terminal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hardware_id: hardwareId })
+        body: JSON.stringify({ hardware_id: hardwareId, action: 'verify' })
       });
 
       if (!response.ok) {
@@ -1434,17 +1549,9 @@ function App() {
 
                   <div className="mt-4">
                     {!bmlConfigured ? (
-                      <button className="btn btn-success w-full py-2 text-sm" onClick={() => {
-                        localStorage.setItem('viri_bml_username', bmlUsername);
-                        localStorage.setItem('viri_bml_password', bmlPassword);
-                        localStorage.setItem('viri_bml_totp_seed', bmlTotpSeed);
-                        setBmlConfigured(true);
-                      }}>Save BML Credentials</button>
+                      <button className="btn btn-success w-full py-2 text-sm" onClick={saveBmlCredentials}>Save BML Credentials</button>
                     ) : (
-                      <button className="text-xs text-red-400 hover:text-red-300 underline font-semibold" onClick={() => {
-                        setBmlUsername(''); setBmlPassword(''); setBmlTotpSeed(''); setBmlConfigured(false);
-                        localStorage.removeItem('viri_bml_username'); localStorage.removeItem('viri_bml_password'); localStorage.removeItem('viri_bml_totp_seed');
-                      }}>Reset BML Credentials</button>
+                      <button className="text-xs text-red-400 hover:text-red-300 underline font-semibold" onClick={resetBmlCredentials}>Reset BML Credentials</button>
                     )}
                   </div>
                 </div>
@@ -1474,17 +1581,9 @@ function App() {
 
                   <div className="mt-4">
                     {!mibConfigured ? (
-                      <button className="btn btn-success w-full py-2 text-sm" onClick={() => {
-                        localStorage.setItem('viri_mib_username', mibUsername);
-                        localStorage.setItem('viri_mib_password', mibPassword);
-                        localStorage.setItem('viri_mib_totp_seed', mibTotpSeed);
-                        setMibConfigured(true);
-                      }}>Save MIB Credentials</button>
+                      <button className="btn btn-success w-full py-2 text-sm" onClick={saveMibCredentials}>Save MIB Credentials</button>
                     ) : (
-                      <button className="text-xs text-red-400 hover:text-red-300 underline font-semibold" onClick={() => {
-                        setMibUsername(''); setMibPassword(''); setMibTotpSeed(''); setMibConfigured(false);
-                        localStorage.removeItem('viri_mib_username'); localStorage.removeItem('viri_mib_password'); localStorage.removeItem('viri_mib_totp_seed');
-                      }}>Reset MIB Credentials</button>
+                      <button className="text-xs text-red-400 hover:text-red-300 underline font-semibold" onClick={resetMibCredentials}>Reset MIB Credentials</button>
                     )}
                   </div>
                 </div>
@@ -1501,9 +1600,21 @@ function App() {
                   <p className="text-xs text-[var(--text-secondary)] italic">No accounts configured. Please add them in the company dashboard.</p>
                 ) : (
                   bankAccounts.map(acc => (
-                    <div key={acc.id} className="p-3 bg-[var(--bg-canvas)] border border-[var(--border-color)] rounded-md text-sm">
-                      <div className="font-medium text-[var(--text-primary)]">{acc.bank_name} - {acc.account_name}</div>
-                      <div className="text-[var(--text-secondary)] text-xs mt-1">Account Number: {acc.account_number}</div>
+                    <div key={acc.id} className="p-3 bg-[var(--bg-canvas)] border border-[var(--border-color)] rounded-xl text-sm flex items-center gap-3">
+                      <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800 p-1 flex items-center justify-center shrink-0">
+                        <img src={acc.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt="" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-[var(--text-primary)] flex items-center gap-1.5 flex-wrap">
+                          <span>{acc.bank_name} - {acc.account_name}</span>
+                          {acc.label && (
+                            <span className="text-[10px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium">
+                              {acc.label}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[var(--text-secondary)] text-xs mt-0.5">Account Number: {acc.account_number}</div>
+                      </div>
                     </div>
                   ))
                 )}
@@ -1572,21 +1683,53 @@ function App() {
 
                     <div className="input-group mt-4">
                       <label className="input-label">Receiving Account</label>
-                      <select
-                        className="input-field appearance-none cursor-pointer"
-                        value={selectedAccountId}
-                        disabled={loading || bankAccounts.length === 0}
-                        onChange={(e) => setSelectedAccountId(e.target.value)}
-                      >
-                        {bankAccounts.length === 0 && (
-                          <option value="">No accounts configured</option>
-                        )}
-                        {bankAccounts.map((acc) => (
-                          <option key={acc.id} value={acc.id.toString()}>
-                            {acc.bank_name} - {acc.account_name} (...{acc.account_number.slice(-4)})
-                          </option>
-                        ))}
-                      </select>
+                      {bankAccounts.length === 0 ? (
+                        <div className="p-3 bg-zinc-900/30 border border-zinc-800 rounded-lg text-center text-zinc-500 italic text-sm">
+                          No accounts configured
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                          {bankAccounts.map((acc) => {
+                            const isSelected = selectedAccountId === acc.id.toString();
+                            const isBml = acc.bank_name === 'BML';
+                            return (
+                              <button
+                                key={acc.id}
+                                type="button"
+                                disabled={loading}
+                                onClick={() => setSelectedAccountId(acc.id.toString())}
+                                className={`w-full px-3 py-2.5 rounded-xl border text-left flex items-center gap-3 transition-all ${
+                                  isSelected
+                                    ? isBml
+                                      ? 'bg-red-950/20 border-red-500/80 shadow-[0_0_10px_rgba(239,68,68,0.1)]'
+                                      : 'bg-emerald-955/20 border-emerald-500/80 shadow-[0_0_10px_rgba(16,185,129,0.1)]'
+                                    : 'bg-[var(--bg-canvas)] border-[var(--border-color)] hover:border-zinc-700'
+                                }`}
+                              >
+                                <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800 p-1 flex items-center justify-center shrink-0">
+                                  <img src={isBml ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt="" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className={`text-[9px] uppercase font-bold tracking-wider ${
+                                      isBml ? 'text-red-400' : 'text-emerald-400'
+                                    }`}>
+                                      {acc.bank_name}
+                                    </span>
+                                    {acc.label && (
+                                      <span className="text-[9px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium">
+                                        {acc.label}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-xs font-semibold text-white truncate">{acc.account_name}</div>
+                                  <div className="text-[10px] font-mono text-[var(--text-secondary)]">{acc.account_number}</div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-between mt-4 mb-8">
@@ -1607,9 +1750,9 @@ function App() {
                     <div className="flex gap-4">
                       <button
                         onClick={() => handleVerify('search')}
-                        disabled={loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0}
+                        disabled={loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 || creditsExhausted}
                         className={`flex-1 btn btn-success py-3 text-lg justify-center gap-2 ${
-                          loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 ? 'opacity-70 cursor-not-allowed' : ''
+                          loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 || creditsExhausted ? 'opacity-50 cursor-not-allowed' : ''
                         }`}
                       >
                         {loading && loadingMode === 'search' ? (
@@ -1626,9 +1769,9 @@ function App() {
                       </button>
                       <button
                         onClick={() => handleVerify('history')}
-                        disabled={loading || !isCredentialsComplete}
+                        disabled={loading || !isCredentialsComplete || creditsExhausted}
                         className={`flex-1 btn btn-outline py-3 text-lg justify-center gap-2 ${
-                          loading || !isCredentialsComplete ? 'opacity-70 cursor-not-allowed' : ''
+                          loading || !isCredentialsComplete || creditsExhausted ? 'opacity-50 cursor-not-allowed' : ''
                         }`}
                       >
                         {loading && loadingMode === 'history' ? (
@@ -1649,6 +1792,16 @@ function App() {
                       <p className="text-xs text-[var(--color-warning)] mt-2.5 text-center leading-relaxed">
                         ⚠️ Please complete all bank credentials (username, password, authenticator seed) in settings before proceeding.
                       </p>
+                    )}
+
+                    {creditsExhausted && (
+                      <div className="mt-4 p-3.5 bg-red-950/20 border border-red-900/40 rounded-xl text-xs text-red-400 leading-normal flex items-start gap-2.5">
+                        <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                        <div>
+                          <strong className="block font-bold mb-0.5">Verification Credits Exhausted</strong>
+                          Your monthly verification limit has been reached. Verification services are temporarily disabled. Please contact your company administrator to upgrade your plan.
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1877,25 +2030,37 @@ function App() {
                               <button
                                 key={acc.id}
                                 onClick={() => setSelectedLedgerAccountId(acc.id.toString())}
-                                className={`px-4 py-3 rounded-xl border text-left flex flex-col gap-1 transition-all shrink-0 lg:shrink w-[260px] lg:w-full ${
+                                className={`px-4 py-3 rounded-xl border text-left flex items-center gap-3 transition-all shrink-0 lg:shrink w-[260px] lg:w-full ${
                                   isSelected
                                     ? isBml
-                                      ? 'bg-red-950/20 border-red-500/80 shadow-[0_0_15px_rgba(239,68,68,0.15)]'
-                                      : 'bg-emerald-950/20 border-emerald-500/80 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
+                                      ? 'bg-red-955/20 border-red-500/80 shadow-[0_0_15px_rgba(239,68,68,0.15)]'
+                                      : 'bg-emerald-955/20 border-emerald-500/80 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
                                     : 'bg-[var(--bg-surface)] border-[var(--border-color)] hover:border-zinc-700'
                                 }`}
                               >
-                                <span className={`text-[10px] uppercase font-bold tracking-wider ${
-                                  isBml ? 'text-red-400' : 'text-emerald-400'
-                                }`}>
-                                  {acc.bank_name === 'MIB' ? 'Maldives Islamic Bank' : 'Bank of Maldives'}
-                                </span>
-                                <span className="text-xs font-semibold text-white truncate max-w-full">
-                                  {acc.account_name}
-                                </span>
-                                <span className="text-[11px] font-mono text-[var(--text-secondary)]">
-                                  {acc.account_number}
-                                </span>
+                                <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800 p-1 flex items-center justify-center shrink-0">
+                                  <img src={isBml ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt="" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className={`text-[9px] uppercase font-bold tracking-wider ${
+                                      isBml ? 'text-red-400' : 'text-emerald-400'
+                                    }`}>
+                                      {acc.bank_name}
+                                    </span>
+                                    {acc.label && (
+                                      <span className="text-[9px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium">
+                                        {acc.label}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-xs font-semibold text-white truncate max-w-full">
+                                    {acc.account_name}
+                                  </div>
+                                  <div className="text-[10px] font-mono text-[var(--text-secondary)]">
+                                    {acc.account_number}
+                                  </div>
+                                </div>
                               </button>
                             );
                           })}

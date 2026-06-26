@@ -141,6 +141,26 @@ class CompanyController extends Controller
         ]);
     }
 
+    public function regeneratePairingCode(Request $request, $id)
+    {
+        $tenantId = $request->user()->tenant_id;
+        $terminal = Terminal::where('tenant_id', $tenantId)->findOrFail($id);
+
+        // Generate a 6-digit pairing code
+        $pairingCode = str_pad(mt_rand(0, 999999), 6, '0', STR_PAD_LEFT);
+
+        $terminal->update([
+            'pairing_code' => $pairingCode,
+            'pairing_code_expires_at' => now()->addMinutes(10),
+        ]);
+
+        return response()->json([
+            'message' => 'Pairing code generated successfully.',
+            'pairing_code' => $pairingCode,
+            'pairing_code_expires_at' => $terminal->pairing_code_expires_at->toIso8601String()
+        ]);
+    }
+
     // === BANK ACCOUNTS ===
     public function getBankAccounts(Request $request)
     {
@@ -170,6 +190,7 @@ class CompanyController extends Controller
             'account_name' => 'required|string',
             'account_number' => 'required|string',
             'mib_profile_type' => 'nullable|string|in:0,1',
+            'label' => 'nullable|string',
         ]);
 
         $account = BankAccount::create([
@@ -178,6 +199,7 @@ class CompanyController extends Controller
             'account_name' => $request->account_name,
             'account_number' => $request->account_number,
             'mib_profile_type' => $request->mib_profile_type ?? '0',
+            'label' => $request->label,
         ]);
 
         return response()->json(['account' => $account]);

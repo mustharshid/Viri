@@ -16,6 +16,7 @@ class BankAccount extends Model
         'account_number',
         'mib_profile_type',
         'is_default',
+        'label',
     ];
 
     protected $casts = [
