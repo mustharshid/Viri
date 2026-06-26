@@ -1311,7 +1311,7 @@ function App() {
 
         {showSettings ? (
           /* Extension Settings Panel */
-          <div className="w-full max-w-xl mb-6 glass-panel border-[var(--color-accent)] animate-fade-in">
+          <div className="w-full max-w-xl lg:max-w-4xl mb-6 glass-panel border-[var(--color-accent)] animate-fade-in">
             <h3 className="text-md font-semibold mb-2 flex items-center gap-2">
               <Settings size={16} /> Viri Terminal Settings
             </h3>
@@ -1386,66 +1386,86 @@ function App() {
                 Stored securely on this local machine. These credentials are NEVER sent to the Viri servers.
               </p>
 
-              {/* BML Credentials */}
-              <div className="mb-4 p-3 border border-zinc-800 rounded bg-black/20">
-                <div className="flex-between mb-2">
-                  <span className="text-sm font-bold">Bank of Maldives (BML)</span>
-                  {bmlConfigured ? (
-                    <span className="badge badge-success flex items-center gap-1"><CheckCircle size={10} /> Configured</span>
-                  ) : (
-                    <span className="badge border border-yellow-600 text-yellow-500">Not Configured</span>
-                  )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* BML Credentials */}
+                <div className="p-4 border border-zinc-800 rounded bg-black/20 flex flex-col justify-between">
+                  <div>
+                    <div className="flex-between mb-3 border-b border-zinc-800/50 pb-2">
+                      <span className="text-sm font-bold text-white">Bank of Maldives (BML)</span>
+                      {bmlConfigured ? (
+                        <span className="badge badge-success flex items-center gap-1"><CheckCircle size={10} /> Configured</span>
+                      ) : (
+                        <span className="badge border border-yellow-600 text-yellow-500">Not Configured</span>
+                      )}
+                    </div>
+
+                    {!bmlConfigured ? (
+                      <div className="space-y-3">
+                        <input type="text" className="input-field text-sm" placeholder="Username" value={bmlUsername} onChange={e => setBmlUsername(e.target.value)} />
+                        <input type="password" className="input-field text-sm" placeholder="Password" value={bmlPassword} onChange={e => setBmlPassword(e.target.value)} />
+                        <input type="password" className="input-field text-sm font-mono" placeholder="Authenticator Seed" value={bmlTotpSeed} onChange={e => setBmlTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())} />
+                      </div>
+                    ) : (
+                      <p className="text-xs text-[var(--text-secondary)] italic mb-4">Your BML credentials are configured locally.</p>
+                    )}
+                  </div>
+
+                  <div className="mt-4">
+                    {!bmlConfigured ? (
+                      <button className="btn btn-success w-full py-2 text-sm" onClick={() => {
+                        localStorage.setItem('viri_bml_username', bmlUsername);
+                        localStorage.setItem('viri_bml_password', bmlPassword);
+                        localStorage.setItem('viri_bml_totp_seed', bmlTotpSeed);
+                        setBmlConfigured(true);
+                      }}>Save BML Credentials</button>
+                    ) : (
+                      <button className="text-xs text-red-400 hover:text-red-300 underline font-semibold" onClick={() => {
+                        setBmlUsername(''); setBmlPassword(''); setBmlTotpSeed(''); setBmlConfigured(false);
+                        localStorage.removeItem('viri_bml_username'); localStorage.removeItem('viri_bml_password'); localStorage.removeItem('viri_bml_totp_seed');
+                      }}>Reset BML Credentials</button>
+                    )}
+                  </div>
                 </div>
 
-                {!bmlConfigured ? (
-                  <div className="space-y-3">
-                    <input type="text" className="input-field text-sm" placeholder="Username" value={bmlUsername} onChange={e => setBmlUsername(e.target.value)} />
-                    <input type="password" className="input-field text-sm" placeholder="Password" value={bmlPassword} onChange={e => setBmlPassword(e.target.value)} />
-                    <input type="password" className="input-field text-sm font-mono" placeholder="Authenticator Seed" value={bmlTotpSeed} onChange={e => setBmlTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())} />
-                    <button className="btn btn-success w-full py-2 text-sm" onClick={() => {
-                      localStorage.setItem('viri_bml_username', bmlUsername);
-                      localStorage.setItem('viri_bml_password', bmlPassword);
-                      localStorage.setItem('viri_bml_totp_seed', bmlTotpSeed);
-                      setBmlConfigured(true);
-                    }}>Save BML Credentials</button>
-                  </div>
-                ) : (
-                  <button className="text-xs text-red-400 hover:text-red-300 underline" onClick={() => {
-                    setBmlUsername(''); setBmlPassword(''); setBmlTotpSeed(''); setBmlConfigured(false);
-                    localStorage.removeItem('viri_bml_username'); localStorage.removeItem('viri_bml_password'); localStorage.removeItem('viri_bml_totp_seed');
-                  }}>Reset Credentials</button>
-                )}
-              </div>
+                {/* MIB Credentials */}
+                <div className="p-4 border border-zinc-800 rounded bg-black/20 flex flex-col justify-between">
+                  <div>
+                    <div className="flex-between mb-3 border-b border-zinc-800/50 pb-2">
+                      <span className="text-sm font-bold text-white">Maldives Islamic Bank (MIB)</span>
+                      {mibConfigured ? (
+                        <span className="badge badge-success flex items-center gap-1"><CheckCircle size={10} /> Configured</span>
+                      ) : (
+                        <span className="badge border border-yellow-600 text-yellow-500">Not Configured</span>
+                      )}
+                    </div>
 
-              {/* MIB Credentials */}
-              <div className="p-3 border border-zinc-800 rounded bg-black/20">
-                <div className="flex-between mb-2">
-                  <span className="text-sm font-bold">Maldives Islamic Bank (MIB)</span>
-                  {mibConfigured ? (
-                    <span className="badge badge-success flex items-center gap-1"><CheckCircle size={10} /> Configured</span>
-                  ) : (
-                    <span className="badge border border-yellow-600 text-yellow-500">Not Configured</span>
-                  )}
+                    {!mibConfigured ? (
+                      <div className="space-y-3">
+                        <input type="text" className="input-field text-sm" placeholder="Username" value={mibUsername} onChange={e => setMibUsername(e.target.value)} />
+                        <input type="password" className="input-field text-sm" placeholder="Password" value={mibPassword} onChange={e => setMibPassword(e.target.value)} />
+                        <input type="password" className="input-field text-sm font-mono" placeholder="Authenticator Seed" value={mibTotpSeed} onChange={e => setMibTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())} />
+                      </div>
+                    ) : (
+                      <p className="text-xs text-[var(--text-secondary)] italic mb-4">Your MIB credentials are configured locally.</p>
+                    )}
+                  </div>
+
+                  <div className="mt-4">
+                    {!mibConfigured ? (
+                      <button className="btn btn-success w-full py-2 text-sm" onClick={() => {
+                        localStorage.setItem('viri_mib_username', mibUsername);
+                        localStorage.setItem('viri_mib_password', mibPassword);
+                        localStorage.setItem('viri_mib_totp_seed', mibTotpSeed);
+                        setMibConfigured(true);
+                      }}>Save MIB Credentials</button>
+                    ) : (
+                      <button className="text-xs text-red-400 hover:text-red-300 underline font-semibold" onClick={() => {
+                        setMibUsername(''); setMibPassword(''); setMibTotpSeed(''); setMibConfigured(false);
+                        localStorage.removeItem('viri_mib_username'); localStorage.removeItem('viri_mib_password'); localStorage.removeItem('viri_mib_totp_seed');
+                      }}>Reset MIB Credentials</button>
+                    )}
+                  </div>
                 </div>
-
-                {!mibConfigured ? (
-                  <div className="space-y-3">
-                    <input type="text" className="input-field text-sm" placeholder="Username" value={mibUsername} onChange={e => setMibUsername(e.target.value)} />
-                    <input type="password" className="input-field text-sm" placeholder="Password" value={mibPassword} onChange={e => setMibPassword(e.target.value)} />
-                    <input type="password" className="input-field text-sm font-mono" placeholder="Authenticator Seed" value={mibTotpSeed} onChange={e => setMibTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())} />
-                    <button className="btn btn-success w-full py-2 text-sm" onClick={() => {
-                      localStorage.setItem('viri_mib_username', mibUsername);
-                      localStorage.setItem('viri_mib_password', mibPassword);
-                      localStorage.setItem('viri_mib_totp_seed', mibTotpSeed);
-                      setMibConfigured(true);
-                    }}>Save MIB Credentials</button>
-                  </div>
-                ) : (
-                  <button className="text-xs text-red-400 hover:text-red-300 underline" onClick={() => {
-                    setMibUsername(''); setMibPassword(''); setMibTotpSeed(''); setMibConfigured(false);
-                    localStorage.removeItem('viri_mib_username'); localStorage.removeItem('viri_mib_password'); localStorage.removeItem('viri_mib_totp_seed');
-                  }}>Reset Credentials</button>
-                )}
               </div>
             </div>
 
@@ -1472,9 +1492,9 @@ function App() {
           <>
             {/* View Tab 1: Verification */}
             {activeTab === 'verify' && (
-              <div className="w-full max-w-xl grid gap-6 animate-fade-in">
+              <div className="w-full max-w-xl lg:max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-8 items-start animate-fade-in">
                 {/* Header */}
-                <div className="w-full flex justify-between items-center">
+                <div className="w-full flex justify-between items-center lg:col-span-12 border-b border-[var(--border-color)] pb-4">
                   <div>
                     <h1 className="text-2xl tracking-tight text-white font-bold">{companyName}</h1>
                     <p className="text-xs text-[var(--text-secondary)]">Powered by Viri {planName && <span className="opacity-70 px-1">• {planName} Plan</span>}</p>
@@ -1482,133 +1502,139 @@ function App() {
                   <span className="badge badge-success shrink-0">Online{terminalName ? ` - ${terminalName}` : ''}</span>
                 </div>
 
-                <div className="glass-panel">
-                  <div className="mb-6 flex-between">
-                    <h2 className="text-xl">Verify Transfer</h2>
-                    <div className="flex bg-[var(--bg-canvas)] rounded-lg p-1 border border-[var(--border-color)]">
-                      {initLoading && <span className="text-xs text-[var(--text-secondary)] px-2">Loading...</span>}
-                    </div>
-                  </div>
-
-                  {/* Error Alert */}
-                  {error && (
-                    <div className="mb-4 p-3 bg-[var(--color-warning-bg)] border border-[var(--color-warning)] border-opacity-30 rounded-lg flex items-center gap-3 text-sm text-[var(--color-warning)]">
-                      <AlertTriangle className="shrink-0" size={18} />
-                      <p>{error}</p>
-                    </div>
-                  )}
-
-                  {/* Success Result Panel */}
-                  {result && (
-                    <div className="mb-6 p-4 bg-[var(--color-success-bg)] border border-[var(--color-success)] border-opacity-30 rounded-lg animate-fade-in">
-                      <div className="flex items-center gap-2 mb-2">
-                        <CheckCircle className="text-[var(--color-success)]" size={18} />
-                        <span className="font-semibold text-[var(--color-success)]">Transfer Verified</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-xs text-[var(--text-secondary)] mt-2">
-                        <div>Status: <span className="font-mono text-[var(--text-primary)]">{result.status}</span></div>
-                        <div>Reference: <span className="font-mono text-[var(--text-primary)]">{result.reference}</span></div>
-                        <div>Amount: <span className="font-mono text-[var(--text-primary)]">{result.amount} MVR</span></div>
-                        <div>Time: <span className="font-mono text-[var(--text-primary)]">{new Date(result.timestamp).toLocaleTimeString()}</span></div>
+                {/* Left Column: Form Inputs (lg:col-span-5) */}
+                <div className="lg:col-span-5 w-full">
+                  <div className="glass-panel">
+                    <div className="mb-6 flex-between">
+                      <h2 className="text-xl">Verify Transfer</h2>
+                      <div className="flex bg-[var(--bg-canvas)] rounded-lg p-1 border border-[var(--border-color)]">
+                        {initLoading && <span className="text-xs text-[var(--text-secondary)] px-2">Loading...</span>}
                       </div>
                     </div>
-                  )}
 
-                  <div className="input-group">
-                    <label className="input-label">Target Amount (MVR)</label>
-                    <input
-                      type="number"
-                      className="input-field text-2xl font-semibold"
-                      placeholder="0.00"
-                      value={amount}
-                      disabled={loading}
-                      onChange={(e) => setAmount(e.target.value)}
-                    />
-                  </div>
+                    {/* Error Alert */}
+                    {error && (
+                      <div className="mb-4 p-3 bg-[var(--color-warning-bg)] border border-[var(--color-warning)] border-opacity-30 rounded-lg flex items-center gap-3 text-sm text-[var(--color-warning)]">
+                        <AlertTriangle className="shrink-0" size={18} />
+                        <p>{error}</p>
+                      </div>
+                    )}
 
-                  <div className="input-group mt-4">
-                    <label className="input-label">Receiving Account</label>
-                    <select
-                      className="input-field appearance-none cursor-pointer"
-                      value={selectedAccountId}
-                      disabled={loading || bankAccounts.length === 0}
-                      onChange={(e) => setSelectedAccountId(e.target.value)}
-                    >
-                      {bankAccounts.length === 0 && (
-                        <option value="">No accounts configured</option>
-                      )}
-                      {bankAccounts.map((acc) => (
-                        <option key={acc.id} value={acc.id.toString()}>
-                          {acc.bank_name} - {acc.account_name} (...{acc.account_number.slice(-4)})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                    {/* Success Result Panel */}
+                    {result && (
+                      <div className="mb-6 p-4 bg-[var(--color-success-bg)] border border-[var(--color-success)] border-opacity-30 rounded-lg animate-fade-in">
+                        <div className="flex items-center gap-2 mb-2">
+                          <CheckCircle className="text-[var(--color-success)]" size={18} />
+                          <span className="font-semibold text-[var(--color-success)]">Transfer Verified</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs text-[var(--text-secondary)] mt-2">
+                          <div>Status: <span className="font-mono text-[var(--text-primary)]">{result.status}</span></div>
+                          <div>Reference: <span className="font-mono text-[var(--text-primary)]">{result.reference}</span></div>
+                          <div>Amount: <span className="font-mono text-[var(--text-primary)]">{result.amount} MVR</span></div>
+                          <div>Time: <span className="font-mono text-[var(--text-primary)]">{new Date(result.timestamp).toLocaleTimeString()}</span></div>
+                        </div>
+                      </div>
+                    )}
 
-                  <div className="flex items-center justify-between mt-4 mb-8">
-                    <label className="text-sm text-[var(--text-secondary)] flex items-center gap-2 cursor-pointer">
-                      <span>Set as Default Account</span>
-                    </label>
-                    <label className="toggle-switch">
+                    <div className="input-group">
+                      <label className="input-label">Target Amount (MVR)</label>
                       <input
-                        type="checkbox"
-                        checked={isDefault}
+                        type="number"
+                        className="input-field text-2xl font-semibold"
+                        placeholder="0.00"
+                        value={amount}
                         disabled={loading}
-                        onChange={(e) => handleDefaultToggle(e.target.checked)}
+                        onChange={(e) => setAmount(e.target.value)}
                       />
-                      <span className="slider"></span>
-                    </label>
-                  </div>
+                    </div>
 
-                  <div className="flex gap-4">
-                    <button
-                      onClick={() => handleVerify('search')}
-                      disabled={loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0}
-                      className={`flex-1 btn btn-success py-3 text-lg justify-center gap-2 ${
-                        loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 ? 'opacity-70 cursor-not-allowed' : ''
-                      }`}
-                    >
-                      {loading && loadingMode === 'search' ? (
-                        <>
-                          <RefreshCw size={20} className="animate-spin" />
-                          Searching...
-                        </>
-                      ) : (
-                        <>
-                          <Search size={20} />
-                          Search
-                        </>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => handleVerify('history')}
-                      disabled={loading || !isCredentialsComplete}
-                      className={`flex-1 btn btn-outline py-3 text-lg justify-center gap-2 ${
-                        loading || !isCredentialsComplete ? 'opacity-70 cursor-not-allowed' : ''
-                      }`}
-                    >
-                      {loading && loadingMode === 'history' ? (
-                        <>
-                          <RefreshCw size={20} className="animate-spin" />
-                          Fetching...
-                        </>
-                      ) : (
-                        <>
-                          <History size={20} />
-                          History
-                        </>
-                      )}
-                    </button>
-                  </div>
-                  
-                  {!isCredentialsComplete && (
-                    <p className="text-xs text-[var(--color-warning)] mt-2.5 text-center leading-relaxed">
-                      ⚠️ Please complete all bank credentials (username, password, authenticator seed) in settings before proceeding.
-                    </p>
-                  )}
+                    <div className="input-group mt-4">
+                      <label className="input-label">Receiving Account</label>
+                      <select
+                        className="input-field appearance-none cursor-pointer"
+                        value={selectedAccountId}
+                        disabled={loading || bankAccounts.length === 0}
+                        onChange={(e) => setSelectedAccountId(e.target.value)}
+                      >
+                        {bankAccounts.length === 0 && (
+                          <option value="">No accounts configured</option>
+                        )}
+                        {bankAccounts.map((acc) => (
+                          <option key={acc.id} value={acc.id.toString()}>
+                            {acc.bank_name} - {acc.account_name} (...{acc.account_number.slice(-4)})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
+                    <div className="flex items-center justify-between mt-4 mb-8">
+                      <label className="text-sm text-[var(--text-secondary)] flex items-center gap-2 cursor-pointer">
+                        <span>Set as Default Account</span>
+                      </label>
+                      <label className="toggle-switch">
+                        <input
+                          type="checkbox"
+                          checked={isDefault}
+                          disabled={loading}
+                          onChange={(e) => handleDefaultToggle(e.target.checked)}
+                        />
+                        <span className="slider"></span>
+                      </label>
+                    </div>
+
+                    <div className="flex gap-4">
+                      <button
+                        onClick={() => handleVerify('search')}
+                        disabled={loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0}
+                        className={`flex-1 btn btn-success py-3 text-lg justify-center gap-2 ${
+                          loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 ? 'opacity-70 cursor-not-allowed' : ''
+                        }`}
+                      >
+                        {loading && loadingMode === 'search' ? (
+                          <>
+                            <RefreshCw size={20} className="animate-spin" />
+                            Searching...
+                          </>
+                        ) : (
+                          <>
+                            <Search size={20} />
+                            Search
+                          </>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => handleVerify('history')}
+                        disabled={loading || !isCredentialsComplete}
+                        className={`flex-1 btn btn-outline py-3 text-lg justify-center gap-2 ${
+                          loading || !isCredentialsComplete ? 'opacity-70 cursor-not-allowed' : ''
+                        }`}
+                      >
+                        {loading && loadingMode === 'history' ? (
+                          <>
+                            <RefreshCw size={20} className="animate-spin" />
+                            Fetching...
+                          </>
+                        ) : (
+                          <>
+                            <History size={20} />
+                            History
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    
+                    {!isCredentialsComplete && (
+                      <p className="text-xs text-[var(--color-warning)] mt-2.5 text-center leading-relaxed">
+                        ⚠️ Please complete all bank credentials (username, password, authenticator seed) in settings before proceeding.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right Column: Stepper, Logs and Recent Transactions (lg:col-span-7) */}
+                <div className="lg:col-span-7 space-y-6 w-full">
                   {/* Multi-stage Progress Stepper Panel */}
-                  <div className="mt-6 p-5 rounded-xl bg-black/40 border border-[var(--border-color)] animate-fade-in">
+                  <div className="p-5 rounded-xl bg-black/40 border border-[var(--border-color)] animate-fade-in">
                     <div className="flex justify-between items-center mb-6">
                       <span 
                         key={progress.text || 'idle'} 
@@ -1708,9 +1734,53 @@ function App() {
                     </div>
                   </div>
 
+                  {/* Verification Log Panel (only shows verification flow logs) */}
+                  {loadingMode !== 'ledger' && (loading || logs.length > 0) && (
+                    <div className="w-full bg-black border border-zinc-800 rounded-lg overflow-hidden animate-fade-in shadow-2xl">
+                      <div className="bg-zinc-900 px-4 py-2 border-b border-zinc-800 flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                        <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                        <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                        <span className="text-xs text-zinc-400 ml-2 font-mono">Viri Bridge Terminal Logs</span>
+                        {loading && <Loader2 size={12} className="text-[var(--color-success)] animate-spin ml-2" />}
+
+                        <div className="ml-auto flex items-center gap-2">
+                          {logs.length > 0 && (
+                            <button
+                              onClick={copyLogs}
+                              className="flex items-center gap-1 text-[10px] uppercase font-bold text-zinc-400 bg-zinc-900 border border-zinc-800 px-2 py-1 rounded hover:bg-zinc-800 transition-colors"
+                            >
+                              <Copy size={12} /> Copy
+                            </button>
+                          )}
+                          {loading && (
+                            <button
+                              onClick={killRobot}
+                              className="flex items-center gap-1 text-[10px] uppercase font-bold text-red-500 bg-red-955 border border-red-900 px-2 py-1 rounded hover:bg-red-900 transition-colors"
+                            >
+                              <XCircle size={12} /> Kill
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="p-4 font-mono text-xs text-[var(--color-success)] h-40 overflow-y-auto flex flex-col gap-1 scrollbar-thin"
+                        ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}>
+                        {logs.length === 0 ? (
+                          <span className="text-zinc-500">Waiting for extension connection...</span>
+                        ) : (
+                          logs.map((log, i) => (
+                            <div key={i} className={`${log.includes('error') || log.includes('Exception') || log.includes('Failed') ? 'text-red-400' : ''}`}>
+                              {log}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Recent Transactions Table */}
-                  <div className="mt-6 animate-fade-in">
-                    <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">
+                  <div className="glass-panel w-full">
+                    <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-4">
                       Recent Transactions {lastPopulatedTime && `[${lastPopulatedTime}]`}
                     </h3>
                     <div className="overflow-x-auto rounded-xl border border-[var(--border-color)] bg-black/30">
@@ -1751,9 +1821,9 @@ function App() {
 
             {/* View Tab 2: Transaction Ledger */}
             {activeTab === 'ledger' && (
-              <div className="w-full max-w-2xl animate-fade-in flex flex-col">
+              <div className="w-full max-w-xl lg:max-w-6xl w-full animate-fade-in flex flex-col gap-6">
                 {/* Section Header */}
-                <div className="w-full flex justify-between items-center mb-6">
+                <div className="w-full flex justify-between items-center border-b border-[var(--border-color)] pb-4">
                   <div>
                     <h2 className="text-2xl font-bold text-white tracking-tight">Transaction Ledger</h2>
                     <p className="text-xs text-[var(--text-secondary)]">Real-time statements fetched directly from your bank</p>
@@ -1766,207 +1836,229 @@ function App() {
                   )}
                 </div>
 
-                {/* Account Tabs Switcher */}
-                <div className="w-full mb-6">
-                  <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold mb-2.5 block">Select Bank Account:</label>
-                  {bankAccounts.length === 0 ? (
-                    <div className="p-4 bg-zinc-900/30 border border-zinc-800 rounded-lg text-center text-zinc-500 italic text-sm">
-                      No bank accounts configured. Please contact the administrator.
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start w-full">
+                  {/* Left Column: Bank Accounts & Summary Card (lg:col-span-5) */}
+                  <div className="lg:col-span-5 space-y-6 w-full flex flex-col">
+                    {/* Account Tabs Switcher */}
+                    <div className="glass-panel p-5 w-full">
+                      <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold mb-2.5 block font-sans">Select Bank Account</label>
+                      {bankAccounts.length === 0 ? (
+                        <div className="p-4 bg-zinc-900/30 border border-zinc-800 rounded-lg text-center text-zinc-500 italic text-sm">
+                          No bank accounts configured. Please contact the administrator.
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap lg:flex-col gap-2.5">
+                          {bankAccounts.map(acc => {
+                            const isSelected = selectedLedgerAccountId === acc.id.toString();
+                            const isBml = acc.bank_name === 'BML';
+                            return (
+                              <button
+                                key={acc.id}
+                                onClick={() => setSelectedLedgerAccountId(acc.id.toString())}
+                                className={`px-4 py-3 rounded-xl border text-left flex flex-col gap-1 transition-all min-w-[140px] flex-1 ${
+                                  isSelected
+                                    ? isBml
+                                      ? 'bg-red-950/20 border-red-500/80 shadow-[0_0_15px_rgba(239,68,68,0.15)]'
+                                      : 'bg-emerald-950/20 border-emerald-500/80 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
+                                    : 'bg-[var(--bg-surface)] border-[var(--border-color)] hover:border-zinc-700'
+                                }`}
+                              >
+                                <span className={`text-[10px] uppercase font-bold tracking-wider ${
+                                  isBml ? 'text-red-400' : 'text-emerald-400'
+                                }`}>
+                                  {acc.bank_name === 'MIB' ? 'Maldives Islamic Bank' : 'Bank of Maldives'}
+                                </span>
+                                <span className="text-xs font-semibold text-white truncate max-w-[180px]">
+                                  {acc.account_name}
+                                </span>
+                                <span className="text-[11px] font-mono text-[var(--text-secondary)]">
+                                  ...{acc.account_number.slice(-6)}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <div className="flex flex-wrap gap-2.5">
-                      {bankAccounts.map(acc => {
-                        const isSelected = selectedLedgerAccountId === acc.id.toString();
-                        const isBml = acc.bank_name === 'BML';
-                        return (
-                          <button
-                            key={acc.id}
-                            onClick={() => setSelectedLedgerAccountId(acc.id.toString())}
-                            className={`px-4 py-3 rounded-xl border text-left flex flex-col gap-1 transition-all min-w-[140px] flex-1 ${
-                              isSelected
-                                ? isBml
-                                  ? 'bg-red-950/20 border-red-500/80 shadow-[0_0_15px_rgba(239,68,68,0.15)]'
-                                  : 'bg-emerald-950/20 border-emerald-500/80 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
-                                : 'bg-[var(--bg-surface)] border-[var(--border-color)] hover:border-zinc-700'
-                            }`}
-                          >
-                            <span className={`text-[10px] uppercase font-bold tracking-wider ${
-                              isBml ? 'text-red-400' : 'text-emerald-400'
-                            }`}>
-                              {acc.bank_name === 'MIB' ? 'Maldives Islamic Bank' : 'Bank of Maldives'}
-                            </span>
-                            <span className="text-xs font-semibold text-white truncate max-w-[180px]">
-                              {acc.account_name}
-                            </span>
-                            <span className="text-[11px] font-mono text-[var(--text-secondary)]">
-                              ...{acc.account_number.slice(-6)}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
 
-                {/* Account Summary & Refresh Bar */}
-                {selectedLedgerAccountId && (() => {
-                  const activeLedgerAcc = bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId);
-                  if (!activeLedgerAcc) return null;
-                  
-                  const cache = ledgerCache[selectedLedgerAccountId] || {
-                    balance: 'Not synced',
-                    lastUpdated: 'Never',
-                    transactions: []
-                  };
-
-                  const isBml = activeLedgerAcc.bank_name === 'BML';
-                  const isSyncing = loading && loadingMode === 'ledger';
-                  const isLockedByVerify = loading && loadingMode !== 'ledger';
-
-                  return (
-                    <div className="space-y-6">
+                    {/* Account Summary & Refresh Bar */}
+                    {selectedLedgerAccountId && (() => {
+                      const activeLedgerAcc = bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId);
+                      if (!activeLedgerAcc) return null;
                       
-                      {/* Summary Card */}
-                      <div className="glass-panel p-6 border-[var(--border-color)] bg-gradient-to-br from-zinc-950 to-zinc-900/60 relative overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                        <div className="space-y-1">
-                          <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Available Balance</span>
-                          <div className={`text-3xl font-bold tracking-tight ${
-                            cache.balance === 'Not synced' ? 'text-zinc-500' : 'text-white'
-                          }`}>
-                            {cache.balance !== 'Not synced' && cache.balance !== 'Not found' ? `MVR ${cache.balance}` : cache.balance}
-                          </div>
-                          <div className="text-[10px] text-[var(--text-secondary)] flex items-center gap-1.5 font-mono">
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-zinc-600"></span>
-                            Last updated: {cache.lastUpdated}
-                          </div>
-                        </div>
+                      const cache = ledgerCache[selectedLedgerAccountId] || {
+                        balance: 'Not synced',
+                        lastUpdated: 'Never',
+                        transactions: []
+                      };
 
-                        <button
-                          onClick={() => syncLedger(selectedLedgerAccountId)}
-                          disabled={isSyncing || isLockedByVerify}
-                          className={`btn ${
-                            isBml ? 'btn-outline border-red-500/50 hover:bg-red-500 hover:text-white' : 'btn-success'
-                          } py-3 px-6 text-sm font-semibold justify-center gap-2 transition-all ${
-                            isSyncing || isLockedByVerify ? 'opacity-50 cursor-not-allowed' : ''
-                          }`}
-                        >
-                          <RefreshCw size={16} className={isSyncing ? 'animate-spin' : ''} />
-                          {isSyncing ? 'Syncing...' : 'Sync Balance & History'}
-                        </button>
-                      </div>
+                      const isBml = activeLedgerAcc.bank_name === 'BML';
+                      const isSyncing = loading && loadingMode === 'ledger';
+                      const isLockedByVerify = loading && loadingMode !== 'ledger';
 
-                      {/* Locking Overlay notification */}
-                      {isLockedByVerify && (
-                        <div className="p-3.5 bg-red-950/20 border border-red-900/30 rounded-xl text-xs text-red-400 flex items-center gap-2 animate-pulse">
-                          <AlertTriangle size={14} className="shrink-0" />
-                          <span>Ledger synchronization disabled. A transfer verification is currently in progress.</span>
-                        </div>
-                      )}
-
-                      {/* Sync Error Block */}
-                      {cache.error && (
-                        <div className="p-3.5 bg-red-900/20 border border-red-500/30 rounded-xl text-xs text-red-400 leading-normal flex items-start gap-2.5">
-                          <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-                          <div>
-                            <strong className="block font-bold mb-0.5">Sync Failed:</strong>
-                            {cache.error}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Transaction Feed */}
-                      <div className="space-y-3">
-                        <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Statement Entries ({cache.transactions.length})</h3>
-                        <div className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-black/30 flex flex-col divide-y divide-[var(--border-color)]">
-                          {isSyncing && cache.transactions.length === 0 ? (
-                            <div className="p-12 text-center text-zinc-500 flex flex-col items-center gap-3">
-                              <Loader2 className="animate-spin text-zinc-600" size={32} />
-                              <span className="italic text-sm">Logging into bank account securely...</span>
+                      return (
+                        <div className="space-y-6">
+                          
+                          {/* Summary Card */}
+                          <div className="glass-panel p-6 border-[var(--border-color)] bg-gradient-to-br from-zinc-950 to-zinc-900/60 relative overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold font-sans">Available Balance</span>
+                              <div className={`text-3xl font-bold tracking-tight ${
+                                cache.balance === 'Not synced' ? 'text-zinc-500' : 'text-white'
+                              }`}>
+                                {cache.balance !== 'Not synced' && cache.balance !== 'Not found' ? `MVR ${cache.balance}` : cache.balance}
+                              </div>
+                              <div className="text-[10px] text-[var(--text-secondary)] flex items-center gap-1.5 font-mono">
+                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-zinc-600"></span>
+                                Last updated: {cache.lastUpdated}
+                              </div>
                             </div>
-                          ) : cache.transactions.length === 0 ? (
-                            <div className="p-12 text-center text-zinc-500 italic text-sm">
-                              No statement entries available. Click "Sync" above to fetch recent history.
-                            </div>
-                          ) : (
-                            <div className="max-h-[50vh] overflow-y-auto divide-y divide-zinc-900 scrollbar-thin">
-                              {cache.transactions.map((tx, idx) => {
-                                const isCredit = tx.amount.startsWith('+');
-                                return (
-                                  <div key={idx} className="p-4 flex justify-between items-start hover:bg-white/[0.02] transition-colors gap-4">
-                                    <div className="space-y-1 flex-1">
-                                      <div className="text-xs font-mono text-zinc-500">{tx.date}</div>
-                                      <div className="text-[11px] font-sans text-zinc-200 whitespace-pre-line leading-relaxed break-words max-w-md">{tx.details}</div>
-                                    </div>
-                                    <div className="text-right space-y-1 shrink-0">
-                                      <div className={`font-mono font-bold text-sm leading-none ${
-                                        isCredit ? 'text-[var(--color-success)]' : 'text-red-400'
-                                      }`}>
-                                        {tx.amount}
-                                      </div>
-                                      {tx.runningBalance && (
-                                        <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1">
-                                          Bal: MVR {tx.runningBalance}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })}
+
+                            <button
+                              onClick={() => syncLedger(selectedLedgerAccountId)}
+                              disabled={isSyncing || isLockedByVerify}
+                              className={`btn ${
+                                isBml ? 'btn-outline border-red-500/50 hover:bg-red-500 hover:text-white' : 'btn-success'
+                              } py-3 px-6 text-sm font-semibold justify-center gap-2 transition-all ${
+                                isSyncing || isLockedByVerify ? 'opacity-50 cursor-not-allowed' : ''
+                              }`}
+                            >
+                              <RefreshCw size={16} className={isSyncing ? 'animate-spin' : ''} />
+                              {isSyncing ? 'Syncing...' : 'Sync Balance & History'}
+                            </button>
+                          </div>
+
+                          {/* Locking Overlay notification */}
+                          {isLockedByVerify && (
+                            <div className="p-3.5 bg-red-950/20 border border-red-900/30 rounded-xl text-xs text-red-400 flex items-center gap-2 animate-pulse">
+                              <AlertTriangle size={14} className="shrink-0" />
+                              <span>Ledger synchronization disabled. A transfer verification is currently in progress.</span>
                             </div>
                           )}
-                        </div>
-                      </div>
 
-                    </div>
-                  );
-                })()}
+                          {/* Sync Error Block */}
+                          {cache.error && (
+                            <div className="p-3.5 bg-red-900/20 border border-red-500/30 rounded-xl text-xs text-red-400 leading-normal flex items-start gap-2.5">
+                              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                              <div>
+                                <strong className="block font-bold mb-0.5">Sync Failed:</strong>
+                                {cache.error}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Ledger Logs Panel */}
+                          {loadingMode === 'ledger' && (loading || logs.length > 0) && (
+                            <div className="w-full bg-black border border-zinc-800 rounded-lg overflow-hidden animate-fade-in shadow-2xl">
+                              <div className="bg-zinc-900 px-4 py-2 border-b border-zinc-800 flex items-center gap-2">
+                                <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                                <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                                <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                                <span className="text-xs text-zinc-400 ml-2 font-mono">Viri Bridge Ledger Logs</span>
+                                {loading && <Loader2 size={12} className="text-[var(--color-success)] animate-spin ml-2" />}
+
+                                <div className="ml-auto flex items-center gap-2">
+                                  {logs.length > 0 && (
+                                    <button
+                                      onClick={copyLogs}
+                                      className="flex items-center gap-1 text-[10px] uppercase font-bold text-zinc-400 bg-zinc-900 border border-zinc-800 px-2 py-1 rounded hover:bg-zinc-800 transition-colors"
+                                    >
+                                      <Copy size={12} /> Copy
+                                    </button>
+                                  )}
+                                  {loading && (
+                                    <button
+                                      onClick={killRobot}
+                                      className="flex items-center gap-1 text-[10px] uppercase font-bold text-red-500 bg-red-955 border border-red-900 px-2 py-1 rounded hover:bg-red-900 transition-colors"
+                                    >
+                                      <XCircle size={12} /> Kill
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="p-4 font-mono text-xs text-[var(--color-success)] h-40 overflow-y-auto flex flex-col gap-1 scrollbar-thin"
+                                ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}>
+                                {logs.length === 0 ? (
+                                  <span className="text-zinc-500">Waiting for extension connection...</span>
+                                ) : (
+                                  logs.map((log, i) => (
+                                    <div key={i} className={`${log.includes('error') || log.includes('Exception') || log.includes('Failed') ? 'text-red-400' : ''}`}>
+                                      {log}
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Right Column: Statement Entries Feed (lg:col-span-7) */}
+                  <div className="lg:col-span-7 w-full">
+                    {selectedLedgerAccountId && (() => {
+                      const activeLedgerAcc = bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId);
+                      if (!activeLedgerAcc) return null;
+                      
+                      const cache = ledgerCache[selectedLedgerAccountId] || {
+                        balance: 'Not synced',
+                        lastUpdated: 'Never',
+                        transactions: []
+                      };
+
+                      const isSyncing = loading && loadingMode === 'ledger';
+
+                      return (
+                        <div className="glass-panel p-5 w-full space-y-4">
+                          <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider font-sans">Statement Entries ({cache.transactions.length})</h3>
+                          <div className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-black/30 flex flex-col divide-y divide-[var(--border-color)] font-sans">
+                            {isSyncing && cache.transactions.length === 0 ? (
+                              <div className="p-12 text-center text-zinc-500 flex flex-col items-center gap-3">
+                                <Loader2 className="animate-spin text-zinc-600" size={32} />
+                                <span className="italic text-sm">Logging into bank account securely...</span>
+                              </div>
+                            ) : cache.transactions.length === 0 ? (
+                              <div className="p-12 text-center text-zinc-500 italic text-sm">
+                                No statement entries available. Click "Sync" to fetch recent history.
+                              </div>
+                            ) : (
+                              <div className="max-h-[65vh] lg:max-h-[70vh] overflow-y-auto divide-y divide-zinc-900 scrollbar-thin">
+                                {cache.transactions.map((tx, idx) => {
+                                  const isCredit = tx.amount.startsWith('+');
+                                  return (
+                                    <div key={idx} className="p-4 flex justify-between items-start hover:bg-white/[0.02] transition-colors gap-4">
+                                      <div className="space-y-1 flex-1">
+                                        <div className="text-xs font-mono text-zinc-500">{tx.date}</div>
+                                        <div className="text-[11px] text-zinc-200 whitespace-pre-line leading-relaxed break-words max-w-md">{tx.details}</div>
+                                      </div>
+                                      <div className="text-right space-y-1 shrink-0">
+                                        <div className={`font-mono font-bold text-sm leading-none ${
+                                          isCredit ? 'text-[var(--color-success)]' : 'text-red-400'
+                                        }`}>
+                                          {tx.amount}
+                                        </div>
+                                        {tx.runningBalance && (
+                                          <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1">
+                                            Bal: MVR {tx.runningBalance}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
               </div>
             )}
           </>
-        )}
-
-        {/* Live Terminal Log Viewer */}
-        {(loading || logs.length > 0) && (
-          <div className="w-full max-w-xl bg-black border border-zinc-800 rounded-lg overflow-hidden animate-fade-in shadow-2xl mt-8 mb-12">
-            <div className="bg-zinc-900 px-4 py-2 border-b border-zinc-800 flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-red-500"></div>
-              <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-              <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <span className="text-xs text-zinc-400 ml-2 font-mono">Viri Bridge Terminal</span>
-              {loading && <Loader2 size={12} className="text-[var(--color-success)] animate-spin ml-2" />}
-
-              <div className="ml-auto flex items-center gap-2">
-                {logs.length > 0 && (
-                  <button
-                    onClick={copyLogs}
-                    className="flex items-center gap-1 text-[10px] uppercase font-bold text-zinc-400 bg-zinc-900 border border-zinc-800 px-2 py-1 rounded hover:bg-zinc-800 transition-colors"
-                  >
-                    <Copy size={12} /> Copy Logs
-                  </button>
-                )}
-                {loading && (
-                  <button
-                    onClick={killRobot}
-                    className="flex items-center gap-1 text-[10px] uppercase font-bold text-red-500 bg-red-955 border border-red-900 px-2 py-1 rounded hover:bg-red-900 transition-colors"
-                  >
-                    <XCircle size={12} /> Kill Robot
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="p-4 font-mono text-xs text-[var(--color-success)] h-48 overflow-y-auto flex flex-col gap-1 scrollbar-thin"
-              ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}>
-              {logs.length === 0 ? (
-                <span className="text-zinc-500">Waiting for extension connection...</span>
-              ) : (
-                logs.map((log, i) => (
-                  <div key={i} className={`${log.includes('error') || log.includes('Exception') || log.includes('Failed') ? 'text-red-400' : ''}`}>
-                    {log}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
         )}
 
       </main>
