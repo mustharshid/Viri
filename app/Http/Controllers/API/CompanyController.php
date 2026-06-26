@@ -53,16 +53,17 @@ class CompanyController extends Controller
         $terminal = Terminal::where('tenant_id', $request->user()->tenant_id)->findOrFail($id);
 
         $code = strtoupper(substr(md5(uniqid(mt_rand(), true)), 0, 6));
+        $until = now()->addHours(2);
 
         $terminal->update([
             'debug_one_time_code' => $code,
-            'allow_debug_until' => now()->addHours(2)
+            'allow_debug_until' => $until
         ]);
 
         return response()->json([
             'message' => 'Debug access enabled for 2 hours.',
             'debug_one_time_code' => $code,
-            'allow_debug_until' => $terminal->allow_debug_until->toIso8601String()
+            'allow_debug_until' => $until->toIso8601String()
         ]);
     }
 
