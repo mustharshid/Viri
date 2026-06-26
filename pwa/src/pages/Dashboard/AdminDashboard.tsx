@@ -9,9 +9,10 @@ export default function AdminDashboard() {
 
   const [selectedTerminal, setSelectedTerminal] = useState<any | null>(null);
   const [oneTimeCode, setOneTimeCode] = useState('');
-  const [modalLogs, setModalLogs] = useState<string[] | null>(null);
+  const [modalLogs, setModalLogs] = useState<any[] | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
   const [modalLoading, setModalLoading] = useState(false);
+  const [selectedRunIdx, setSelectedRunIdx] = useState<number>(0);
 
   useEffect(() => {
     fetchData();
@@ -74,6 +75,7 @@ export default function AdminDashboard() {
     setModalLogs(null);
     setModalError(null);
     setModalLoading(false);
+    setSelectedRunIdx(0);
   };
 
   const closeDebugLogModal = () => {
@@ -99,6 +101,7 @@ export default function AdminDashboard() {
       const data = await response.json();
       if (response.ok) {
         setModalLogs(data.logs || []);
+        setSelectedRunIdx(0);
       } else {
         setModalError(data.error || 'Failed to fetch logs.');
       }
@@ -282,27 +285,58 @@ export default function AdminDashboard() {
                 </form>
               ) : (
                 <div className="flex flex-col flex-1 overflow-hidden mt-2">
+                  {/* If logs are in run-history format, show selector */}
+                  {modalLogs.length > 0 && typeof modalLogs[0] === 'object' && (
+                    <div className="mb-3 flex items-center justify-between gap-2 bg-zinc-900/50 p-2 rounded border border-zinc-800">
+                      <label className="text-[10px] text-zinc-400 uppercase tracking-wider font-semibold">Select Run History:</label>
+                      <select 
+                        className="bg-black border border-zinc-700 text-zinc-200 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-blue-500"
+                        value={selectedRunIdx}
+                        onChange={e => setSelectedRunIdx(Number(e.target.value))}
+                      >
+                        {modalLogs.map((run: any, idx: number) => (
+                          <option key={idx} value={idx}>
+                            Run #{modalLogs.length - idx} ({new Date(run.timestamp).toLocaleString()})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   <div className="bg-black/50 border border-zinc-800 rounded-lg p-4 font-mono text-xs text-green-400 h-80 overflow-y-auto flex flex-col gap-1.5 scrollbar-thin">
                     {modalLogs.length === 0 ? (
-                      <span className="text-zinc-500 italic">No logs uploaded for the last run.</span>
+                      <span className="text-zinc-500 italic">No logs uploaded.</span>
                     ) : (
-                      modalLogs.map((logLine, idx) => (
-                        <div key={idx} className="whitespace-pre-wrap leading-relaxed border-b border-zinc-900/50 pb-1.5 last:border-0">
-                          {logLine}
-                        </div>
-                      ))
+                      (() => {
+                        const currentRunLogs = (modalLogs.length > 0 && typeof modalLogs[0] === 'object')
+                          ? (modalLogs[selectedRunIdx]?.logs || [])
+                          : modalLogs;
+
+                        return currentRunLogs.length === 0 ? (
+                          <span className="text-zinc-500 italic">No logs recorded for this run.</span>
+                        ) : (
+                          currentRunLogs.map((logLine: string, idx: number) => (
+                            <div key={idx} className="whitespace-pre-wrap leading-relaxed border-b border-zinc-900/50 pb-1.5 last:border-0">
+                              {logLine}
+                            </div>
+                          ))
+                        );
+                      })()
                     )}
                   </div>
                   <div className="flex gap-3 mt-4">
                     <button 
                       onClick={() => {
-                        navigator.clipboard.writeText(modalLogs.join('\n'));
+                        const currentRunLogs = (modalLogs.length > 0 && typeof modalLogs[0] === 'object')
+                          ? (modalLogs[selectedRunIdx]?.logs || [])
+                          : modalLogs;
+                        navigator.clipboard.writeText(currentRunLogs.join('\n'));
                         alert('Logs copied to clipboard!');
                       }}
                       className="btn btn-outline text-xs py-2 px-4 flex-1 justify-center gap-1.5"
                       disabled={modalLogs.length === 0}
                     >
-                      <Copy size={14} /> Copy All Logs
+                      <Copy size={14} /> Copy Selected Logs
                     </button>
                     <button 
                       onClick={() => {

@@ -53,8 +53,34 @@ class TerminalPairingController extends Controller
             return response()->json(['error' => 'Terminal unauthorized or inactive'], 403);
         }
 
+        // Fetch existing log runs
+        $existing = json_decode($terminal->debug_logs, true);
+        $runs = [];
+
+        if (is_array($existing)) {
+            // Check if it's the old format (array of strings) or a list of runs
+            if (count($existing) > 0 && is_string($existing[0])) {
+                // Convert old flat format to a single run object
+                $runs[] = [
+                    'timestamp' => $terminal->updated_at ? $terminal->updated_at->toIso8601String() : now()->toIso8601String(),
+                    'logs' => $existing
+                ];
+            } else {
+                $runs = $existing;
+            }
+        }
+
+        // Add the new run at the beginning
+        array_unshift($runs, [
+            'timestamp' => now()->toIso8601String(),
+            'logs' => $request->logs
+        ]);
+
+        // Limit history to the last 10 runs
+        $runs = array_slice($runs, 0, 10);
+
         $terminal->update([
-            'debug_logs' => json_encode($request->logs)
+            'debug_logs' => json_encode($runs)
         ]);
 
         return response()->json(['message' => 'Logs uploaded successfully.']);
