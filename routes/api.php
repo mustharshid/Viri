@@ -31,6 +31,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Note: In production, add a role middleware here
     Route::get('/admin/companies', [SuperadminController::class, 'listCompanies']);
     Route::put('/admin/companies/{id}', [SuperadminController::class, 'updateCompany']);
+    Route::put('/admin/terminals/{id}', [SuperadminController::class, 'updateTerminal']);
     Route::post('/admin/terminals/{id}/view-log', [SuperadminController::class, 'viewTerminalLog']);
 
     Route::get('/company/terminals', [CompanyController::class, 'getTerminals']);
@@ -49,6 +50,7 @@ Route::middleware('auth:sanctum')->group(function () {
 |--------------------------------------------------------------------------
 | Viri Cashier Terminal API (Requires hardware_id)
 |--------------------------------------------------------------------------
+|
 */
 
 Route::post('/verify-terminal', function (Request $request) {
@@ -115,7 +117,8 @@ Route::post('/verify-terminal', function (Request $request) {
             'ledger_enabled' => false,
             'ledger_show_balance' => false,
             'ledger_show_debit' => false,
-            'reports_enabled' => false
+            'reports_enabled' => false,
+            'show_vbtl' => $terminal->permissions['show_vbtl'] ?? false
         ] : $terminal->permissions
     ]);
 });

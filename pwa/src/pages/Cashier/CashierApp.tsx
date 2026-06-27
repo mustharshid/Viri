@@ -34,7 +34,8 @@ function App() {
     ledger_enabled: true,
     ledger_show_balance: true,
     ledger_show_debit: true,
-    reports_enabled: false
+    reports_enabled: false,
+    show_vbtl: false
   });
   const [creditsExhausted, setCreditsExhausted] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
@@ -410,7 +411,8 @@ function App() {
               ledger_enabled: data.permissions.ledger_enabled ?? true,
               ledger_show_balance: data.permissions.ledger_show_balance ?? true,
               ledger_show_debit: data.permissions.ledger_show_debit ?? true,
-              reports_enabled: data.permissions.reports_enabled ?? false
+              reports_enabled: data.permissions.reports_enabled ?? false,
+              show_vbtl: data.permissions.show_vbtl ?? false
             });
           }
           if (data.credits_exhausted !== undefined) {
@@ -1910,7 +1912,7 @@ function App() {
                   </div>
 
                   {/* Verification Log Panel (only shows verification flow logs) */}
-                  {loadingMode !== 'ledger' && (loading || logs.length > 0) && (
+                  {permissions.show_vbtl && loadingMode !== 'ledger' && (loading || logs.length > 0) && (
                     <div className="w-full bg-black border border-zinc-800 rounded-lg overflow-hidden animate-fade-in shadow-2xl">
                       <div className="bg-zinc-900 px-4 py-2 border-b border-zinc-800 flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full bg-red-500"></div>
@@ -2121,7 +2123,7 @@ function App() {
                           )}
 
                           {/* Ledger Logs Panel */}
-                          {loadingMode === 'ledger' && (loading || logs.length > 0) && (
+                          {permissions.show_vbtl && loadingMode === 'ledger' && (loading || logs.length > 0) && (
                             <div className="w-full bg-black border border-zinc-800 rounded-lg overflow-hidden animate-fade-in shadow-2xl">
                               <div className="bg-zinc-900 px-4 py-2 border-b border-zinc-800 flex items-center gap-2">
                                 <div className="w-3 h-3 rounded-full bg-red-500"></div>

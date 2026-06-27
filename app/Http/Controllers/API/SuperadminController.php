@@ -92,4 +92,19 @@ class SuperadminController extends Controller
             'logs' => $logs
         ]);
     }
+
+    public function updateTerminal(Request $request, $id)
+    {
+        $request->validate([
+            'show_vbtl' => 'required|boolean'
+        ]);
+
+        $terminal = \App\Models\Terminal::findOrFail($id);
+        $permissions = $terminal->permissions;
+        $permissions['show_vbtl'] = (bool) $request->show_vbtl;
+        $terminal->permissions = $permissions;
+        $terminal->save();
+
+        return response()->json(['message' => 'Terminal updated successfully', 'terminal' => $terminal]);
+    }
 }

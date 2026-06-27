@@ -198,8 +198,8 @@ async function loggedFetch(url, options = {}) {
   }
 }
 
-// Simple function to get a TOTP token natively
-async function generateTOTP(secret) {
+// Simple function to get a TOTP token natively with optional server clock offset (in ms)
+async function generateTOTP(secret, clockOffset = 0) {
   const base32chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
   let bits = '';
   for (let i = 0; i < secret.length; i++) {
@@ -210,7 +210,7 @@ async function generateTOTP(secret) {
   const hex = bits.match(/.{1,8}/g).map(b => parseInt(b, 2).toString(16).padStart(2, '0')).join('');
   const keyBytes = new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
 
-  const epoch = Math.floor(Date.now() / 1000);
+  const epoch = Math.floor((Date.now() + clockOffset) / 1000);
   const time = Math.floor(epoch / 30);
 
   const timeBuffer = new ArrayBuffer(8);
@@ -351,6 +351,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
 
   let xsrfToken = null;
   globalInertiaVersion = "";
+  let bmlClockOffset = 0;
 
   async function getXsrfToken() {
     return new Promise((resolve) => {
@@ -471,6 +472,14 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
     await new Promise(r => setTimeout(r, 10));
     const token = await getXsrfToken();
     
+    // Calculate BML server clock offset dynamically from the response Date header
+    const serverDateHeader = res.headers.get('date');
+    if (serverDateHeader) {
+      const serverTime = new Date(serverDateHeader).getTime();
+      const clientTime = Date.now();
+      bmlClockOffset = serverTime - clientTime;
+    }
+
     xsrfToken = token;
     if (version) {
       globalInertiaVersion = version;
@@ -608,9 +617,17 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
     await new Promise(r => setTimeout(r, 10));
     xsrfToken = await getXsrfToken();
 
+    // Boundary Safety Delay: check if current epoch has less than 4 seconds remaining
+    const msInWindow = (Date.now() + bmlClockOffset) % 30000;
+    const msRemaining = 30000 - msInWindow;
+    if (msRemaining < 4000) {
+      emitLog(port, `> [BML] OTP window boundary safety: only ${Math.round(msRemaining / 100) / 10}s remaining in epoch. Waiting for next window...`);
+      await new Promise(resolve => setTimeout(resolve, msRemaining + 500));
+    }
+
     // Step 3B: Submit OTP with Authenticator channel selection in a single request
     emitLog(port, `> [BML] Step 3B: Submitting TOTP code...`);
-    const otpCode = await generateTOTP(credentials.totpSeed);
+    const otpCode = await generateTOTP(credentials.totpSeed, bmlClockOffset);
     emitLog(port, `> [TESTING] Submitting OTP: ${maskString(otpCode)}`);
 
     const verifyHeaders = {
@@ -1291,6 +1308,16 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
       throw new Error(`MIB auth page load failed: HTTP ${authPageRes.status}`);
     }
 
+    // Calculate MIB server clock offset dynamically from the response Date header
+    let mibClockOffset = 0;
+    const serverDateHeader = authPageRes.headers.get('date');
+    if (serverDateHeader) {
+      const serverTime = new Date(serverDateHeader).getTime();
+      const clientTime = Date.now();
+      mibClockOffset = serverTime - clientTime;
+      emitLog(port, `> [MIB] Calculated MIB server clock offset: ${mibClockOffset}ms (${Math.round(mibClockOffset / 1000)}s)`);
+    }
+
     const authPageHtml = await authPageRes.text();
     rTag = extractRTag(authPageHtml);
     emitLog(port, `> [MIB] ✓ Session initialized. rTag: ${rTag.substring(0, 8)}...`);
@@ -1451,9 +1478,17 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     // STEP 5: Verify OTP — POST /aAuth2FA/verifyOTP
     // HAR: Returns HTTP 203 (success with redirect). Referer: /auth2FA
     // ═══════════════════════════════════════════════════════════════
+    // Boundary Safety Delay: check if current epoch has less than 4 seconds remaining
+    const msInWindow = (Date.now() + mibClockOffset) % 30000;
+    const msRemaining = 30000 - msInWindow;
+    if (msRemaining < 4000) {
+      emitLog(port, `> [MIB] OTP window boundary safety: only ${Math.round(msRemaining / 100) / 10}s remaining in epoch. Waiting for next window...`);
+      await new Promise(resolve => setTimeout(resolve, msRemaining + 500));
+    }
+
     emitLog(port, `> [MIB] Step 5: Generating and submitting TOTP...`);
     emitLog(port, `> [MIB] TOTP generation using Seed: "${maskString(credentials.totpSeed)}"`);
-    const otpCode = await generateTOTP(credentials.totpSeed);
+    const otpCode = await generateTOTP(credentials.totpSeed, mibClockOffset);
     emitLog(port, `> [MIB] Generated OTP Code: "${maskString(otpCode)}"`);
 
     const otpRes = await mibFetch(`${MIB_BASE_URL}/aAuth2FA/verifyOTP`, {

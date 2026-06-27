@@ -148,3 +148,9 @@ The Viri interface must proactively reinforce system security to the end-user th
 1. **Central Portal Application & Back-End Admin Management:** Mobile-first responsive admin dashboard (following modern clean grid layouts), handling customer management nodes, custom invoice engines, audit log tables, terminal allocation tracking, and subscription freeze mechanisms.
 2. **Viri Progressive Web App Dashboard:** Frontend POS mobile/desktop interface utilizing a modern, sleek minimalist palette, account toggles, default account parameters, and a segregated daily total accumulation viewer.
 3. **Companion Browser Extension:** Manifest V3 extension managing cross-origin background execution scripts, real-time TOTP computation, and statement JSON extraction utilities for BML and MIB using custom script wrappers built using `gateway-mv-js` functional mechanics.
+
+## 9. Completion of Project
+
+When the project testing is completed - which will be explicitly done by the programmer, please implement the following:
+
+1. Whne a Cashier Terminal is deleted, ensure all the saved data in the browser is deleted.
