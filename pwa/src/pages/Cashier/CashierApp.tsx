@@ -47,6 +47,7 @@ function App() {
     date: string;
     details: string;
     amount: string;
+    runningBalance?: string;
   }[]>([]);
   const [lastPopulatedTime, setLastPopulatedTime] = useState<string>('');
 
@@ -910,6 +911,17 @@ function App() {
           setLastTransactions(response.transactions || []);
           setLastPopulatedTime(new Date().toLocaleTimeString());
 
+          if (response.balance) {
+            setLedgerCache(prev => ({
+              ...prev,
+              [selectedAccountId]: {
+                balance: response.balance,
+                lastUpdated: new Date().toLocaleTimeString(),
+                transactions: response.transactions || []
+              }
+            }));
+          }
+
           if (mode === 'search' && response.data) {
             setAmount(''); // clear input on success
           }
@@ -1440,7 +1452,13 @@ function App() {
       {/* Main Content Area */}
       <main className="flex-1 h-screen overflow-y-auto p-4 md:p-8 flex flex-col items-center">
 
-
+        {/* Zero-Knowledge banner */}
+        <div className="w-full max-w-xl lg:max-w-full mb-6 p-4 bg-zinc-950/40 border-t border-emerald-500 rounded-b-xl flex items-center gap-3">
+          <Shield className="text-emerald-400 shrink-0" size={18} />
+          <p className="text-xs text-zinc-400">
+            <strong className="text-white font-bold">Viri Zero-Knowledge Architecture:</strong> Financial passwords are fully encrypted and stored strictly on this local terminal machine.
+          </p>
+        </div>
 
         {showSettings ? (
           /* Extension Settings Panel */
@@ -1656,8 +1674,8 @@ function App() {
                   </div>
                 </div>
 
-                {/* Left Column: Form Inputs (lg:col-span-5) */}
-                <div className="lg:col-span-5 w-full">
+                {/* Left Column: Form Inputs (lg:col-span-4) */}
+                <div className="lg:col-span-4 w-full">
                   <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col gap-5">
                     <div className="flex items-center justify-between">
                       <h2 className="text-xl font-bold text-white tracking-tight">Verify Transfer</h2>
@@ -1817,8 +1835,8 @@ function App() {
                   </div>
                 </div>
 
-                {/* Right Column: Stepper, Logs and Recent Transactions (lg:col-span-7) */}
-                <div className="lg:col-span-7 space-y-6 w-full">
+                {/* Right Column: Stepper, Logs and Recent Transactions (lg:col-span-8) */}
+                <div className="lg:col-span-8 space-y-6 w-full">
                   {/* Multi-stage Progress Stepper Panel */}
                   <div className="p-6 rounded-2xl border border-zinc-800/80 bg-zinc-950/20 animate-fade-in flex flex-col gap-6">
                     <div className="flex justify-between items-start gap-4">
@@ -1864,15 +1882,7 @@ function App() {
                         </p>
                       </div>
 
-                      {/* Match Strength Box */}
-                      {activeStepIndex === 5 && (
-                        <div className="flex flex-col items-end shrink-0">
-                          <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold font-sans">Match Strength</span>
-                          <span className="text-base font-extrabold text-emerald-400 bg-emerald-950/20 border border-emerald-500/20 px-2.5 py-1 rounded mt-1 font-mono tracking-tight shadow-[0_0_10px_rgba(16,185,129,0.05)]">
-                            99.8%
-                          </span>
-                        </div>
-                      )}
+
                     </div>
 
                     {/* Stepper progress track */}
@@ -1998,20 +2008,41 @@ function App() {
                         <table className="w-full text-left text-xs border-collapse">
                           <thead>
                             <tr className="border-b border-zinc-800 bg-zinc-900/10 text-zinc-400 uppercase tracking-wider font-semibold text-[10px]">
-                              <th className="px-4 py-2">Date</th>
-                              <th className="px-4 py-2">Details</th>
-                              <th className="px-4 py-2 text-right">Amount</th>
+                              <th className="px-4 py-2 font-medium">Date & Time</th>
+                              <th className="px-4 py-2 font-medium">Description</th>
+                              <th className="px-4 py-2 font-medium">Details</th>
+                              <th className="px-4 py-2 font-medium text-right">Amount / Balance</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-zinc-850 font-mono text-[11px]">
+                          <tbody className="divide-y divide-zinc-900/50">
                             {lastTransactions.map((tx, idx) => {
                               const isCredit = tx.amount.startsWith('+');
+                              const detailsParts = tx.details.split('\n');
+                              const description = (detailsParts[0] || '').trim();
+                              const details = detailsParts.slice(1).join('\n').trim();
+
                               return (
-                                <tr key={idx} className="hover:bg-white/5 transition-colors">
-                                  <td className="px-4 py-3.5 text-zinc-400 whitespace-nowrap leading-relaxed">{tx.date}</td>
-                                  <td className="px-4 py-3.5 text-zinc-200 max-w-[280px] whitespace-pre-line break-words leading-relaxed text-[11px]" title={tx.details}>{tx.details}</td>
-                                  <td className={`px-4 py-3.5 text-right font-bold whitespace-nowrap ${isCredit ? 'text-[var(--color-success)]' : 'text-red-400'}`}>
-                                    {tx.amount}
+                                <tr key={idx} className="hover:bg-white/[0.02] transition-colors group">
+                                  <td className="px-4 py-3.5 text-xs font-mono text-zinc-400 whitespace-nowrap align-top">
+                                    {tx.date}
+                                  </td>
+                                  <td className="px-4 py-3.5 text-xs font-semibold text-zinc-200 align-top">
+                                    {description}
+                                  </td>
+                                  <td className="px-4 py-3.5 text-[11px] text-zinc-400 font-mono whitespace-pre-line leading-relaxed align-top break-words max-w-xs lg:max-w-md">
+                                    {details || <span className="text-zinc-600 italic">-</span>}
+                                  </td>
+                                  <td className="px-4 py-3.5 text-right align-top whitespace-nowrap">
+                                    <div className={`font-mono font-bold text-sm leading-none ${
+                                      isCredit ? 'text-[var(--color-success)]' : 'text-red-400'
+                                    }`}>
+                                      {tx.amount}
+                                    </div>
+                                    {tx.runningBalance && (
+                                      <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1.5">
+                                        Bal: MVR {tx.runningBalance}
+                                      </div>
+                                    )}
                                   </td>
                                 </tr>
                               );
