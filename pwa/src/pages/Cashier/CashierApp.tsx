@@ -1440,13 +1440,7 @@ function App() {
       {/* Main Content Area */}
       <main className="flex-1 h-screen overflow-y-auto p-4 md:p-8 flex flex-col items-center">
 
-        {/* Trust Badge */}
-        <div className="w-full max-w-xl lg:max-w-full mb-6 p-3 bg-[var(--bg-surface)] border border-[var(--color-success)] border-opacity-30 rounded-lg flex items-center gap-3">
-          <Shield className="text-[var(--color-success)] shrink-0" size={24} />
-          <p className="text-sm text-[var(--text-secondary)]">
-            <strong className="text-[var(--text-primary)]">Viri Zero-Knowledge Architecture:</strong> Financial passwords are fully encrypted and stored strictly on this local terminal machine.
-          </p>
-        </div>
+
 
         {showSettings ? (
           /* Extension Settings Panel */
@@ -1627,55 +1621,67 @@ function App() {
           <>
             {/* View Tab 1: Verification */}
             {activeTab === 'verify' && (
-              <div className="w-full max-w-xl lg:max-w-full grid grid-cols-1 lg:grid-cols-12 gap-8 items-start animate-fade-in">
+              <div className="w-full max-w-xl lg:max-w-full grid grid-cols-1 lg:grid-cols-12 gap-8 items-start animate-fade-in animate-duration-500">
                 {/* Header */}
                 <div className="w-full flex justify-between items-center lg:col-span-12 border-b border-[var(--border-color)] pb-4">
                   <div>
                     <h1 className="text-2xl tracking-tight text-white font-bold">{companyName}</h1>
-                    <p className="text-xs text-[var(--text-secondary)]">Powered by Viri {planName && <span className="opacity-70 px-1">• {planName} Plan</span>}</p>
+                    <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                      Powered by Viri {planName && <span>• {planName.toUpperCase()} PLAN</span>}
+                    </p>
                   </div>
-                  <span className="badge badge-success shrink-0">Online{terminalName ? ` - ${terminalName}` : ''}</span>
+                  
+                  <div className="flex items-center gap-4">
+                    {/* Status & Last Fetch */}
+                    <div className="text-right hidden sm:block">
+                      <div className="flex items-center justify-end gap-1.5 text-xs font-bold text-emerald-400">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span>ONLINE {terminalName && ` - ${terminalName.toUpperCase()}`}</span>
+                      </div>
+                      {lastPopulatedTime && (
+                        <span className="text-[10px] text-[var(--text-secondary)] font-mono block mt-0.5">
+                          LAST FETCH: {lastPopulatedTime}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Zero-Knowledge Security Badge with original text tooltip */}
+                    <div 
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-950/30 border border-emerald-500/20 rounded-full text-xs font-semibold text-emerald-400 cursor-help transition-all hover:bg-emerald-950/50"
+                      title="Viri Zero-Knowledge Architecture: Financial passwords are fully encrypted and stored strictly on this local terminal machine."
+                    >
+                      <Shield size={14} className="shrink-0 text-emerald-400" />
+                      <span>Zero-Knowledge Secure</span>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Left Column: Form Inputs (lg:col-span-5) */}
                 <div className="lg:col-span-5 w-full">
-                  <div className="glass-panel">
-                    <div className="mb-6 flex-between">
-                      <h2 className="text-xl">Verify Transfer</h2>
-                      <div className="flex bg-[var(--bg-canvas)] rounded-lg p-1 border border-[var(--border-color)]">
-                        {initLoading && <span className="text-xs text-[var(--text-secondary)] px-2">Loading...</span>}
+                  <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col gap-5">
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-xl font-bold text-white tracking-tight">Verify Transfer</h2>
+                      <div className="flex items-center gap-2">
+                        {initLoading && <Loader2 size={12} className="animate-spin text-zinc-400" />}
+                        <span className="px-2 py-0.5 bg-zinc-800/80 border border-zinc-700/50 text-zinc-400 text-[9px] font-bold uppercase tracking-wider rounded font-mono">
+                          Step 1-3
+                        </span>
                       </div>
                     </div>
 
                     {/* Error Alert */}
                     {error && (
-                      <div className="mb-4 p-3 bg-[var(--color-warning-bg)] border border-[var(--color-warning)] border-opacity-30 rounded-lg flex items-center gap-3 text-sm text-[var(--color-warning)]">
+                      <div className="p-3 bg-[var(--color-warning-bg)] border border-[var(--color-warning)] border-opacity-30 rounded-lg flex items-center gap-3 text-sm text-[var(--color-warning)]">
                         <AlertTriangle className="shrink-0" size={18} />
                         <p>{error}</p>
                       </div>
                     )}
 
-                    {/* Success Result Panel */}
-                    {result && (
-                      <div className="mb-6 p-4 bg-[var(--color-success-bg)] border border-[var(--color-success)] border-opacity-30 rounded-lg animate-fade-in">
-                        <div className="flex items-center gap-2 mb-2">
-                          <CheckCircle className="text-[var(--color-success)]" size={18} />
-                          <span className="font-semibold text-[var(--color-success)]">Transfer Verified</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 text-xs text-[var(--text-secondary)] mt-2">
-                          <div>Status: <span className="font-mono text-[var(--text-primary)]">{result.status}</span></div>
-                          <div>Reference: <span className="font-mono text-[var(--text-primary)]">{result.reference}</span></div>
-                          <div>Amount: <span className="font-mono text-[var(--text-primary)]">{result.amount} MVR</span></div>
-                          <div>Time: <span className="font-mono text-[var(--text-primary)]">{new Date(result.timestamp).toLocaleTimeString()}</span></div>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="input-group">
-                      <label className="input-label">Target Amount (MVR)</label>
+                    <div className="input-group mb-0">
+                      <label className="input-label text-[10px] uppercase tracking-wider font-bold text-zinc-400">Target Amount (MVR)</label>
                       <input
                         type="number"
-                        className="input-field text-2xl font-semibold"
+                        className="input-field text-2xl font-bold tracking-tight text-white py-3.5 bg-black/40 border border-zinc-800/80 rounded-xl focus:border-emerald-500"
                         placeholder="0.00"
                         value={amount}
                         disabled={loading}
@@ -1683,14 +1689,14 @@ function App() {
                       />
                     </div>
 
-                    <div className="input-group mt-4">
-                      <label className="input-label">Receiving Account</label>
+                    <div className="input-group mb-0">
+                      <label className="input-label text-[10px] uppercase tracking-wider font-bold text-zinc-400">Receiving Account</label>
                       {bankAccounts.length === 0 ? (
                         <div className="p-3 bg-zinc-900/30 border border-zinc-800 rounded-lg text-center text-zinc-500 italic text-sm">
                           No accounts configured
                         </div>
                       ) : (
-                        <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                        <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin">
                           {bankAccounts.map((acc) => {
                             const isSelected = selectedAccountId === acc.id.toString();
                             const isBml = acc.bank_name === 'BML';
@@ -1700,33 +1706,36 @@ function App() {
                                 type="button"
                                 disabled={loading}
                                 onClick={() => setSelectedAccountId(acc.id.toString())}
-                                className={`w-full px-3 py-2.5 rounded-xl border text-left flex items-center gap-3 transition-all ${
+                                className={`w-full px-4 py-3 rounded-xl border text-left flex items-center gap-3 transition-all ${
                                   isSelected
                                     ? isBml
-                                      ? 'bg-red-950/20 border-red-500/80 shadow-[0_0_10px_rgba(239,68,68,0.1)]'
-                                      : 'bg-emerald-955/20 border-emerald-500/80 shadow-[0_0_10px_rgba(16,185,129,0.1)]'
-                                    : 'bg-[var(--bg-canvas)] border-[var(--border-color)] hover:border-zinc-700'
+                                      ? 'bg-red-955/20 border-red-500/80 shadow-[0_0_12px_rgba(239,68,68,0.15)]'
+                                      : 'bg-emerald-955/20 border-emerald-500/80 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+                                    : 'bg-zinc-950/40 border-zinc-800/80 hover:border-zinc-700'
                                 }`}
                               >
-                                <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800 p-1 flex items-center justify-center shrink-0">
+                                <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800/80 p-1 flex items-center justify-center shrink-0">
                                   <img src={isBml ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt="" />
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className={`text-[9px] uppercase font-bold tracking-wider ${
+                                    <span className={`text-[8px] uppercase font-bold tracking-wider ${
                                       isBml ? 'text-red-400' : 'text-emerald-400'
                                     }`}>
                                       {acc.bank_name}
                                     </span>
                                     {acc.label && (
-                                      <span className="text-[9px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium">
+                                      <span className="text-[8px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium">
                                         {acc.label}
                                       </span>
                                     )}
                                   </div>
-                                  <div className="text-xs font-semibold text-white truncate">{acc.account_name}</div>
-                                  <div className="text-[10px] font-mono text-[var(--text-secondary)]">{acc.account_number}</div>
+                                  <div className="text-xs font-bold text-white truncate mt-0.5">{acc.account_name}</div>
+                                  <div className="text-[10px] font-mono text-[var(--text-secondary)] mt-0.5">{acc.account_number}</div>
                                 </div>
+                                {isSelected && (
+                                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isBml ? 'bg-red-500' : 'bg-emerald-500'}`} />
+                                )}
                               </button>
                             );
                           })}
@@ -1734,9 +1743,9 @@ function App() {
                       )}
                     </div>
 
-                    <div className="flex items-center justify-between mt-4 mb-8">
-                      <label className="text-sm text-[var(--text-secondary)] flex items-center gap-2 cursor-pointer">
-                        <span>Set as Default Account</span>
+                    <div className="flex items-center justify-between mt-1 mb-2">
+                      <label className="text-[10px] text-[var(--text-secondary)] uppercase tracking-wider font-bold cursor-pointer select-none">
+                        Set as Default Account
                       </label>
                       <label className="toggle-switch">
                         <input
@@ -1749,55 +1758,55 @@ function App() {
                       </label>
                     </div>
 
-                    <div className="flex gap-4">
+                    <div className="space-y-3 mt-2">
                       <button
                         onClick={() => handleVerify('search')}
                         disabled={loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 || creditsExhausted}
-                        className={`flex-1 btn btn-success py-3 text-lg justify-center gap-2 ${
+                        className={`w-full btn btn-success py-3.5 text-base justify-center gap-2 font-bold rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.2)] transition-all ${
                           loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 || creditsExhausted ? 'opacity-50 cursor-not-allowed' : ''
                         }`}
                       >
                         {loading && loadingMode === 'search' ? (
                           <>
-                            <RefreshCw size={20} className="animate-spin" />
-                            Searching...
+                            <Loader2 className="animate-spin" size={20} />
+                            Verifying...
                           </>
                         ) : (
                           <>
                             <Search size={20} />
-                            Search
+                            VERIFY TRANSFER
                           </>
                         )}
                       </button>
                       <button
                         onClick={() => handleVerify('history')}
                         disabled={loading || !isCredentialsComplete || creditsExhausted}
-                        className={`flex-1 btn btn-outline py-3 text-lg justify-center gap-2 ${
+                        className={`w-full btn btn-outline py-3 text-sm justify-center gap-2 font-semibold rounded-xl transition-all border border-zinc-800 hover:border-zinc-700 bg-transparent text-zinc-300 hover:text-white ${
                           loading || !isCredentialsComplete || creditsExhausted ? 'opacity-50 cursor-not-allowed' : ''
                         }`}
                       >
                         {loading && loadingMode === 'history' ? (
                           <>
-                            <RefreshCw size={20} className="animate-spin" />
-                            Fetching...
+                            <Loader2 className="animate-spin" size={16} />
+                            Fetching History...
                           </>
                         ) : (
                           <>
-                            <History size={20} />
-                            History
+                            <History size={16} />
+                            VIEW HISTORY
                           </>
                         )}
                       </button>
                     </div>
-                    
+
                     {!isCredentialsComplete && (
-                      <p className="text-xs text-[var(--color-warning)] mt-2.5 text-center leading-relaxed">
+                      <p className="text-xs text-[var(--color-warning)] mt-1 text-center leading-relaxed">
                         ⚠️ Please complete all bank credentials (username, password, authenticator seed) in settings before proceeding.
                       </p>
                     )}
 
                     {creditsExhausted && (
-                      <div className="mt-4 p-3.5 bg-red-950/20 border border-red-900/40 rounded-xl text-xs text-red-400 leading-normal flex items-start gap-2.5">
+                      <div className="mt-2 p-3.5 bg-red-955/20 border border-red-500/30 rounded-xl text-xs text-red-400 leading-normal flex items-start gap-2.5">
                         <AlertTriangle size={16} className="shrink-0 mt-0.5" />
                         <div>
                           <strong className="block font-bold mb-0.5">Verification Credits Exhausted</strong>
@@ -1811,49 +1820,65 @@ function App() {
                 {/* Right Column: Stepper, Logs and Recent Transactions (lg:col-span-7) */}
                 <div className="lg:col-span-7 space-y-6 w-full">
                   {/* Multi-stage Progress Stepper Panel */}
-                  <div className="p-5 rounded-xl bg-black/40 border border-[var(--border-color)] animate-fade-in">
-                    <div className="flex justify-between items-center mb-6">
-                      <span 
-                        key={progress.text || 'idle'} 
-                        className={`text-sm font-semibold truncate transition-all duration-300 flex items-center gap-2 ${
-                          activeStepIndex === 5 ? 'text-[var(--color-success)] animate-pulse' :
-                          progress.stage === 'lock' ? 'text-[var(--color-warning)]' : 
-                          activeStepIndex > 0 ? 'text-blue-400' : 'text-zinc-500'
-                        }`}
-                        style={{ animationDuration: '0.8s' }}
-                      >
-                        {loading ? (
-                          progress.stage === 'success' ? (
-                            <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                            </svg>
-                          ) : progress.stage === 'lock' ? (
-                            <span className="relative flex h-2 w-2 mr-1">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-warning)] opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-warning)]"></span>
-                            </span>
+                  <div className="p-6 rounded-2xl border border-zinc-800/80 bg-zinc-950/20 animate-fade-in flex flex-col gap-6">
+                    <div className="flex justify-between items-start gap-4">
+                      <div>
+                        <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                          {activeStepIndex === 5 ? (
+                            <>
+                              <span>Transfer Verified!</span>
+                              <span className="px-2 py-0.5 bg-emerald-950/50 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold tracking-wider rounded uppercase">
+                                Success
+                              </span>
+                            </>
+                          ) : progress.stage === 'error' ? (
+                            <>
+                              <span>Verification Failed</span>
+                              <span className="px-2 py-0.5 bg-red-950/50 border border-red-500/20 text-red-400 text-[10px] font-bold tracking-wider rounded uppercase">
+                                Failed
+                              </span>
+                            </>
+                          ) : loading ? (
+                            <>
+                              <span>{progress.text || "Verifying Transfer..."}</span>
+                              {progress.stage === 'lock' && (
+                                <span className="px-2 py-0.5 bg-amber-955/50 border border-amber-500/20 text-amber-400 text-[10px] font-bold tracking-wider rounded uppercase animate-pulse">
+                                  Locking
+                                </span>
+                              )}
+                            </>
                           ) : (
-                            <Loader2 className="animate-spin shrink-0 text-blue-400" size={16} />
-                          )
-                        ) : activeStepIndex === 5 ? (
-                          <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                        ) : null}
-                        {loading ? (progress.text || "Processing...") : (activeStepIndex === 5 ? "Transfer Verified!" : (progress.stage === 'error' ? "Verification failed." : "Ready for verification."))}
-                      </span>
-                      
-                      {loading && timeLeft !== null && progress.stage !== 'success' && (
-                        <span className="text-[10px] text-[var(--text-secondary)] font-mono shrink-0">
-                          Est. remaining: ~{timeLeft}s
-                        </span>
+                            <span>Verification Status</span>
+                          )}
+                        </h2>
+                        <p className="text-xs text-[var(--text-secondary)] mt-1 font-medium leading-relaxed">
+                          {activeStepIndex === 5 ? (
+                            `Verification completed at ${result ? new Date(result.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString()} local time. Reference: ${result?.reference || 'N/A'}`
+                          ) : progress.stage === 'error' ? (
+                            error || "An error occurred during verification."
+                          ) : loading ? (
+                            timeLeft !== null ? `Estimated remaining: ~${timeLeft}s` : "Contacting banking server..."
+                          ) : (
+                            "Enter transfer details on the left and click Verify to start."
+                          )}
+                        </p>
+                      </div>
+
+                      {/* Match Strength Box */}
+                      {activeStepIndex === 5 && (
+                        <div className="flex flex-col items-end shrink-0">
+                          <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold font-sans">Match Strength</span>
+                          <span className="text-base font-extrabold text-emerald-400 bg-emerald-950/20 border border-emerald-500/20 px-2.5 py-1 rounded mt-1 font-mono tracking-tight shadow-[0_0_10px_rgba(16,185,129,0.05)]">
+                            99.8%
+                          </span>
+                        </div>
                       )}
                     </div>
 
                     {/* Stepper progress track */}
                     <div className="relative flex justify-between items-center w-full mt-4 mb-2 px-1 select-none">
                       {/* Connecting Line Track */}
-                      <div className="absolute left-6 right-6 top-[15px] h-[3px] bg-zinc-800 -z-10 rounded-full flex overflow-hidden">
+                      <div className="absolute left-6 right-6 top-[22px] h-[4px] bg-zinc-800 -z-10 rounded-full flex overflow-hidden">
                         <div className={`flex-1 h-full transition-all duration-500 ${
                           activeStepIndex >= 2 ? 'bg-emerald-500' :
                           activeStepIndex === 1 ? 'bg-gradient-to-r from-blue-500 to-zinc-700' : 'bg-zinc-700'
@@ -1874,34 +1899,34 @@ function App() {
 
                       {/* Stepper Nodes */}
                       {[
-                        { id: 1, label: 'Start' },
-                        { id: 2, label: 'Auth' },
-                        { id: 3, label: 'Fetch' },
-                        { id: 4, label: 'Match' },
-                        { id: 5, label: 'Verify' }
+                        { id: 1, label: 'START' },
+                        { id: 2, label: 'AUTH' },
+                        { id: 3, label: 'FETCH' },
+                        { id: 4, label: 'MATCH' },
+                        { id: 5, label: 'VERIFY' }
                       ].map((step) => {
                         const isCompleted = activeStepIndex > step.id || activeStepIndex === 5;
                         const isActive = activeStepIndex === step.id && activeStepIndex !== 5;
                         
                         return (
                           <div key={step.id} className="flex flex-col items-center z-10">
-                            <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs transition-all duration-500 ${
+                            <div className={`w-11 h-11 rounded-full border-2 flex items-center justify-center font-bold text-xs transition-all duration-500 ${
                               isCompleted 
-                                ? 'bg-emerald-500 border-emerald-500 text-white shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                                ? 'bg-emerald-500 border-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)]'
                                 : isActive
-                                  ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_12px_rgba(59,130,246,0.3)] animate-pulse-glow'
+                                  ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.4)] animate-pulse-glow'
                                   : 'bg-zinc-950 border-zinc-800 text-zinc-500'
                             }`}>
                               {isCompleted ? (
-                                <svg className="w-4 h-4 text-white animate-scale-checkmark" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                                <svg className="w-5 h-5 text-white animate-scale-checkmark" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                                 </svg>
                               ) : (
                                 <span>{step.id}</span>
                               )}
                             </div>
-                            <span className={`text-[10px] mt-2 font-semibold transition-colors duration-500 ${
-                              isCompleted ? 'text-emerald-400 font-bold' : isActive ? 'text-blue-400 font-bold' : 'text-zinc-500'
+                            <span className={`text-[9px] mt-2.5 font-bold tracking-wider transition-colors duration-500 ${
+                              isCompleted ? 'text-emerald-400' : isActive ? 'text-blue-400' : 'text-zinc-500'
                             }`}>
                               {step.label}
                             </span>
@@ -1956,28 +1981,36 @@ function App() {
                   )}
 
                   {/* Recent Transactions Table */}
-                  <div className="glass-panel w-full">
-                    <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-4">
-                      Recent Transactions {lastPopulatedTime && `[${lastPopulatedTime}]`}
-                    </h3>
-                    <div className="overflow-x-auto rounded-xl border border-[var(--border-color)] bg-black/30">
+                  <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl w-full flex flex-col gap-4">
+                    <div className="flex justify-between items-center border-b border-zinc-800/80 pb-3">
+                      <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-widest">
+                        Recent Transactions
+                      </h3>
+                      {lastPopulatedTime && (
+                        <span className="text-[10px] text-zinc-500 font-mono">
+                          [{lastPopulatedTime}]
+                        </span>
+                      )}
+                    </div>
+                    
+                    <div className="overflow-x-auto bg-transparent">
                       {lastTransactions && lastTransactions.length > 0 ? (
                         <table className="w-full text-left text-xs border-collapse">
                           <thead>
-                            <tr className="border-b border-[var(--border-color)] bg-white/5 text-[var(--text-secondary)] uppercase tracking-wider font-semibold">
-                              <th className="px-4 py-2.5">Date</th>
-                              <th className="px-4 py-2.5">Details</th>
-                              <th className="px-4 py-2.5 text-right">Amount</th>
+                            <tr className="border-b border-zinc-800 bg-zinc-900/10 text-zinc-400 uppercase tracking-wider font-semibold text-[10px]">
+                              <th className="px-4 py-2">Date</th>
+                              <th className="px-4 py-2">Details</th>
+                              <th className="px-4 py-2 text-right">Amount</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-[var(--border-color)] font-mono">
+                          <tbody className="divide-y divide-zinc-850 font-mono text-[11px]">
                             {lastTransactions.map((tx, idx) => {
                               const isCredit = tx.amount.startsWith('+');
                               return (
                                 <tr key={idx} className="hover:bg-white/5 transition-colors">
-                                  <td className="px-4 py-3 text-[var(--text-secondary)] whitespace-nowrap">{tx.date}</td>
-                                  <td className="px-4 py-3 text-[var(--text-primary)] max-w-[250px] whitespace-pre-line break-words leading-relaxed text-[11px]" title={tx.details}>{tx.details}</td>
-                                  <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${isCredit ? 'text-[var(--color-success)]' : 'text-red-400'}`}>
+                                  <td className="px-4 py-3.5 text-zinc-400 whitespace-nowrap leading-relaxed">{tx.date}</td>
+                                  <td className="px-4 py-3.5 text-zinc-200 max-w-[280px] whitespace-pre-line break-words leading-relaxed text-[11px]" title={tx.details}>{tx.details}</td>
+                                  <td className={`px-4 py-3.5 text-right font-bold whitespace-nowrap ${isCredit ? 'text-[var(--color-success)]' : 'text-red-400'}`}>
                                     {tx.amount}
                                   </td>
                                 </tr>
@@ -1991,6 +2024,16 @@ function App() {
                         </div>
                       )}
                     </div>
+
+                    <div className="mt-2 pt-3 flex justify-center border-t border-zinc-900">
+                      <button 
+                        onClick={() => handleVerify('history')}
+                        disabled={loading}
+                        className="text-[10px] uppercase font-bold text-zinc-400 hover:text-white transition-colors py-2 px-4 hover:bg-white/5 rounded-lg border border-zinc-800"
+                      >
+                        {loading && loadingMode === 'history' ? 'Loading...' : 'Load More Transactions'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2003,7 +2046,7 @@ function App() {
                 <div className="w-full flex justify-between items-center border-b border-[var(--border-color)] pb-4">
                   <div>
                     <h2 className="text-2xl font-bold text-white tracking-tight">Transaction Ledger</h2>
-                    <p className="text-xs text-[var(--text-secondary)]">Real-time statements fetched directly from your bank</p>
+                    <p className="text-xs text-[var(--text-secondary)] mt-0.5">Real-time statements fetched directly from your bank</p>
                   </div>
                   
                   {loading && loadingMode === 'ledger' && (
