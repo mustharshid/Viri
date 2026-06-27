@@ -50,6 +50,9 @@ function App() {
     runningBalance?: string;
   }[]>([]);
   const [lastPopulatedTime, setLastPopulatedTime] = useState<string>('');
+  const [syncTimeElapsed, setSyncTimeElapsed] = useState<number | null>(null);
+  const syncStartTimeRef = useRef<number | null>(null);
+
 
   // Hardware bound Terminal ID
   const [hardwareId, setHardwareId] = useState(() => {
@@ -174,11 +177,19 @@ function App() {
   useEffect(() => {
     if (!loading) {
       setLoadingMode(null);
+      syncStartTimeRef.current = null;
     }
   }, [loading]);
 
   const [activeTab, setActiveTab] = useState<'verify' | 'ledger' | 'reports'>('verify');
-  const [ledgerCache, setLedgerCache] = useState<Record<string, LedgerData>>({});
+  const [ledgerCache, setLedgerCache] = useState<Record<string, LedgerData>>(() => {
+    const saved = localStorage.getItem('viri_ledger_cache');
+    return saved ? JSON.parse(saved) : {};
+  });
+
+  useEffect(() => {
+    localStorage.setItem('viri_ledger_cache', JSON.stringify(ledgerCache));
+  }, [ledgerCache]);
   const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<string>('');
 
   const activePortRef = useRef<chrome.runtime.Port | null>(null);
@@ -1022,6 +1033,17 @@ function App() {
     setError(null);
     logsRef.current = [];
     setLogs([]);
+    setSyncTimeElapsed(0);
+    const sTime = performance.now();
+    syncStartTimeRef.current = sTime;
+
+    const timerInterval = setInterval(() => {
+      if (syncStartTimeRef.current !== null) {
+        setSyncTimeElapsed(performance.now() - syncStartTimeRef.current);
+      } else {
+        clearInterval(timerInterval);
+      }
+    }, 37);
 
     isVerifyingRef.current = true;
     setProgress({
@@ -1348,15 +1370,22 @@ function App() {
 
   const Sidebar = () => (
     <aside className="w-16 md:w-64 border-r border-[var(--border-color)] bg-[var(--bg-surface)] flex flex-col items-center md:items-stretch justify-between py-6 shrink-0 transition-all duration-300">
-      {/* Top section: Brand / Logo */}
-      <div className="flex flex-col items-center md:items-start px-4 mb-8">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded bg-[var(--color-success)]/10 flex items-center justify-center border border-[var(--color-success)]/30 shrink-0">
-            <Shield className="text-[var(--color-success)]" size={18} />
-          </div>
-          <span className="font-bold text-sm text-white hidden md:inline truncate">{companyName}</span>
+      {/* Top section: Brand / Logo - Vertical Premium Layout */}
+      <div className="flex flex-col items-center md:items-start px-5 mb-8">
+        {/* Viri Logo Container */}
+        <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/30 mb-3 shadow-[0_0_15px_rgba(16,185,129,0.15)]">
+          <Shield className="text-emerald-400" size={20} />
         </div>
-        <span className="text-[9px] text-zinc-500 font-mono mt-1 hidden md:inline">TERMINAL PWA</span>
+        
+        {/* Company Name */}
+        <span className="font-bold text-sm text-white hidden md:block truncate max-w-full tracking-tight">
+          {companyName}
+        </span>
+        
+        {/* Terminal PWA Subtitle */}
+        <span className="text-[10px] text-emerald-500/80 font-mono font-bold tracking-widest mt-0.5 uppercase hidden md:block">
+          Terminal PWA
+        </span>
       </div>
 
       {/* Nav items */}
@@ -1452,13 +1481,7 @@ function App() {
       {/* Main Content Area */}
       <main className="flex-1 h-screen overflow-y-auto p-4 md:p-8 flex flex-col items-center">
 
-        {/* Zero-Knowledge banner */}
-        <div className="w-full max-w-xl lg:max-w-full mb-6 p-4 bg-zinc-950/40 border-t border-emerald-500 rounded-b-xl flex items-center gap-3">
-          <Shield className="text-emerald-400 shrink-0" size={18} />
-          <p className="text-xs text-zinc-400">
-            <strong className="text-white font-bold">Viri Zero-Knowledge Architecture:</strong> Financial passwords are fully encrypted and stored strictly on this local terminal machine.
-          </p>
-        </div>
+
 
         {showSettings ? (
           /* Extension Settings Panel */
@@ -1663,13 +1686,18 @@ function App() {
                       )}
                     </div>
 
-                    {/* Zero-Knowledge Security Badge with original text tooltip */}
-                    <div 
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-950/30 border border-emerald-500/20 rounded-full text-xs font-semibold text-emerald-400 cursor-help transition-all hover:bg-emerald-950/50"
-                      title="Viri Zero-Knowledge Architecture: Financial passwords are fully encrypted and stored strictly on this local terminal machine."
-                    >
-                      <Shield size={14} className="shrink-0 text-emerald-400" />
-                      <span>Zero-Knowledge Secure</span>
+                    {/* Zero-Knowledge Security Badge & Subtitle */}
+                    <div className="flex flex-col items-end gap-1 text-right max-w-[280px]">
+                      <div 
+                        className="flex items-center gap-1.5 px-3 py-1 bg-emerald-950/30 border border-emerald-500/20 rounded-full text-[11px] font-semibold text-emerald-400 cursor-help"
+                        title="Viri Zero-Knowledge Architecture: Financial passwords are fully encrypted and stored strictly on this local terminal machine."
+                      >
+                        <Shield size={12} className="shrink-0 text-emerald-400" />
+                        <span>Zero-Knowledge Secure</span>
+                      </div>
+                      <p className="text-[10px] text-zinc-500 leading-normal select-none">
+                        Financial passwords are fully encrypted and stored strictly on this local terminal machine.
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -1737,19 +1765,19 @@ function App() {
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className={`text-[8px] uppercase font-bold tracking-wider ${
+                                    <span className={`text-[10px] uppercase font-bold tracking-wider ${
                                       isBml ? 'text-red-400' : 'text-emerald-400'
                                     }`}>
                                       {acc.bank_name}
                                     </span>
                                     {acc.label && (
-                                      <span className="text-[8px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium">
+                                      <span className="text-[10px] bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded font-bold">
                                         {acc.label}
                                       </span>
                                     )}
                                   </div>
-                                  <div className="text-xs font-bold text-white truncate mt-0.5">{acc.account_name}</div>
-                                  <div className="text-[10px] font-mono text-[var(--text-secondary)] mt-0.5">{acc.account_number}</div>
+                                  <div className="text-[15px] font-bold text-white truncate mt-0.5">{acc.account_name}</div>
+                                  <div className="text-[13px] font-mono text-[var(--text-secondary)] mt-0.5">{acc.account_number}</div>
                                 </div>
                                 {isSelected && (
                                   <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isBml ? 'bg-red-500' : 'bg-emerald-500'}`} />
@@ -1761,10 +1789,7 @@ function App() {
                       )}
                     </div>
 
-                    <div className="flex items-center justify-between mt-1 mb-2">
-                      <label className="text-[10px] text-[var(--text-secondary)] uppercase tracking-wider font-bold cursor-pointer select-none">
-                        Set as Default Account
-                      </label>
+                    <div className="flex items-center gap-2 mt-1 mb-2 select-none cursor-pointer">
                       <label className="toggle-switch">
                         <input
                           type="checkbox"
@@ -1774,6 +1799,9 @@ function App() {
                         />
                         <span className="slider"></span>
                       </label>
+                      <span className="text-[10px] text-[var(--text-secondary)] uppercase tracking-wider font-bold">
+                        Set as Default Account
+                      </span>
                     </div>
 
                     <div className="space-y-3 mt-2">
@@ -2327,11 +2355,18 @@ function App() {
                                 ) : null}
                                 {loading && loadingMode === 'ledger' ? (progress.text || "Processing...") : (activeLedgerStepIndex === 5 ? "Ledger Synced!" : (progress.stage === 'error' ? "Sync failed." : "Ready for sync."))}
                               </span>
-                              {loading && loadingMode === 'ledger' && timeLeft !== null && progress.stage !== 'success' && (
-                                <span className="text-[9px] text-[var(--text-secondary)] font-mono shrink-0">
-                                  Est. remaining: ~{timeLeft}s
-                                </span>
-                              )}
+                              <div className="flex items-center gap-3 shrink-0">
+                                {loading && loadingMode === 'ledger' && timeLeft !== null && progress.stage !== 'success' && (
+                                  <span className="text-[9px] text-[var(--text-secondary)] font-mono">
+                                    Est. remaining: ~{timeLeft}s
+                                  </span>
+                                )}
+                                {syncTimeElapsed !== null && (
+                                  <span className="text-[10px] text-zinc-400 font-mono">
+                                    Time: {(syncTimeElapsed / 1000).toFixed(3)}s
+                                  </span>
+                                )}
+                              </div>
                             </div>
 
                             <div className="relative flex justify-between items-center w-full px-1 select-none">
