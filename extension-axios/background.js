@@ -729,9 +729,11 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount) {
     for (const group of accounts) {
       const accList = group.accounts || [group]; // handle both nested and flat structures
       for (const acc of accList) {
-        if (acc.account === targetAccount || acc.account_number === targetAccount || acc.id === targetAccount) {
+        const accNo = String(acc.account || acc.account_number || acc.id || '').replace(/\s+/g, '');
+        const targetNo = String(targetAccount || '').replace(/\s+/g, '');
+        if (accNo === targetNo || accNo.includes(targetNo) || targetNo.includes(accNo)) {
           bmlAccountId = acc.id || acc.account;
-          balance = acc.available_balance || "Found";
+          balance = acc.available_balance || acc.availableBalance || acc.working_balance || acc.balance || acc.current_balance || "Found";
           break;
         }
       }
