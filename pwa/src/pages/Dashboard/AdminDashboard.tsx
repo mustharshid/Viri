@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle, LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone } from 'lucide-react';
+import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone } from 'lucide-react';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -210,27 +210,62 @@ export default function AdminDashboard() {
             <div key={company.id} className="glass-panel p-6 border border-zinc-800 hover:border-zinc-700 transition-all flex flex-col gap-6 bg-black/20 rounded-2xl">
               {/* Header: Company Name & Status */}
               <div className="flex flex-wrap justify-between items-center gap-4 border-b border-zinc-800/80 pb-4">
-                <div>
-                  <h3 className="text-xl font-bold text-white tracking-tight">{company.name}</h3>
-                  <p className="text-xs text-zinc-400 mt-1">ID: #{company.id}</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className={`px-2.5 py-1 rounded text-xs font-bold ${company.status === 'active' ? 'bg-green-900/40 text-green-300 border border-green-500/20' : 'bg-yellow-900/40 text-yellow-300 border border-yellow-500/20'}`}>
-                    {company.status.toUpperCase()}
+                {(() => {
+                  const adminUser = company.users?.find((u: any) => u.role === 'company_admin') || company.users?.[0];
+                  return (
+                    <div>
+                      <h3 className="text-xl font-bold text-white tracking-tight">{company.name}</h3>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-400 mt-1">
+                        <span>ID: #{company.id}</span>
+                        {adminUser && (
+                          <>
+                            <span className="text-zinc-700">•</span>
+                            <span>Email: <strong className="text-zinc-300 font-mono">{adminUser.email}</strong></span>
+                            <span className="text-zinc-700">•</span>
+                            <span>Phone: <strong className="text-zinc-300 font-mono">{adminUser.phone_number || 'N/A'}</strong></span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Status Badge */}
+                  <span className={`px-2.5 py-1 rounded text-xs font-bold ${
+                    company.status === 'active' 
+                      ? 'bg-green-900/40 text-green-300 border border-green-500/20' 
+                      : company.status === 'suspended'
+                        ? 'bg-orange-900/40 text-orange-300 border border-orange-500/20'
+                        : company.status === 'archived'
+                          ? 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                          : 'bg-yellow-900/40 text-yellow-300 border border-yellow-500/20'
+                  }`}>
+                    {company.status === 'pending' ? 'PENDING APPROVAL' : company.status.toUpperCase()}
                   </span>
-                  {company.status === 'pending' ? (
+
+                  {/* Actions */}
+                  {company.status !== 'active' && (
                     <button 
                       onClick={() => updateCompany(company.id, 'active', company.subscription_tier, company.lock_timeout, company.max_terminals)}
-                      className="btn btn-success text-xs py-1.5 px-4 flex items-center gap-1.5 font-semibold"
+                      className="btn btn-success text-xs py-1.5 px-3 flex items-center gap-1.5 font-semibold"
                     >
-                      <CheckCircle size={14} /> Approve
+                      Activate
                     </button>
-                  ) : (
+                  )}
+                  {company.status !== 'suspended' && (
                     <button 
-                      onClick={() => updateCompany(company.id, 'pending', company.subscription_tier, company.lock_timeout, company.max_terminals)}
-                      className="btn btn-outline text-xs py-1.5 px-4 border-yellow-500/50 text-yellow-500 hover:bg-yellow-500/10 font-semibold"
+                      onClick={() => updateCompany(company.id, 'suspended', company.subscription_tier, company.lock_timeout, company.max_terminals)}
+                      className="btn btn-outline text-xs py-1.5 px-3 border-orange-500/50 text-orange-400 hover:bg-orange-500/10 font-semibold"
                     >
                       Suspend
+                    </button>
+                  )}
+                  {company.status !== 'archived' && (
+                    <button 
+                      onClick={() => updateCompany(company.id, 'archived', company.subscription_tier, company.lock_timeout, company.max_terminals)}
+                      className="btn btn-outline text-xs py-1.5 px-3 border-zinc-700 text-zinc-400 hover:bg-zinc-800 font-semibold"
+                    >
+                      Archive
                     </button>
                   )}
                 </div>

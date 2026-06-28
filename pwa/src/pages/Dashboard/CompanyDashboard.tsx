@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw } from 'lucide-react';
+import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings } from 'lucide-react';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group ml-2 cursor-help align-middle">
@@ -37,6 +37,14 @@ export default function CompanyDashboard() {
   const [accountNumber, setAccountNumber] = useState('');
   const [accountLabel, setAccountLabel] = useState('');
   const [mibProfileType, setMibProfileType] = useState('0');
+
+  // Settings Form States
+  const [settingsPhone, setSettingsPhone] = useState('');
+  const [settingsPassword, setSettingsPassword] = useState('');
+  const [settingsPasswordConfirm, setSettingsPasswordConfirm] = useState('');
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
   
   const navigate = useNavigate();
 
@@ -74,6 +82,7 @@ export default function CompanyDashboard() {
       if (!userRes.ok) throw new Error('Unauthorized');
       const userData = await userRes.json();
       setUser(userData.user);
+      setSettingsPhone(userData.user.phone_number || '');
 
       const termsRes = await fetch('/api/company/terminals', { headers });
       setTerminals(await termsRes.json());
@@ -95,6 +104,49 @@ export default function CompanyDashboard() {
     }
     localStorage.removeItem('viri_token');
     navigate('/login');
+  };
+
+  const handleSaveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSettingsError(null);
+    setSettingsSuccess(null);
+
+    if (settingsPassword && settingsPassword !== settingsPasswordConfirm) {
+      setSettingsError("Passwords do not match");
+      return;
+    }
+
+    setSettingsLoading(true);
+    try {
+      const token = localStorage.getItem('viri_token');
+      const response = await fetch('/api/company/profile', {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          phone_number: settingsPhone,
+          password: settingsPassword || undefined,
+          password_confirmation: settingsPassword ? settingsPasswordConfirm : undefined
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to update profile settings.");
+      }
+
+      setSettingsSuccess("Profile settings updated successfully!");
+      setSettingsPassword('');
+      setSettingsPasswordConfirm('');
+      fetchData();
+    } catch (err: any) {
+      setSettingsError(err.message);
+    } finally {
+      setSettingsLoading(false);
+    }
   };
 
   const handleAddTerminalClick = async (e: React.FormEvent) => {
@@ -300,25 +352,31 @@ export default function CompanyDashboard() {
 
   return (
     <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)] flex">
-      {/* Sidebar */}
-      <aside className="w-64 border-r border-[var(--border-color)] bg-[var(--bg-surface)] p-6 hidden md:block">
-        <div className="mb-8">
-          <img src="/logo_en.png" alt="Viri Logo" className="h-32 object-contain" />
+      <aside className="w-64 border-r border-[var(--border-color)] bg-[var(--bg-surface)] p-6 hidden md:flex flex-col justify-between h-screen sticky top-0 shrink-0">
+        <div>
+          <div className="mb-8">
+            <img src="/logo_en.png" alt="Viri Logo" className="h-32 object-contain" />
+          </div>
+          <nav className="space-y-2">
+            <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'dashboard' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
+              <LayoutDashboard size={20} /> Dashboard
+            </button>
+            <button onClick={() => setActiveTab('reporting')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'reporting' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
+              <BarChart3 size={20} /> Reporting
+            </button>
+            <button onClick={() => setActiveTab('plans')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'plans' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
+              <CreditCard size={20} /> Plans & Upgrades
+            </button>
+            <button onClick={() => setActiveTab('support')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'support' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
+              <LifeBuoy size={20} /> Support
+            </button>
+          </nav>
         </div>
-        <nav className="space-y-2">
-          <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'dashboard' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
-            <LayoutDashboard size={20} /> Dashboard
+        <div>
+          <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'settings' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
+            <Settings size={20} /> Settings
           </button>
-          <button onClick={() => setActiveTab('reporting')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'reporting' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
-            <BarChart3 size={20} /> Reporting
-          </button>
-          <button onClick={() => setActiveTab('plans')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'plans' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
-            <CreditCard size={20} /> Plans & Upgrades
-          </button>
-          <button onClick={() => setActiveTab('support')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'support' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
-            <LifeBuoy size={20} /> Support
-          </button>
-        </nav>
+        </div>
       </aside>
 
       <main className="flex-1 p-6 lg:p-10 overflow-y-auto">
@@ -718,6 +776,63 @@ export default function CompanyDashboard() {
                 779-3811
               </a>
             </div>
+          </div>
+        )}
+
+        {/* --- TAB: SETTINGS --- */}
+        {activeTab === 'settings' && (
+          <div className="glass-panel p-8 max-w-xl animate-fade-in">
+            <h2 className="text-xl font-bold text-white mb-4">Account Settings</h2>
+            <p className="text-xs text-[var(--text-secondary)] mb-6">Update your phone number and administrative password.</p>
+            
+            {settingsError && <div className="p-3 mb-6 bg-red-900/30 border border-red-500/50 rounded text-red-200 text-sm">{settingsError}</div>}
+            {settingsSuccess && <div className="p-3 mb-6 bg-green-950/40 border border-green-500/30 rounded text-green-200 text-sm">{settingsSuccess}</div>}
+
+            <form onSubmit={handleSaveSettings} className="space-y-4">
+              <div className="input-group">
+                <label className="input-label">Admin Email (Static)</label>
+                <input type="email" disabled className="input-field opacity-60 cursor-not-allowed" value={user?.email || ''} />
+              </div>
+
+              <div className="input-group">
+                <label className="input-label">Phone Number</label>
+                <input 
+                  type="text" 
+                  required 
+                  className="input-field" 
+                  value={settingsPhone} 
+                  onChange={e => setSettingsPhone(e.target.value)} 
+                />
+              </div>
+
+              <div className="input-group">
+                <label className="input-label">New Password (Leave blank to keep current)</label>
+                <input 
+                  type="password" 
+                  className="input-field" 
+                  value={settingsPassword} 
+                  onChange={e => setSettingsPassword(e.target.value)} 
+                />
+              </div>
+
+              <div className="input-group">
+                <label className="input-label">Confirm New Password</label>
+                <input 
+                  type="password" 
+                  className="input-field" 
+                  value={settingsPasswordConfirm} 
+                  onChange={e => setSettingsPasswordConfirm(e.target.value)} 
+                />
+              </div>
+
+              <button 
+                type="submit" 
+                disabled={settingsLoading} 
+                className={`btn btn-success w-full py-3 mt-4 justify-center ${settingsLoading ? 'opacity-70' : ''}`}
+              >
+                {settingsLoading ? 'Saving...' : 'Save Settings'}
+              </button>
+            </form>
           </div>
         )}
 

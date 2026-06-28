@@ -38,4 +38,9 @@ class Tenant extends Model
     {
         return $this->hasMany(BankAccount::class);
     }
+
+    public function users(): HasMany
+    {
+        return $this->hasMany(User::class);
+    }
 }

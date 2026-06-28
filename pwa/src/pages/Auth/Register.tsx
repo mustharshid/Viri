@@ -5,6 +5,7 @@ export default function Register() {
   const [companyName, setCompanyName] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [passwordConfirmation, setPasswordConfirmation] = useState('');
   const [loading, setLoading] = useState(false);
@@ -27,6 +28,7 @@ export default function Register() {
           company_name: companyName,
           name,
           email,
+          phone_number: phoneNumber,
           password,
           password_confirmation: passwordConfirmation
         })
@@ -79,6 +81,11 @@ export default function Register() {
             <div className="input-group">
               <label className="input-label">Admin Email</label>
               <input type="email" required className="input-field" value={email} onChange={e => setEmail(e.target.value)} />
+            </div>
+
+            <div className="input-group">
+              <label className="input-label">Admin Phone Number</label>
+              <input type="text" required className="input-field" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} />
             </div>
 
             <div className="input-group">

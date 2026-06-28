@@ -45,6 +45,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/company/bank-accounts', [CompanyController::class, 'createBankAccount']);
     Route::delete('/company/bank-accounts/{id}', [CompanyController::class, 'deleteBankAccount']);
     Route::post('/company/bank-accounts/{id}/reset-failures', [CompanyController::class, 'resetBankAccountFailures']);
+    Route::put('/company/profile', [CompanyController::class, 'updateProfile']);
 });
 
 /*

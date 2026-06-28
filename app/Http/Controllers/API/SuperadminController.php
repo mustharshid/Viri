@@ -16,7 +16,7 @@ class SuperadminController extends Controller
 
     public function listCompanies()
     {
-        $companies = Tenant::with('terminals', 'bankAccounts')
+        $companies = Tenant::with('terminals', 'bankAccounts', 'users')
             ->orderBy('created_at', 'desc')
             ->get();
         return response()->json($companies);
@@ -25,7 +25,7 @@ class SuperadminController extends Controller
     public function updateCompany(Request $request, $id)
     {
         $request->validate([
-            'status' => 'required|in:pending,active,suspended',
+            'status' => 'required|in:pending,active,suspended,archived',
             'subscription_tier' => 'required|in:free,499,999,1999',
             'lock_timeout' => 'sometimes|integer|min:5|max:300',
             'max_terminals' => 'sometimes|integer|min:1',
@@ -60,7 +60,7 @@ class SuperadminController extends Controller
             User::where('tenant_id', $tenant->id)->update(['status' => 'approved']);
         }
 
-        return response()->json(['message' => 'Company updated successfully', 'company' => $tenant]);
+        return response()->json(['message' => 'Company updated successfully', 'company' => $tenant->load('users')]);
     }
 
     public function viewTerminalLog(Request $request, $id)
