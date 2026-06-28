@@ -1,5 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
-import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3 } from 'lucide-react';
+import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info } from 'lucide-react';
+
+const Tooltip = ({ text }: { text: string }) => (
+  <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
+    <Info size={13} className="text-zinc-500 hover:text-zinc-300 transition-colors" />
+    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-3 bg-zinc-900 border border-zinc-700 text-white text-[11px] leading-relaxed rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 font-normal normal-case">
+      {text}
+      <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-zinc-700"></div>
+    </div>
+  </div>
+);
 
 
 const sha256 = async (message: string): Promise<string> => {
@@ -1613,7 +1623,7 @@ function App() {
             {/* Header */}
             <div className="border-b border-[var(--border-color)] pb-4 mb-6">
               <h3 className="text-xl font-bold flex items-center gap-2 text-white">
-                <Settings size={22} className="text-zinc-400" /> Viri Admin Panel
+                <Settings size={22} className="text-zinc-400" /> Viri Admin Panel <Tooltip text="System settings, terminal registration, lock PIN, and bank credentials." />
               </h3>
               <p className="text-xs text-[var(--text-secondary)] mt-1">
                 System configuration, lock PIN security, and local bank account credentials.
@@ -1624,7 +1634,7 @@ function App() {
               {/* Left Column: System & Security Settings (5 cols) */}
               <div className="lg:col-span-5 space-y-5">
                 <div className="p-4 bg-zinc-950/40 border border-zinc-850 rounded-xl">
-                  <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-3">Terminal Status</h4>
+                  <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">Terminal Status <Tooltip text="Shows pairing state and company connection details." /></h4>
                   <div className="p-3 bg-black/30 border border-zinc-850 rounded-lg text-sm text-[var(--color-success)] font-mono flex items-center justify-between">
                     <span className="truncate pr-2">Connected to {companyName}</span>
                     <button
@@ -1644,7 +1654,7 @@ function App() {
                   <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Security & API</h4>
                   
                   <div className="input-group">
-                    <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider">Terminal Lock PIN (Optional)</label>
+                    <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">Terminal Lock PIN (Optional) <Tooltip text="A local cashier PIN to lock/unlock this terminal." /></label>
                     <input
                       type="password"
                       className="input-field text-transparent bg-zinc-950/50 border-zinc-800 focus:border-[var(--color-success)] rounded-lg text-sm px-3 py-2"
@@ -1664,7 +1674,7 @@ function App() {
                   </div>
 
                   <div className="input-group">
-                    <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider">Viri Bridge Extension ID (System)</label>
+                    <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">Viri Bridge Extension ID (System) <Tooltip text="Unique ID of the local companion browser extension helper." /></label>
                     <input
                       type="text"
                       className="input-field opacity-60 cursor-not-allowed bg-zinc-950/50 border-zinc-800 text-xs px-3 py-2"
@@ -1674,7 +1684,7 @@ function App() {
                   </div>
 
                   <div className="input-group">
-                    <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider">Viri Backend API Endpoint (System)</label>
+                    <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">Viri Backend API Endpoint (System) <Tooltip text="Server URL for syncing metadata and statuses." /></label>
                     <input
                       type="text"
                       className="input-field opacity-60 cursor-not-allowed bg-zinc-950/50 border-zinc-800 text-xs px-3 py-2"
@@ -1689,9 +1699,9 @@ function App() {
               <div className="lg:col-span-7 space-y-5">
                 <div className="p-4 bg-zinc-950/40 border border-zinc-850 rounded-xl min-h-[360px] flex flex-col justify-between">
                   <div>
-                    <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1 flex items-center gap-2">
+                    <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
                       <Shield size={14} className="text-[var(--color-warning)]" />
-                      Local Bank Credentials
+                      Local Bank Credentials <Tooltip text="Local bank login credentials used strictly by the browser extension." />
                     </h4>
                     <p className="text-xs text-[var(--text-secondary)] mb-4">
                       Stored securely on this local machine. These credentials are NEVER sent to the Viri servers.
@@ -1768,7 +1778,7 @@ function App() {
             </div>
             {/* Bank Accounts Manager */}
             <div className="mt-6 pt-6 border-t border-[var(--border-color)]">
-              <h4 className="text-sm font-semibold mb-3">Managed Bank Accounts & Login Safety Status</h4>
+              <h4 className="text-sm font-semibold mb-3 flex items-center gap-1.5">Managed Bank Accounts & Login Safety Status <Tooltip text="Lock status of bank accounts under this terminal. If failures >= 2, functions are disabled." /></h4>
               <p className="text-xs text-[var(--text-secondary)] mb-4">Accounts are synced from company dashboard. Reset failed logins in the Company Admin Panel to unlock terminal operations.</p>
 
               <div className="space-y-2 mb-4">
@@ -1864,7 +1874,7 @@ function App() {
                 <div className="lg:col-span-4 w-full">
                   <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col gap-5">
                     <div className="flex items-center justify-between">
-                      <h2 className="text-xl font-bold text-white tracking-tight">Verify Transfer</h2>
+                      <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-1.5">Verify Transfer <Tooltip text="Input details from the customer's transfer receipt to programmatically confirm funds arrival." /></h2>
                       <div className="flex items-center gap-2">
                         {initLoading && <Loader2 size={12} className="animate-spin text-zinc-400" />}
                         <span className="px-2 py-0.5 bg-zinc-800/80 border border-zinc-700/50 text-zinc-400 text-[9px] font-bold uppercase tracking-wider rounded font-mono">
@@ -1882,7 +1892,7 @@ function App() {
                     )}
 
                     <div className="input-group mb-0">
-                      <label className="input-label text-[10px] uppercase tracking-wider font-bold text-zinc-400">Target Amount (MVR)</label>
+                      <label className="input-label text-[10px] uppercase tracking-wider font-bold text-zinc-400 flex items-center gap-1.5">Target Amount (MVR) <Tooltip text="The exact transfer amount shown on the customer's receipt." /></label>
                       <input
                         type="number"
                         className="input-field text-2xl font-bold tracking-tight text-white py-3.5 bg-black/40 border border-zinc-800/80 rounded-xl focus:border-emerald-500"
@@ -1894,7 +1904,7 @@ function App() {
                     </div>
 
                     <div className="input-group mb-0">
-                      <label className="input-label text-[10px] uppercase tracking-wider font-bold text-zinc-400">Receiving Account</label>
+                      <label className="input-label text-[10px] uppercase tracking-wider font-bold text-zinc-400 flex items-center gap-1.5">Receiving Account <Tooltip text="The company's bank account the customer claims to have sent funds to." /></label>
                       {bankAccounts.length === 0 ? (
                         <div className="p-3 bg-zinc-900/30 border border-zinc-800 rounded-lg text-center text-zinc-500 italic text-sm">
                           No accounts configured
@@ -2058,20 +2068,23 @@ function App() {
                           {activeStepIndex === 5 ? (
                             <>
                               <span>Transfer Verified!</span>
-                              <span className="px-2 py-0.5 bg-emerald-950/50 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold tracking-wider rounded uppercase">
+                              <Tooltip text="The payment has been confirmed as received on your bank account." />
+                              <span className="px-2 py-0.5 bg-emerald-955/50 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold tracking-wider rounded uppercase">
                                 Success
                               </span>
                             </>
                           ) : progress.stage === 'error' ? (
                             <>
                               <span>Verification Failed</span>
-                              <span className="px-2 py-0.5 bg-red-950/50 border border-red-500/20 text-red-400 text-[10px] font-bold tracking-wider rounded uppercase">
+                              <Tooltip text="The program failed to verify this transfer. Please review logs or try again." />
+                              <span className="px-2 py-0.5 bg-red-955/50 border border-red-500/20 text-red-400 text-[10px] font-bold tracking-wider rounded uppercase">
                                 Failed
                               </span>
                             </>
                           ) : loading ? (
                             <>
                               <span>{progress.text || "Verifying Transfer..."}</span>
+                              <Tooltip text="Active scraping session running in companion browser extension." />
                               {progress.stage === 'lock' && (
                                 <span className="px-2 py-0.5 bg-amber-955/50 border border-amber-500/20 text-amber-400 text-[10px] font-bold tracking-wider rounded uppercase animate-pulse">
                                   Locking
@@ -2079,7 +2092,10 @@ function App() {
                               )}
                             </>
                           ) : (
-                            <span>Verification Status</span>
+                            <>
+                              <span>Verification Status</span>
+                              <Tooltip text="Verification execution status and headless automation progress." />
+                            </>
                           )}
                         </h2>
                         <p className="text-xs text-[var(--text-secondary)] mt-1 font-medium leading-relaxed">
@@ -2166,7 +2182,7 @@ function App() {
                         <div className="w-3 h-3 rounded-full bg-red-500"></div>
                         <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
                         <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                        <span className="text-xs text-zinc-400 ml-2 font-mono">Viri Bridge Terminal Logs</span>
+                        <span className="text-xs text-zinc-400 ml-2 font-mono flex items-center gap-1">Viri Bridge Terminal Logs <Tooltip text="Real-time network crawler debugging logs execution stream." /></span>
                         {loading && <Loader2 size={12} className="text-[var(--color-success)] animate-spin ml-2" />}
 
                         <div className="ml-auto flex items-center gap-2">
@@ -2206,8 +2222,8 @@ function App() {
                   {/* Recent Transactions Table */}
                   <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl w-full flex flex-col gap-4">
                     <div className="flex justify-between items-center border-b border-zinc-800/80 pb-3">
-                      <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-widest">
-                        Recent Transactions
+                      <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-1.5">
+                        Recent Transactions <Tooltip text="The last few statement entries cached/fetched from the bank's database." />
                       </h3>
                       {lastPopulatedTime && (
                         <span className="text-[10px] text-zinc-500 font-mono">
@@ -2221,10 +2237,10 @@ function App() {
                         <table className="w-full text-left text-xs border-collapse">
                           <thead>
                             <tr className="border-b border-zinc-800 bg-zinc-900/10 text-zinc-400 uppercase tracking-wider font-semibold text-[10px]">
-                              <th className="px-4 py-2 font-medium">Date & Time</th>
-                              <th className="px-4 py-2 font-medium">Description</th>
-                              <th className="px-4 py-2 font-medium">Details</th>
-                              <th className="px-4 py-2 font-medium text-right">Amount / Balance</th>
+                              <th className="px-4 py-2 font-medium">Date & Time <Tooltip text="The transaction posting date." /></th>
+                              <th className="px-4 py-2 font-medium">Description <Tooltip text="Primary transaction description/type." /></th>
+                              <th className="px-4 py-2 font-medium">Details <Tooltip text="Additional transaction info (refs, IDs, card details, sender info)." /></th>
+                              <th className="px-4 py-2 font-medium text-right">Amount / Balance <Tooltip text="Green indicates credits (+), red indicates debits (-)." /></th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-zinc-900/50">
@@ -2295,7 +2311,7 @@ function App() {
                 {/* Section Header */}
                 <div className="w-full flex justify-between items-center border-b border-[var(--border-color)] pb-4">
                   <div>
-                    <h2 className="text-2xl font-bold text-white tracking-tight">Transaction Ledger</h2>
+                    <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-1.5">Transaction Ledger <Tooltip text="A real-time ledger list showing statement entries and balance updates for your bank accounts." /></h2>
                     <p className="text-xs text-[var(--text-secondary)] mt-0.5">Real-time statements fetched directly from your bank</p>
                   </div>
                   
@@ -2311,7 +2327,7 @@ function App() {
                   <div className="lg:col-span-5 space-y-6 w-full flex flex-col">
                     {/* Account Tabs Switcher */}
                     <div className="glass-panel p-5 w-full">
-                      <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold mb-2.5 block font-sans">Select Bank Account</label>
+                      <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold mb-2.5 flex items-center gap-1.5 font-sans">Select Bank Account <Tooltip text="Filter transaction ledger entries by a specific configured bank account." /></label>
                       {bankAccounts.length === 0 ? (
                         <div className="p-4 bg-zinc-900/30 border border-zinc-800 rounded-lg text-center text-zinc-500 italic text-sm">
                           No bank accounts configured. Please contact the administrator.
@@ -2392,7 +2408,7 @@ function App() {
                           {permissions.ledger_show_balance && (
                             <div className="glass-panel p-6 border-[var(--border-color)] bg-gradient-to-br from-zinc-950 to-zinc-900/60 relative overflow-hidden flex flex-col justify-between items-start gap-4">
                               <div className="space-y-1">
-                                <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold font-sans">Available Balance</span>
+                                <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold flex items-center gap-1.5 font-sans">Available Balance <Tooltip text="The cleared account balance fetched directly from the bank's portal." /></span>
                                 <div className={`text-3xl font-bold tracking-tight ${
                                   cache.balance === 'Not synced' ? 'text-zinc-500' : 'text-white'
                                 }`}>
@@ -2432,7 +2448,7 @@ function App() {
                                 <div className="w-3 h-3 rounded-full bg-red-500"></div>
                                 <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
                                 <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                                <span className="text-xs text-zinc-400 ml-2 font-mono">Viri Bridge Ledger Logs</span>
+                                <span className="text-xs text-zinc-400 ml-2 font-mono flex items-center gap-1">Viri Bridge Ledger Logs <Tooltip text="Real-time network crawler debugging logs execution stream." /></span>
                                 {loading && <Loader2 size={12} className="text-[var(--color-success)] animate-spin ml-2" />}
 
                                 <div className="ml-auto flex items-center gap-2">
@@ -2511,8 +2527,8 @@ function App() {
                         <div className="glass-panel p-5 w-full space-y-4">
                           {/* Panel Header with Title and Sync Button */}
                           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-[var(--border-color)] pb-4">
-                            <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider font-sans">
-                              Statement Entries ({displayedTransactions.length})
+                            <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider flex items-center gap-1.5 font-sans">
+                              Statement Entries ({displayedTransactions.length}) <Tooltip text="List of statement entries fetched from the selected bank account." />
                             </h3>
                             {(() => {
                               const selectedLedgerAccount = bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId);
@@ -2650,10 +2666,10 @@ function App() {
                                   <table className="w-full text-left border-collapse">
                                     <thead>
                                       <tr className="border-b border-zinc-800/80 text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">
-                                        <th className="py-3 px-4 font-medium">Date & Time</th>
-                                        <th className="py-3 px-4 font-medium">Description</th>
-                                        <th className="py-3 px-4 font-medium">Details</th>
-                                        <th className="py-3 px-4 font-medium text-right">Amount / Balance</th>
+                                        <th className="py-3 px-4 font-medium">Date & Time <Tooltip text="The transaction posting date." /></th>
+                                        <th className="py-3 px-4 font-medium">Description <Tooltip text="Primary transaction description/type." /></th>
+                                        <th className="py-3 px-4 font-medium">Details <Tooltip text="Additional transaction info (refs, IDs, card details, sender info)." /></th>
+                                        <th className="py-3 px-4 font-medium text-right">Amount / Balance <Tooltip text="Green indicates credits (+), red indicates debits (-)." /></th>
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-zinc-900/50">
