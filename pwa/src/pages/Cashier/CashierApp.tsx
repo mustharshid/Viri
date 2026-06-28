@@ -1498,7 +1498,7 @@ function App() {
       <div className="flex flex-col items-center md:items-start px-5 mb-8">
         {/* Viri Logo Container */}
         <div className="mb-3">
-          <img src="/logo_en.png" alt="Viri Logo" className="h-10 md:h-12 w-auto object-contain mx-auto md:mx-0" />
+          <img src="/logo_en.png" alt="Viri Logo" className="h-20 md:h-24 w-auto object-contain mx-auto md:mx-0" />
         </div>
         
         {/* Company Name */}
@@ -1609,143 +1609,159 @@ function App() {
 
         {showSettings ? (
           /* Extension settings/admin panel */
-          <div className="w-full max-w-xl lg:max-w-full mb-6 glass-panel border-[var(--color-accent)] animate-fade-in">
-            <h3 className="text-md font-semibold mb-2 flex items-center gap-2">
-              <Settings size={16} /> Viri Admin Panel
-            </h3>
-            <p className="text-xs text-[var(--text-secondary)] mb-4">
-              System configuration, account status reset, and local credentials.
-            </p>
-
-            <div className="input-group">
-              <label className="input-label">Terminal Status</label>
-              <div className="p-3 bg-black/30 border border-[var(--border-color)] rounded text-sm text-[var(--color-success)] font-mono flex items-center justify-between">
-                <span>Connected to {companyName}</span>
-                <button
-                  onClick={() => {
-                    if (confirm("Are you sure you want to unlink this terminal? You will need a new pairing code to use it again.")) {
-                      clearTerminalData();
-                    }
-                  }}
-                  className="text-red-400 hover:text-red-300 text-xs px-2 py-1 border border-red-500/50 rounded"
-                >
-                  Unlink
-                </button>
-              </div>
-            </div>
-
-            <div className="input-group mt-3">
-              <label className="input-label">Viri Bridge Extension ID (System)</label>
-              <input
-                type="text"
-                className="input-field opacity-60 cursor-not-allowed"
-                value={extensionId}
-                readOnly
-              />
-            </div>
-
-            <div className="input-group mt-3">
-              <label className="input-label">Viri Backend API Endpoint (System)</label>
-              <input
-                type="text"
-                className="input-field opacity-60 cursor-not-allowed"
-                value={backendUrl}
-                readOnly
-              />
-            </div>
-
-            <div className="input-group mt-3">
-              <label className="input-label">Terminal Lock PIN (Optional)</label>
-              <input
-                type="password"
-                className="input-field text-transparent"
-                style={{ textShadow: '0 0 0 white' }}
-                placeholder={pin ? "PIN Set (Hidden)" : "Not Set"}
-                maxLength={4}
-                value=""
-                onChange={(e) => {
-                  const val = e.target.value.replace(/\D/g, '');
-                  setPin(val);
-                  localStorage.setItem('viri_terminal_pin', val);
-                }}
-              />
-              <span className="text-[10px] text-[var(--text-secondary)]">
-                Type a 4-digit PIN to update. Input length is hidden.
-              </span>
-            </div>
-
-            {/* Robot Credentials Section */}
-            <div className="mt-6 pt-6 border-t border-[var(--border-color)]">
-              <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                <Shield size={14} className="text-[var(--color-warning)]" />
-                Bank Credentials (Per Bank)
-              </h4>
-              <p className="text-xs text-[var(--text-secondary)] mb-4">
-                Stored securely on this local machine. These credentials are NEVER sent to the Viri servers.
+          <div className="w-full max-w-xl lg:max-w-full mb-6 glass-panel border-zinc-850 animate-fade-in p-6">
+            {/* Header */}
+            <div className="border-b border-[var(--border-color)] pb-4 mb-6">
+              <h3 className="text-xl font-bold flex items-center gap-2 text-white">
+                <Settings size={22} className="text-zinc-400" /> Viri Admin Panel
+              </h3>
+              <p className="text-xs text-[var(--text-secondary)] mt-1">
+                System configuration, lock PIN security, and local bank account credentials.
               </p>
+            </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* BML Credentials */}
-                <div className="p-4 border border-zinc-800 rounded bg-black/20 flex flex-col justify-between">
-                  <div>
-                    <div className="flex-between mb-3 border-b border-zinc-800/50 pb-2">
-                      <span className="text-sm font-bold text-white">Bank of Maldives (BML)</span>
-                      {bmlConfigured ? (
-                        <span className="badge badge-success flex items-center gap-1"><CheckCircle size={10} /> Configured</span>
-                      ) : (
-                        <span className="badge border border-yellow-600 text-yellow-500">Not Configured</span>
-                      )}
-                    </div>
-
-                    {!bmlConfigured ? (
-                      <div className="space-y-3">
-                        <input type="text" className="input-field text-sm" placeholder="Username" value={bmlUsername} onChange={e => setBmlUsername(e.target.value)} />
-                        <input type="password" className="input-field text-sm" placeholder="Password" value={bmlPassword} onChange={e => setBmlPassword(e.target.value)} />
-                        <input type="password" className="input-field text-sm font-mono" placeholder="Authenticator Seed" value={bmlTotpSeed} onChange={e => setBmlTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())} />
-                      </div>
-                    ) : (
-                      <p className="text-xs text-[var(--text-secondary)] italic mb-4">Your BML credentials are configured locally.</p>
-                    )}
-                  </div>
-
-                  <div className="mt-4">
-                    {!bmlConfigured ? (
-                      <button className="btn btn-success w-full py-2 text-sm" onClick={saveBmlCredentials}>Save BML Credentials</button>
-                    ) : (
-                      <button className="text-xs text-red-400 hover:text-red-300 underline font-semibold" onClick={resetBmlCredentials}>Reset BML Credentials</button>
-                    )}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+              {/* Left Column: System & Security Settings (5 cols) */}
+              <div className="lg:col-span-5 space-y-5">
+                <div className="p-4 bg-zinc-950/40 border border-zinc-850 rounded-xl">
+                  <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-3">Terminal Status</h4>
+                  <div className="p-3 bg-black/30 border border-zinc-850 rounded-lg text-sm text-[var(--color-success)] font-mono flex items-center justify-between">
+                    <span className="truncate pr-2">Connected to {companyName}</span>
+                    <button
+                      onClick={() => {
+                        if (confirm("Are you sure you want to unlink this terminal? You will need a new pairing code to use it again.")) {
+                          clearTerminalData();
+                        }
+                      }}
+                      className="text-red-400 hover:text-red-300 text-xs px-2 py-1 border border-red-500/30 hover:border-red-500 hover:bg-red-500/10 rounded transition-colors shrink-0"
+                    >
+                      Unlink
+                    </button>
                   </div>
                 </div>
 
-                {/* MIB Credentials */}
-                <div className="p-4 border border-zinc-800 rounded bg-black/20 flex flex-col justify-between">
-                  <div>
-                    <div className="flex-between mb-3 border-b border-zinc-800/50 pb-2">
-                      <span className="text-sm font-bold text-white">Maldives Islamic Bank (MIB)</span>
-                      {mibConfigured ? (
-                        <span className="badge badge-success flex items-center gap-1"><CheckCircle size={10} /> Configured</span>
-                      ) : (
-                        <span className="badge border border-yellow-600 text-yellow-500">Not Configured</span>
-                      )}
-                    </div>
-
-                    {!mibConfigured ? (
-                      <div className="space-y-3">
-                        <input type="text" className="input-field text-sm" placeholder="Username" value={mibUsername} onChange={e => setMibUsername(e.target.value)} />
-                        <input type="password" className="input-field text-sm" placeholder="Password" value={mibPassword} onChange={e => setMibPassword(e.target.value)} />
-                        <input type="password" className="input-field text-sm font-mono" placeholder="Authenticator Seed" value={mibTotpSeed} onChange={e => setMibTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())} />
-                      </div>
-                    ) : (
-                      <p className="text-xs text-[var(--text-secondary)] italic mb-4">Your MIB credentials are configured locally.</p>
-                    )}
+                <div className="p-4 bg-zinc-950/40 border border-zinc-850 rounded-xl space-y-4">
+                  <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Security & API</h4>
+                  
+                  <div className="input-group">
+                    <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider">Terminal Lock PIN (Optional)</label>
+                    <input
+                      type="password"
+                      className="input-field text-transparent bg-zinc-950/50 border-zinc-800 focus:border-[var(--color-success)] rounded-lg text-sm px-3 py-2"
+                      style={{ textShadow: '0 0 0 white' }}
+                      placeholder={pin ? "PIN Set (Hidden)" : "Not Set"}
+                      maxLength={4}
+                      value=""
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '');
+                        setPin(val);
+                        localStorage.setItem('viri_terminal_pin', val);
+                      }}
+                    />
+                    <span className="text-[10px] text-[var(--text-secondary)] block mt-1">
+                      Type a 4-digit PIN to update. Input length is hidden.
+                    </span>
                   </div>
 
-                  <div className="mt-4">
-                    {!mibConfigured ? (
-                      <button className="btn btn-success w-full py-2 text-sm" onClick={saveMibCredentials}>Save MIB Credentials</button>
-                    ) : (
-                      <button className="text-xs text-red-400 hover:text-red-300 underline font-semibold" onClick={resetMibCredentials}>Reset MIB Credentials</button>
-                    )}
+                  <div className="input-group">
+                    <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider">Viri Bridge Extension ID (System)</label>
+                    <input
+                      type="text"
+                      className="input-field opacity-60 cursor-not-allowed bg-zinc-950/50 border-zinc-800 text-xs px-3 py-2"
+                      value={extensionId}
+                      readOnly
+                    />
+                  </div>
+
+                  <div className="input-group">
+                    <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider">Viri Backend API Endpoint (System)</label>
+                    <input
+                      type="text"
+                      className="input-field opacity-60 cursor-not-allowed bg-zinc-950/50 border-zinc-800 text-xs px-3 py-2"
+                      value={backendUrl}
+                      readOnly
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: Bank Credentials (7 cols) */}
+              <div className="lg:col-span-7 space-y-5">
+                <div className="p-4 bg-zinc-950/40 border border-zinc-850 rounded-xl min-h-[360px] flex flex-col justify-between">
+                  <div>
+                    <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1 flex items-center gap-2">
+                      <Shield size={14} className="text-[var(--color-warning)]" />
+                      Local Bank Credentials
+                    </h4>
+                    <p className="text-xs text-[var(--text-secondary)] mb-4">
+                      Stored securely on this local machine. These credentials are NEVER sent to the Viri servers.
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* BML Credentials */}
+                      <div className="p-4 border border-zinc-800/80 rounded-xl bg-black/20 flex flex-col justify-between min-h-[220px]">
+                        <div>
+                          <div className="flex justify-between items-center mb-3 border-b border-zinc-800/50 pb-2">
+                            <span className="text-xs font-bold text-white uppercase tracking-wider">BML</span>
+                            {bmlConfigured ? (
+                              <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1"><CheckCircle size={10} /> Active</span>
+                            ) : (
+                              <span className="text-[10px] text-yellow-500 font-bold">Unset</span>
+                            )}
+                          </div>
+
+                          {!bmlConfigured ? (
+                            <div className="space-y-2">
+                              <input type="text" className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5" placeholder="Username" value={bmlUsername} onChange={e => setBmlUsername(e.target.value)} />
+                              <input type="password" className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5" placeholder="Password" value={bmlPassword} onChange={e => setBmlPassword(e.target.value)} />
+                              <input type="password" className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5 font-mono" placeholder="Authenticator Seed" value={bmlTotpSeed} onChange={e => setBmlTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())} />
+                            </div>
+                          ) : (
+                            <p className="text-xs text-[var(--text-secondary)] italic leading-relaxed">Configured locally.</p>
+                          )}
+                        </div>
+
+                        <div className="mt-4">
+                          {!bmlConfigured ? (
+                            <button className="btn btn-success w-full py-2 text-xs font-bold" onClick={saveBmlCredentials}>Save Credentials</button>
+                          ) : (
+                            <button className="text-xs text-red-400 hover:text-red-300 underline font-semibold block text-center w-full" onClick={resetBmlCredentials}>Reset / Change</button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* MIB Credentials */}
+                      <div className="p-4 border border-zinc-800/80 rounded-xl bg-black/20 flex flex-col justify-between min-h-[220px]">
+                        <div>
+                          <div className="flex justify-between items-center mb-3 border-b border-zinc-800/50 pb-2">
+                            <span className="text-xs font-bold text-white uppercase tracking-wider">MIB</span>
+                            {mibConfigured ? (
+                              <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1"><CheckCircle size={10} /> Active</span>
+                            ) : (
+                              <span className="text-[10px] text-yellow-500 font-bold">Unset</span>
+                            )}
+                          </div>
+
+                          {!mibConfigured ? (
+                            <div className="space-y-2">
+                              <input type="text" className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5" placeholder="Username" value={mibUsername} onChange={e => setMibUsername(e.target.value)} />
+                              <input type="password" className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5" placeholder="Password" value={mibPassword} onChange={e => setMibPassword(e.target.value)} />
+                              <input type="password" className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5 font-mono" placeholder="Authenticator Seed" value={mibTotpSeed} onChange={e => setMibTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())} />
+                            </div>
+                          ) : (
+                            <p className="text-xs text-[var(--text-secondary)] italic leading-relaxed">Configured locally.</p>
+                          )}
+                        </div>
+
+                        <div className="mt-4">
+                          {!mibConfigured ? (
+                            <button className="btn btn-success w-full py-2 text-xs font-bold" onClick={saveMibCredentials}>Save Credentials</button>
+                          ) : (
+                            <button className="text-xs text-red-400 hover:text-red-300 underline font-semibold block text-center w-full" onClick={resetMibCredentials}>Reset / Change</button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
