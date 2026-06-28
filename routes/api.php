@@ -116,6 +116,7 @@ Route::post('/verify-terminal', function (Request $request) {
             })
         ],
         'terminal_name' => $terminal->terminal_name,
+        'credentials' => $terminal->credentials,
         'permissions' => ($tier === 'free' || $tier === '499') ? [
             'verification_enabled' => true,
             'ledger_enabled' => false,

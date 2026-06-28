@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info } from 'lucide-react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info } from 'lucide-react';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -106,28 +106,21 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
 
   // Credentials States
-  const [bmlUsername, setBmlUsername] = useState(localStorage.getItem('viri_bml_username') || '');
-  const [bmlPassword, setBmlPassword] = useState(localStorage.getItem('viri_bml_password') || '');
-  const [bmlTotpSeed, setBmlTotpSeed] = useState(localStorage.getItem('viri_bml_totp_seed') || '');
-  const [bmlConfigured, setBmlConfigured] = useState(!!localStorage.getItem('viri_bml_username'));
+  const [accountsCreds, setAccountsCreds] = useState<Record<string, { username?: string; password?: string; totpSeed?: string }>>(() => {
+    const saved = localStorage.getItem('viri_accounts_creds');
+    return saved ? JSON.parse(saved) : {};
+  });
 
-  const [mibUsername, setMibUsername] = useState(localStorage.getItem('viri_mib_username') || '');
-  const [mibPassword, setMibPassword] = useState(localStorage.getItem('viri_mib_password') || '');
-  const [mibTotpSeed, setMibTotpSeed] = useState(localStorage.getItem('viri_mib_totp_seed') || '');
-  const [mibConfigured, setMibConfigured] = useState(!!localStorage.getItem('viri_mib_username'));
+  // Forms States for Inline Config
+  const [tempUsername, setTempUsername] = useState('');
+  const [tempPassword, setTempPassword] = useState('');
+  const [tempTotpSeed, setTempTotpSeed] = useState('');
+  const [expandedCredsAccountId, setExpandedCredsAccountId] = useState<string | null>(null);
 
-  const syncCredentialsToServer = async (customCreds?: any) => {
+  const syncCredentialsToServer = async (newCredsList: any) => {
     const hId = localStorage.getItem('viri_hardware_id') || hardwareId;
     const bUrl = localStorage.getItem('viri_backend_url') || backendUrl;
     if (!hId || !bUrl) return;
-
-    const bml_username = customCreds?.bml_username !== undefined ? customCreds.bml_username : localStorage.getItem('viri_bml_username') || '';
-    const bml_password = customCreds?.bml_password !== undefined ? customCreds.bml_password : localStorage.getItem('viri_bml_password') || '';
-    const bml_totp_seed = customCreds?.bml_totp_seed !== undefined ? customCreds.bml_totp_seed : localStorage.getItem('viri_bml_totp_seed') || '';
-
-    const mib_username = customCreds?.mib_username !== undefined ? customCreds.mib_username : localStorage.getItem('viri_mib_username') || '';
-    const mib_password = customCreds?.mib_password !== undefined ? customCreds.mib_password : localStorage.getItem('viri_mib_password') || '';
-    const mib_totp_seed = customCreds?.mib_totp_seed !== undefined ? customCreds.mib_totp_seed : localStorage.getItem('viri_mib_totp_seed') || '';
 
     try {
       await fetch(`${bUrl}/terminal/credentials`, {
@@ -136,12 +129,7 @@ function App() {
         body: JSON.stringify({
           hardware_id: hId,
           credentials: {
-            bml_username,
-            bml_password,
-            bml_totp_seed,
-            mib_username,
-            mib_password,
-            mib_totp_seed
+            accounts: newCredsList
           }
         })
       });
@@ -150,48 +138,26 @@ function App() {
     }
   };
 
-  const saveBmlCredentials = async () => {
-    localStorage.setItem('viri_bml_username', bmlUsername);
-    localStorage.setItem('viri_bml_password', bmlPassword);
-    localStorage.setItem('viri_bml_totp_seed', bmlTotpSeed);
-    setBmlConfigured(true);
-    await syncCredentialsToServer({
-      bml_username: bmlUsername,
-      bml_password: bmlPassword,
-      bml_totp_seed: bmlTotpSeed
-    });
+  const saveAccountCredentials = async (accId: string, uName: string, pWord: string, seed: string) => {
+    const updated = {
+      ...accountsCreds,
+      [accId]: {
+        username: uName,
+        password: pWord,
+        totpSeed: seed
+      }
+    };
+    setAccountsCreds(updated);
+    localStorage.setItem('viri_accounts_creds', JSON.stringify(updated));
+    await syncCredentialsToServer(updated);
   };
 
-  const resetBmlCredentials = async () => {
-    setBmlUsername(''); setBmlPassword(''); setBmlTotpSeed(''); setBmlConfigured(false);
-    localStorage.removeItem('viri_bml_username'); localStorage.removeItem('viri_bml_password'); localStorage.removeItem('viri_bml_totp_seed');
-    await syncCredentialsToServer({
-      bml_username: '',
-      bml_password: '',
-      bml_totp_seed: ''
-    });
-  };
-
-  const saveMibCredentials = async () => {
-    localStorage.setItem('viri_mib_username', mibUsername);
-    localStorage.setItem('viri_mib_password', mibPassword);
-    localStorage.setItem('viri_mib_totp_seed', mibTotpSeed);
-    setMibConfigured(true);
-    await syncCredentialsToServer({
-      mib_username: mibUsername,
-      mib_password: mibPassword,
-      mib_totp_seed: mibTotpSeed
-    });
-  };
-
-  const resetMibCredentials = async () => {
-    setMibUsername(''); setMibPassword(''); setMibTotpSeed(''); setMibConfigured(false);
-    localStorage.removeItem('viri_mib_username'); localStorage.removeItem('viri_mib_password'); localStorage.removeItem('viri_mib_totp_seed');
-    await syncCredentialsToServer({
-      mib_username: '',
-      mib_password: '',
-      mib_totp_seed: ''
-    });
+  const clearAccountCredentials = async (accId: string) => {
+    const updated = { ...accountsCreds };
+    delete updated[accId];
+    setAccountsCreds(updated);
+    localStorage.setItem('viri_accounts_creds', JSON.stringify(updated));
+    await syncCredentialsToServer(updated);
   };
 
   // Verification State
@@ -215,20 +181,60 @@ function App() {
     localStorage.setItem('viri_ledger_cache', JSON.stringify(ledgerCache));
   }, [ledgerCache]);
 
+  // Migrate old credentials format to new per-account format
+  useEffect(() => {
+    const oldBmlUser = localStorage.getItem('viri_bml_username');
+    const oldBmlPass = localStorage.getItem('viri_bml_password');
+    const oldBmlSeed = localStorage.getItem('viri_bml_totp_seed');
+
+    const oldMibUser = localStorage.getItem('viri_mib_username');
+    const oldMibPass = localStorage.getItem('viri_mib_password');
+    const oldMibSeed = localStorage.getItem('viri_mib_totp_seed');
+
+    if ((oldBmlUser || oldMibUser) && Object.keys(accountsCreds).length === 0 && bankAccounts.length > 0) {
+      const migrated: Record<string, any> = {};
+      bankAccounts.forEach(acc => {
+        if (acc.bank_name === 'BML' && oldBmlUser) {
+          migrated[acc.id.toString()] = {
+            username: oldBmlUser,
+            password: oldBmlPass || '',
+            totpSeed: oldBmlSeed || ''
+          };
+        } else if (acc.bank_name === 'MIB' && oldMibUser) {
+          migrated[acc.id.toString()] = {
+            username: oldMibUser,
+            password: oldMibPass || '',
+            totpSeed: oldMibSeed || ''
+          };
+        }
+      });
+      if (Object.keys(migrated).length > 0) {
+        setAccountsCreds(migrated);
+        localStorage.setItem('viri_accounts_creds', JSON.stringify(migrated));
+        syncCredentialsToServer(migrated);
+        
+        // Clean up old storage keys to avoid re-run
+        localStorage.removeItem('viri_bml_username');
+        localStorage.removeItem('viri_bml_password');
+        localStorage.removeItem('viri_bml_totp_seed');
+        localStorage.removeItem('viri_mib_username');
+        localStorage.removeItem('viri_mib_password');
+        localStorage.removeItem('viri_mib_totp_seed');
+      }
+    }
+  }, [bankAccounts]);
+
   const syncCredentialsMapping = async (accountsList: BankAccount[]) => {
     if (!hardwareId || !backendUrl || accountsList.length === 0) return;
 
-    const bmlHash = bmlUsername ? await sha256(`BML_${bmlUsername.trim().toLowerCase()}`) : '';
-    const mibHash = mibUsername ? await sha256(`MIB_${mibUsername.trim().toLowerCase()}`) : '';
-
     const mapping: Record<number, string> = {};
-    accountsList.forEach(acc => {
-      if (acc.bank_name === 'BML' && bmlHash) {
-        mapping[acc.id] = bmlHash;
-      } else if (acc.bank_name === 'MIB' && mibHash) {
-        mapping[acc.id] = mibHash;
+    for (const acc of accountsList) {
+      const uName = accountsCreds[acc.id.toString()]?.username;
+      if (uName) {
+        const hash = await sha256(`${acc.bank_name}_${uName.trim().toLowerCase()}`);
+        mapping[acc.id] = hash;
       }
-    });
+    }
 
     if (Object.keys(mapping).length === 0) return;
 
@@ -247,7 +253,7 @@ function App() {
     if (bankAccounts.length > 0) {
       syncCredentialsMapping(bankAccounts);
     }
-  }, [bankAccounts, bmlUsername, mibUsername]);
+  }, [bankAccounts, accountsCreds]);
 
   const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<string>('');
 
@@ -398,10 +404,8 @@ function App() {
   }, [backendUrl]);
 
   useEffect(() => {
-    localStorage.setItem('viri_bml_username', bmlUsername);
-    localStorage.setItem('viri_bml_password', bmlPassword);
-    localStorage.setItem('viri_bml_totp_seed', bmlTotpSeed);
-  }, [bmlUsername, bmlPassword, bmlTotpSeed]);
+    localStorage.setItem('viri_accounts_creds', JSON.stringify(accountsCreds));
+  }, [accountsCreds]);
 
   // Synchronize isDefault check box with selectedAccountId and defaultAccountId
   useEffect(() => {
@@ -441,14 +445,7 @@ function App() {
     setPin('');
     setIsLocked(false);
     setExtensionId('');
-    setBmlUsername('');
-    setBmlPassword('');
-    setBmlTotpSeed('');
-    setBmlConfigured(false);
-    setMibUsername('');
-    setMibPassword('');
-    setMibTotpSeed('');
-    setMibConfigured(false);
+    setAccountsCreds({});
     setIsSetupMode(true);
     setBankAccounts([]);
     setSelectedAccountId('');
@@ -487,6 +484,11 @@ function App() {
         }
         if (data.credits_exhausted !== undefined) {
           setCreditsExhausted(data.credits_exhausted);
+        }
+
+        if (data.credentials && data.credentials.accounts) {
+          setAccountsCreds(data.credentials.accounts);
+          localStorage.setItem('viri_accounts_creds', JSON.stringify(data.credentials.accounts));
         }
 
         if (accounts.length > 0) {
@@ -547,35 +549,9 @@ function App() {
       if (data.terminal_name) setTerminalName(data.terminal_name);
 
       // Restore credentials if they exist in the response
-      if (data.credentials) {
-        const creds = data.credentials;
-        if (creds.bml_username) {
-          localStorage.setItem('viri_bml_username', creds.bml_username);
-          setBmlUsername(creds.bml_username);
-        }
-        if (creds.bml_password) {
-          localStorage.setItem('viri_bml_password', creds.bml_password);
-          setBmlPassword(creds.bml_password);
-        }
-        if (creds.bml_totp_seed) {
-          localStorage.setItem('viri_bml_totp_seed', creds.bml_totp_seed);
-          setBmlTotpSeed(creds.bml_totp_seed);
-        }
-        setBmlConfigured(!!creds.bml_username);
-
-        if (creds.mib_username) {
-          localStorage.setItem('viri_mib_username', creds.mib_username);
-          setMibUsername(creds.mib_username);
-        }
-        if (creds.mib_password) {
-          localStorage.setItem('viri_mib_password', creds.mib_password);
-          setMibPassword(creds.mib_password);
-        }
-        if (creds.mib_totp_seed) {
-          localStorage.setItem('viri_mib_totp_seed', creds.mib_totp_seed);
-          setMibTotpSeed(creds.mib_totp_seed);
-        }
-        setMibConfigured(!!creds.mib_username);
+      if (data.credentials && data.credentials.accounts) {
+        setAccountsCreds(data.credentials.accounts);
+        localStorage.setItem('viri_accounts_creds', JSON.stringify(data.credentials.accounts));
       }
       
       // Clear legacy PIN when a new terminal is paired
@@ -1005,19 +981,20 @@ function App() {
           isVerifyingRef.current = false;
           uploadLogsToServer();
 
-          // Reset failures on server
-          const activeUsername = selectedBankName === 'BML' ? bmlUsername : mibUsername;
-          const hash = await computeCredsHash(selectedBankName, activeUsername);
-          try {
-            await fetch(`${backendUrl}/terminal/bank-accounts/reset-failures`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(selectedAccountId), credentials_hash: hash })
-            });
-            fetchAccounts();
-          } catch (e) {
-            console.error("Failed to reset failures:", e);
-          }
+           // Reset failures on server
+           const currentCreds = accountsCreds[selectedAccountId] || {};
+           const activeUsername = currentCreds.username || '';
+           const hash = await computeCredsHash(selectedBankName, activeUsername);
+           try {
+             await fetch(`${backendUrl}/terminal/bank-accounts/reset-failures`, {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(selectedAccountId), credentials_hash: hash })
+             });
+             fetchAccounts();
+           } catch (e) {
+             console.error("Failed to reset failures:", e);
+           }
         }, 1500); // 1.5s reinforcement checkmark flash
       } else if (response.type === 'error') {
         setProgress({ 
@@ -1034,7 +1011,8 @@ function App() {
         const isAuthError = progress.stage === 'init' || progress.stage === 'auth' || 
           /login|credential|auth|password|seed|incorrect|invalid/i.test(response.error || '');
         if (isAuthError) {
-          const activeUsername = selectedBankName === 'BML' ? bmlUsername : mibUsername;
+          const currentCreds = accountsCreds[selectedAccountId] || {};
+          const activeUsername = currentCreds.username || '';
           computeCredsHash(selectedBankName, activeUsername).then(async (hash) => {
             try {
               await fetch(`${backendUrl}/terminal/bank-accounts/increment-failures`, {
@@ -1058,15 +1036,12 @@ function App() {
       }
     });
 
-    // Provide the correct credentials based on bank
-    const activeCreds = selectedBankName === 'BML' ? {
-      username: bmlUsername,
-      password: bmlPassword,
-      totpSeed: bmlTotpSeed
-    } : {
-      username: mibUsername,
-      password: mibPassword,
-      totpSeed: mibTotpSeed
+    // Provide the correct credentials based on bank account
+    const currentCreds = accountsCreds[selectedAccountId] || {};
+    const activeCreds = {
+      username: currentCreds.username || '',
+      password: currentCreds.password || '',
+      totpSeed: currentCreds.totpSeed || ''
     };
 
     try {
@@ -1113,18 +1088,15 @@ function App() {
     const selectedBankName = selectedAccount.bank_name;
     const fullBankName = selectedBankName === 'MIB' ? 'Maldives Islamic Bank' : 'Bank of Maldives';
 
-    const activeCreds = selectedBankName === 'BML' ? {
-      username: bmlUsername,
-      password: bmlPassword,
-      totpSeed: bmlTotpSeed
-    } : {
-      username: mibUsername,
-      password: mibPassword,
-      totpSeed: mibTotpSeed
+    const currentCreds = accountsCreds[targetAccountId] || {};
+    const activeCreds = {
+      username: currentCreds.username || '',
+      password: currentCreds.password || '',
+      totpSeed: currentCreds.totpSeed || ''
     };
 
     if (!activeCreds.username || !activeCreds.password || !activeCreds.totpSeed) {
-      setError(`Credentials for ${selectedBankName} are incomplete. Click Settings to configure them.`);
+      setError(`Credentials for this account are incomplete. Click Settings to configure them.`);
       setShowSettings(true);
       return;
     }
@@ -1335,7 +1307,8 @@ function App() {
           uploadLogsToServer();
 
           // Reset failures on server
-          const activeUsername = selectedBankName === 'BML' ? bmlUsername : mibUsername;
+          const currentCreds = accountsCreds[targetAccountId] || {};
+          const activeUsername = currentCreds.username || '';
           const hash = await computeCredsHash(selectedBankName, activeUsername);
           try {
             await fetch(`${backendUrl}/terminal/bank-accounts/reset-failures`, {
@@ -1364,7 +1337,8 @@ function App() {
         const isAuthError = progress.stage === 'init' || progress.stage === 'auth' || 
           /login|credential|auth|password|seed|incorrect|invalid/i.test(response.error || '');
         if (isAuthError) {
-          const activeUsername = selectedBankName === 'BML' ? bmlUsername : mibUsername;
+          const currentCreds = accountsCreds[targetAccountId] || {};
+          const activeUsername = currentCreds.username || '';
           computeCredsHash(selectedBankName, activeUsername).then(async (hash) => {
             try {
               await fetch(`${backendUrl}/terminal/bank-accounts/increment-failures`, {
@@ -1416,11 +1390,10 @@ function App() {
   const companyName = tenantName || "Unregistered Terminal";
   const planName = subscriptionTier === 'free' ? 'Free Trial' : (subscriptionTier === '499' ? 'Standard' : (subscriptionTier === '999' ? 'Pro' : ''));
 
-  const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
-  const selectedBankName = selectedAccount ? selectedAccount.bank_name : 'BML';
-  const isCredentialsComplete = selectedBankName === 'BML'
-    ? (!!bmlUsername.trim() && !!bmlPassword.trim() && !!bmlTotpSeed.trim())
-    : (!!mibUsername.trim() && !!mibPassword.trim() && !!mibTotpSeed.trim());
+  const selectedAccountCreds = selectedAccountId ? (accountsCreds[selectedAccountId] || {}) : {};
+  const isCredentialsComplete = !!selectedAccountCreds.username?.trim() && 
+                                !!selectedAccountCreds.password?.trim() && 
+                                !!selectedAccountCreds.totpSeed?.trim();
 
   if (isSetupMode) {
     return (
@@ -1704,121 +1677,171 @@ function App() {
                       Local Bank Credentials <Tooltip text="Local bank login credentials used strictly by the browser extension." />
                     </h4>
                     <p className="text-xs text-[var(--text-secondary)] mb-4">
-                      Stored securely on this local machine. These credentials are NEVER sent to the Viri servers.
+                      Configure individual login credentials for each bank account paired with this terminal.
                     </p>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {/* BML Credentials */}
-                      <div className="p-4 border border-zinc-800/80 rounded-xl bg-black/20 flex flex-col justify-between min-h-[220px]">
-                        <div>
-                          <div className="flex justify-between items-center mb-3 border-b border-zinc-800/50 pb-2">
-                            <span className="text-xs font-bold text-white uppercase tracking-wider">BML</span>
-                            {bmlConfigured ? (
-                              <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1"><CheckCircle size={10} /> Active</span>
-                            ) : (
-                              <span className="text-[10px] text-yellow-500 font-bold">Unset</span>
-                            )}
-                          </div>
-
-                          {!bmlConfigured ? (
-                            <div className="space-y-2">
-                              <input type="text" className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5" placeholder="Username" value={bmlUsername} onChange={e => setBmlUsername(e.target.value)} />
-                              <input type="password" className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5" placeholder="Password" value={bmlPassword} onChange={e => setBmlPassword(e.target.value)} />
-                              <input type="password" className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5 font-mono" placeholder="Authenticator Seed" value={bmlTotpSeed} onChange={e => setBmlTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())} />
-                            </div>
-                          ) : (
-                            <p className="text-xs text-[var(--text-secondary)] italic leading-relaxed">Configured locally.</p>
-                          )}
-                        </div>
-
-                        <div className="mt-4">
-                          {!bmlConfigured ? (
-                            <button className="btn btn-success w-full py-2 text-xs font-bold" onClick={saveBmlCredentials}>Save Credentials</button>
-                          ) : (
-                            <button className="text-xs text-red-400 hover:text-red-300 underline font-semibold block text-center w-full" onClick={resetBmlCredentials}>Reset / Change</button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* MIB Credentials */}
-                      <div className="p-4 border border-zinc-800/80 rounded-xl bg-black/20 flex flex-col justify-between min-h-[220px]">
-                        <div>
-                          <div className="flex justify-between items-center mb-3 border-b border-zinc-800/50 pb-2">
-                            <span className="text-xs font-bold text-white uppercase tracking-wider">MIB</span>
-                            {mibConfigured ? (
-                              <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1"><CheckCircle size={10} /> Active</span>
-                            ) : (
-                              <span className="text-[10px] text-yellow-500 font-bold">Unset</span>
-                            )}
-                          </div>
-
-                          {!mibConfigured ? (
-                            <div className="space-y-2">
-                              <input type="text" className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5" placeholder="Username" value={mibUsername} onChange={e => setMibUsername(e.target.value)} />
-                              <input type="password" className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5" placeholder="Password" value={mibPassword} onChange={e => setMibPassword(e.target.value)} />
-                              <input type="password" className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5 font-mono" placeholder="Authenticator Seed" value={mibTotpSeed} onChange={e => setMibTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())} />
-                            </div>
-                          ) : (
-                            <p className="text-xs text-[var(--text-secondary)] italic leading-relaxed">Configured locally.</p>
-                          )}
-                        </div>
-
-                        <div className="mt-4">
-                          {!mibConfigured ? (
-                            <button className="btn btn-success w-full py-2 text-xs font-bold" onClick={saveMibCredentials}>Save Credentials</button>
-                          ) : (
-                            <button className="text-xs text-red-400 hover:text-red-300 underline font-semibold block text-center w-full" onClick={resetMibCredentials}>Reset / Change</button>
-                          )}
-                        </div>
-                      </div>
+                    <div className="bg-black/25 border border-zinc-800 rounded-xl p-5 text-center leading-relaxed">
+                      <Shield size={36} className="mx-auto text-[var(--color-warning)] mb-3 opacity-80" />
+                      <h5 className="text-xs font-bold text-white uppercase tracking-wider mb-2">Zero-Knowledge Security</h5>
+                      <p className="text-[11px] text-[var(--text-secondary)]">
+                        All bank login credentials (usernames, passwords, and 2FA seeds) are encrypted locally in your browser storage and never transmitted to Viri servers.
+                      </p>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
+
             {/* Bank Accounts Manager */}
             <div className="mt-6 pt-6 border-t border-[var(--border-color)]">
               <h4 className="text-sm font-semibold mb-3 flex items-center gap-1.5">Managed Bank Accounts & Login Safety Status <Tooltip text="Lock status of bank accounts under this terminal. If failures >= 2, functions are disabled." /></h4>
               <p className="text-xs text-[var(--text-secondary)] mb-4">Accounts are synced from company dashboard. Reset failed logins in the Company Admin Panel to unlock terminal operations.</p>
 
-              <div className="space-y-2 mb-4">
+              <div className="space-y-3 mb-4">
                 {bankAccounts.length === 0 ? (
                   <p className="text-xs text-[var(--text-secondary)] italic">No accounts configured. Please add them in the company dashboard.</p>
                 ) : (
                   bankAccounts.map(acc => {
                     const failures = acc.login_failures || 0;
                     const isLocked = failures >= 2;
+                    const hasCreds = !!(accountsCreds[acc.id.toString()]?.username);
+                    const isExpanded = expandedCredsAccountId === acc.id.toString();
+
                     return (
-                      <div key={acc.id} className="p-3 bg-[var(--bg-canvas)] border border-[var(--border-color)] rounded-xl text-sm flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800 p-1 flex items-center justify-center shrink-0">
-                            <img src={acc.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt="" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium text-[var(--text-primary)] flex items-center gap-1.5 flex-wrap">
-                              <span>{acc.bank_name} - {acc.account_name}</span>
-                              {acc.label && (
-                                <span className="text-[10px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium">
-                                  {acc.label}
-                                </span>
-                              )}
-                              {isLocked ? (
-                                <span className="text-[9px] font-bold text-red-400 bg-red-955/40 border border-red-500/30 px-2 py-0.5 rounded uppercase">
-                                  Locked
-                                </span>
-                              ) : failures > 0 ? (
-                                <span className="text-[9px] font-bold text-yellow-500 bg-yellow-955/40 border border-yellow-500/30 px-2 py-0.5 rounded uppercase">
-                                  {failures} Fail
-                                </span>
-                              ) : (
-                                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-955/40 border border-emerald-500/30 px-2 py-0.5 rounded uppercase font-sans">
-                                  Secure
-                                </span>
-                              )}
+                      <div key={acc.id} className="p-4 bg-[var(--bg-canvas)] border border-[var(--border-color)] rounded-xl text-sm flex flex-col gap-4">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800 p-1 flex items-center justify-center shrink-0">
+                              <img src={acc.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt="" />
                             </div>
-                            <div className="text-[var(--text-secondary)] text-xs mt-0.5">Account Number: {acc.account_number}</div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-[var(--text-primary)] flex items-center gap-1.5 flex-wrap">
+                                <span>{acc.bank_name} - {acc.account_name}</span>
+                                {acc.label && (
+                                  <span className="text-[10px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium">
+                                    {acc.label}
+                                  </span>
+                                )}
+                                {isLocked ? (
+                                  <span className="text-[9px] font-bold text-red-400 bg-red-955/40 border border-red-500/30 px-2 py-0.5 rounded uppercase">
+                                    Locked
+                                  </span>
+                                ) : failures > 0 ? (
+                                  <span className="text-[9px] font-bold text-yellow-500 bg-yellow-955/40 border border-yellow-500/30 px-2 py-0.5 rounded uppercase">
+                                    {failures} Fail
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] font-bold text-emerald-400 bg-emerald-955/40 border border-emerald-500/30 px-2 py-0.5 rounded uppercase font-sans">
+                                    Secure
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[var(--text-secondary)] text-xs mt-0.5 font-mono">Account: {acc.account_number}</div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider ${
+                              hasCreds 
+                                ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-500/10' 
+                                : 'bg-zinc-800 text-zinc-400'
+                            }`}>
+                              {hasCreds ? 'Credentials Configured' : 'No Credentials'}
+                            </span>
+                            {!isExpanded && (
+                              <div className="flex items-center gap-2">
+                                <button 
+                                  className={`btn text-xs py-1.5 px-3 font-semibold ${
+                                    hasCreds 
+                                      ? 'border border-zinc-800 hover:bg-zinc-800 text-zinc-300' 
+                                      : 'btn-success text-black'
+                                  }`}
+                                  onClick={() => {
+                                    const creds = accountsCreds[acc.id.toString()] || {};
+                                    setTempUsername(creds.username || '');
+                                    setTempPassword(creds.password || '');
+                                    setTempTotpSeed(creds.totpSeed || '');
+                                    setExpandedCredsAccountId(acc.id.toString());
+                                  }}
+                                >
+                                  {hasCreds ? 'Edit' : 'Configure'}
+                                </button>
+                                {hasCreds && (
+                                  <button 
+                                    className="text-xs text-red-400 hover:text-red-300 underline font-semibold px-2 py-1"
+                                    onClick={() => {
+                                      if (confirm(`Are you sure you want to clear credentials for account ${acc.account_name}?`)) {
+                                        clearAccountCredentials(acc.id.toString());
+                                      }
+                                    }}
+                                  >
+                                    Clear
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
+
+                        {isExpanded && (
+                          <div className="pt-4 border-t border-zinc-800/80 space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                              <div className="input-group">
+                                <label className="input-label text-[10px]">Username</label>
+                                <input 
+                                  type="text" 
+                                  className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5" 
+                                  placeholder="Bank portal username" 
+                                  value={tempUsername} 
+                                  onChange={e => setTempUsername(e.target.value)} 
+                                />
+                              </div>
+                              <div className="input-group">
+                                <label className="input-label text-[10px]">Password</label>
+                                <input 
+                                  type="password" 
+                                  className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5" 
+                                  placeholder="Bank portal password" 
+                                  value={tempPassword} 
+                                  onChange={e => setTempPassword(e.target.value)} 
+                                />
+                              </div>
+                              <div className="input-group">
+                                <label className="input-label text-[10px]">Authenticator Seed (TOTP)</label>
+                                <input 
+                                  type="password" 
+                                  className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5 font-mono" 
+                                  placeholder="2FA authenticator secret key" 
+                                  value={tempTotpSeed} 
+                                  onChange={e => setTempTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())} 
+                                />
+                              </div>
+                            </div>
+                            <div className="flex justify-end gap-2 text-xs">
+                              <button 
+                                type="button" 
+                                className="btn border border-zinc-800 hover:bg-zinc-800 text-zinc-300 py-1.5 px-3 font-semibold" 
+                                onClick={() => setExpandedCredsAccountId(null)}
+                              >
+                                Cancel
+                              </button>
+                              <button 
+                                type="button" 
+                                className="btn btn-success py-1.5 px-5 font-bold" 
+                                onClick={() => {
+                                  if (!tempUsername.trim() || !tempPassword.trim()) {
+                                    alert("Username and Password are required.");
+                                    return;
+                                  }
+                                  saveAccountCredentials(acc.id.toString(), tempUsername, tempPassword, tempTotpSeed);
+                                  setExpandedCredsAccountId(null);
+                                }}
+                              >
+                                Save Credentials
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })
