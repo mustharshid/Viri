@@ -190,6 +190,66 @@ function App() {
   useEffect(() => {
     localStorage.setItem('viri_ledger_cache', JSON.stringify(ledgerCache));
   }, [ledgerCache]);
+
+  const [accountFailures, setAccountFailures] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const newFailures: Record<string, number> = {};
+    bankAccounts.forEach(acc => {
+      const bank = acc.bank_name;
+      const username = bank === 'BML' ? bmlUsername : mibUsername;
+      const key = `${bank}_${username || 'default'}`;
+      const count = parseInt(localStorage.getItem(`viri_login_failures_${key}`) || '0', 10);
+      newFailures[acc.id.toString()] = count;
+    });
+    setAccountFailures(newFailures);
+  }, [bankAccounts, bmlUsername, mibUsername]);
+
+  const incrementFailures = (accountId: string) => {
+    const acc = bankAccounts.find(a => a.id.toString() === accountId);
+    if (!acc) return;
+    const bank = acc.bank_name;
+    const username = bank === 'BML' ? bmlUsername : mibUsername;
+    const key = `${bank}_${username || 'default'}`;
+    const currentCount = parseInt(localStorage.getItem(`viri_login_failures_${key}`) || '0', 10);
+    const newCount = currentCount + 1;
+    localStorage.setItem(`viri_login_failures_${key}`, newCount.toString());
+    
+    setAccountFailures(prev => {
+      const updated = { ...prev };
+      bankAccounts.forEach(a => {
+        const aBank = a.bank_name;
+        const aUsername = aBank === 'BML' ? bmlUsername : mibUsername;
+        const aKey = `${aBank}_${aUsername || 'default'}`;
+        if (aKey === key) {
+          updated[a.id.toString()] = newCount;
+        }
+      });
+      return updated;
+    });
+  };
+
+  const resetFailures = (accountId: string) => {
+    const acc = bankAccounts.find(a => a.id.toString() === accountId);
+    if (!acc) return;
+    const bank = acc.bank_name;
+    const username = bank === 'BML' ? bmlUsername : mibUsername;
+    const key = `${bank}_${username || 'default'}`;
+    localStorage.setItem(`viri_login_failures_${key}`, '0');
+    
+    setAccountFailures(prev => {
+      const updated = { ...prev };
+      bankAccounts.forEach(a => {
+        const aBank = a.bank_name;
+        const aUsername = aBank === 'BML' ? bmlUsername : mibUsername;
+        const aKey = `${aBank}_${aUsername || 'default'}`;
+        if (aKey === key) {
+          updated[a.id.toString()] = 0;
+        }
+      });
+      return updated;
+    });
+  };
   const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<string>('');
 
   const activePortRef = useRef<chrome.runtime.Port | null>(null);
@@ -674,6 +734,11 @@ function App() {
   };
 
   const handleVerify = async (mode: 'search' | 'history' = 'search') => {
+    const isLocked = (accountFailures[selectedAccountId] || 0) >= 2;
+    if (isLocked) {
+      setError("This account is currently locked due to 2 consecutive failed logins. Please unlock it via the Admin Panel.");
+      return;
+    }
     if (mode === 'search' && (!amount || isNaN(Number(amount)) || Number(amount) <= 0)) {
       setError("Please enter a valid transfer amount.");
       return;
@@ -917,6 +982,7 @@ function App() {
         });
         setTimeLeft(null);
         setTimeout(() => {
+          resetFailures(selectedAccountId);
           setLoading(false);
           setResult(response.data || null);
           setLastTransactions(response.transactions || []);
@@ -952,6 +1018,13 @@ function App() {
         setTimeLeft(null);
         setLoading(false);
         setError(response.error || (mode === 'history' ? "Failed to fetch history." : "Verification failed."));
+        
+        // Track consecutive failures
+        const isAuthError = progress.stage === 'init' || progress.stage === 'auth' || 
+          /login|credential|auth|password|seed|incorrect|invalid/i.test(response.error || '');
+        if (isAuthError) {
+          incrementFailures(selectedAccountId);
+        }
         setLastTransactions(response.transactions || []);
         setLastPopulatedTime(new Date().toLocaleTimeString());
         port.disconnect();
@@ -1001,6 +1074,11 @@ function App() {
 
   const syncLedger = async (targetAccountId: string) => {
     if (!targetAccountId) return;
+    const isLocked = (accountFailures[targetAccountId] || 0) >= 2;
+    if (isLocked) {
+      setError("This account is currently locked due to 2 consecutive failed logins. Please unlock it via the Admin Panel.");
+      return;
+    }
     if (!extensionId) {
       setError("Extension ID is not configured. Click the gear icon at the top to configure the extension.");
       setShowSettings(true);
@@ -1217,6 +1295,7 @@ function App() {
         });
         setTimeLeft(null);
         setTimeout(() => {
+          resetFailures(targetAccountId);
           setLoading(false);
           setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
           setLedgerCache(prev => ({
@@ -1244,6 +1323,13 @@ function App() {
             error: response.error || "An unknown error occurred during sync."
           }
         }));
+
+        // Track consecutive failures
+        const isAuthError = progress.stage === 'init' || progress.stage === 'auth' || 
+          /login|credential|auth|password|seed|incorrect|invalid/i.test(response.error || '');
+        if (isAuthError) {
+          incrementFailures(targetAccountId);
+        }
         setTimeout(() => {
           setLoading(false);
           setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
@@ -1484,13 +1570,13 @@ function App() {
 
 
         {showSettings ? (
-          /* Extension Settings Panel */
+          /* Extension settings/admin panel */
           <div className="w-full max-w-xl lg:max-w-full mb-6 glass-panel border-[var(--color-accent)] animate-fade-in">
             <h3 className="text-md font-semibold mb-2 flex items-center gap-2">
-              <Settings size={16} /> Viri Terminal Settings
+              <Settings size={16} /> Viri Admin Panel
             </h3>
             <p className="text-xs text-[var(--text-secondary)] mb-4">
-              System configuration and local credentials. System config is pushed by the server and read-only.
+              System configuration, account status reset, and local credentials.
             </p>
 
             <div className="input-group">
@@ -1629,31 +1715,66 @@ function App() {
 
             {/* Bank Accounts Manager */}
             <div className="mt-6 pt-6 border-t border-[var(--border-color)]">
-              <h4 className="text-sm font-semibold mb-3">Managed Bank Accounts</h4>
-              <p className="text-xs text-[var(--text-secondary)] mb-4">Accounts are synced automatically from your company dashboard. You cannot add or remove accounts directly from the terminal.</p>
+              <h4 className="text-sm font-semibold mb-3">Managed Bank Accounts & Login Safety Status</h4>
+              <p className="text-xs text-[var(--text-secondary)] mb-4">Accounts are synced from company dashboard. Reset failed logins here to unlock terminal operations.</p>
 
               <div className="space-y-2 mb-4">
                 {bankAccounts.length === 0 ? (
                   <p className="text-xs text-[var(--text-secondary)] italic">No accounts configured. Please add them in the company dashboard.</p>
                 ) : (
-                  bankAccounts.map(acc => (
-                    <div key={acc.id} className="p-3 bg-[var(--bg-canvas)] border border-[var(--border-color)] rounded-xl text-sm flex items-center gap-3">
-                      <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800 p-1 flex items-center justify-center shrink-0">
-                        <img src={acc.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt="" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-[var(--text-primary)] flex items-center gap-1.5 flex-wrap">
-                          <span>{acc.bank_name} - {acc.account_name}</span>
-                          {acc.label && (
-                            <span className="text-[10px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium">
-                              {acc.label}
-                            </span>
-                          )}
+                  bankAccounts.map(acc => {
+                    const failures = accountFailures[acc.id.toString()] || 0;
+                    const isLocked = failures >= 2;
+                    return (
+                      <div key={acc.id} className="p-3 bg-[var(--bg-canvas)] border border-[var(--border-color)] rounded-xl text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800 p-1 flex items-center justify-center shrink-0">
+                            <img src={acc.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt="" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-[var(--text-primary)] flex items-center gap-1.5 flex-wrap">
+                              <span>{acc.bank_name} - {acc.account_name}</span>
+                              {acc.label && (
+                                <span className="text-[10px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium">
+                                  {acc.label}
+                                </span>
+                              )}
+                              {isLocked ? (
+                                <span className="text-[9px] font-bold text-red-400 bg-red-955/40 border border-red-500/30 px-2 py-0.5 rounded uppercase">
+                                  Locked
+                                </span>
+                              ) : failures > 0 ? (
+                                <span className="text-[9px] font-bold text-yellow-500 bg-yellow-955/40 border border-yellow-500/30 px-2 py-0.5 rounded uppercase">
+                                  {failures} Fail
+                                </span>
+                              ) : (
+                                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-955/40 border border-emerald-500/30 px-2 py-0.5 rounded uppercase font-sans">
+                                  Secure
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[var(--text-secondary)] text-xs mt-0.5">Account Number: {acc.account_number}</div>
+                          </div>
                         </div>
-                        <div className="text-[var(--text-secondary)] text-xs mt-0.5">Account Number: {acc.account_number}</div>
+
+                        {/* Reset Action */}
+                        <div className="shrink-0 flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => resetFailures(acc.id.toString())}
+                            disabled={failures === 0}
+                            className={`text-xs font-semibold px-3 py-1.5 rounded border transition-colors ${
+                              failures > 0 
+                                ? 'bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 border-red-500/30 hover:border-red-500 cursor-pointer' 
+                                : 'bg-zinc-900 border-zinc-850 text-zinc-600 cursor-not-allowed'
+                            }`}
+                          >
+                            Reset Failures
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -1804,52 +1925,78 @@ function App() {
                       </span>
                     </div>
 
-                    <div className="space-y-3 mt-2">
-                      <button
-                        onClick={() => handleVerify('search')}
-                        disabled={loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 || creditsExhausted}
-                        className={`w-full btn btn-success py-3.5 text-base justify-center gap-2 font-bold rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.2)] transition-all ${
-                          loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 || creditsExhausted ? 'opacity-50 cursor-not-allowed' : ''
-                        }`}
-                      >
-                        {loading && loadingMode === 'search' ? (
-                          <>
-                            <Loader2 className="animate-spin" size={20} />
-                            Verifying...
-                          </>
-                        ) : (
-                          <>
-                            <Search size={20} />
-                            VERIFY TRANSFER
-                          </>
-                        )}
-                      </button>
-                      <button
-                        onClick={() => handleVerify('history')}
-                        disabled={loading || !isCredentialsComplete || creditsExhausted}
-                        className={`w-full btn btn-outline py-3 text-sm justify-center gap-2 font-semibold rounded-xl transition-all border border-zinc-800 hover:border-zinc-700 bg-transparent text-zinc-300 hover:text-white ${
-                          loading || !isCredentialsComplete || creditsExhausted ? 'opacity-50 cursor-not-allowed' : ''
-                        }`}
-                      >
-                        {loading && loadingMode === 'history' ? (
-                          <>
-                            <Loader2 className="animate-spin" size={16} />
-                            Fetching History...
-                          </>
-                        ) : (
-                          <>
-                            <History size={16} />
-                            VIEW HISTORY
-                          </>
-                        )}
-                      </button>
-                    </div>
+                    {/* Lockout and Credentials Checks */}
+                    {(() => {
+                      const isSelectedAccountLocked = (accountFailures[selectedAccountId] || 0) >= 2;
+                      return (
+                        <>
+                          <div className="space-y-3 mt-2">
+                            <button
+                              onClick={() => handleVerify('search')}
+                              disabled={loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 || creditsExhausted || isSelectedAccountLocked}
+                              className={`w-full btn btn-success py-3.5 text-base justify-center gap-2 font-bold rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.2)] transition-all ${
+                                loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 || creditsExhausted || isSelectedAccountLocked ? 'opacity-50 cursor-not-allowed' : ''
+                              }`}
+                            >
+                              {loading && loadingMode === 'search' ? (
+                                <>
+                                  <Loader2 className="animate-spin" size={20} />
+                                  Verifying...
+                                </>
+                              ) : isSelectedAccountLocked ? (
+                                <>
+                                  <AlertTriangle size={20} /> Blocked: Reset in Admin Panel
+                                </>
+                              ) : (
+                                <>
+                                  <Search size={20} />
+                                  VERIFY TRANSFER
+                                </>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => handleVerify('history')}
+                              disabled={loading || !isCredentialsComplete || creditsExhausted || isSelectedAccountLocked}
+                              className={`w-full btn btn-outline py-3 text-sm justify-center gap-2 font-semibold rounded-xl transition-all border border-zinc-800 hover:border-zinc-700 bg-transparent text-zinc-300 hover:text-white ${
+                                loading || !isCredentialsComplete || creditsExhausted || isSelectedAccountLocked ? 'opacity-50 cursor-not-allowed' : ''
+                              }`}
+                            >
+                              {loading && loadingMode === 'history' ? (
+                                <>
+                                  <Loader2 className="animate-spin" size={16} />
+                                  Fetching History...
+                                </>
+                              ) : isSelectedAccountLocked ? (
+                                <>
+                                  <AlertTriangle size={16} /> LOCKED OUT
+                                </>
+                              ) : (
+                                <>
+                                  <History size={16} />
+                                  VIEW HISTORY
+                                </>
+                              )}
+                            </button>
+                          </div>
 
-                    {!isCredentialsComplete && (
-                      <p className="text-xs text-[var(--color-warning)] mt-1 text-center leading-relaxed">
-                        ⚠️ Please complete all bank credentials (username, password, authenticator seed) in settings before proceeding.
-                      </p>
-                    )}
+                          {!isCredentialsComplete && (
+                            <p className="text-xs text-[var(--color-warning)] mt-1 text-center leading-relaxed">
+                              ⚠️ Please complete all bank credentials (username, password, authenticator seed) in settings before proceeding.
+                            </p>
+                          )}
+
+                          {isSelectedAccountLocked && (
+                            <div className="mt-2 p-3.5 bg-red-955/20 border border-red-500/30 rounded-xl text-xs text-red-400 leading-normal flex items-start gap-2.5">
+                              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                              <div>
+                                <strong className="block font-bold mb-0.5">Account Security Lockout</strong>
+                                This account is locked due to 2 consecutive failed logins. To prevent a permanent block, please log in manually in a web browser, verify the account is active, and then ask an administrator to reset this lockout from the Admin Panel.
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
 
                     {creditsExhausted && (
                       <div className="mt-2 p-3.5 bg-red-955/20 border border-red-500/30 rounded-xl text-xs text-red-400 leading-normal flex items-start gap-2.5">
@@ -2087,10 +2234,10 @@ function App() {
                     <div className="mt-2 pt-3 flex justify-center border-t border-zinc-900">
                       <button 
                         onClick={() => handleVerify('history')}
-                        disabled={loading}
+                        disabled={loading || (accountFailures[selectedAccountId] || 0) >= 2}
                         className="text-[10px] uppercase font-bold text-zinc-400 hover:text-white transition-colors py-2 px-4 hover:bg-white/5 rounded-lg border border-zinc-800"
                       >
-                        {loading && loadingMode === 'history' ? 'Loading...' : 'Load More Transactions'}
+                        {loading && loadingMode === 'history' ? 'Loading...' : (accountFailures[selectedAccountId] || 0) >= 2 ? 'Blocked: Account Locked' : 'Load More Transactions'}
                       </button>
                     </div>
                   </div>
@@ -2183,9 +2330,19 @@ function App() {
                         transactions: []
                       };
                       const isLockedByVerify = loading && loadingMode !== 'ledger';
+                      const isSelectedLedgerAccountLocked = (accountFailures[selectedLedgerAccountId] || 0) >= 2;
 
                       return (
                         <div className="space-y-6">
+                          {isSelectedLedgerAccountLocked && (
+                            <div className="p-3.5 bg-red-955/20 border border-red-500/30 rounded-xl text-xs text-red-400 leading-normal flex items-start gap-2.5">
+                              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                              <div>
+                                <strong className="block font-bold mb-0.5">Account Security Lockout</strong>
+                                This account is locked due to 2 consecutive failed logins. To prevent a permanent block, please log in manually in a web browser, verify the account is active, and then ask an administrator to reset this lockout from the Admin Panel.
+                              </div>
+                            </div>
+                          )}
                           
                           {/* Summary Card */}
                           {permissions.ledger_show_balance && (
@@ -2313,18 +2470,23 @@ function App() {
                             <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider font-sans">
                               Statement Entries ({displayedTransactions.length})
                             </h3>
-                            <button
-                              onClick={() => syncLedger(selectedLedgerAccountId)}
-                              disabled={isSyncing || isLockedByVerify}
-                              className={`btn ${
-                                isBml ? 'btn-outline border-red-500/50 hover:bg-red-500 hover:text-white' : 'btn-success'
-                              } py-2.5 px-5 text-xs font-semibold flex items-center justify-center gap-2 transition-all shrink-0 ${
-                                isSyncing || isLockedByVerify ? 'opacity-50 cursor-not-allowed' : ''
-                              }`}
-                            >
-                              <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
-                              {isSyncing ? 'Syncing...' : 'Sync Balance & History'}
-                            </button>
+                            {(() => {
+                              const isSelectedLedgerAccountLocked = (accountFailures[selectedLedgerAccountId] || 0) >= 2;
+                              return (
+                                <button
+                                  onClick={() => syncLedger(selectedLedgerAccountId)}
+                                  disabled={isSyncing || isLockedByVerify || isSelectedLedgerAccountLocked}
+                                  className={`btn ${
+                                    isBml ? 'btn-outline border-red-500/50 hover:bg-red-500 hover:text-white' : 'btn-success'
+                                  } py-2.5 px-5 text-xs font-semibold flex items-center justify-center gap-2 transition-all shrink-0 ${
+                                    isSyncing || isLockedByVerify || isSelectedLedgerAccountLocked ? 'opacity-50 cursor-not-allowed' : ''
+                                  }`}
+                                >
+                                  <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
+                                  {isSyncing ? 'Syncing...' : isSelectedLedgerAccountLocked ? 'Blocked' : 'Sync Balance & History'}
+                                </button>
+                              );
+                            })()}
                           </div>
 
                           {/* 5-stage Progress Stepper (always visible) */}
