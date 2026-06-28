@@ -1636,6 +1636,27 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
       emitLog(port, `> [MIB] ✓ Matched account: ${matchedAccountNo}`);
     }
 
+    // Attempt parsing balance directly from dashboard overview card first
+    let dashboardBalance = null;
+    try {
+      const accountIndex = accountsHtml.indexOf(matchedAccountNo);
+      if (accountIndex !== -1) {
+        const start = Math.max(0, accountIndex - 800);
+        const end = Math.min(accountsHtml.length, accountIndex + 800);
+        const section = accountsHtml.substring(start, end);
+        const balMatch = section.match(/Available\s+Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
+                      || section.match(/Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
+                      || section.match(/(?:MVR|USD)\s*(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
+                      || section.match(/(\b\d+(?:,\d{3})*\.\d{2}\b)/);
+        if (balMatch) {
+          dashboardBalance = balMatch[1];
+          emitLog(port, `> [MIB] ✓ Extracted balance from dashboard card for ${matchedAccountNo}: ${dashboardBalance} MVR`);
+        }
+      }
+    } catch (err) {
+      emitLog(port, `> [MIB] Error extracting balance from dashboard HTML: ${err.message}`);
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // STEP 8B: Load Account Details — GET /accountDetails
     // HAR: trxHistory was called from /accountDetails page context
@@ -1648,18 +1669,22 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
       }
     }, port);
 
-    let mibBalance = "Not found";
+    let mibBalance = dashboardBalance || "Not found";
     if (!accDetailsRes.ok) {
       emitLog(port, `> [MIB] Account details returned ${accDetailsRes.status}. Continuing anyway...`);
     } else {
       emitLog(port, `> [MIB] ✓ Account details page loaded.`);
       try {
         const detailsHtml = await accDetailsRes.clone().text();
-        const balanceMatch = detailsHtml.match(/Available\s+Balance.*?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/i)
-                          || detailsHtml.match(/Balance.*?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/i);
+        const balanceMatch = detailsHtml.match(/Available\s+Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
+                          || detailsHtml.match(/Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
+                          || detailsHtml.match(/(?:MVR|USD)\s*(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
+                          || detailsHtml.match(/(\b\d+(?:,\d{3})*\.\d{2}\b)/);
         if (balanceMatch) {
           mibBalance = balanceMatch[1];
-          emitLog(port, `> [MIB] 💰 Balance: ${mibBalance} MVR`);
+          emitLog(port, `> [MIB] 💰 Balance parsed from details page: ${mibBalance} MVR`);
+        } else {
+          emitLog(port, `> [MIB] No balance parsed from details page. Available fallback: ${mibBalance}`);
         }
       } catch (err) {
         emitLog(port, `> [MIB] Error parsing balance: ${err.message}`);
