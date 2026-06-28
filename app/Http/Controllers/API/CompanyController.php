@@ -211,4 +211,20 @@ class CompanyController extends Controller
         $account->delete();
         return response()->json(['message' => 'Bank account deleted']);
     }
+
+    public function resetBankAccountFailures(Request $request, $id)
+    {
+        $tenantId = $request->user()->tenant_id;
+        $account = BankAccount::where('tenant_id', $tenantId)->findOrFail($id);
+
+        if ($account->login_credentials_hash) {
+            BankAccount::where('tenant_id', $tenantId)
+                ->where('login_credentials_hash', $account->login_credentials_hash)
+                ->update(['login_failures' => 0]);
+        } else {
+            $account->update(['login_failures' => 0]);
+        }
+
+        return response()->json(['message' => 'Login failures reset successfully']);
+    }
 }

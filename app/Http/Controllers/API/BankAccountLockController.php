@@ -140,4 +140,74 @@ class BankAccountLockController extends Controller
 
         return response()->json(['status' => 'released', 'message' => 'Lock released successfully']);
     }
+
+    public function incrementFailures(Request $request)
+    {
+        $validation = $this->validateTerminalAndAccount($request);
+        if (isset($validation['error'])) {
+            return response()->json(['error' => $validation['error']], $validation['status']);
+        }
+
+        $bankAccount = $validation['bank_account'];
+        $hash = $request->input('credentials_hash');
+
+        if ($hash) {
+            $bankAccount->update(['login_credentials_hash' => $hash]);
+
+            BankAccount::where('tenant_id', $bankAccount->tenant_id)
+                ->where('login_credentials_hash', $hash)
+                ->increment('login_failures');
+        } else {
+            $bankAccount->increment('login_failures');
+        }
+
+        return response()->json(['status' => 'success', 'login_failures' => $bankAccount->fresh()->login_failures]);
+    }
+
+    public function resetFailures(Request $request)
+    {
+        $validation = $this->validateTerminalAndAccount($request);
+        if (isset($validation['error'])) {
+            return response()->json(['error' => $validation['error']], $validation['status']);
+        }
+
+        $bankAccount = $validation['bank_account'];
+        $hash = $request->input('credentials_hash');
+
+        if ($hash) {
+            $bankAccount->update(['login_credentials_hash' => $hash]);
+
+            BankAccount::where('tenant_id', $bankAccount->tenant_id)
+                ->where('login_credentials_hash', $hash)
+                ->update(['login_failures' => 0]);
+        } else {
+            $bankAccount->update(['login_failures' => 0]);
+        }
+
+        return response()->json(['status' => 'success', 'login_failures' => 0]);
+    }
+
+    public function mapCredentials(Request $request)
+    {
+        $request->validate([
+            'hardware_id' => 'required|string',
+            'mapping' => 'required|array',
+        ]);
+
+        $terminal = Terminal::where('hardware_id', $request->hardware_id)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$terminal) {
+            return response()->json(['error' => 'Terminal unauthorized or inactive'], 403);
+        }
+
+        foreach ($request->mapping as $accountId => $hash) {
+            BankAccount::where('id', $accountId)
+                ->where('tenant_id', $terminal->tenant_id)
+                ->update(['login_credentials_hash' => $hash]);
+        }
+
+        return response()->json(['status' => 'success']);
+    }
 }

@@ -274,6 +274,23 @@ export default function CompanyDashboard() {
     fetchData();
   };
 
+  const resetBankAccountFailures = async (id: number) => {
+    const token = localStorage.getItem('viri_token');
+    const res = await fetch(`/api/company/bank-accounts/${id}/reset-failures`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    if (res.ok) {
+      fetchData();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      alert(data.message || 'Error resetting failures');
+    }
+  };
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     alert('Hardware ID copied to clipboard!');
@@ -513,8 +530,21 @@ export default function CompanyDashboard() {
                         />
                       </div>
                       <div>
-                        <div className="font-bold text-lg">
-                          {acc.label ? acc.label : (acc.bank_name === 'BML' ? 'Bank of Maldives' : 'Maldives Islamic Bank')}
+                        <div className="font-bold text-lg flex items-center gap-2">
+                          <span>{acc.label ? acc.label : (acc.bank_name === 'BML' ? 'Bank of Maldives' : 'Maldives Islamic Bank')}</span>
+                          {(acc.login_failures || 0) >= 2 ? (
+                            <span className="text-[9px] font-bold text-red-400 bg-red-955/40 border border-red-500/30 px-2 py-0.5 rounded uppercase shrink-0">
+                              Locked
+                            </span>
+                          ) : (acc.login_failures || 0) > 0 ? (
+                            <span className="text-[9px] font-bold text-yellow-500 bg-yellow-955/40 border border-yellow-500/30 px-2 py-0.5 rounded uppercase shrink-0">
+                              {acc.login_failures} Fail
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-bold text-emerald-400 bg-emerald-955/40 border border-emerald-500/30 px-2 py-0.5 rounded uppercase font-sans shrink-0">
+                              Secure
+                            </span>
+                          )}
                         </div>
                         {acc.label && (
                           <div className="text-xs text-[var(--color-success)] font-semibold uppercase tracking-wider">
@@ -528,7 +558,18 @@ export default function CompanyDashboard() {
                         )}
                       </div>
                     </div>
-                    <button onClick={() => deleteBankAccount(acc.id)} className="p-2 text-red-400 hover:text-red-300 hover:bg-red-400/10 rounded"><Trash2 size={20}/></button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {(acc.login_failures || 0) > 0 && (
+                        <button 
+                          type="button"
+                          onClick={() => resetBankAccountFailures(acc.id)} 
+                          className="text-xs font-semibold px-3 py-1.5 rounded border border-red-500/30 bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 transition-colors"
+                        >
+                          Reset Lock
+                        </button>
+                      )}
+                      <button onClick={() => deleteBankAccount(acc.id)} className="p-2 text-red-400 hover:text-red-300 hover:bg-red-400/10 rounded"><Trash2 size={20}/></button>
+                    </div>
                   </div>
                 ))}
                 {bankAccounts.length === 0 && <p className="text-sm text-[var(--text-secondary)]">No bank accounts configured.</p>}

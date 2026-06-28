@@ -17,6 +17,8 @@ class BankAccount extends Model
         'mib_profile_type',
         'is_default',
         'label',
+        'login_failures',
+        'login_credentials_hash',
     ];
 
     protected $casts = [

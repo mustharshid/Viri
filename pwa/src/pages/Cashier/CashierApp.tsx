@@ -2,6 +2,18 @@ import { useState, useEffect, useRef } from 'react';
 import { Shield, RefreshCw, CheckCircle, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3 } from 'lucide-react';
 
 
+const sha256 = async (message: string): Promise<string> => {
+  const msgBuffer = new TextEncoder().encode(message);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+const computeCredsHash = async (bank: string, username: string): Promise<string> => {
+  if (!username) return '';
+  return sha256(`${bank}_${username.trim().toLowerCase()}`);
+};
+
 interface BankAccount {
   id: number;
   bank_name: string;
@@ -10,6 +22,8 @@ interface BankAccount {
   mib_profile_type?: string;
   is_default: boolean;
   label?: string;
+  login_failures?: number;
+  login_credentials_hash?: string;
 }
 
 interface LedgerTransaction {
@@ -191,65 +205,40 @@ function App() {
     localStorage.setItem('viri_ledger_cache', JSON.stringify(ledgerCache));
   }, [ledgerCache]);
 
-  const [accountFailures, setAccountFailures] = useState<Record<string, number>>({});
+  const syncCredentialsMapping = async (accountsList: BankAccount[]) => {
+    if (!hardwareId || !backendUrl || accountsList.length === 0) return;
+
+    const bmlHash = bmlUsername ? await sha256(`BML_${bmlUsername.trim().toLowerCase()}`) : '';
+    const mibHash = mibUsername ? await sha256(`MIB_${mibUsername.trim().toLowerCase()}`) : '';
+
+    const mapping: Record<number, string> = {};
+    accountsList.forEach(acc => {
+      if (acc.bank_name === 'BML' && bmlHash) {
+        mapping[acc.id] = bmlHash;
+      } else if (acc.bank_name === 'MIB' && mibHash) {
+        mapping[acc.id] = mibHash;
+      }
+    });
+
+    if (Object.keys(mapping).length === 0) return;
+
+    try {
+      await fetch(`${backendUrl}/terminal/bank-accounts/map-credentials`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hardware_id: hardwareId, mapping })
+      });
+    } catch (err) {
+      console.error('Failed to sync credentials mapping:', err);
+    }
+  };
 
   useEffect(() => {
-    const newFailures: Record<string, number> = {};
-    bankAccounts.forEach(acc => {
-      const bank = acc.bank_name;
-      const username = bank === 'BML' ? bmlUsername : mibUsername;
-      const key = `${bank}_${username || 'default'}`;
-      const count = parseInt(localStorage.getItem(`viri_login_failures_${key}`) || '0', 10);
-      newFailures[acc.id.toString()] = count;
-    });
-    setAccountFailures(newFailures);
+    if (bankAccounts.length > 0) {
+      syncCredentialsMapping(bankAccounts);
+    }
   }, [bankAccounts, bmlUsername, mibUsername]);
 
-  const incrementFailures = (accountId: string) => {
-    const acc = bankAccounts.find(a => a.id.toString() === accountId);
-    if (!acc) return;
-    const bank = acc.bank_name;
-    const username = bank === 'BML' ? bmlUsername : mibUsername;
-    const key = `${bank}_${username || 'default'}`;
-    const currentCount = parseInt(localStorage.getItem(`viri_login_failures_${key}`) || '0', 10);
-    const newCount = currentCount + 1;
-    localStorage.setItem(`viri_login_failures_${key}`, newCount.toString());
-    
-    setAccountFailures(prev => {
-      const updated = { ...prev };
-      bankAccounts.forEach(a => {
-        const aBank = a.bank_name;
-        const aUsername = aBank === 'BML' ? bmlUsername : mibUsername;
-        const aKey = `${aBank}_${aUsername || 'default'}`;
-        if (aKey === key) {
-          updated[a.id.toString()] = newCount;
-        }
-      });
-      return updated;
-    });
-  };
-
-  const resetFailures = (accountId: string) => {
-    const acc = bankAccounts.find(a => a.id.toString() === accountId);
-    if (!acc) return;
-    const bank = acc.bank_name;
-    const username = bank === 'BML' ? bmlUsername : mibUsername;
-    const key = `${bank}_${username || 'default'}`;
-    localStorage.setItem(`viri_login_failures_${key}`, '0');
-    
-    setAccountFailures(prev => {
-      const updated = { ...prev };
-      bankAccounts.forEach(a => {
-        const aBank = a.bank_name;
-        const aUsername = aBank === 'BML' ? bmlUsername : mibUsername;
-        const aKey = `${aBank}_${aUsername || 'default'}`;
-        if (aKey === key) {
-          updated[a.id.toString()] = 0;
-        }
-      });
-      return updated;
-    });
-  };
   const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<string>('');
 
   const activePortRef = useRef<chrome.runtime.Port | null>(null);
@@ -456,65 +445,64 @@ function App() {
     setShowSettings(false);
   };
 
-  useEffect(() => {
-    const fetchAccounts = async () => {
-      if (!hardwareId || !backendUrl) return;
+  const fetchAccounts = async () => {
+    if (!hardwareId || !backendUrl) return;
 
-      setInitLoading(true);
-      try {
-        const response = await fetch(`${backendUrl}/verify-terminal`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ hardware_id: hardwareId })
-        });
-        if (response.ok) {
-          const data = await response.json();
-          const accounts = data.tenant?.bank_accounts || [];
-          setBankAccounts(accounts);
+    setInitLoading(true);
+    try {
+      const response = await fetch(`${backendUrl}/verify-terminal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hardware_id: hardwareId })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const accounts = data.tenant?.bank_accounts || [];
+        setBankAccounts(accounts);
 
-          if (data.tenant?.name) setTenantName(data.tenant.name);
-          if (data.tenant?.tier) setSubscriptionTier(data.tenant.tier);
-          if (data.tenant?.lock_timeout) setLockTimeout(data.tenant.lock_timeout);
-          if (data.tenant?.extension_id) setExtensionId(data.tenant.extension_id);
-          if (data.terminal_name) setTerminalName(data.terminal_name);
-          if (data.permissions) {
-            setPermissions({
-              verification_enabled: data.permissions.verification_enabled ?? true,
-              ledger_enabled: data.permissions.ledger_enabled ?? true,
-              ledger_show_balance: data.permissions.ledger_show_balance ?? true,
-              ledger_show_debit: data.permissions.ledger_show_debit ?? true,
-              reports_enabled: data.permissions.reports_enabled ?? false,
-              show_vbtl: data.permissions.show_vbtl ?? false
-            });
-          }
-          if (data.credits_exhausted !== undefined) {
-            setCreditsExhausted(data.credits_exhausted);
-          }
-
-          if (accounts.length > 0) {
-            const savedDefaultId = localStorage.getItem('viri_default_account_id');
-            const defaultAcc = (savedDefaultId && accounts.find((a: BankAccount) => a.id.toString() === savedDefaultId))
-              || accounts.find((a: BankAccount) => a.is_default)
-              || accounts[0];
-            setSelectedAccountId(defaultAcc.id.toString());
-            setSelectedLedgerAccountId(defaultAcc.id.toString());
-
-
-          }
-        } else {
-          // Only clear data and trigger setup mode if backend explicitly rejects the terminal with 403 or 404
-          if (response.status === 403 || response.status === 404) {
-            clearTerminalData();
-          } else {
-            console.error(`Verification server returned non-ok status during loading: ${response.status}`);
-          }
+        if (data.tenant?.name) setTenantName(data.tenant.name);
+        if (data.tenant?.tier) setSubscriptionTier(data.tenant.tier);
+        if (data.tenant?.lock_timeout) setLockTimeout(data.tenant.lock_timeout);
+        if (data.tenant?.extension_id) setExtensionId(data.tenant.extension_id);
+        if (data.terminal_name) setTerminalName(data.terminal_name);
+        if (data.permissions) {
+          setPermissions({
+            verification_enabled: data.permissions.verification_enabled ?? true,
+            ledger_enabled: data.permissions.ledger_enabled ?? true,
+            ledger_show_balance: data.permissions.ledger_show_balance ?? true,
+            ledger_show_debit: data.permissions.ledger_show_debit ?? true,
+            reports_enabled: data.permissions.reports_enabled ?? false,
+            show_vbtl: data.permissions.show_vbtl ?? false
+          });
         }
-      } catch (err) {
-        console.error("Failed to fetch initial terminal data", err);
-      } finally {
-        setInitLoading(false);
+        if (data.credits_exhausted !== undefined) {
+          setCreditsExhausted(data.credits_exhausted);
+        }
+
+        if (accounts.length > 0) {
+          const savedDefaultId = localStorage.getItem('viri_default_account_id');
+          const defaultAcc = (savedDefaultId && accounts.find((a: BankAccount) => a.id.toString() === savedDefaultId))
+            || accounts.find((a: BankAccount) => a.is_default)
+            || accounts[0];
+          setSelectedAccountId(defaultAcc.id.toString());
+          setSelectedLedgerAccountId(defaultAcc.id.toString());
+        }
+      } else {
+        // Only clear data and trigger setup mode if backend explicitly rejects the terminal with 403 or 404
+        if (response.status === 403 || response.status === 404) {
+          clearTerminalData();
+        } else {
+          console.error(`Verification server returned non-ok status during loading: ${response.status}`);
+        }
       }
-    };
+    } catch (err) {
+      console.error("Failed to fetch initial terminal data", err);
+    } finally {
+      setInitLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchAccounts();
   }, [hardwareId, backendUrl]);
 
@@ -734,9 +722,13 @@ function App() {
   };
 
   const handleVerify = async (mode: 'search' | 'history' = 'search') => {
-    const isLocked = (accountFailures[selectedAccountId] || 0) >= 2;
+    const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
+    const selectedBankName = selectedAccount ? selectedAccount.bank_name : 'BML';
+    const fullBankName = selectedBankName === 'MIB' ? 'Maldives Islamic Bank' : 'Bank of Maldives';
+
+    const isLocked = selectedAccount && (selectedAccount.login_failures || 0) >= 2;
     if (isLocked) {
-      setError("This account is currently locked due to 2 consecutive failed logins. Please unlock it via the Admin Panel.");
+      setError("This account is currently locked due to 2 consecutive failed logins. Please unlock it via the Company Admin Panel.");
       return;
     }
     if (mode === 'search' && (!amount || isNaN(Number(amount)) || Number(amount) <= 0)) {
@@ -748,10 +740,6 @@ function App() {
       setShowSettings(true);
       return;
     }
-
-    const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
-    const selectedBankName = selectedAccount ? selectedAccount.bank_name : 'BML';
-    const fullBankName = selectedBankName === 'MIB' ? 'Maldives Islamic Bank' : 'Bank of Maldives';
 
     setLoading(true);
     setLoadingMode(mode);
@@ -981,8 +969,7 @@ function App() {
           isIndeterminate: false 
         });
         setTimeLeft(null);
-        setTimeout(() => {
-          resetFailures(selectedAccountId);
+        setTimeout(async () => {
           setLoading(false);
           setResult(response.data || null);
           setLastTransactions(response.transactions || []);
@@ -1007,6 +994,20 @@ function App() {
           releaseLock();
           isVerifyingRef.current = false;
           uploadLogsToServer();
+
+          // Reset failures on server
+          const activeUsername = selectedBankName === 'BML' ? bmlUsername : mibUsername;
+          const hash = await computeCredsHash(selectedBankName, activeUsername);
+          try {
+            await fetch(`${backendUrl}/terminal/bank-accounts/reset-failures`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(selectedAccountId), credentials_hash: hash })
+            });
+            fetchAccounts();
+          } catch (e) {
+            console.error("Failed to reset failures:", e);
+          }
         }, 1500); // 1.5s reinforcement checkmark flash
       } else if (response.type === 'error') {
         setProgress({ 
@@ -1023,7 +1024,19 @@ function App() {
         const isAuthError = progress.stage === 'init' || progress.stage === 'auth' || 
           /login|credential|auth|password|seed|incorrect|invalid/i.test(response.error || '');
         if (isAuthError) {
-          incrementFailures(selectedAccountId);
+          const activeUsername = selectedBankName === 'BML' ? bmlUsername : mibUsername;
+          computeCredsHash(selectedBankName, activeUsername).then(async (hash) => {
+            try {
+              await fetch(`${backendUrl}/terminal/bank-accounts/increment-failures`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(selectedAccountId), credentials_hash: hash })
+              });
+              fetchAccounts();
+            } catch (e) {
+              console.error("Failed to increment failures:", e);
+            }
+          });
         }
         setLastTransactions(response.transactions || []);
         setLastPopulatedTime(new Date().toLocaleTimeString());
@@ -1074,9 +1087,12 @@ function App() {
 
   const syncLedger = async (targetAccountId: string) => {
     if (!targetAccountId) return;
-    const isLocked = (accountFailures[targetAccountId] || 0) >= 2;
+    const selectedAccount = bankAccounts.find(a => a.id.toString() === targetAccountId);
+    if (!selectedAccount) return;
+
+    const isLocked = (selectedAccount.login_failures || 0) >= 2;
     if (isLocked) {
-      setError("This account is currently locked due to 2 consecutive failed logins. Please unlock it via the Admin Panel.");
+      setError("This account is currently locked due to 2 consecutive failed logins. Please unlock it via the Company Admin Panel.");
       return;
     }
     if (!extensionId) {
@@ -1084,9 +1100,6 @@ function App() {
       setShowSettings(true);
       return;
     }
-
-    const selectedAccount = bankAccounts.find(a => a.id.toString() === targetAccountId);
-    if (!selectedAccount) return;
     const selectedBankName = selectedAccount.bank_name;
     const fullBankName = selectedBankName === 'MIB' ? 'Maldives Islamic Bank' : 'Bank of Maldives';
 
@@ -1294,8 +1307,7 @@ function App() {
           isIndeterminate: false 
         });
         setTimeLeft(null);
-        setTimeout(() => {
-          resetFailures(targetAccountId);
+        setTimeout(async () => {
           setLoading(false);
           setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
           setLedgerCache(prev => ({
@@ -1311,6 +1323,20 @@ function App() {
           releaseLock();
           isVerifyingRef.current = false;
           uploadLogsToServer();
+
+          // Reset failures on server
+          const activeUsername = selectedBankName === 'BML' ? bmlUsername : mibUsername;
+          const hash = await computeCredsHash(selectedBankName, activeUsername);
+          try {
+            await fetch(`${backendUrl}/terminal/bank-accounts/reset-failures`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(targetAccountId), credentials_hash: hash })
+            });
+            fetchAccounts();
+          } catch (e) {
+            console.error("Failed to reset failures:", e);
+          }
         }, 1500);
       } else if (response.type === 'error') {
         setError(response.error || "An unknown error occurred during sync.");
@@ -1328,7 +1354,19 @@ function App() {
         const isAuthError = progress.stage === 'init' || progress.stage === 'auth' || 
           /login|credential|auth|password|seed|incorrect|invalid/i.test(response.error || '');
         if (isAuthError) {
-          incrementFailures(targetAccountId);
+          const activeUsername = selectedBankName === 'BML' ? bmlUsername : mibUsername;
+          computeCredsHash(selectedBankName, activeUsername).then(async (hash) => {
+            try {
+              await fetch(`${backendUrl}/terminal/bank-accounts/increment-failures`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(targetAccountId), credentials_hash: hash })
+              });
+              fetchAccounts();
+            } catch (e) {
+              console.error("Failed to increment failures:", e);
+            }
+          });
         }
         setTimeout(() => {
           setLoading(false);
@@ -1712,21 +1750,20 @@ function App() {
                 </div>
               </div>
             </div>
-
             {/* Bank Accounts Manager */}
             <div className="mt-6 pt-6 border-t border-[var(--border-color)]">
               <h4 className="text-sm font-semibold mb-3">Managed Bank Accounts & Login Safety Status</h4>
-              <p className="text-xs text-[var(--text-secondary)] mb-4">Accounts are synced from company dashboard. Reset failed logins here to unlock terminal operations.</p>
+              <p className="text-xs text-[var(--text-secondary)] mb-4">Accounts are synced from company dashboard. Reset failed logins in the Company Admin Panel to unlock terminal operations.</p>
 
               <div className="space-y-2 mb-4">
                 {bankAccounts.length === 0 ? (
                   <p className="text-xs text-[var(--text-secondary)] italic">No accounts configured. Please add them in the company dashboard.</p>
                 ) : (
                   bankAccounts.map(acc => {
-                    const failures = accountFailures[acc.id.toString()] || 0;
+                    const failures = acc.login_failures || 0;
                     const isLocked = failures >= 2;
                     return (
-                      <div key={acc.id} className="p-3 bg-[var(--bg-canvas)] border border-[var(--border-color)] rounded-xl text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div key={acc.id} className="p-3 bg-[var(--bg-canvas)] border border-[var(--border-color)] rounded-xl text-sm flex items-center justify-between gap-4">
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800 p-1 flex items-center justify-center shrink-0">
                             <img src={acc.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt="" />
@@ -1755,22 +1792,6 @@ function App() {
                             </div>
                             <div className="text-[var(--text-secondary)] text-xs mt-0.5">Account Number: {acc.account_number}</div>
                           </div>
-                        </div>
-
-                        {/* Reset Action */}
-                        <div className="shrink-0 flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => resetFailures(acc.id.toString())}
-                            disabled={failures === 0}
-                            className={`text-xs font-semibold px-3 py-1.5 rounded border transition-colors ${
-                              failures > 0 
-                                ? 'bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 border-red-500/30 hover:border-red-500 cursor-pointer' 
-                                : 'bg-zinc-900 border-zinc-850 text-zinc-600 cursor-not-allowed'
-                            }`}
-                          >
-                            Reset Failures
-                          </button>
                         </div>
                       </div>
                     );
@@ -1927,7 +1948,8 @@ function App() {
 
                     {/* Lockout and Credentials Checks */}
                     {(() => {
-                      const isSelectedAccountLocked = (accountFailures[selectedAccountId] || 0) >= 2;
+                      const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
+                      const isSelectedAccountLocked = selectedAccount && (selectedAccount.login_failures || 0) >= 2;
                       return (
                         <>
                           <div className="space-y-3 mt-2">
@@ -1945,7 +1967,7 @@ function App() {
                                 </>
                               ) : isSelectedAccountLocked ? (
                                 <>
-                                  <AlertTriangle size={20} /> Blocked: Reset in Admin Panel
+                                  <AlertTriangle size={20} /> Blocked: Reset in Company Dashboard
                                 </>
                               ) : (
                                 <>
@@ -1990,7 +2012,7 @@ function App() {
                               <AlertTriangle size={16} className="shrink-0 mt-0.5" />
                               <div>
                                 <strong className="block font-bold mb-0.5">Account Security Lockout</strong>
-                                This account is locked due to 2 consecutive failed logins. To prevent a permanent block, please log in manually in a web browser, verify the account is active, and then ask an administrator to reset this lockout from the Admin Panel.
+                                This account is locked due to 2 consecutive failed logins. To prevent a permanent block, please log in manually in a web browser, verify the account is active, and then ask an administrator to reset this lockout from the Company Admin Panel.
                               </div>
                             </div>
                           )}
@@ -2232,13 +2254,19 @@ function App() {
                     </div>
 
                     <div className="mt-2 pt-3 flex justify-center border-t border-zinc-900">
-                      <button 
-                        onClick={() => handleVerify('history')}
-                        disabled={loading || (accountFailures[selectedAccountId] || 0) >= 2}
-                        className="text-[10px] uppercase font-bold text-zinc-400 hover:text-white transition-colors py-2 px-4 hover:bg-white/5 rounded-lg border border-zinc-800"
-                      >
-                        {loading && loadingMode === 'history' ? 'Loading...' : (accountFailures[selectedAccountId] || 0) >= 2 ? 'Blocked: Account Locked' : 'Load More Transactions'}
-                      </button>
+                      {(() => {
+                        const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
+                        const isLocked = selectedAccount && (selectedAccount.login_failures || 0) >= 2;
+                        return (
+                          <button 
+                            onClick={() => handleVerify('history')}
+                            disabled={loading || isLocked}
+                            className="text-[10px] uppercase font-bold text-zinc-400 hover:text-white transition-colors py-2 px-4 hover:bg-white/5 rounded-lg border border-zinc-800"
+                          >
+                            {loading && loadingMode === 'history' ? 'Loading...' : isLocked ? 'Blocked: Account Locked' : 'Load More Transactions'}
+                          </button>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -2330,7 +2358,7 @@ function App() {
                         transactions: []
                       };
                       const isLockedByVerify = loading && loadingMode !== 'ledger';
-                      const isSelectedLedgerAccountLocked = (accountFailures[selectedLedgerAccountId] || 0) >= 2;
+                      const isSelectedLedgerAccountLocked = activeLedgerAcc && (activeLedgerAcc.login_failures || 0) >= 2;
 
                       return (
                         <div className="space-y-6">
@@ -2339,7 +2367,7 @@ function App() {
                               <AlertTriangle size={16} className="shrink-0 mt-0.5" />
                               <div>
                                 <strong className="block font-bold mb-0.5">Account Security Lockout</strong>
-                                This account is locked due to 2 consecutive failed logins. To prevent a permanent block, please log in manually in a web browser, verify the account is active, and then ask an administrator to reset this lockout from the Admin Panel.
+                                This account is locked due to 2 consecutive failed logins. To prevent a permanent block, please log in manually in a web browser, verify the account is active, and then ask an administrator to reset this lockout from the Company Admin Panel.
                               </div>
                             </div>
                           )}
@@ -2471,7 +2499,8 @@ function App() {
                               Statement Entries ({displayedTransactions.length})
                             </h3>
                             {(() => {
-                              const isSelectedLedgerAccountLocked = (accountFailures[selectedLedgerAccountId] || 0) >= 2;
+                              const selectedLedgerAccount = bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId);
+                              const isSelectedLedgerAccountLocked = selectedLedgerAccount && (selectedLedgerAccount.login_failures || 0) >= 2;
                               return (
                                 <button
                                   onClick={() => syncLedger(selectedLedgerAccountId)}

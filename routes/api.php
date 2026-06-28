@@ -44,6 +44,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/company/bank-accounts', [CompanyController::class, 'getBankAccounts']);
     Route::post('/company/bank-accounts', [CompanyController::class, 'createBankAccount']);
     Route::delete('/company/bank-accounts/{id}', [CompanyController::class, 'deleteBankAccount']);
+    Route::post('/company/bank-accounts/{id}/reset-failures', [CompanyController::class, 'resetBankAccountFailures']);
 });
 
 /*
@@ -107,7 +108,9 @@ Route::post('/verify-terminal', function (Request $request) {
                     'account_number' => $account->account_number,
                     'mib_profile_type' => $account->mib_profile_type ?? '0',
                     'is_default' => $account->is_default,
-                    'label' => $account->label
+                    'label' => $account->label,
+                    'login_failures' => $account->login_failures,
+                    'login_credentials_hash' => $account->login_credentials_hash,
                 ];
             })
         ],
@@ -128,3 +131,6 @@ Route::post('/terminal/heartbeat', [BankAccountLockController::class, 'heartbeat
 Route::post('/terminal/unlock-account', [BankAccountLockController::class, 'unlockAccount']);
 Route::post('/terminal/logs', [TerminalPairingController::class, 'uploadLogs']);
 Route::post('/terminal/credentials', [TerminalPairingController::class, 'saveCredentials']);
+Route::post('/terminal/bank-accounts/increment-failures', [BankAccountLockController::class, 'incrementFailures']);
+Route::post('/terminal/bank-accounts/reset-failures', [BankAccountLockController::class, 'resetFailures']);
+Route::post('/terminal/bank-accounts/map-credentials', [BankAccountLockController::class, 'mapCredentials']);
