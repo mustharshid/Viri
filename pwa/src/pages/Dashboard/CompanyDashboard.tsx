@@ -353,12 +353,20 @@ export default function CompanyDashboard() {
               </div>
               <div className="space-y-3">
                 <div className="flex justify-between">
-                  <span className="text-[var(--text-secondary)]">Current Tier:</span>
+                  <span className="text-[var(--text-secondary)]">Current Plan:</span>
                   <span className="font-bold uppercase text-[var(--color-success)]">{user?.tenant?.subscription_tier === 'free' ? 'Free Trial' : `MVR ${user?.tenant?.subscription_tier}`}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-[var(--text-secondary)]">Verifications Used:</span>
-                  <span className="font-mono">{user?.tenant?.verifications_count} this month</span>
+                  <span className="font-mono">{user?.tenant?.verifications_count} / {getVerificationLimit()} this month</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--text-secondary)]">Active Terminals:</span>
+                  <span className="font-mono">{terminals.length} / {user?.tenant?.max_terminals ?? 1} used</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--text-secondary)]">Configured Bank Accounts:</span>
+                  <span className="font-mono">{bankAccounts.length} / {getBankAccountLimit()} used</span>
                 </div>
               </div>
             </div>

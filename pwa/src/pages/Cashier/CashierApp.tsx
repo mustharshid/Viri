@@ -1497,8 +1497,8 @@ function App() {
       {/* Top section: Brand / Logo - Vertical Premium Layout */}
       <div className="flex flex-col items-center md:items-start px-5 mb-8">
         {/* Viri Logo Container */}
-        <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/30 mb-3 shadow-[0_0_15px_rgba(16,185,129,0.15)]">
-          <Shield className="text-emerald-400" size={20} />
+        <div className="mb-3">
+          <img src="/logo_en.png" alt="Viri Logo" className="h-10 md:h-12 w-auto object-contain mx-auto md:mx-0" />
         </div>
         
         {/* Company Name */}
