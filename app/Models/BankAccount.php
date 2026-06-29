@@ -48,7 +48,7 @@ class BankAccount extends Model
     {
         return $this->session_holder_terminal_id !== null
             && $this->session_last_heartbeat_at !== null
-            && $this->session_last_heartbeat_at->diffInSeconds(now()) <= 30;
+            && $this->session_last_heartbeat_at->diffInSeconds(now()) <= 90;
     }
 }
 
