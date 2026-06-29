@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone } from 'lucide-react';
 
@@ -41,6 +41,7 @@ export default function AdminDashboard() {
 
   const [filterEventType, setFilterEventType] = useState('');
   const [filterCompanyId, setFilterCompanyId] = useState('');
+  const [expandedLogId, setExpandedLogId] = useState<number | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -554,32 +555,48 @@ export default function AdminDashboard() {
                           } else if (['session_heartbeat_lost', 'session_released'].includes(log.event_type)) {
                             badgeClass = "bg-orange-950/40 text-orange-400 border border-orange-500/20";
                           }
-
+                          const isExpanded = expandedLogId === log.id;
                           return (
-                            <tr key={log.id} className="hover:bg-zinc-900/30 transition-colors">
-                              <td className="py-3 pr-4 font-mono text-zinc-400">{dateStr}</td>
-                              <td className="py-3 pr-4 font-medium text-white">
-                                {log.terminal_name || "System"} 
-                                <span className="text-[10px] text-zinc-500 block">{log.tenant?.name}</span>
-                              </td>
-                              <td className="py-3 pr-4 font-mono text-zinc-400">
-                                {log.bank_name || "N/A"}
-                                <span className="text-[10px] block">{log.account_number_masked || ""}</span>
-                              </td>
-                              <td className="py-3 pr-4">
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${badgeClass}`}>
-                                  {log.event_type.replace(/_/g, ' ').toUpperCase()}
-                                </span>
-                              </td>
-                              <td className="py-3 pr-4 text-zinc-300 font-medium">
-                                {log.event_summary}
-                                {log.event_detail && (
-                                  <pre className="text-[10px] text-zinc-500 mt-1 bg-black/40 p-2 rounded overflow-x-auto max-w-lg scrollbar-thin">
-                                    {JSON.stringify(log.event_detail, null, 2)}
-                                  </pre>
-                                )}
-                              </td>
-                            </tr>
+                            <Fragment key={log.id}>
+                              <tr 
+                                className={`transition-colors border-b border-zinc-900/50 ${log.event_detail ? 'cursor-pointer hover:bg-zinc-800/25' : 'hover:bg-zinc-900/20'} ${isExpanded ? 'bg-zinc-850/40 border-b-0' : ''}`}
+                                onClick={() => log.event_detail && setExpandedLogId(isExpanded ? null : log.id)}
+                              >
+                                <td className="py-3 pr-4 font-mono text-zinc-400">{dateStr}</td>
+                                <td className="py-3 pr-4 font-medium text-white">
+                                  {log.terminal_name || "System"} 
+                                  <span className="text-[10px] text-zinc-500 block">{log.tenant?.name}</span>
+                                </td>
+                                <td className="py-3 pr-4 font-mono text-zinc-400">
+                                  {log.bank_name || "N/A"}
+                                  <span className="text-[10px] block">{log.account_number_masked || ""}</span>
+                                </td>
+                                <td className="py-3 pr-4">
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${badgeClass}`}>
+                                    {log.event_type.replace(/_/g, ' ').toUpperCase()}
+                                  </span>
+                                </td>
+                                <td className="py-3 pr-4 text-zinc-300 font-medium">
+                                  <div className="flex items-center justify-between gap-4">
+                                    <span>{log.event_summary}</span>
+                                    {log.event_detail && (
+                                      <span className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 rounded font-semibold whitespace-nowrap">
+                                        {isExpanded ? 'Hide Details' : 'View Details'}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                              {isExpanded && log.event_detail && (
+                                <tr className="bg-zinc-950/20 border-b border-zinc-900">
+                                  <td colSpan={5} className="p-4">
+                                    <pre className="text-[10px] font-mono text-zinc-400 bg-zinc-950/80 p-3 rounded-lg border border-zinc-800/80 overflow-x-auto max-w-full scrollbar-thin">
+                                      {JSON.stringify(log.event_detail, null, 2)}
+                                    </pre>
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
                           );
                         })}
                       </tbody>
