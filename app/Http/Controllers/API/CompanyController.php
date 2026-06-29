@@ -192,6 +192,7 @@ class CompanyController extends Controller
             'account_number' => 'required|string',
             'mib_profile_type' => 'nullable|string|in:0,1',
             'label' => 'nullable|string',
+            'currency' => 'nullable|string|in:MVR,USD',
         ]);
 
         $account = BankAccount::create([
@@ -201,6 +202,7 @@ class CompanyController extends Controller
             'account_number' => $request->account_number,
             'mib_profile_type' => $request->mib_profile_type ?? '0',
             'label' => $request->label,
+            'currency' => $request->currency ?? 'MVR',
         ]);
 
         return response()->json(['account' => $account]);

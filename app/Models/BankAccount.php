@@ -17,6 +17,7 @@ class BankAccount extends Model
         'mib_profile_type',
         'is_default',
         'label',
+        'currency',
         'login_failures',
         'login_credentials_hash',
         'session_holder_terminal_id',

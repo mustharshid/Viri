@@ -32,6 +32,7 @@ interface BankAccount {
   mib_profile_type?: string;
   is_default: boolean;
   label?: string;
+  currency?: string;
   login_failures?: number;
   login_credentials_hash?: string;
 }
@@ -1462,6 +1463,9 @@ function App() {
   const companyName = tenantName || "Unregistered Terminal";
   const planName = subscriptionTier === 'free' ? 'Free Trial' : (subscriptionTier === '499' ? 'Standard' : (subscriptionTier === '999' ? 'Pro' : ''));
 
+  const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
+  const selectedAccountCurrency = selectedAccount ? (selectedAccount.currency || 'MVR') : 'MVR';
+
   const selectedAccountCreds = selectedAccountId ? (accountsCreds[selectedAccountId] || {}) : {};
   const isCredentialsComplete = !!selectedAccountCreds.username?.trim() && 
                                 !!selectedAccountCreds.password?.trim() && 
@@ -1987,7 +1991,7 @@ function App() {
                     )}
 
                     <div className="input-group mb-0">
-                      <label className="input-label text-[10px] uppercase tracking-wider font-bold text-zinc-400 flex items-center gap-1.5">Target Amount (MVR) <Tooltip text="The exact transfer amount shown on the customer's receipt." /></label>
+                      <label className="input-label text-[10px] uppercase tracking-wider font-bold text-zinc-400 flex items-center gap-1.5">Target Amount ({selectedAccountCurrency}) <Tooltip text="The exact transfer amount shown on the customer's receipt." /></label>
                       <input
                         type="number"
                         className="input-field text-2xl font-bold tracking-tight text-white py-3.5 bg-black/40 border border-zinc-800/80 rounded-xl focus:border-emerald-500"
@@ -2040,7 +2044,12 @@ function App() {
                                     )}
                                   </div>
                                   <div className="text-[15px] font-bold text-white truncate mt-0.5">{acc.account_name}</div>
-                                  <div className="text-[13px] font-mono text-[var(--text-secondary)] mt-0.5">{acc.account_number}</div>
+                                  <div className="text-[13px] font-mono text-[var(--text-secondary)] mt-0.5 flex items-center gap-2">
+                                    <span>{acc.account_number}</span>
+                                    <span className="text-[9px] bg-zinc-800 text-zinc-300 border border-zinc-700 px-1.5 py-0.5 rounded font-bold font-mono">
+                                      {acc.currency || 'MVR'}
+                                    </span>
+                                  </div>
                                 </div>
                                 {isSelected && (
                                   <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isBml ? 'bg-red-500' : 'bg-emerald-500'}`} />
@@ -2364,7 +2373,7 @@ function App() {
                                     </div>
                                     {tx.runningBalance && (
                                       <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1.5">
-                                        Bal: MVR {tx.runningBalance}
+                                        Bal: {selectedAccountCurrency} {tx.runningBalance}
                                       </div>
                                     )}
                                   </td>
@@ -2507,7 +2516,7 @@ function App() {
                                 <div className={`text-3xl font-bold tracking-tight ${
                                   cache.balance === 'Not synced' ? 'text-zinc-500' : 'text-white'
                                 }`}>
-                                  {cache.balance !== 'Not synced' && cache.balance !== 'Not found' ? `MVR ${cache.balance}` : cache.balance}
+                                  {cache.balance !== 'Not synced' && cache.balance !== 'Not found' ? `${selectedAccountCurrency} ${cache.balance}` : cache.balance}
                                 </div>
                                 <div className="text-[10px] text-[var(--text-secondary)] flex items-center gap-1.5 font-mono">
                                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-zinc-600"></span>
@@ -2793,7 +2802,7 @@ function App() {
                                               </div>
                                               {permissions.ledger_show_balance && tx.runningBalance && (
                                                 <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1.5">
-                                                  Bal: MVR {tx.runningBalance}
+                                                  Bal: {selectedAccountCurrency} {tx.runningBalance}
                                                 </div>
                                               )}
                                             </td>
@@ -2822,7 +2831,7 @@ function App() {
                                           </div>
                                           {permissions.ledger_show_balance && tx.runningBalance && (
                                             <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1">
-                                              Bal: MVR {tx.runningBalance}
+                                              Bal: {selectedAccountCurrency} {tx.runningBalance}
                                             </div>
                                           )}
                                         </div>

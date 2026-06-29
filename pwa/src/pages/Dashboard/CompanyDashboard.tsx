@@ -37,6 +37,7 @@ export default function CompanyDashboard() {
   const [accountNumber, setAccountNumber] = useState('');
   const [accountLabel, setAccountLabel] = useState('');
   const [mibProfileType, setMibProfileType] = useState('0');
+  const [currency, setCurrency] = useState('MVR');
 
   // Settings Form States
   const [settingsPhone, setSettingsPhone] = useState('');
@@ -304,7 +305,8 @@ export default function CompanyDashboard() {
         account_name: accountName, 
         account_number: accountNumber, 
         mib_profile_type: bankName === 'MIB' ? mibProfileType : '0',
-        label: accountLabel 
+        label: accountLabel,
+        currency: currency
       })
     });
     
@@ -316,6 +318,7 @@ export default function CompanyDashboard() {
       setAccountNumber('');
       setAccountLabel('');
       setMibProfileType('0');
+      setCurrency('MVR');
       fetchData();
     }
   };
@@ -561,7 +564,7 @@ export default function CompanyDashboard() {
                   {getBankAccountLimit()} Bank Accounts/ {bankAccounts.length} used
                 </span>
               </div>
-              <form onSubmit={createBankAccount} className="grid md:grid-cols-5 gap-4 mb-6">
+              <form onSubmit={createBankAccount} className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
                 <select className="input-field" value={bankName} onChange={e => setBankName(e.target.value)}>
                   <option value="BML">Bank of Maldives (BML)</option>
                   <option value="MIB">Maldives Islamic Bank (MIB)</option>
@@ -569,6 +572,10 @@ export default function CompanyDashboard() {
                 <input type="text" required placeholder="Account Name" className="input-field" value={accountName} onChange={e => setAccountName(e.target.value)} />
                 <input type="text" required placeholder="Account Number" className="input-field" value={accountNumber} onChange={e => setAccountNumber(e.target.value)} />
                 <input type="text" placeholder="Label (e.g. Counter 1)" className="input-field" value={accountLabel} onChange={e => setAccountLabel(e.target.value)} />
+                <select className="input-field" value={currency} onChange={e => setCurrency(e.target.value)}>
+                  <option value="MVR">MVR</option>
+                  <option value="USD">USD</option>
+                </select>
                 <button type="submit" className="btn btn-success flex justify-center items-center gap-2"><Plus size={18}/> Add Account</button>
               </form>
               {bankName === 'MIB' && (
@@ -590,9 +597,9 @@ export default function CompanyDashboard() {
                     <div className="flex gap-4 items-center">
                       <div className="w-12 h-12 rounded-lg bg-zinc-950 flex items-center justify-center p-1.5 shadow-lg border border-zinc-800 shrink-0">
                         <img 
-                          src={acc.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'} 
-                          alt={acc.bank_name} 
-                          className="w-full h-full object-contain" 
+                           src={acc.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'} 
+                           alt={acc.bank_name} 
+                           className="w-full h-full object-contain" 
                         />
                       </div>
                       <div>
@@ -618,7 +625,12 @@ export default function CompanyDashboard() {
                           </div>
                         )}
                         <div className="text-[var(--text-secondary)]">{acc.account_name}</div>
-                        <div className="font-mono text-sm">{acc.account_number}</div>
+                        <div className="font-mono text-sm flex items-center gap-2">
+                          <span>{acc.account_number}</span>
+                          <span className="text-[10px] bg-zinc-850 text-zinc-300 border border-zinc-700 px-1.5 py-0.5 rounded font-bold font-mono">
+                            {acc.currency || 'MVR'}
+                          </span>
+                        </div>
                         {acc.bank_name === 'MIB' && (
                           <div className="text-xs mt-1 text-emerald-400/70">{acc.mib_profile_type === '1' ? '🏢 Business Profile' : '👤 Personal Profile'}</div>
                         )}
