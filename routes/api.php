@@ -125,6 +125,7 @@ Route::post('/verify-terminal', function (Request $request) {
                     'mib_profile_type' => $account->mib_profile_type ?? '0',
                     'is_default' => $account->is_default,
                     'label' => $account->label,
+                    'currency' => $account->currency,
                     'login_failures' => $account->login_failures,
                     'login_credentials_hash' => $account->login_credentials_hash,
                 ];

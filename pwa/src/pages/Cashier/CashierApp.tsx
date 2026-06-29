@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info } from 'lucide-react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle } from 'lucide-react';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -93,7 +93,6 @@ function App() {
   const [isSetupMode, setIsSetupMode] = useState(!hardwareId);
   const [pairingCodeInput, setPairingCodeInput] = useState('');
   const [setupError, setSetupError] = useState<string | null>(null);
-  const [showHelp, setShowHelp] = useState(false);
 
   // Settings
   const [extensionId, setExtensionId] = useState(localStorage.getItem('viri_extension_id') || '');
@@ -172,7 +171,7 @@ function App() {
     }
   }, [loading]);
 
-  const [activeTab, setActiveTab] = useState<'verify' | 'ledger' | 'reports'>('verify');
+  const [activeTab, setActiveTab] = useState<'verify' | 'ledger' | 'reports' | 'help'>('verify');
   const [ledgerCache, setLedgerCache] = useState<Record<string, LedgerData>>(() => {
     const saved = localStorage.getItem('viri_ledger_cache');
     return saved ? JSON.parse(saved) : {};
@@ -498,8 +497,20 @@ function App() {
           const defaultAcc = (savedDefaultId && accounts.find((a: BankAccount) => a.id.toString() === savedDefaultId))
             || accounts.find((a: BankAccount) => a.is_default)
             || accounts[0];
-          setSelectedAccountId(defaultAcc.id.toString());
-          setSelectedLedgerAccountId(defaultAcc.id.toString());
+          
+          setSelectedAccountId(prev => {
+            if (prev && accounts.some((a: BankAccount) => a.id.toString() === prev)) {
+              return prev;
+            }
+            return defaultAcc.id.toString();
+          });
+          
+          setSelectedLedgerAccountId(prev => {
+            if (prev && accounts.some((a: BankAccount) => a.id.toString() === prev)) {
+              return prev;
+            }
+            return defaultAcc.id.toString();
+          });
         }
       } else {
         // Only clear data and trigger setup mode if backend explicitly rejects the terminal with 403 or 404
@@ -1658,6 +1669,19 @@ function App() {
             <span className="hidden md:inline">Reports (Soon)</span>
           </button>
         )}
+
+        <button
+          onClick={() => { setShowSettings(false); setActiveTab('help'); }}
+          className={`w-10 h-10 md:w-full md:h-auto flex items-center justify-center md:justify-start gap-3 px-3 py-2.5 rounded-lg transition-colors text-xs font-semibold ${
+            activeTab === 'help' && !showSettings
+              ? 'bg-[var(--color-success)] text-black font-bold'
+              : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
+          }`}
+          title="Help & Support"
+        >
+          <HelpCircle size={16} />
+          <span className="hidden md:inline">Help & Support</span>
+        </button>
       </nav>
 
       {/* Bottom section: Settings & Locking */}
@@ -2896,76 +2920,118 @@ function App() {
                 </div>
               </div>
             )}
+            
+            {activeTab === 'help' && (
+              <div className="flex-1 w-full max-w-4xl mx-auto flex flex-col items-center justify-start p-4 md:p-8 animate-fade-in overflow-y-auto space-y-8">
+                <div className="w-full text-center space-y-2 mb-4">
+                  <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-500/10 mb-4">
+                    <HelpCircle size={32} className="text-blue-400" />
+                  </div>
+                  <h2 className="text-3xl font-bold text-white tracking-tight">Help & Support</h2>
+                  <p className="text-[var(--text-secondary)]">Learn how to install the extension and use the Terminal PWA.</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+                  {/* Extension Installation Card */}
+                  <div className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl p-6 shadow-xl">
+                    <h3 className="text-xl font-bold mb-4 flex items-center gap-3 text-white">
+                      <MonitorSmartphone className="text-[var(--color-success)]" />
+                      1. Extension Installation
+                    </h3>
+                    <p className="text-sm text-[var(--text-secondary)] mb-6 leading-relaxed">
+                      The Viri Bridge extension is required to establish a secure local connection between your device and the bank’s servers.
+                    </p>
+                    <div className="mb-6 flex justify-start">
+                      <a href="/extention/viri-connect.zip" download className="btn btn-success flex items-center gap-2">
+                        <MonitorSmartphone size={18} /> Download Viri Extension (.zip)
+                      </a>
+                    </div>
+                    <div className="space-y-6 text-left">
+                      <div>
+                        <h4 className="font-bold text-white mb-2 border-b border-zinc-800 pb-1">🖥️ Desktop (PC / Mac)</h4>
+                        <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-[var(--color-success)]">
+                          <li>Download the extension <strong>.zip</strong> file above.</li>
+                          <li>Extract/unzip the file into a folder on your computer.</li>
+                          <li>Open Chrome and navigate to <strong>chrome://extensions</strong>.</li>
+                          <li>Turn on <strong>Developer mode</strong> (top right corner).</li>
+                          <li>Click <strong>Load unpacked</strong> and select the extracted folder.</li>
+                        </ol>
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-white mb-2 border-b border-zinc-800 pb-1">📱 Android Mobile/Tablet</h4>
+                        <p className="text-xs text-yellow-500 mb-2">Note: Standard Google Chrome for Android does not support extensions.</p>
+                        <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-[var(--color-success)]">
+                          <li>Download <strong>Kiwi Browser</strong> from the Google Play Store.</li>
+                          <li>Open the Cashier Terminal inside Kiwi Browser.</li>
+                          <li>Download the extension <strong>.zip</strong> file above.</li>
+                          <li>In Kiwi Browser, tap the 3-dot menu and select <strong>Extensions</strong>.</li>
+                          <li>Turn on <strong>Developer mode</strong>.</li>
+                          <li>Tap <strong>+ (from .zip/.crx/.user.js)</strong> and select the downloaded file.</li>
+                        </ol>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Terminal Pairing Card */}
+                  <div className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl p-6 shadow-xl">
+                    <h3 className="text-xl font-bold mb-4 flex items-center gap-3 text-white">
+                      <Lock className="text-blue-400" />
+                      2. Terminal Pairing
+                    </h3>
+                    <p className="text-sm text-[var(--text-secondary)] mb-6 leading-relaxed">
+                      Link this browser to your company's Viri account by pairing the terminal.
+                    </p>
+                    <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-4 marker:text-blue-400">
+                      <li>Obtain the <strong>Hardware ID</strong> and <strong>PIN</strong> from your superadmin dashboard.</li>
+                      <li>Click the <strong>Settings</strong> icon (bottom left) to open the setup screen.</li>
+                      <li>Enter the Hardware ID, PIN, and the Extension ID (found in chrome://extensions after installing).</li>
+                      <li>Click <strong>Pair Terminal</strong> to securely authenticate.</li>
+                    </ol>
+                  </div>
+
+                  {/* Verification Workflow Card */}
+                  <div className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl p-6 shadow-xl">
+                    <h3 className="text-xl font-bold mb-4 flex items-center gap-3 text-white">
+                      <Search className="text-purple-400" />
+                      3. Transfer Verification
+                    </h3>
+                    <p className="text-sm text-[var(--text-secondary)] mb-4 leading-relaxed">
+                      Verify incoming customer transfers instantly without relying on SMS or full bank logins.
+                    </p>
+                    <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-3 marker:text-purple-400">
+                      <li>Select the target bank account from the top dropdown.</li>
+                      <li>Select the verification mode (e.g. <strong>BML Receipt Match</strong> or <strong>MIB Transfer</strong>).</li>
+                      <li>Enter the exact amount shown on the customer's transfer receipt.</li>
+                      <li>Click <strong>Verify Transfer</strong>. The system will securely wake up the extension and ping the bank for an exact match.</li>
+                    </ol>
+                    <div className="mt-4 p-3 bg-zinc-900 rounded-lg text-xs text-zinc-400 border border-zinc-800">
+                      <strong>Note:</strong> Verification performs a lightweight sync using the cached session credentials to prevent rate-limiting.
+                    </div>
+                  </div>
+
+                  {/* Ledger & Syncing Card */}
+                  <div className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl p-6 shadow-xl">
+                    <h3 className="text-xl font-bold mb-4 flex items-center gap-3 text-white">
+                      <BookOpen className="text-amber-400" />
+                      4. Transaction Ledger
+                    </h3>
+                    <p className="text-sm text-[var(--text-secondary)] mb-4 leading-relaxed">
+                      View recent transaction history natively within the PWA.
+                    </p>
+                    <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-3 marker:text-amber-400">
+                      <li>Navigate to the <strong>Transaction Ledger</strong> tab using the left sidebar.</li>
+                      <li>Select an account and click <strong>Sync Ledger</strong>.</li>
+                      <li>The extension will pull the 10 most recent transactions securely from your bank.</li>
+                      <li>Credit (incoming) transactions are highlighted in green, while Debit (outgoing) are red.</li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         )}
 
       </main>
-
-      {/* Help Modal */}
-      {showHelp && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto relative shadow-2xl scrollbar-thin">
-            <button 
-              onClick={() => setShowHelp(false)}
-              className="absolute top-4 right-4 text-[var(--text-secondary)] hover:text-white"
-            >
-              <XCircle size={24} />
-            </button>
-            
-            <h3 className="text-xl font-bold mb-4 flex items-center gap-3">
-              <div className="relative flex items-center justify-center w-6 h-6">
-                <div className="w-[22px] h-[22px] rounded-full border-2 border-[var(--color-success)] flex items-center justify-center relative">
-                  <span className="text-[13px] font-bold text-[var(--color-success)] select-none leading-none mb-[1px]">?</span>
-                  <div className="absolute -bottom-[2px] -right-[3px] bg-blue-500 rounded-full w-[12px] h-[12px] flex items-center justify-center border border-[var(--bg-surface)]">
-                    <Lock size={7} className="text-white" />
-                  </div>
-                </div>
-              </div>
-              Extension Installation Guide
-            </h3>
-            
-            <p className="text-sm text-[var(--text-secondary)] mb-6 leading-relaxed">
-              The Viri Bridge extension is required to establish a secure local connection between your device and the bank’s servers. Your banking credentials are stored securely on your device and are never transmitted to or stored on the Viri servers, ensuring that only you have access to your sensitive information.
-            </p>
-            
-            <div className="mb-6 flex justify-center">
-              <a href="/extention/viri-connect.zip" download className="btn btn-success flex items-center gap-2">
-                <MonitorSmartphone size={18} /> Download Viri Extension (.zip)
-              </a>
-            </div>
-
-            <div className="space-y-6 text-left">
-              <div>
-                <h4 className="font-bold text-white mb-2 border-b border-zinc-800 pb-1">🖥️ Desktop (PC / Mac)</h4>
-                <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-[var(--color-success)]">
-                  <li>Download the extension <strong>.zip</strong> file above.</li>
-                  <li>Extract/unzip the file into a folder on your computer.</li>
-                  <li>Open Chrome and navigate to <strong>chrome://extensions</strong>.</li>
-                  <li>Turn on <strong>Developer mode</strong> (top right corner).</li>
-                  <li>Click <strong>Load unpacked</strong> and select the extracted folder.</li>
-                </ol>
-              </div>
-              
-              <div>
-                <h4 className="font-bold text-white mb-2 border-b border-zinc-800 pb-1">📱 Android Mobile/Tablet</h4>
-                <p className="text-xs text-yellow-500 mb-2">Note: Standard Google Chrome for Android does not support extensions.</p>
-                <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-[var(--color-success)]">
-                  <li>Download <strong>Kiwi Browser</strong> from the Google Play Store.</li>
-                  <li>Open the Cashier Terminal inside Kiwi Browser.</li>
-                  <li>Download the extension <strong>.zip</strong> file above.</li>
-                  <li>In Kiwi Browser, tap the 3-dot menu and select <strong>Extensions</strong>.</li>
-                  <li>Turn on <strong>Developer mode</strong>.</li>
-                  <li>Tap <strong>+ (from .zip/.crx/.user.js)</strong> and select the downloaded file.</li>
-                </ol>
-              </div>
-
-              <div className="bg-red-900/10 border border-red-500/20 p-3 rounded text-xs text-red-400">
-                <strong>iOS Devices:</strong> Apple restricts installing third-party browser extensions on iPhones and iPads. This terminal requires Windows, Mac, or Android.
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
