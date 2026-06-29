@@ -1469,7 +1469,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     }
 
     // Calculate MIB server clock offset dynamically from the response Date header
-    let mibClockOffset = 0;
+    mibClockOffset = 0;
     const serverDateHeader = authPageRes.headers.get('date');
     if (serverDateHeader) {
       const serverTime = new Date(serverDateHeader).getTime();
