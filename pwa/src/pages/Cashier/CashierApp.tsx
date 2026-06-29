@@ -1246,6 +1246,19 @@ function App() {
       totpSeed: currentCreds.totpSeed || ''
     };
 
+    if (!activeCreds.username || !activeCreds.password) {
+      setError("Credentials missing for this account. Please re-pair the terminal or check account settings.");
+      addLog("> [System] Missing credentials. Aborting verification request.");
+      setLoading(false);
+      isVerifyingRef.current = false;
+      if (port) port.disconnect();
+      activePortRef.current = null;
+      releaseLock();
+      setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+      setTimeLeft(null);
+      return;
+    }
+
     try {
       port.postMessage({
         action: 'VERIFY_TRANSFER',
@@ -1400,6 +1413,16 @@ function App() {
       password: currentCreds.password || '',
       totpSeed: currentCreds.totpSeed || ''
     };
+
+    if (!activeCreds.username || !activeCreds.password) {
+      setError("Credentials missing for this account. Please re-pair the terminal or check account settings.");
+      addLog("> [System] Missing credentials. Aborting sync.");
+      setLoading(false);
+      isVerifyingRef.current = false;
+      if (port) port.disconnect();
+      activePortRef.current = null;
+      return;
+    }
 
     port.onMessage.addListener((response: any) => {
       if (response.type === 'log') {
@@ -2564,6 +2587,7 @@ function App() {
                         lastUpdated: 'Never',
                         transactions: []
                       };
+                      const ledgerCurrency = activeLedgerAcc.currency || 'MVR';
                       const isLockedByVerify = loading && loadingMode !== 'ledger';
                       const isSelectedLedgerAccountLocked = activeLedgerAcc && (activeLedgerAcc.login_failures || 0) >= 2;
 
@@ -2587,7 +2611,7 @@ function App() {
                                 <div className={`text-3xl font-bold tracking-tight ${
                                   cache.balance === 'Not synced' ? 'text-zinc-500' : 'text-white'
                                 }`}>
-                                  {cache.balance !== 'Not synced' && cache.balance !== 'Not found' ? `${selectedAccountCurrency} ${cache.balance}` : cache.balance}
+                                  {cache.balance !== 'Not synced' && cache.balance !== 'Not found' ? `${ledgerCurrency} ${cache.balance}` : cache.balance}
                                 </div>
                                 <div className="text-[10px] text-[var(--text-secondary)] flex items-center gap-1.5 font-mono">
                                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-zinc-600"></span>
@@ -2676,6 +2700,7 @@ function App() {
                         lastUpdated: 'Never',
                         transactions: []
                       };
+                      const ledgerCurrency = activeLedgerAcc.currency || 'MVR';
 
                       const displayedTransactions = cache.transactions.filter(tx => {
                         if (!permissions.ledger_show_debit) {
@@ -2873,7 +2898,7 @@ function App() {
                                               </div>
                                               {permissions.ledger_show_balance && tx.runningBalance && (
                                                 <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1.5">
-                                                  Bal: {selectedAccountCurrency} {tx.runningBalance}
+                                                  Bal: {ledgerCurrency} {tx.runningBalance}
                                                 </div>
                                               )}
                                             </td>
@@ -2902,7 +2927,7 @@ function App() {
                                           </div>
                                           {permissions.ledger_show_balance && tx.runningBalance && (
                                             <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1">
-                                              Bal: {selectedAccountCurrency} {tx.runningBalance}
+                                              Bal: {ledgerCurrency} {tx.runningBalance}
                                             </div>
                                           )}
                                         </div>
