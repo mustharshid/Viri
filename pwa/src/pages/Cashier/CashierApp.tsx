@@ -1401,7 +1401,7 @@ function App() {
         setLedgerCache(prev => ({
           ...prev,
           [targetAccountId]: {
-            ...prev[targetAccountId],
+            ...(prev[targetAccountId] || {}),
             error: response.error || "An unknown error occurred during sync."
           }
         }));
