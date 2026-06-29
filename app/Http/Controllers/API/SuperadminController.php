@@ -107,4 +107,33 @@ class SuperadminController extends Controller
 
         return response()->json(['message' => 'Terminal updated successfully', 'terminal' => $terminal]);
     }
+
+    public function getSessionLogs(Request $request)
+    {
+        // Query builder on SessionActivityLog
+        $query = \App\Models\SessionActivityLog::with(['tenant', 'terminal', 'bankAccount'])
+            ->orderBy('created_at', 'desc');
+
+        if ($request->filled('tenant_id')) {
+            $query->where('tenant_id', $request->tenant_id);
+        }
+        if ($request->filled('terminal_id')) {
+            $query->where('terminal_id', $request->terminal_id);
+        }
+        if ($request->filled('bank_account_id')) {
+            $query->where('bank_account_id', $request->bank_account_id);
+        }
+        if ($request->filled('event_type')) {
+            $query->where('event_type', $request->event_type);
+        }
+        if ($request->filled('start_date')) {
+            $query->where('created_at', '>=', $request->start_date);
+        }
+        if ($request->filled('end_date')) {
+            $query->where('created_at', '<=', $request->end_date);
+        }
+
+        $logs = $query->paginate($request->input('per_page', 50));
+        return response()->json($logs);
+    }
 }

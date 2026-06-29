@@ -46,6 +46,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/company/bank-accounts/{id}', [CompanyController::class, 'deleteBankAccount']);
     Route::post('/company/bank-accounts/{id}/reset-failures', [CompanyController::class, 'resetBankAccountFailures']);
     Route::put('/company/profile', [CompanyController::class, 'updateProfile']);
+
+    // Session activity logs for Superadmin
+    Route::get('/admin/session-logs', [SuperadminController::class, 'getSessionLogs']);
 });
 
 /*
@@ -54,6 +57,18 @@ Route::middleware('auth:sanctum')->group(function () {
 |--------------------------------------------------------------------------
 |
 */
+
+// Session Holder Management Routes
+Route::post('/terminal/session/claim',      [\App\Http\Controllers\API\SessionController::class, 'claimSession']);
+Route::post('/terminal/session/heartbeat',  [\App\Http\Controllers\API\SessionController::class, 'heartbeat']);
+Route::post('/terminal/session/release',    [\App\Http\Controllers\API\SessionController::class, 'releaseSession']);
+Route::post('/terminal/session/status',     [\App\Http\Controllers\API\SessionController::class, 'getStatus']);
+Route::post('/terminal/session/request',    [\App\Http\Controllers\API\SessionController::class, 'submitRequest']);
+Route::post('/terminal/session/pending',    [\App\Http\Controllers\API\SessionController::class, 'getPendingRequests']);
+Route::post('/terminal/session/fulfill',    [\App\Http\Controllers\API\SessionController::class, 'fulfillRequest']);
+Route::get('/terminal/session/result/{id}', [\App\Http\Controllers\API\SessionController::class, 'pollResult']);
+Route::post('/terminal/session/log',        [\App\Http\Controllers\API\SessionController::class, 'logEvent']);
+
 
 Route::post('/verify-terminal', function (Request $request) {
     $request->validate([

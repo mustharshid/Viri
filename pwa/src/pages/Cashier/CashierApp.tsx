@@ -707,10 +707,120 @@ function App() {
     alert("Logs copied to clipboard!");
   };
 
+  const [sessionStatus, setSessionStatus] = useState<'idle' | 'holder' | 'delegating' | 'claiming'>('idle');
+
+  const resolveSessionStrategy = async (accountId: string) => {
+    try {
+      const response = await fetch(`${backendUrl}/terminal/session/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hardware_id: hardwareId,
+          bank_account_id: parseInt(accountId)
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.is_self && data.is_live) {
+          return 'FETCH_ONLY';
+        } else if (data.is_live) {
+          return 'DELEGATE';
+        }
+      }
+    } catch (e) {
+      console.error("Failed to check session status:", e);
+    }
+    return 'CLAIM_AND_LOGIN';
+  };
+
+  const executeDelegation = async (accountId: string, requestType: 'search' | 'ledger' | 'history', targetAmount?: string) => {
+    try {
+      setProgress({
+        stage: 'init',
+        text: 'Another terminal has active session. Routing request...',
+        percent: 30,
+        isIndeterminate: true
+      });
+      
+      const reqRes = await fetch(`${backendUrl}/terminal/session/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hardware_id: hardwareId,
+          bank_account_id: parseInt(accountId),
+          request_type: requestType,
+          target_amount: targetAmount ? parseFloat(targetAmount) : null
+        })
+      });
+
+      if (!reqRes.ok) {
+        throw new Error("Failed to queue request on backend.");
+      }
+
+      const { request_id } = await reqRes.json();
+      addLog(`> [Session] Request queued (ID: ${request_id}). Waiting for active session holder...`);
+      
+      const maxPollAttempts = 15;
+      for (let attempt = 0; attempt < maxPollAttempts; attempt++) {
+        if (!isVerifyingRef.current) {
+          addLog("> [Session] Delegation cancelled by user.");
+          return;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        const pollRes = await fetch(`${backendUrl}/terminal/session/result/${request_id}?hardware_id=${hardwareId}`);
+        if (pollRes.ok) {
+          const pollData = await pollRes.json();
+          if (pollData.status === 'fulfilled') {
+            const response = pollData.result_json;
+            setProgress({ 
+              stage: 'success', 
+              text: requestType === 'ledger' ? '✅ Ledger Synced!' : '✅ Transfer Verified!', 
+              percent: 100, 
+              isIndeterminate: false 
+            });
+            setTimeout(() => {
+              setLoading(false);
+              setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+              setResult(response.data || null);
+              setLastTransactions(response.transactions || []);
+              setLastPopulatedTime(new Date().toLocaleTimeString());
+
+              if (response.balance) {
+                setLedgerCache(prev => ({
+                  ...prev,
+                  [accountId]: {
+                    balance: response.balance,
+                    lastUpdated: new Date().toLocaleTimeString(),
+                    transactions: response.transactions || []
+                  }
+                }));
+              }
+              if (requestType === 'search' && response.data) {
+                setAmount('');
+              }
+              releaseLock();
+              isVerifyingRef.current = false;
+            }, 1500);
+            return;
+          } else if (pollData.status === 'failed') {
+            throw new Error(pollData.error_message || "Holder failed to fetch data.");
+          }
+        }
+      }
+      throw new Error("Request timed out. Active session holder did not respond.");
+    } catch (err: any) {
+      setError(`Delegated Fetch Failed: ${err.message}`);
+      setLoading(false);
+      isVerifyingRef.current = false;
+      setProgress({ stage: 'error', text: 'Fetch failed', percent: 100, isIndeterminate: false });
+    }
+  };
+
   const handleVerify = async (mode: 'search' | 'history' = 'search') => {
     const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
     const selectedBankName = selectedAccount ? selectedAccount.bank_name : 'BML';
-    const fullBankName = selectedBankName === 'MIB' ? 'Maldives Islamic Bank' : 'Bank of Maldives';
 
     const isLocked = selectedAccount && (selectedAccount.login_failures || 0) >= 2;
     if (isLocked) {
@@ -738,13 +848,50 @@ function App() {
     isVerifyingRef.current = true;
     setProgress({
       stage: 'init',
-      text: mode === 'history' 
-        ? `Fetching transaction history from ${fullBankName}...`
-        : `Searching for transfer on ${fullBankName}...`,
+      text: 'Checking bank session status...',
       percent: 10,
       isIndeterminate: true
     });
     setTimeLeft(25);
+
+    // Resolve persistent session strategy
+    const strategy = await resolveSessionStrategy(selectedAccountId);
+    addLog(`> [Session] Resolved Strategy: ${strategy}`);
+
+    if (strategy === 'DELEGATE') {
+      setSessionStatus('delegating');
+      await executeDelegation(selectedAccountId, mode, mode === 'search' ? amount : undefined);
+      return;
+    }
+
+    let claimSuccess = false;
+    if (strategy === 'CLAIM_AND_LOGIN') {
+      setSessionStatus('claiming');
+      try {
+        const claimRes = await fetch(`${backendUrl}/terminal/session/claim`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hardware_id: hardwareId,
+            bank_account_id: parseInt(selectedAccountId)
+          })
+        });
+        if (claimRes.ok) {
+          const claimData = await claimRes.json();
+          if (claimData.status === 'delegating') {
+            // Lost race - switch to delegation
+            setSessionStatus('delegating');
+            await executeDelegation(selectedAccountId, mode, mode === 'search' ? amount : undefined);
+            return;
+          }
+          claimSuccess = true;
+        }
+      } catch (err) {
+        console.error("Failed to claim session:", err);
+      }
+    } else {
+      setSessionStatus('holder');
+    }
 
     // Step 1: License Guard (Query the Laravel backend)
     try {
@@ -981,6 +1128,21 @@ function App() {
           isVerifyingRef.current = false;
           uploadLogsToServer();
 
+          // Register session holder to extension
+          if (sessionStatus === 'claiming' || claimSuccess) {
+            port.postMessage({
+              action: 'CLAIM_SESSION',
+              payload: {
+                accountId: selectedAccountId,
+                bankName: selectedBankName,
+                backendUrl: backendUrl,
+                hardwareId: hardwareId,
+                credentials: activeCreds
+              }
+            });
+            setSessionStatus('holder');
+          }
+
            // Reset failures on server
            const currentCreds = accountsCreds[selectedAccountId] || {};
            const activeUsername = currentCreds.username || '';
@@ -1049,6 +1211,7 @@ function App() {
         action: 'VERIFY_TRANSFER',
         payload: {
           mode: mode,
+          sessionMode: strategy === 'FETCH_ONLY' ? 'fetch_only' : 'fresh_login',
           amount: mode === 'search' ? parseFloat(amount).toFixed(2) : '0.00',
           bank: selectedBankName,
           accountId: selectedAccountId,
@@ -1075,28 +1238,14 @@ function App() {
     const selectedAccount = bankAccounts.find(a => a.id.toString() === targetAccountId);
     if (!selectedAccount) return;
 
+    const selectedBankName = selectedAccount.bank_name;
     const isLocked = (selectedAccount.login_failures || 0) >= 2;
     if (isLocked) {
       setError("This account is currently locked due to 2 consecutive failed logins. Please unlock it via the Company Admin Panel.");
       return;
     }
     if (!extensionId) {
-      setError("Extension ID is not configured. Click the gear icon at the top to configure the extension.");
-      setShowSettings(true);
-      return;
-    }
-    const selectedBankName = selectedAccount.bank_name;
-    const fullBankName = selectedBankName === 'MIB' ? 'Maldives Islamic Bank' : 'Bank of Maldives';
-
-    const currentCreds = accountsCreds[targetAccountId] || {};
-    const activeCreds = {
-      username: currentCreds.username || '',
-      password: currentCreds.password || '',
-      totpSeed: currentCreds.totpSeed || ''
-    };
-
-    if (!activeCreds.username || !activeCreds.password || !activeCreds.totpSeed) {
-      setError(`Credentials for this account are incomplete. Click Settings to configure them.`);
+      setError("Extension ID is not configured.");
       setShowSettings(true);
       return;
     }
@@ -1110,22 +1259,49 @@ function App() {
     const sTime = performance.now();
     syncStartTimeRef.current = sTime;
 
-    const timerInterval = setInterval(() => {
-      if (syncStartTimeRef.current !== null) {
-        setSyncTimeElapsed(performance.now() - syncStartTimeRef.current);
-      } else {
-        clearInterval(timerInterval);
-      }
-    }, 37);
-
     isVerifyingRef.current = true;
     setProgress({
       stage: 'init',
-      text: `Syncing transaction ledger with ${fullBankName}...`,
+      text: 'Checking bank session status...',
       percent: 10,
       isIndeterminate: true
     });
-    setTimeLeft(25);
+
+    const strategy = await resolveSessionStrategy(targetAccountId);
+
+    if (strategy === 'DELEGATE') {
+      setSessionStatus('delegating');
+      await executeDelegation(targetAccountId, 'ledger');
+      return;
+    }
+
+    let claimSuccess = false;
+    if (strategy === 'CLAIM_AND_LOGIN') {
+      setSessionStatus('claiming');
+      try {
+        const claimRes = await fetch(`${backendUrl}/terminal/session/claim`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hardware_id: hardwareId,
+            bank_account_id: parseInt(targetAccountId)
+          })
+        });
+        if (claimRes.ok) {
+          const claimData = await claimRes.json();
+          if (claimData.status === 'delegating') {
+            setSessionStatus('delegating');
+            await executeDelegation(targetAccountId, 'ledger');
+            return;
+          }
+          claimSuccess = true;
+        }
+      } catch (err) {
+        console.error("Failed to claim session:", err);
+      }
+    } else {
+      setSessionStatus('holder');
+    }
 
     try {
       const response = await fetch(`${backendUrl}/verify-terminal`, {
@@ -1133,122 +1309,20 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ hardware_id: hardwareId })
       });
-
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        setError(`License check failed: ${errData.error || response.statusText}`);
-        setLoading(false);
-        isVerifyingRef.current = false;
-        setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
-        setTimeLeft(null);
-        return;
+        throw new Error("License validation failed.");
       }
     } catch (err: any) {
       setError(`Backend Connection Failed: ${err.message}`);
       setLoading(false);
       isVerifyingRef.current = false;
       setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
-      setTimeLeft(null);
       return;
     }
-
-    lockedAccountIdRef.current = targetAccountId;
-
-    setProgress({
-      stage: 'lock',
-      text: 'Acquiring bank session lock...',
-      percent: 20,
-      isIndeterminate: true
-    });
-    addLog("> [Lock] Requesting session lock for bank account...");
-    
-    let lockAcquired = false;
-    const startTime = Date.now();
-    const pollInterval = 2500;
-    const maxTimeoutMs = lockTimeout * 1000;
-
-    while (Date.now() - startTime < maxTimeoutMs) {
-      if (!isVerifyingRef.current) {
-        addLog("> [Lock] Wait cancelled by user.");
-        lockedAccountIdRef.current = null;
-        setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
-        setTimeLeft(null);
-        return;
-      }
-
-      try {
-        const lockRes = await fetch(`${backendUrl}/terminal/lock-account`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            hardware_id: hardwareId,
-            bank_account_id: parseInt(targetAccountId)
-          })
-        });
-
-        if (lockRes.ok) {
-          const lockData = await lockRes.json();
-          if (lockData.status === 'acquired') {
-            lockAcquired = true;
-            setProgress({
-              stage: 'init',
-              text: 'Preparing secure session...',
-              percent: 25,
-              isIndeterminate: true
-            });
-            addLog("> [Lock] Session lock acquired successfully.");
-            break;
-          }
-        } else if (lockRes.status === 409) {
-          const lockData = await lockRes.json().catch(() => ({}));
-          const heldBy = lockData.held_by ? `terminal ${lockData.held_by.substring(0, 8)}...` : "another terminal";
-          const expiresSeconds = lockData.expires_in ?? "?";
-          addLog(`> [Lock] Session busy: Held by ${heldBy}. Retrying in 2.5s (expires in ${expiresSeconds}s)...`);
-          setProgress({
-            stage: 'lock',
-            text: `Waiting for session lock (held by ${heldBy})...`,
-            percent: 15,
-            isIndeterminate: true
-          });
-        }
-      } catch (err) {
-        addLog("> [Lock] Connection issue while locking. Retrying...");
-      }
-
-      await new Promise(resolve => setTimeout(resolve, pollInterval));
-    }
-
-    if (!lockAcquired) {
-      setError("Bank session busy: Held by another terminal. Please try again later.");
-      addLog("> [Lock] Timeout: Could not acquire bank session lock.");
-      setLoading(false);
-      lockedAccountIdRef.current = null;
-      isVerifyingRef.current = false;
-      setProgress({ stage: 'error', text: 'Session busy', percent: 100, isIndeterminate: false });
-      setTimeLeft(null);
-      return;
-    }
-
-    heartbeatIntervalRef.current = setInterval(async () => {
-      if (!lockedAccountIdRef.current) return;
-      try {
-        await fetch(`${backendUrl}/terminal/heartbeat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            hardware_id: hardwareId,
-            bank_account_id: parseInt(targetAccountId)
-          })
-        });
-      } catch (hbErr) {
-        console.error("Heartbeat exception:", hbErr);
-      }
-    }, 5000);
 
     if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
       setError("Browser extension API not detected.");
       setLoading(false);
-      releaseLock();
       isVerifyingRef.current = false;
       return;
     }
@@ -1259,22 +1333,18 @@ function App() {
     } catch (e: any) {
       setError(`Extension connection failed: ${e.message}`);
       setLoading(false);
-      releaseLock();
       isVerifyingRef.current = false;
       return;
     }
 
     activePortRef.current = port;
 
-    port.onDisconnect.addListener(() => {
-      if (!isVerifyingRef.current) return;
-      setError("Connection to background robot lost unexpectedly.");
-      setProgress({ stage: 'error', text: 'Connection lost', percent: 100, isIndeterminate: false });
-      setLoading(false);
-      activePortRef.current = null;
-      releaseLock();
-      isVerifyingRef.current = false;
-    });
+    const currentCreds = accountsCreds[targetAccountId] || {};
+    const activeCreds = {
+      username: currentCreds.username || '',
+      password: currentCreds.password || '',
+      totpSeed: currentCreds.totpSeed || ''
+    };
 
     port.onMessage.addListener((response: any) => {
       if (response.type === 'log') {
@@ -1288,7 +1358,6 @@ function App() {
           percent: 100, 
           isIndeterminate: false 
         });
-        setTimeLeft(null);
         setTimeout(async () => {
           setLoading(false);
           setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
@@ -1300,23 +1369,26 @@ function App() {
               transactions: response.transactions || []
             }
           }));
-          port.disconnect();
-          activePortRef.current = null;
-          releaseLock();
-          isVerifyingRef.current = false;
-          uploadLogsToServer();
-
-          // Reset failures on server
-          const currentCreds = accountsCreds[targetAccountId] || {};
-          const activeUsername = currentCreds.username || '';
-          const hash = await computeCredsHash(selectedBankName, activeUsername);
           try {
+            const hash = await computeCredsHash(selectedBankName, activeCreds.username);
             await fetch(`${backendUrl}/terminal/bank-accounts/reset-failures`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(targetAccountId), credentials_hash: hash })
             });
-            fetchAccounts();
+            if (sessionStatus === 'claiming' || claimSuccess) {
+              port.postMessage({
+                action: 'CLAIM_SESSION',
+                payload: {
+                  accountId: targetAccountId,
+                  bankName: selectedBankName,
+                  backendUrl: backendUrl,
+                  hardwareId: hardwareId,
+                  credentials: activeCreds
+                }
+              });
+              setSessionStatus('holder');
+            }
           } catch (e) {
             console.error("Failed to reset failures:", e);
           }

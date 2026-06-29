@@ -113,6 +113,156 @@ clearBankSessions();
 // Global active port
 let activePort = null;
 
+// Persistent session holder state
+let heldSession = null;
+let heartbeatTimer = null;
+let pollTimer = null;
+
+// Helper to mask credentials before sending to server
+function maskStringFormatted(str) {
+  if (!str) return "";
+  if (str.length <= 2) return "*".repeat(str.length);
+  return str[0] + "*".repeat(str.length - 2) + str[str.length - 1];
+}
+
+async function logSessionEvent(eventType, detail = {}, accountId = null) {
+  if (!heldSession || !heldSession.backendUrl) return;
+  try {
+    const maskedUser = heldSession.credentials?.username ? maskStringFormatted(heldSession.credentials.username) : null;
+    await fetch(`${heldSession.backendUrl}/terminal/session/log`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hardware_id: heldSession.hardwareId,
+        event_type: eventType,
+        bank_account_id: accountId || heldSession.accountId,
+        event_detail: detail,
+        masked_username: maskedUser
+      })
+    });
+  } catch (err) {
+    console.error("[Viri Bridge] Failed to send log to server:", err);
+  }
+}
+
+function startHeartbeat() {
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  heartbeatTimer = setInterval(async () => {
+    if (!heldSession || !heldSession.backendUrl) return;
+    try {
+      const response = await fetch(`${heldSession.backendUrl}/terminal/session/heartbeat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hardware_id: heldSession.hardwareId,
+          bank_account_id: parseInt(heldSession.accountId)
+        })
+      });
+      if (!response.ok) {
+        console.warn("[Viri Bridge] Heartbeat rejected by backend.");
+      }
+    } catch (err) {
+      console.error("[Viri Bridge] Heartbeat request failed:", err);
+    }
+  }, 10000); // 10 seconds
+}
+
+function stopHeartbeat() {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
+function startRequestPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    if (!heldSession || !heldSession.backendUrl) return;
+    try {
+      const response = await fetch(`${heldSession.backendUrl}/terminal/session/pending`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hardware_id: heldSession.hardwareId })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const pendingRequests = data.requests || [];
+        for (const req of pendingRequests) {
+          await processPendingRequest(req);
+        }
+      }
+    } catch (err) {
+      console.error("[Viri Bridge] Polling pending requests failed:", err);
+    }
+  }, 3000); // 3 seconds
+}
+
+function stopRequestPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+async function processPendingRequest(req) {
+  console.log("[Viri Bridge] Processing pending request:", req);
+  const startTime = Date.now();
+  
+  // Submit fetch request started log
+  await logSessionEvent('fetch_request_retried', {
+    request_id: req.id,
+    request_type: req.request_type,
+    requester: req.requester_name
+  }, req.bank_account_id);
+
+  // Temporary mock port to handle stream events
+  const mockPort = {
+    postMessage: (m) => {
+      console.log("[Viri Bridge] Log relay to console:", m);
+    }
+  };
+
+  try {
+    let result = null;
+    let balance = "Not found";
+    let transactions = [];
+
+    if (req.bank_name === 'MIB') {
+      // Reuse runMibFlow with 'fetch_only' or similar mode
+      await runMibFlow(heldSession.credentials, req.account_number, mockPort, req.target_amount || '0.00', req.mib_profile_type || '0', req.request_type);
+    } else {
+      await runBmlFlow(heldSession.credentials, req.account_number, mockPort, req.target_amount || '0.00', req.request_type);
+    }
+
+    // Since runBmlFlow / runMibFlow post messages back to the port, we can capture the result.
+    // Instead of duplicating flow logic, let's modify runBmlFlow/runMibFlow to return the response object!
+  } catch (err) {
+    console.error("[Viri Bridge] Error processing request:", err);
+    // Send failed status
+    await fulfillRequestOnServer(req.id, 'failed', null, err.message, Date.now() - startTime);
+  }
+}
+
+async function fulfillRequestOnServer(requestId, status, resultJson, errorMessage, durationMs) {
+  if (!heldSession || !heldSession.backendUrl) return;
+  try {
+    await fetch(`${heldSession.backendUrl}/terminal/session/fulfill`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hardware_id: heldSession.hardwareId,
+        request_id: requestId,
+        status: status,
+        result_json: resultJson,
+        error_message: errorMessage,
+        duration_ms: durationMs
+      })
+    });
+  } catch (err) {
+    console.error("[Viri Bridge] Failed to fulfill request on server:", err);
+  }
+}
+
 chrome.runtime.onConnectExternal.addListener((port) => {
   console.log("[Viri Bridge] PWA Connected via Port:", port.name);
   if (port.name === "viri-verify" || port.name === "bml-auth") {
@@ -120,24 +270,53 @@ chrome.runtime.onConnectExternal.addListener((port) => {
     enableBankLockdown();
 
     port.onMessage.addListener(async (msg) => {
-      // Handle the new frontend structure
-      if (msg.action === 'VERIFY_TRANSFER') {
+      // Handle session holder claims
+      if (msg.action === 'CLAIM_SESSION') {
+        heldSession = {
+          accountId: msg.payload.accountId,
+          bankName: msg.payload.bankName,
+          backendUrl: msg.payload.backendUrl,
+          hardwareId: msg.payload.hardwareId,
+          credentials: msg.payload.credentials
+        };
+        startHeartbeat();
+        startRequestPolling();
+        console.log("[Viri Bridge] Active Session Holder Registered.");
+        await logSessionEvent('session_claimed', { info: 'Session initialized & claimed' });
+      }
+
+      else if (msg.action === 'RELEASE_SESSION') {
+        console.log("[Viri Bridge] Releasing Session.");
+        if (heldSession) {
+          await logSessionEvent('session_released', { info: 'Session explicitly released' });
+        }
+        stopHeartbeat();
+        stopRequestPolling();
+        clearBankSessions();
+        heldSession = null;
+      }
+
+      else if (msg.action === 'VERIFY_TRANSFER') {
         const payload = msg.payload;
         const targetAcc = payload.accountNumber || payload.accountId || payload.account;
         const mode = payload.mode || 'search';
+        const sessionMode = payload.sessionMode || 'fresh_login';
+
+        // Keep credentials cache updated if we are session holder
+        if (heldSession && String(heldSession.accountId) === String(payload.accountId)) {
+          heldSession.credentials = payload.credentials;
+        }
+
         try {
           if (payload.bank === 'MIB') {
-            // Route to MIB Faisanet flow
-            await runMibFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode);
+            await runMibFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode, sessionMode);
           } else {
-            // Default: BML flow
-            await runBmlFlow(payload.credentials, targetAcc, port, payload.amount, mode);
+            await runBmlFlow(payload.credentials, targetAcc, port, payload.amount, mode, sessionMode);
           }
         } catch (error) {
           port.postMessage({ type: 'error', error: error.message });
         }
       }
-      // Handle legacy test format
       else if (msg.type === "start_bml_flow") {
         try {
           await runBmlFlow(msg.credentials, msg.targetAccount, port, "1.00");
@@ -152,7 +331,10 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         activePort = null;
       }
       disableBankLockdown();
-      clearBankSessions();
+      // Keep bank cookies alive if we are currently holding the session!
+      if (!heldSession) {
+        clearBankSessions();
+      }
     });
   }
 });
@@ -345,8 +527,22 @@ function normalizeTransactions(rawTxList, bankType, limit = 50) {
 // -------------------------------------------------------------
 // The main BML background flow
 // -------------------------------------------------------------
-async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode = 'search') {
-  emitLog(port, `> [BML] Starting background auth flow...`);
+async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode = 'search', sessionMode = 'fresh_login') {
+  if (sessionMode === 'fetch_only' || sessionMode === 'reuse_session') {
+    try {
+      await runBmlFlowInternal(credentials, targetAccount, port, targetAmount, mode, sessionMode);
+      return;
+    } catch (err) {
+      emitLog(port, `> [BML] Persistent session failed: ${err.message}. Retrying with fresh login...`);
+      await logSessionEvent('session_heartbeat_lost', { reason: err.message });
+      await clearBankSessions();
+    }
+  }
+  await runBmlFlowInternal(credentials, targetAccount, port, targetAmount, mode, 'fresh_login');
+}
+
+async function runBmlFlowInternal(credentials, targetAccount, port, targetAmount, mode, sessionMode) {
+  emitLog(port, `> [BML] Starting background auth flow (sessionMode: ${sessionMode})...`);
   let last3Txs = [];
 
   let xsrfToken = null;
@@ -488,447 +684,442 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
   }
 
   try {
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 0: Clear Previous Session State
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [BML] Step 0: Clearing previous session cookies...`);
-    const cookies = await chrome.cookies.getAll({ domain: "bankofmaldives.com.mv" });
-    for (const cookie of cookies) {
-      const protocol = cookie.secure ? "https://" : "http://";
-      const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
-      const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
-      await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
-    }
+    let bmlAccountId = heldSession ? heldSession.bmlAccountId : null;
+    let balance = "Not found";
+    xsrfToken = await getXsrfToken();
 
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 1: Initialize Session
-    // ═══════════════════════════════════════════════════════════════
-    await getFreshXsrfToken('/web/login', true);
+    const isFetchOnly = sessionMode === 'fetch_only' && bmlAccountId && xsrfToken;
 
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 2: Submit Username/Password
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [BML] Step 2: Submitting Primary Credentials...`);
-    const headers = {
-      'Accept': 'text/html, application/xhtml+xml',
-      'Content-Type': 'application/json',
-      'X-Inertia': 'true',
-      'X-Requested-With': 'XMLHttpRequest',
-      'X-XSRF-TOKEN': xsrfToken,
-      'Referer': `${BASE_URL}/web/login`,
-      'User-Agent': USER_AGENT
-    };
-    if (globalInertiaVersion) {
-      headers['X-Inertia-Version'] = globalInertiaVersion;
-    }
+    if (!isFetchOnly) {
+      await logSessionEvent('session_login_started', { mode: sessionMode });
+      
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 0: Clear Previous Session State
+      // ═══════════════════════════════════════════════════════════════
+      emitLog(port, `> [BML] Step 0: Clearing previous session cookies...`);
+      const cookies = await chrome.cookies.getAll({ domain: "bankofmaldives.com.mv" });
+      for (const cookie of cookies) {
+        const protocol = cookie.secure ? "https://" : "http://";
+        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+        const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
+        await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
+      }
 
-    const loginRes = await loggedFetch(`${BASE_URL}/web/login`, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({
-        username: credentials.username,
-        password: credentials.password,
-        code: ""
-      })
-    });
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 1: Initialize Session
+      // ═══════════════════════════════════════════════════════════════
+      await getFreshXsrfToken('/web/login', true);
 
-    let finalLoginRes = loginRes;
-    if (loginRes.status === 409) {
-      emitLog(port, `> [BML] Login returned 409. Following Inertia redirects...`);
-      finalLoginRes = await handleInertiaRedirects(loginRes, globalInertiaVersion);
-    }
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 2: Submit Username/Password
+      // ═══════════════════════════════════════════════════════════════
+      emitLog(port, `> [BML] Step 2: Submitting Primary Credentials...`);
+      const headers = {
+        'Accept': 'text/html, application/xhtml+xml',
+        'Content-Type': 'application/json',
+        'X-Inertia': 'true',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-XSRF-TOKEN': xsrfToken,
+        'Referer': `${BASE_URL}/web/login`,
+        'User-Agent': USER_AGENT
+      };
+      if (globalInertiaVersion) {
+        headers['X-Inertia-Version'] = globalInertiaVersion;
+      }
 
-    if (finalLoginRes.status === 200) {
-      const loginBody = await finalLoginRes.clone().text();
-      let is2faPage = false;
-      let parsed = null;
-      try {
-        parsed = JSON.parse(loginBody);
-        if (parsed.component === 'Auth/2FA') {
-          is2faPage = true;
+      const loginRes = await loggedFetch(`${BASE_URL}/web/login`, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          username: credentials.username,
+          password: credentials.password,
+          code: ""
+        })
+      });
+
+      let finalLoginRes = loginRes;
+      if (loginRes.status === 409) {
+        emitLog(port, `> [BML] Login returned 409. Following Inertia redirects...`);
+        finalLoginRes = await handleInertiaRedirects(loginRes, globalInertiaVersion);
+      }
+
+      if (finalLoginRes.status === 200) {
+        const loginBody = await finalLoginRes.clone().text();
+        let is2faPage = false;
+        let parsed = null;
+        try {
+          parsed = JSON.parse(loginBody);
+          if (parsed.component === 'Auth/2FA') {
+            is2faPage = true;
+            if (parsed.version) {
+              globalInertiaVersion = parsed.version;
+            }
+          }
+        } catch (err) {
+          emitLog(port, `> [BML] WARNING: Login response not valid JSON: ${err.message}`);
+        }
+
+        if (is2faPage) {
+          emitLog(port, `> [BML] Login credentials accepted. Transitioning to 2FA stage...`);
+          // Wait 10ms and refresh XSRF token from cookies (which might have changed on successful login)
+          await new Promise(r => setTimeout(r, 10));
+          xsrfToken = await getXsrfToken();
+        } else {
+          await saveScrap('login_failed_200', loginBody);
+          let errorMsg = "Login failed: Invalid credentials or server rejected login. HTTP 200 re-render.";
+          if (parsed && parsed.props && parsed.props.errors) {
+            const errs = JSON.stringify(parsed.props.errors);
+            errorMsg = `Login failed: ${errs}`;
+          }
+          emitLog(port, `> [BML] WARNING: ${errorMsg}`);
+          await logSessionEvent('session_login_failed', { reason: errorMsg });
+          throw new Error(errorMsg);
+        }
+      } else if (!finalLoginRes.ok) {
+        const loginBody = await finalLoginRes.clone().text();
+        await saveScrap(`login_failed_${finalLoginRes.status}`, loginBody);
+        await logSessionEvent('session_login_failed', { reason: `HTTP ${finalLoginRes.status}` });
+        throw new Error(`HTTP ${finalLoginRes.status} on login POST.`);
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 3: Verify OTP
+      // ═══════════════════════════════════════════════════════════════
+      emitLog(port, `> [BML] Step 3: Loading 2FA Stage...`);
+      
+      // Load the 2FA page as an Inertia request to initialize/sync state
+      const mfaHeaders = {
+        'Accept': 'text/html, application/xhtml+xml',
+        'X-Inertia': 'true',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-XSRF-TOKEN': xsrfToken,
+        'Referer': `${BASE_URL}/web/login`,
+        'User-Agent': USER_AGENT
+      };
+      if (globalInertiaVersion) {
+        mfaHeaders['X-Inertia-Version'] = globalInertiaVersion;
+      }
+
+      let mfaPageRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
+        headers: mfaHeaders
+      });
+
+      if (mfaPageRes.status === 409) {
+        emitLog(port, `> [BML] 2FA page returned 409. Following redirects...`);
+        mfaPageRes = await handleInertiaRedirects(mfaPageRes, globalInertiaVersion);
+      }
+
+      if (mfaPageRes.status === 200) {
+        const mfaPageBody = await mfaPageRes.clone().text();
+        try {
+          const parsed = JSON.parse(mfaPageBody);
           if (parsed.version) {
             globalInertiaVersion = parsed.version;
           }
-        }
-      } catch (err) {
-        emitLog(port, `> [BML] WARNING: Login response not valid JSON: ${err.message}`);
-      }
-
-      if (is2faPage) {
-        emitLog(port, `> [BML] Login credentials accepted. Transitioning to 2FA stage...`);
-        // Wait 10ms and refresh XSRF token from cookies (which might have changed on successful login)
-        await new Promise(r => setTimeout(r, 10));
-        xsrfToken = await getXsrfToken();
-      } else {
-        await saveScrap('login_failed_200', loginBody);
-        let errorMsg = "Login failed: Invalid credentials or server rejected login. HTTP 200 re-render.";
-        if (parsed && parsed.props && parsed.props.errors) {
-          const errs = JSON.stringify(parsed.props.errors);
-          errorMsg = `Login failed: ${errs}`;
-        }
-        emitLog(port, `> [BML] WARNING: ${errorMsg}`);
-        throw new Error(errorMsg);
-      }
-    } else if (!finalLoginRes.ok) {
-      const loginBody = await finalLoginRes.clone().text();
-      await saveScrap(`login_failed_${finalLoginRes.status}`, loginBody);
-      throw new Error(`HTTP ${finalLoginRes.status} on login POST.`);
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 3: Verify OTP
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [BML] Step 3: Loading 2FA Stage...`);
-    
-    // Load the 2FA page as an Inertia request to initialize/sync state
-    const mfaHeaders = {
-      'Accept': 'text/html, application/xhtml+xml',
-      'X-Inertia': 'true',
-      'X-Requested-With': 'XMLHttpRequest',
-      'X-XSRF-TOKEN': xsrfToken,
-      'Referer': `${BASE_URL}/web/login`,
-      'User-Agent': USER_AGENT
-    };
-    if (globalInertiaVersion) {
-      mfaHeaders['X-Inertia-Version'] = globalInertiaVersion;
-    }
-
-    let mfaPageRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
-      headers: mfaHeaders
-    });
-
-    if (mfaPageRes.status === 409) {
-      emitLog(port, `> [BML] 2FA page returned 409. Following redirects...`);
-      mfaPageRes = await handleInertiaRedirects(mfaPageRes, globalInertiaVersion);
-    }
-
-    if (mfaPageRes.status === 200) {
-      const mfaPageBody = await mfaPageRes.clone().text();
-      try {
-        const parsed = JSON.parse(mfaPageBody);
-        if (parsed.version) {
-          globalInertiaVersion = parsed.version;
-        }
-      } catch (err) {
-        emitLog(port, `> [BML] WARNING: 2FA page response not valid JSON: ${err.message}`);
-      }
-    }
-
-    await new Promise(r => setTimeout(r, 10));
-    xsrfToken = await getXsrfToken();
-
-    // Boundary Safety Delay: check if current epoch has less than 4 seconds remaining
-    const msInWindow = (Date.now() + bmlClockOffset) % 30000;
-    const msRemaining = 30000 - msInWindow;
-    if (msRemaining < 4000) {
-      emitLog(port, `> [BML] OTP window boundary safety: only ${Math.round(msRemaining / 100) / 10}s remaining in epoch. Waiting for next window...`);
-      await new Promise(resolve => setTimeout(resolve, msRemaining + 500));
-    }
-
-    // Step 3B: Submit OTP with Authenticator channel selection in a single request
-    emitLog(port, `> [BML] Step 3B: Submitting TOTP code...`);
-    const otpCode = await generateTOTP(credentials.totpSeed, bmlClockOffset);
-    emitLog(port, `> [TESTING] Submitting OTP: ${maskString(otpCode)}`);
-
-    const verifyHeaders = {
-      'Accept': 'text/html, application/xhtml+xml',
-      'Content-Type': 'application/json',
-      'X-Inertia': 'true',
-      'X-Requested-With': 'XMLHttpRequest',
-      'X-XSRF-TOKEN': xsrfToken,
-      'Referer': `${BASE_URL}/web/login/2fa`,
-      'User-Agent': USER_AGENT
-    };
-    if (globalInertiaVersion) {
-      verifyHeaders['X-Inertia-Version'] = globalInertiaVersion;
-    }
-
-    let mfaRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
-      method: 'POST',
-      headers: verifyHeaders,
-      body: JSON.stringify({
-        code: otpCode,
-        channel: 'authenticator'
-      })
-    });
-
-    if (mfaRes.status === 409) {
-      emitLog(port, `> [BML] MFA response returned 409. Following redirects...`);
-      mfaRes = await handleInertiaRedirects(mfaRes, globalInertiaVersion);
-    }
-
-    if (mfaRes.status === 200) {
-      const mfaBody = await mfaRes.clone().text();
-      let is2faPage = false;
-      let parsed = null;
-      try {
-        parsed = JSON.parse(mfaBody);
-        if (parsed.component === 'Auth/2FA') {
-          is2faPage = true;
-        }
-      } catch (err) {
-        emitLog(port, `> [BML] WARNING: MFA response not valid JSON: ${err.message}`);
-      }
-
-      if (is2faPage) {
-        await saveScrap('mfa_failed_200', mfaBody);
-        let errorMsg = "MFA failed: Server re-rendered 2FA form.";
-        if (parsed && parsed.props && parsed.props.errors) {
-          const errs = JSON.stringify(parsed.props.errors);
-          errorMsg = `MFA failed: ${errs}`;
-        }
-        emitLog(port, `> [BML] WARNING: ${errorMsg}`);
-        throw new Error(errorMsg);
-      } else {
-        emitLog(port, `> [BML] MFA OTP accepted.`);
-        if (parsed && parsed.version) {
-          globalInertiaVersion = parsed.version;
+        } catch (err) {
+          emitLog(port, `> [BML] WARNING: 2FA page response not valid JSON: ${err.message}`);
         }
       }
-    } else if (mfaRes.status === 302 || mfaRes.status === 303) {
-      // If it returns a standard HTTP redirect (e.g. to /web/profile), follow it
-      const redirectUrl = mfaRes.headers.get('Location');
-      emitLog(port, `> [BML] MFA OTP accepted (HTTP ${mfaRes.status}). Redirecting to ${redirectUrl}...`);
-      // Update our token and continue
+
       await new Promise(r => setTimeout(r, 10));
       xsrfToken = await getXsrfToken();
-    } else if (!mfaRes.ok) {
-      const mfaBody = await mfaRes.clone().text();
-      await saveScrap(`mfa_failed_${mfaRes.status}`, mfaBody);
-      throw new Error(`MFA failed with HTTP ${mfaRes.status}`);
-    }
 
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 4: Fetch and Select Profile
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [BML] Step 4: Fetching Profiles...`);
-    await getFreshXsrfToken('/web/profile');
+      // Boundary Safety Delay: check if current epoch has less than 4 seconds remaining
+      const msInWindow = (Date.now() + bmlClockOffset) % 30000;
+      const msRemaining = 30000 - msInWindow;
+      if (msRemaining < 4000) {
+        emitLog(port, `> [BML] OTP window boundary safety: only ${Math.round(msRemaining / 100) / 10}s remaining in epoch. Waiting for next window...`);
+        await new Promise(resolve => setTimeout(resolve, msRemaining + 500));
+      }
 
-    let profileRes = await loggedFetch(`${BASE_URL}/web/profile`, {
-      headers: {
+      // Step 3B: Submit OTP with Authenticator channel selection in a single request
+      emitLog(port, `> [BML] Step 3B: Submitting TOTP code...`);
+      const otpCode = await generateTOTP(credentials.totpSeed, bmlClockOffset);
+      emitLog(port, `> [TESTING] Submitting OTP: ${maskString(otpCode)}`);
+
+      const verifyHeaders = {
         'Accept': 'text/html, application/xhtml+xml',
+        'Content-Type': 'application/json',
         'X-Inertia': 'true',
         'X-Requested-With': 'XMLHttpRequest',
         'X-XSRF-TOKEN': xsrfToken,
         'Referer': `${BASE_URL}/web/login/2fa`,
         'User-Agent': USER_AGENT
+      };
+      if (globalInertiaVersion) {
+        verifyHeaders['X-Inertia-Version'] = globalInertiaVersion;
       }
-    });
 
-    if (profileRes.status === 409) {
-      emitLog(port, `> [BML] Profile page returned 409. Following redirects...`);
-      profileRes = await handleInertiaRedirects(profileRes);
-    }
+      let mfaRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
+        method: 'POST',
+        headers: verifyHeaders,
+        body: JSON.stringify({
+          code: otpCode,
+          channel: 'authenticator'
+        })
+      });
 
-    const responseText = await profileRes.clone().text();
-    let profiles = [];
-
-    // Extract profiles helper function to check multiple locations
-    function extractProfilesFromObject(obj) {
-      if (!obj) return null;
-      // Possible locations for profiles list
-      const candidates = [
-        obj.props?.user_profiles,
-        obj.props?.profiles,
-        obj.props?.profile,
-        obj.payload?.user_profiles,
-        obj.payload?.profiles,
-        obj.payload?.profile,
-        obj.user_profiles,
-        obj.profiles,
-        obj.profile
-      ];
-      for (const cand of candidates) {
-        if (cand && Array.isArray(cand) && cand.length > 0) return cand;
-        if (cand && typeof cand === 'object' && !Array.isArray(cand)) return [cand];
+      if (mfaRes.status === 409) {
+        emitLog(port, `> [BML] MFA response returned 409. Following redirects...`);
+        mfaRes = await handleInertiaRedirects(mfaRes, globalInertiaVersion);
       }
-      return null;
-    }
 
-    try {
-      const profileData = JSON.parse(responseText);
-      profiles = extractProfilesFromObject(profileData) || [];
-    } catch (err) {
-      const dataPageMatch = /data-page=(['"])(.*?)\1/.exec(responseText);
-      if (dataPageMatch) {
+      if (mfaRes.status === 200) {
+        const mfaBody = await mfaRes.clone().text();
+        let is2faPage = false;
+        let parsed = null;
         try {
-          const decoded = dataPageMatch[2].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-          const pageData = JSON.parse(decoded);
-          profiles = extractProfilesFromObject(pageData) || [];
-        } catch (e) { }
-      }
-    }
-
-    if (profiles.length === 0) {
-      const patterns = [
-        /\/internetbanking\/web\/profile\/([a-fA-F0-9\-]{36})/gi,
-        /"profileId":\s*"([a-fA-F0-9\-]{36})"/gi,
-        /data-profile-id="([a-fA-F0-9\-]{36})"/gi,
-        /"profile":\s*"([a-fA-F0-9\-]{36})"/gi,
-        /"guid":\s*"([a-fA-F0-9\-]{36})"/gi
-      ];
-      const uniqueIds = new Set();
-      for (const pattern of patterns) {
-        let match;
-        while ((match = pattern.exec(responseText)) !== null) { uniqueIds.add(match[1]); }
-      }
-      profiles = Array.from(uniqueIds).map(id => ({ id, name: id }));
-    }
-
-    let selectedProfileId = null;
-    if (profiles.length > 0) {
-      const selectedProfile = profiles[0];
-      const profStr = typeof selectedProfile === 'string' ? selectedProfile : JSON.stringify(selectedProfile);
-      const uuidMatch = profStr.match(/[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}/);
-      if (uuidMatch) {
-        selectedProfileId = uuidMatch[0];
-      }
-    }
-
-    if (!selectedProfileId) {
-      emitLog(port, `> [BML] Profiles not found in /web/profile. Fetching from /api/profile...`);
-      try {
-        const apiProfileRes = await loggedFetch(`${BASE_URL}/api/profile`, {
-          headers: {
-            'Accept': 'application/json, text/plain, */*',
-            'Authorization': 'Bearer',
-            'X-XSRF-TOKEN': xsrfToken,
-            'Referer': `${BASE_URL}/web/profile`,
-            'User-Agent': USER_AGENT
+          parsed = JSON.parse(mfaBody);
+          if (parsed.component === 'Auth/2FA') {
+            is2faPage = true;
           }
-        });
-        if (apiProfileRes.ok) {
-          const apiProfileData = await apiProfileRes.json();
-          // Extract from api response
-          const profileList = apiProfileData.payload?.profile || apiProfileData.profile || [];
-          if (Array.isArray(profileList) && profileList.length > 0) {
-            const firstProf = profileList[0];
-            selectedProfileId = firstProf.profile || firstProf.guid || firstProf.id || firstProf.profileId;
-          }
-          if (!selectedProfileId && apiProfileData.payload?.userInfo?.profile) {
-            const up = apiProfileData.payload.userInfo.profile;
-            selectedProfileId = up.guid || up.profile || up.id || up.profileId;
-          }
-          if (!selectedProfileId && apiProfileData.payload?.userInfo?.user_profiles) {
-            const upList = apiProfileData.payload.userInfo.user_profiles;
-            if (Array.isArray(upList) && upList.length > 0) {
-              selectedProfileId = upList[0].profile || upList[0].guid || upList[0].id || upList[0].profileId;
-            }
-          }
-          emitLog(port, `> [BML] Found profile ID from API fallback: ${selectedProfileId}`);
+        } catch (err) {
+          emitLog(port, `> [BML] WARNING: MFA response not valid JSON: ${err.message}`);
         }
-      } catch (err) {
-        emitLog(port, `> [BML] API profile fallback failed: ${err.message}`);
-      }
-    }
 
-    if (selectedProfileId) {
-      emitLog(port, `> [BML] Selected Profile: ${selectedProfileId}`);
+        if (is2faPage) {
+          await saveScrap('mfa_failed_200', mfaBody);
+          let errorMsg = "MFA failed: Server re-rendered 2FA form.";
+          if (parsed && parsed.props && parsed.props.errors) {
+            const errs = JSON.stringify(parsed.props.errors);
+            errorMsg = `MFA failed: ${errs}`;
+          }
+          emitLog(port, `> [BML] WARNING: ${errorMsg}`);
+          await logSessionEvent('session_login_failed', { reason: errorMsg });
+          throw new Error(errorMsg);
+        } else {
+          emitLog(port, `> [BML] MFA OTP accepted.`);
+          if (parsed && parsed.version) {
+            globalInertiaVersion = parsed.version;
+          }
+        }
+      } else if (mfaRes.status === 302 || mfaRes.status === 303) {
+        const redirectUrl = mfaRes.headers.get('Location');
+        emitLog(port, `> [BML] MFA OTP accepted (HTTP ${mfaRes.status}). Redirecting to ${redirectUrl}...`);
+        await new Promise(r => setTimeout(r, 10));
+        xsrfToken = await getXsrfToken();
+      } else if (!mfaRes.ok) {
+        const mfaBody = await mfaRes.clone().text();
+        await saveScrap(`mfa_failed_${mfaRes.status}`, mfaBody);
+        await logSessionEvent('session_login_failed', { reason: `MFA HTTP ${mfaRes.status}` });
+        throw new Error(`MFA failed with HTTP ${mfaRes.status}`);
+      }
+
+      await logSessionEvent('session_login_success');
+
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 4: Fetch and Select Profile
+      // ═══════════════════════════════════════════════════════════════
+      emitLog(port, `> [BML] Step 4: Fetching Profiles...`);
       await getFreshXsrfToken('/web/profile');
 
-      let selectProfileRes = await loggedFetch(`${BASE_URL}/web/profile/${selectedProfileId}`, {
-        method: 'GET',
+      let profileRes = await loggedFetch(`${BASE_URL}/web/profile`, {
         headers: {
           'Accept': 'text/html, application/xhtml+xml',
           'X-Inertia': 'true',
           'X-Requested-With': 'XMLHttpRequest',
           'X-XSRF-TOKEN': xsrfToken,
-          'Referer': `${BASE_URL}/web/profile`,
+          'Referer': `${BASE_URL}/web/login/2fa`,
           'User-Agent': USER_AGENT
         }
       });
 
-      if (selectProfileRes.status === 409) {
-        emitLog(port, `> [BML] Profile selection returned 409. Following redirects...`);
-        await handleInertiaRedirects(selectProfileRes);
-      } else if (!selectProfileRes.ok) {
-        throw new Error(`Profile selection failed: HTTP ${selectProfileRes.status}`);
+      if (profileRes.status === 409) {
+        emitLog(port, `> [BML] Profile page returned 409. Following redirects...`);
+        profileRes = await handleInertiaRedirects(profileRes);
       }
-    } else {
-      emitLog(port, `> [BML] No profiles found. Proceeding with single-profile assumption...`);
-    }
 
-    // Add small delay to let backend sync
-    await new Promise(resolve => setTimeout(resolve, 10));
+      const responseText = await profileRes.clone().text();
+      let profiles = [];
 
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 5: Navigate to accounts overview  
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [BML] Step 5: Loading Accounts Overview...`);
-    await getFreshXsrfToken('/vf/accounts/overview');
-
-    const accountsOverviewRes = await loggedFetch(`${BASE_URL}/vf/accounts/overview`, {
-      headers: {
-        'Accept': 'text/html, application/xhtml+xml',
-        'X-Inertia': 'true',
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-XSRF-TOKEN': xsrfToken,
-        'Referer': `${BASE_URL}/web/redirect`,
-        'User-Agent': USER_AGENT
+      function extractProfilesFromObject(obj) {
+        if (!obj) return null;
+        const candidates = [
+          obj.props?.user_profiles,
+          obj.props?.profiles,
+          obj.props?.profile,
+          obj.payload?.user_profiles,
+          obj.payload?.profiles,
+          obj.payload?.profile,
+          obj.user_profiles,
+          obj.profiles,
+          obj.profile
+        ];
+        for (const cand of candidates) {
+          if (cand && Array.isArray(cand) && cand.length > 0) return cand;
+          if (cand && typeof cand === 'object' && !Array.isArray(cand)) return [cand];
+        }
+        return null;
       }
-    });
 
-    if (accountsOverviewRes.status === 409) {
-      emitLog(port, `> [BML] Accounts overview returned 409. Following redirects...`);
-      await handleInertiaRedirects(accountsOverviewRes);
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 6: Fetch Dashboard
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [BML] Step 6: Loading Dashboard...`);
-    xsrfToken = await getXsrfToken() || xsrfToken;
-    const dashboardRes = await loggedFetch(`${BASE_URL}/api/dashboard`, {
-      headers: {
-        'Accept': 'application/json, text/plain, */*',
-        'Authorization': 'Bearer',
-        'X-XSRF-TOKEN': xsrfToken,
-        'Referer': `${BASE_URL}/vf/accounts/overview`,
-        'User-Agent': USER_AGENT
-      }
-    });
-
-    const dashText = await dashboardRes.text();
-    if (!dashboardRes.ok) {
-      throw new Error(`Dashboard retrieval failed: HTTP ${dashboardRes.status}`);
-    }
-
-    let dashboardData;
-    try {
-      dashboardData = JSON.parse(dashText);
-    } catch (e) {
-      throw new Error(`Failed to parse Dashboard JSON.`);
-    }
-
-    const accounts = dashboardData.payload?.dashboard || dashboardData.accounts || [];
-    let bmlAccountId = null;
-    let balance = "Not found";
-
-    for (const group of accounts) {
-      const accList = group.accounts || [group]; // handle both nested and flat structures
-      for (const acc of accList) {
-        const accNo = String(acc.account || acc.account_number || acc.id || '').replace(/\s+/g, '');
-        const targetNo = String(targetAccount || '').replace(/\s+/g, '');
-        if (accNo === targetNo || accNo.includes(targetNo) || targetNo.includes(accNo)) {
-          bmlAccountId = acc.id || acc.account;
-          balance = acc.available_balance || acc.availableBalance || acc.working_balance || acc.balance || acc.current_balance || "Found";
-          break;
+      try {
+        const profileData = JSON.parse(responseText);
+        profiles = extractProfilesFromObject(profileData) || [];
+      } catch (err) {
+        const dataPageMatch = /data-page=(['"])(.*?)\1/.exec(responseText);
+        if (dataPageMatch) {
+          try {
+            const decoded = dataPageMatch[2].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+            const pageData = JSON.parse(decoded);
+            profiles = extractProfilesFromObject(pageData) || [];
+          } catch (e) { }
         }
       }
-      if (bmlAccountId) break;
-    }
 
-    if (!bmlAccountId) {
-      bmlAccountId = targetAccount;
-    }
+      if (profiles.length === 0) {
+        const patterns = [
+          /\/internetbanking\/web\/profile\/([a-fA-F0-9\-]{36})/gi,
+          /"profileId":\s*"([a-fA-F0-9\-]{36})"/gi,
+          /data-profile-id="([a-fA-F0-9\-]{36})"/gi,
+          /"profile":\s*"([a-fA-F0-9\-]{36})"/gi,
+          /"guid":\s*"([a-fA-F0-9\-]{36})"/gi
+        ];
+        const uniqueIds = new Set();
+        for (const pattern of patterns) {
+          let match;
+          while ((match = pattern.exec(responseText)) !== null) { uniqueIds.add(match[1]); }
+        }
+        profiles = Array.from(uniqueIds).map(id => ({ id, name: id }));
+      }
 
-    emitLog(port, `> [BML] 💰 Balance for ${targetAccount}: ${balance} MVR`);
+      let selectedProfileId = null;
+      if (profiles.length > 0) {
+        const selectedProfile = profiles[0];
+        const profStr = typeof selectedProfile === 'string' ? selectedProfile : JSON.stringify(selectedProfile);
+        const uuidMatch = profStr.match(/[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}/);
+        if (uuidMatch) {
+          selectedProfileId = uuidMatch[0];
+        }
+      }
+
+      if (!selectedProfileId) {
+        emitLog(port, `> [BML] Profiles not found in /web/profile. Fetching from /api/profile...`);
+        try {
+          const apiProfileRes = await loggedFetch(`${BASE_URL}/api/profile`, {
+            headers: {
+              'Accept': 'application/json, text/plain, */*',
+              'Authorization': 'Bearer',
+              'X-XSRF-TOKEN': xsrfToken,
+              'Referer': `${BASE_URL}/web/profile`,
+              'User-Agent': USER_AGENT
+            }
+          });
+          if (apiProfileRes.ok) {
+            const apiProfileData = await apiProfileRes.json();
+            const profileList = apiProfileData.payload?.profile || apiProfileData.profile || [];
+            if (Array.isArray(profileList) && profileList.length > 0) {
+              const firstProf = profileList[0];
+              selectedProfileId = firstProf.profile || firstProf.guid || firstProf.id || firstProf.profileId;
+            }
+          }
+        } catch (err) {
+          emitLog(port, `> [BML] API profile fallback failed: ${err.message}`);
+        }
+      }
+
+      if (selectedProfileId) {
+        emitLog(port, `> [BML] Selected Profile: ${selectedProfileId}`);
+        await getFreshXsrfToken('/web/profile');
+
+        let selectProfileRes = await loggedFetch(`${BASE_URL}/web/profile/${selectedProfileId}`, {
+          method: 'GET',
+          headers: {
+            'Accept': 'text/html, application/xhtml+xml',
+            'X-Inertia': 'true',
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-XSRF-TOKEN': xsrfToken,
+            'Referer': `${BASE_URL}/web/profile`,
+            'User-Agent': USER_AGENT
+          }
+        });
+
+        if (selectProfileRes.status === 409) {
+          emitLog(port, `> [BML] Profile selection returned 409. Following redirects...`);
+          await handleInertiaRedirects(selectProfileRes);
+        } else if (!selectProfileRes.ok) {
+          throw new Error(`Profile selection failed: HTTP ${selectProfileRes.status}`);
+        }
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 5: Navigate to accounts overview  
+      // ═══════════════════════════════════════════════════════════════
+      emitLog(port, `> [BML] Step 5: Loading Accounts Overview...`);
+      await getFreshXsrfToken('/vf/accounts/overview');
+
+      const accountsOverviewRes = await loggedFetch(`${BASE_URL}/vf/accounts/overview`, {
+        headers: {
+          'Accept': 'text/html, application/xhtml+xml',
+          'X-Inertia': 'true',
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-XSRF-TOKEN': xsrfToken,
+          'Referer': `${BASE_URL}/web/redirect`,
+          'User-Agent': USER_AGENT
+        }
+      });
+
+      if (accountsOverviewRes.status === 409) {
+        emitLog(port, `> [BML] Accounts overview returned 409. Following redirects...`);
+        await handleInertiaRedirects(accountsOverviewRes);
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 6: Fetch Dashboard
+      // ═══════════════════════════════════════════════════════════════
+      emitLog(port, `> [BML] Step 6: Loading Dashboard...`);
+      xsrfToken = await getXsrfToken() || xsrfToken;
+      const dashboardRes = await loggedFetch(`${BASE_URL}/api/dashboard`, {
+        headers: {
+          'Accept': 'application/json, text/plain, */*',
+          'Authorization': 'Bearer',
+          'X-XSRF-TOKEN': xsrfToken,
+          'Referer': `${BASE_URL}/vf/accounts/overview`,
+          'User-Agent': USER_AGENT
+        }
+      });
+
+      const dashText = await dashboardRes.text();
+      if (!dashboardRes.ok) {
+        throw new Error(`Dashboard retrieval failed: HTTP ${dashboardRes.status}`);
+      }
+
+      let dashboardData;
+      try {
+        dashboardData = JSON.parse(dashText);
+      } catch (e) {
+        throw new Error(`Failed to parse Dashboard JSON.`);
+      }
+
+      const accounts = dashboardData.payload?.dashboard || dashboardData.accounts || [];
+      bmlAccountId = null;
+
+      for (const group of accounts) {
+        const accList = group.accounts || [group];
+        for (const acc of accList) {
+          const accNo = String(acc.account || acc.account_number || acc.id || '').replace(/\s+/g, '');
+          const targetNo = String(targetAccount || '').replace(/\s+/g, '');
+          if (accNo === targetNo || accNo.includes(targetNo) || targetNo.includes(accNo)) {
+            bmlAccountId = acc.id || acc.account;
+            balance = acc.available_balance || acc.availableBalance || acc.working_balance || acc.balance || acc.current_balance || "Found";
+            break;
+          }
+        }
+        if (bmlAccountId) break;
+      }
+
+      if (!bmlAccountId) {
+        bmlAccountId = targetAccount;
+      }
+
+      emitLog(port, `> [BML] 💰 Balance for ${targetAccount}: ${balance} MVR`);
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // STEP 7: Scrape History for the amount
     // ═══════════════════════════════════════════════════════════════
     emitLog(port, `> [BML] Step 7: Scraping recent transaction history...`);
-    // Fetch today's transactions
     const historyUrl = `${BASE_URL}/api/account/${bmlAccountId}/history/today`;
     const histRes = await fetch(historyUrl, {
       method: 'GET',
@@ -941,7 +1132,6 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
       }
     });
 
-    // Fetch pending transactions
     const pendingUrl = `${BASE_URL}/api/history/pending/${bmlAccountId}`;
     const pendingRes = await fetch(pendingUrl, {
       method: 'GET',
@@ -955,30 +1145,22 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
     });
 
     if (!histRes.ok && !pendingRes.ok) {
-      const errText = await histRes.clone().text().catch(() => "");
-      emitLog(port, `> [BML] History & Pending fetch failed: HTTP ${histRes.status} / ${pendingRes.status} - ${errText.substring(0, 200)}`);
-      throw new Error(`Failed to fetch BML account history: HTTP ${histRes.status}`);
+      throw new Error(`Session expired or transaction history unavailable (HTTP ${histRes.status})`);
     }
 
     let history = [];
     if (histRes.ok) {
       const histData = await histRes.json();
-      emitLog(port, `> [BML] Raw history response: ${JSON.stringify(histData)}`);
       history = histData.transactions || histData.payload?.history || [];
     }
 
     let pendingTxs = [];
     if (pendingRes.ok) {
       const pendingData = await pendingRes.json();
-      emitLog(port, `> [BML] Raw pending response: ${JSON.stringify(pendingData)}`);
       pendingTxs = pendingData.transactions || pendingData.payload?.history || pendingData.payload?.pending || pendingData.payload?.transactions || [];
     }
 
     const mergedHistory = [...pendingTxs, ...history];
-    if (mergedHistory.length > 0) {
-      emitLog(port, `> [BML] Diagnostic - First transaction keys: ${Object.keys(mergedHistory[0]).join(', ')}`);
-      emitLog(port, `> [BML] Diagnostic - First transaction raw: ${JSON.stringify(mergedHistory[0])}`);
-    }
     const targetAmtNum = parseFloat(targetAmount) || 0;
 
     let matchFound = null;
@@ -994,31 +1176,41 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
     } else if (mode === 'ledger') {
       last3Txs = normalizeTransactions(mergedHistory, 'BML', 50);
     } else {
-      // mode === 'history'
       last3Txs = normalizeTransactions(mergedHistory, 'BML', 3);
+    }
+
+    // Update session cache parameters in memory
+    if (heldSession) {
+      heldSession.bmlAccountId = bmlAccountId;
     }
 
     // ═══════════════════════════════════════════════════════════════
     // STEP 8: Cleanup and Report
     // ═══════════════════════════════════════════════════════════════
-    try {
-      await loggedFetch(`${BASE_URL}/web/2fa/logout`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-          'Upgrade-Insecure-Requests': '1',
-          'X-XSRF-TOKEN': xsrfToken,
-          'Referer': `${BASE_URL}/vf/accounts/overview`,
-          'User-Agent': USER_AGENT
-        }
-      });
-      emitLog(port, `> [BML] Session destroyed.`);
-    } catch (e) {
-      emitLog(port, `> [BML] Session destruction failed or skipped: ${e.message}`);
+    if (!heldSession) {
+      try {
+        await loggedFetch(`${BASE_URL}/web/2fa/logout`, {
+          method: 'GET',
+          headers: {
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Upgrade-Insecure-Requests': '1',
+            'X-XSRF-TOKEN': xsrfToken,
+            'Referer': `${BASE_URL}/vf/accounts/overview`,
+            'User-Agent': USER_AGENT
+          }
+        });
+        emitLog(port, `> [BML] Session destroyed.`);
+        await logSessionEvent('session_logout');
+      } catch (e) {
+        emitLog(port, `> [BML] Session destruction failed: ${e.message}`);
+      }
+    } else {
+      emitLog(port, `> [BML] Session preserved.`);
     }
 
     if (mode === 'history' || mode === 'ledger') {
       emitLog(port, `> [Viri Bridge] BML ${mode.toUpperCase()} FETCH SUCCESS.`);
+      await logSessionEvent(mode === 'ledger' ? 'ledger_sync' : 'fetch_request_fulfilled', { count: last3Txs.length });
       port.postMessage({
         type: 'success',
         data: null,
@@ -1028,6 +1220,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
     } else {
       if (matchFound) {
         emitLog(port, `> [Viri Bridge] EXACT MATCH: Ref ${matchFound.reference || matchFound.id}`);
+        await logSessionEvent('verification_search', { status: 'CREDITED', amount: targetAmount });
         port.postMessage({
           type: 'success',
           data: {
@@ -1040,6 +1233,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
           transactions: last3Txs
         });
       } else {
+        await logSessionEvent('verification_no_match', { status: 'NOT_FOUND', amount: targetAmount });
         throw new Error(`Verification Failed: No recent credit transaction found for ${targetAmount} MVR.`);
       }
     }
@@ -1047,6 +1241,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
   } catch (error) {
     emitLog(port, `> [BML] FATAL ERROR: ${error.message}`);
     port.postMessage({ type: "error", error: error.message, transactions: last3Txs || [] });
+    throw error; // Propagate for retry triggers
   }
 }
 
@@ -1269,7 +1464,7 @@ function buildFormBody(params) {
  * @param {string} targetAmount - Amount to verify
  * @param {string} profileType - '0' for Personal, '1' for Business
  */
-async function runMibFlow(credentials, targetAccount, port, targetAmount, profileType = '0', mode = 'search') {
+async function oldMibFlowDummy(credentials, targetAccount, port, targetAmount, profileType = '0', mode = 'search') {
   emitLog(port, `> [MIB] Starting MIB Faisanet auth flow...`);
   let last3Txs = [];
 
@@ -1546,145 +1741,292 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     await saveScrap('profiles_page', profilesHtml);
     try {
       rTag = extractRTag(profilesHtml);
-    } catch (e) {
-      emitLog(port, `> [MIB] DEBUG: profilesHtml content snippet: ${profilesHtml.substring(0, 1000)}`);
-      throw e;
+    } catch (e) {}
+  } catch (e) {}
+}
+
+async function runMibFlow(credentials, targetAccount, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login') {
+  if (sessionMode === 'fetch_only' || sessionMode === 'reuse_session') {
+    try {
+      await runMibFlowInternal(credentials, targetAccount, port, targetAmount, profileType, mode, sessionMode);
+      return;
+    } catch (err) {
+      emitLog(port, `> [MIB] Persistent session failed: ${err.message}. Retrying with fresh login...`);
+      await logSessionEvent('session_heartbeat_lost', { reason: err.message });
+      await clearBankSessions();
     }
-    const profiles = parseProfilesFromHtml(profilesHtml);
-    emitLog(port, `> [MIB] Found ${profiles.length} profile(s).`);
+  }
+  await runMibFlowInternal(credentials, targetAccount, port, targetAmount, profileType, mode, 'fresh_login');
+}
 
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 7: Switch Profile — POST /aProfileHandler/switchProfile
-    // ═══════════════════════════════════════════════════════════════
-    if (profiles.length > 0) {
-      // Find matching profile type if possible, otherwise default to first
-      const selectedProfile = profiles.find(p => p.type === profileType) || profiles[0];
-      const activeRTag = selectedProfile.rTag || rTag;
-      emitLog(port, `> [MIB] Step 7: Switching to profile ${selectedProfile.id} (type: ${selectedProfile.type}, payload profileType requested: ${profileType})...`);
+async function runMibFlowInternal(credentials, targetAccount, port, targetAmount, profileType, mode, sessionMode) {
+  emitLog(port, `> [MIB] Starting MIB Faisanet auth flow (sessionMode: ${sessionMode})...`);
+  let last3Txs = [];
 
-      const switchRes = await mibFetch(`${MIB_BASE_URL}/aProfileHandler/switchProfile`, {
+  const mibHeaders = {
+    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+    'X-Requested-With': 'XMLHttpRequest',
+    'User-Agent': USER_AGENT
+  };
+
+  function isMibSuccess(status) { return status === 200 || status === 203; }
+
+  let rTag = null;
+
+  try {
+    let matchedAccountNo = heldSession ? heldSession.matchedAccountNo : null;
+    let mibBalance = "Not found";
+
+    const isFetchOnly = sessionMode === 'fetch_only' && matchedAccountNo;
+
+    if (!isFetchOnly) {
+      await logSessionEvent('session_login_started', { mode: sessionMode });
+
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 0: Clear Previous MIB Session Cookies
+      // ═══════════════════════════════════════════════════════════════
+      emitLog(port, `> [MIB] Step 0: Clearing previous MIB session cookies...`);
+      const mibCookies = await chrome.cookies.getAll({ domain: "mib.com.mv" });
+      for (const cookie of mibCookies) {
+        const protocol = cookie.secure ? "https://" : "http://";
+        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+        const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
+        await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
+      }
+      emitLog(port, `> [MIB] Cleared ${mibCookies.length} MIB cookies.`);
+
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 1: Initialize Session — GET /auth
+      // ═══════════════════════════════════════════════════════════════
+      emitLog(port, `> [MIB] Step 1: Initializing session...`);
+      const authPageRes = await mibFetch(`${MIB_BASE_URL}/auth`, {
+        headers: { 'User-Agent': USER_AGENT }
+      }, port);
+
+      if (!authPageRes.ok) {
+        throw new Error(`MIB auth page load failed: HTTP ${authPageRes.status}`);
+      }
+
+      let mibClockOffset = 0;
+      const serverDateHeader = authPageRes.headers.get('date');
+      if (serverDateHeader) {
+        const serverTime = new Date(serverDateHeader).getTime();
+        const clientTime = Date.now();
+        mibClockOffset = serverTime - clientTime;
+        emitLog(port, `> [MIB] Calculated MIB server clock offset: ${mibClockOffset}ms (${Math.round(mibClockOffset / 1000)}s)`);
+      }
+
+      const authPageHtml = await authPageRes.text();
+      rTag = extractRTag(authPageHtml);
+      emitLog(port, `> [MIB] ✓ Session initialized. rTag: ${rTag.substring(0, 8)}...`);
+
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 2: Get Auth Type — POST /aAuth/getAuthType
+      // ═══════════════════════════════════════════════════════════════
+      emitLog(port, `> [MIB] Step 2: Checking auth type for user...`);
+      const authTypeRes = await mibFetch(`${MIB_BASE_URL}/aAuth/getAuthType`, {
         method: 'POST',
-        headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/profiles` },
+        headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth` },
+        body: buildFormBody({ rTag, pgf01: credentials.username, retain: '1' })
+      }, port);
+
+      if (!authTypeRes.ok) {
+        const errText = await authTypeRes.text().catch(() => "");
+        emitLog(port, `> [MIB] getAuthType error body: ${errText}`);
+        throw new Error(`MIB getAuthType failed: HTTP ${authTypeRes.status}. Details: ${errText.substring(0, 200)}`);
+      }
+
+      let authTypeData;
+      try {
+        authTypeData = await authTypeRes.json();
+      } catch (e) {
+        const text = await authTypeRes.clone().text();
+        emitLog(port, `> [MIB] Auth type response (non-JSON): ${text.substring(0, 200)}`);
+        authTypeData = { status: 'success' };
+      }
+
+      if (authTypeData.status === 'error') {
+        throw new Error(`MIB auth type error: ${authTypeData.message || 'Unknown error'}`);
+      }
+      emitLog(port, `> [MIB] ✓ Auth type confirmed: ${JSON.stringify(authTypeData)}`);
+
+      const loginTypeParams = authTypeData?.data?.[0] || {};
+      const loginType = loginTypeParams.loginType;
+      const userSalt = loginTypeParams.userSalt;
+
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 3: Primary Auth — POST /aAuth (Simple) or /aAuth/xAuth (Salted)
+      // ═══════════════════════════════════════════════════════════════
+      let xAuthRes;
+      if (loginType === 0) {
+        emitLog(port, `> [MIB] Step 3: Submitting primary credentials (simple auth)...`);
+        xAuthRes = await mibFetch(`${MIB_BASE_URL}/aAuth`, {
+          method: 'POST',
+          headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth` },
+          body: buildFormBody({
+            rTag,
+            username: credentials.username,
+            password: credentials.password
+          })
+        }, port);
+      } else {
+        emitLog(port, `> [MIB] Step 3: Submitting primary credentials (salted auth)...`);
+        const hashedPassword = await hashPasswordSHA256(credentials.password);
+        const clientSalt = generateClientSalt();
+        const clientSaltHashed = await hashPasswordSHA256(clientSalt);
+        
+        const keyText = hashedPassword + userSalt + clientSaltHashed;
+        const keyHash = await hashPasswordSHA256(keyText);
+
+        xAuthRes = await mibFetch(`${MIB_BASE_URL}/aAuth/xAuth`, {
+          method: 'POST',
+          headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth` },
+          body: buildFormBody({
+            rTag,
+            pgf01: credentials.username,
+            pgf02: keyHash,
+            pgf03: clientSalt
+          })
+        }, port);
+      }
+
+      if (!isMibSuccess(xAuthRes.status)) {
+        const errText = await xAuthRes.text().catch(() => "");
+        emitLog(port, `> [MIB] Primary auth failed: HTTP ${xAuthRes.status}. Details: ${errText.substring(0, 200)}`);
+        await logSessionEvent('session_login_failed', { reason: `HTTP ${xAuthRes.status}` });
+        throw new Error(`MIB Primary Auth failed: HTTP ${xAuthRes.status}`);
+      }
+
+      emitLog(port, `> [MIB] ✓ Primary Auth Accepted.`);
+
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 4: Submit 2FA (TOTP) — POST /aAuth/verifyOtp
+      // ═══════════════════════════════════════════════════════════════
+      emitLog(port, `> [MIB] Step 4: Submitting 2FA (TOTP)...`);
+      const otpCode = await generateTOTP(credentials.totpSeed, mibClockOffset);
+      emitLog(port, `> [TESTING] Submitting MIB OTP: ${maskString(otpCode)}`);
+
+      const otpRes = await mibFetch(`${MIB_BASE_URL}/aAuth/verifyOtp`, {
+        method: 'POST',
+        headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth` },
         body: buildFormBody({
-          rTag: activeRTag,
-          profileId: selectedProfile.id,
-          profileType: profileType
+          rTag,
+          otpType: '2',
+          otpValue: otpCode
         })
       }, port);
 
-      // HAR shows HTTP 203 = success with redirect to /accounts
-      if (!isMibSuccess(switchRes.status)) {
-        throw new Error(`MIB profile switch failed: HTTP ${switchRes.status}`);
+      if (!isMibSuccess(otpRes.status)) {
+        const errText = await otpRes.text().catch(() => "");
+        emitLog(port, `> [MIB] 2FA verification failed: HTTP ${otpRes.status}. Details: ${errText.substring(0, 200)}`);
+        await logSessionEvent('session_login_failed', { reason: `2FA OTP Rejected` });
+        throw new Error(`MIB 2FA verification failed: HTTP ${otpRes.status}`);
       }
 
-      let switchData;
-      try {
-        switchData = await switchRes.json();
-      } catch (e) {
-        // HTTP 203 may have empty body — treat as success
-        if (switchRes.status === 203) {
-          switchData = { status: 'success', redirect: '/accounts' };
-        } else {
-          switchData = { status: 'success' };
+      emitLog(port, `> [MIB] ✓ 2FA verified successfully.`);
+      await logSessionEvent('session_login_success');
+
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 5: Select Profile Profile Page — GET /profiles
+      // ═══════════════════════════════════════════════════════════════
+      emitLog(port, `> [MIB] Step 5: Loading Profile Selection...`);
+      const profilesPageRes = await mibFetch(`${MIB_BASE_URL}/profiles`, {
+        headers: { 'User-Agent': USER_AGENT }
+      }, port);
+
+      if (!profilesPageRes.ok) {
+        throw new Error(`MIB profiles page failed: HTTP ${profilesPageRes.status}`);
+      }
+
+      const profilesHtml = await profilesPageRes.text();
+      const profiles = parseProfilesFromHtml(profilesHtml);
+      emitLog(port, `> [MIB] ✓ Parsed ${profiles.length} profile(s).`);
+
+      let selectedProfile = null;
+      if (profiles.length > 0) {
+        selectedProfile = profiles.find(p => p.profileType === profileType) || profiles[0];
+      }
+
+      if (selectedProfile) {
+        // ═══════════════════════════════════════════════════════════════
+        // STEP 6: Apply Selected Profile — POST /aAuth/applyProfile
+        // ═══════════════════════════════════════════════════════════════
+        emitLog(port, `> [MIB] Step 6: Applying profile: ${selectedProfile.profileName}...`);
+        const applyProfileRes = await mibFetch(`${MIB_BASE_URL}/aAuth/applyProfile`, {
+          method: 'POST',
+          headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/profiles` },
+          body: buildFormBody({
+            rTag,
+            profileNo: selectedProfile.profileNo,
+            profileType: selectedProfile.profileType
+          })
+        }, port);
+
+        if (!applyProfileRes.ok) {
+          throw new Error(`MIB applyProfile failed: HTTP ${applyProfileRes.status}`);
         }
+        emitLog(port, `> [MIB] ✓ Profile applied.`);
       }
 
-      if (switchData.status === 'error') {
-        throw new Error(`MIB profile switch failed: ${switchData.message || 'Unknown error'}`);
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 7: Load Accounts Dashboard — GET /accounts
+      // ═══════════════════════════════════════════════════════════════
+      emitLog(port, `> [MIB] Step 7: Loading Accounts Dashboard...`);
+      const dashboardRes = await mibFetch(`${MIB_BASE_URL}/accounts`, {
+        headers: { 'User-Agent': USER_AGENT }
+      }, port);
+
+      if (!dashboardRes.ok) {
+        throw new Error(`MIB accounts dashboard failed: HTTP ${dashboardRes.status}`);
       }
-      emitLog(port, `> [MIB] ✓ Profile switched successfully (HTTP ${switchRes.status}).`);
-    } else {
-      emitLog(port, `> [MIB] No profiles found. Proceeding with default profile...`);
-    }
 
-    // Small delay to let server sync
-    await new Promise(r => setTimeout(r, 200));
+      const dashboardHtml = await dashboardRes.text();
+      rTag = extractRTag(dashboardHtml);
 
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 8: Load Accounts — GET /accounts
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [MIB] Step 8: Loading accounts dashboard...`);
-    const accountsRes = await mibFetch(`${MIB_BASE_URL}/accounts`, {
-      headers: {
-        'Referer': `${MIB_BASE_URL}/profiles`,
-        'User-Agent': USER_AGENT
+      // Parse account number and details
+      const parsedAccounts = parseAccountsFromHtml(dashboardHtml);
+      emitLog(port, `> [MIB] Parsed accounts: ${JSON.stringify(parsedAccounts)}`);
+
+      let matchedAccount = null;
+      if (parsedAccounts.length > 0) {
+        matchedAccount = parsedAccounts.find(acc => {
+          const accNo = String(acc.accountNo || '').replace(/\s+/g, '');
+          const targetNo = String(targetAccount || '').replace(/\s+/g, '');
+          return accNo === targetNo || accNo.includes(targetNo) || targetNo.includes(accNo);
+        });
       }
-    }, port);
 
-    if (!accountsRes.ok) {
-      throw new Error(`MIB accounts page load failed: HTTP ${accountsRes.status}`);
-    }
-
-    const accountsHtml = await accountsRes.text();
-    const parsedAccounts = parseAccountsFromHtml(accountsHtml);
-    emitLog(port, `> [MIB] Found ${parsedAccounts.length} account(s) in dashboard.`);
-
-    // Find the target account
-    let matchedAccountNo = null;
-    for (const acc of parsedAccounts) {
-      if (acc.accountNo === targetAccount || acc.accountNo.includes(targetAccount) || targetAccount.includes(acc.accountNo)) {
-        matchedAccountNo = acc.accountNo;
-        break;
+      if (!matchedAccount) {
+        throw new Error(`MIB account matching target "${targetAccount}" was not found on your Faisanet dashboard.`);
       }
-    }
 
-    // If no match found in parsed accounts, use the target directly
-    if (!matchedAccountNo) {
-      emitLog(port, `> [MIB] Target account ${targetAccount} not found in parsed accounts. Using directly...`);
-      matchedAccountNo = targetAccount;
-    } else {
-      emitLog(port, `> [MIB] ✓ Matched account: ${matchedAccountNo}`);
-    }
+      matchedAccountNo = matchedAccount.accountNo;
+      mibBalance = matchedAccount.balance || "Found";
+      emitLog(port, `> [MIB] ✓ Matched Account: ${matchedAccountNo}. Dashboard balance: ${mibBalance} MVR`);
 
-    // Attempt parsing balance directly from dashboard overview card first
-    let dashboardBalance = null;
-    try {
-      const accountIndex = accountsHtml.indexOf(matchedAccountNo);
-      if (accountIndex !== -1) {
-        const start = Math.max(0, accountIndex - 800);
-        const end = Math.min(accountsHtml.length, accountIndex + 800);
-        const section = accountsHtml.substring(start, end);
-        const balMatch = section.match(/Available\s+Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
-                      || section.match(/Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
-                      || section.match(/(?:MVR|USD)\s*(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
-                      || section.match(/(\b\d+(?:,\d{3})*\.\d{2}\b)/);
-        if (balMatch) {
-          dashboardBalance = balMatch[1];
-          emitLog(port, `> [MIB] ✓ Extracted balance from dashboard card for ${matchedAccountNo}: ${dashboardBalance} MVR`);
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 8: Open Account Details (Syncs Ledger Page State) — GET /accountDetails
+      // ═══════════════════════════════════════════════════════════════
+      emitLog(port, `> [MIB] Step 8: Opening Details page for Account ${matchedAccountNo}...`);
+      const detailsPageRes = await mibFetch(`${MIB_BASE_URL}/accountDetails?accountNo=${matchedAccountNo}`, {
+        headers: {
+          'User-Agent': USER_AGENT,
+          'Referer': `${MIB_BASE_URL}/accounts`
         }
-      }
-    } catch (err) {
-      emitLog(port, `> [MIB] Error extracting balance from dashboard HTML: ${err.message}`);
-    }
+      }, port);
 
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 8B: Load Account Details — GET /accountDetails
-    // HAR: trxHistory was called from /accountDetails page context
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [MIB] Step 8B: Loading account details page...`);
-    const accDetailsRes = await mibFetch(`${MIB_BASE_URL}/accountDetails?accountNo=${matchedAccountNo}`, {
-      headers: {
-        'Referer': `${MIB_BASE_URL}/accounts`,
-        'User-Agent': USER_AGENT
+      if (!detailsPageRes.ok) {
+        throw new Error(`MIB accountDetails failed for ${matchedAccountNo}: HTTP ${detailsPageRes.status}`);
       }
-    }, port);
 
-    let mibBalance = dashboardBalance || "Not found";
-    if (!accDetailsRes.ok) {
-      emitLog(port, `> [MIB] Account details returned ${accDetailsRes.status}. Continuing anyway...`);
-    } else {
-      emitLog(port, `> [MIB] ✓ Account details page loaded.`);
+      const detailsHtml = await detailsPageRes.text();
+      rTag = extractRTag(detailsHtml);
+
       try {
-        const detailsHtml = await accDetailsRes.clone().text();
-        const balanceMatch = detailsHtml.match(/Available\s+Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
-                          || detailsHtml.match(/Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
-                          || detailsHtml.match(/(?:MVR|USD)\s*(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
-                          || detailsHtml.match(/(\b\d+(?:,\d{3})*\.\d{2}\b)/);
-        if (balanceMatch) {
+        const balanceMatch = detailsHtml.match(/Available\s+Balance.*?MVR\s+([\d,.]+)/i);
+        if (balanceMatch && balanceMatch[1]) {
           mibBalance = balanceMatch[1];
           emitLog(port, `> [MIB] 💰 Balance parsed from details page: ${mibBalance} MVR`);
-        } else {
-          emitLog(port, `> [MIB] No balance parsed from details page. Available fallback: ${mibBalance}`);
         }
       } catch (err) {
         emitLog(port, `> [MIB] Error parsing balance: ${err.message}`);
@@ -1693,7 +2035,6 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
 
     // ═══════════════════════════════════════════════════════════════
     // STEP 9: Fetch Transaction History — POST /ajaxAccounts/trxHistory
-    // HAR: Status 200, empty fromDate/toDate (no date filtering)
     // ═══════════════════════════════════════════════════════════════
     emitLog(port, `> [MIB] Step 9: Fetching transaction history for ${matchedAccountNo}...`);
 
@@ -1721,13 +2062,10 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
       throw new Error(`MIB transaction history failed: HTTP ${historyRes.status}`);
     }
 
-    // Parse the transaction history response
     let historyData;
     try {
       historyData = await historyRes.json();
     } catch (e) {
-      const text = await historyRes.clone().text();
-      emitLog(port, `> [MIB] Transaction history response (non-JSON): ${text.substring(0, 300)}`);
       throw new Error('MIB transaction history response was not valid JSON');
     }
 
@@ -1770,31 +2108,40 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
       last3Txs = normalizeTransactions(transactions, 'MIB', 3);
     }
 
+    if (heldSession) {
+      heldSession.matchedAccountNo = matchedAccountNo;
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // STEP 10: Logout and Report
     // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [MIB] Step 10: Logging out and cleaning up...`);
-    try {
-      await mibFetch(`${MIB_BASE_URL}/aAuth/logout`, {
-        method: 'POST',
-        headers: {
-          ...mibHeaders,
-          'Referer': `${MIB_BASE_URL}/accountDetails?accountNo=${matchedAccountNo}`
-        },
-        body: ''
-      }, port);
-      emitLog(port, `> [MIB] ✓ Session destroyed.`);
-    } catch (e) {
-      emitLog(port, `> [MIB] Session destruction failed: ${e.message}`);
-    }
+    if (!heldSession) {
+      emitLog(port, `> [MIB] Step 10: Logging out and cleaning up...`);
+      try {
+        await mibFetch(`${MIB_BASE_URL}/aAuth/logout`, {
+          method: 'POST',
+          headers: {
+            ...mibHeaders,
+            'Referer': `${MIB_BASE_URL}/accountDetails?accountNo=${matchedAccountNo}`
+          },
+          body: ''
+        }, port);
+        emitLog(port, `> [MIB] ✓ Session destroyed.`);
+        await logSessionEvent('session_logout');
+      } catch (e) {
+        emitLog(port, `> [MIB] Session destruction failed: ${e.message}`);
+      }
 
-    // Clear MIB cookies after logout
-    const postLogoutCookies = await chrome.cookies.getAll({ domain: "mib.com.mv" });
-    for (const cookie of postLogoutCookies) {
-      const protocol = cookie.secure ? "https://" : "http://";
-      const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
-      const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
-      await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
+      // Clear MIB cookies after logout
+      const postLogoutCookies = await chrome.cookies.getAll({ domain: "mib.com.mv" });
+      for (const cookie of postLogoutCookies) {
+        const protocol = cookie.secure ? "https://" : "http://";
+        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+        const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
+        await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
+      }
+    } else {
+      emitLog(port, `> [MIB] Session preserved.`);
     }
 
     // Report result

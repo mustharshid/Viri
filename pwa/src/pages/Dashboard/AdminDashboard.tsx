@@ -33,9 +33,47 @@ export default function AdminDashboard() {
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRunIdx, setSelectedRunIdx] = useState<number>(0);
 
+  const [activeTab, setActiveTab] = useState<'companies' | 'logs'>('companies');
+  const [sessionLogs, setSessionLogs] = useState<any[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsPage, setLogsPage] = useState(1);
+  const [logsTotalPages, setLogsTotalPages] = useState(1);
+
+  const [filterEventType, setFilterEventType] = useState('');
+  const [filterCompanyId, setFilterCompanyId] = useState('');
+
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'logs') {
+      fetchSessionLogs();
+    }
+  }, [activeTab, logsPage, filterEventType, filterCompanyId]);
+
+  const fetchSessionLogs = async () => {
+    setLogsLoading(true);
+    try {
+      const token = localStorage.getItem('viri_token');
+      const headers = { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' };
+      
+      let url = `/api/admin/session-logs?page=${logsPage}&per_page=20`;
+      if (filterEventType) url += `&event_type=${filterEventType}`;
+      if (filterCompanyId) url += `&tenant_id=${filterCompanyId}`;
+
+      const res = await fetch(url, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setSessionLogs(data.data || []);
+        setLogsTotalPages(data.last_page || 1);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLogsLoading(false);
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -189,6 +227,30 @@ export default function AdminDashboard() {
           </button>
         </header>
 
+        {/* Navigation Tabs */}
+        <div className="flex border-b border-zinc-800 mb-6">
+          <button
+            onClick={() => setActiveTab('companies')}
+            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all ${
+              activeTab === 'companies'
+                ? 'border-yellow-500 text-yellow-500'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            Registered Companies
+          </button>
+          <button
+            onClick={() => setActiveTab('logs')}
+            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all ${
+              activeTab === 'logs'
+                ? 'border-yellow-500 text-yellow-500'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            Session Activity Log
+          </button>
+        </div>
+
         {/* Security Confirmation PIN display */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-6 flex items-center justify-between shadow-lg">
           <div className="flex items-center gap-3">
@@ -206,8 +268,9 @@ export default function AdminDashboard() {
         </div>
 
         <div className="flex flex-col gap-6">
-          {companies.map(company => (
-            <div key={company.id} className="glass-panel p-6 border border-zinc-800 hover:border-zinc-700 transition-all flex flex-col gap-6 bg-black/20 rounded-2xl">
+          {activeTab === 'companies' ?
+            companies.map(company => (
+              <div key={company.id} className="glass-panel p-6 border border-zinc-800 hover:border-zinc-700 transition-all flex flex-col gap-6 bg-black/20 rounded-2xl">
               {/* Header: Company Name & Status */}
               <div className="flex flex-wrap justify-between items-center gap-4 border-b border-zinc-800/80 pb-4">
                 {(() => {
@@ -419,8 +482,134 @@ export default function AdminDashboard() {
                 )}
               </div>
             </div>
-          ))}
-          {companies.length === 0 && <div className="text-center py-8 text-[var(--text-secondary)]">No companies registered yet.</div>}
+          )) : (
+            <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl">
+              <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+                <h3 className="text-xl font-bold text-white tracking-tight">Active Sessions & Logs Audit</h3>
+                <div className="flex items-center gap-3 flex-wrap">
+                  {/* Company Filter */}
+                  <select
+                    className="input-field text-xs py-1.5 px-3 font-medium bg-zinc-900 border-zinc-800"
+                    value={filterCompanyId}
+                    onChange={(e) => {
+                      setFilterCompanyId(e.target.value);
+                      setLogsPage(1);
+                    }}
+                  >
+                    <option value="">All Companies</option>
+                    {companies.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+
+                  {/* Event Type Filter */}
+                  <select
+                    className="input-field text-xs py-1.5 px-3 font-medium bg-zinc-900 border-zinc-800"
+                    value={filterEventType}
+                    onChange={(e) => {
+                      setFilterEventType(e.target.value);
+                      setLogsPage(1);
+                    }}
+                  >
+                    <option value="">All Events</option>
+                    <option value="session_login_started">Login Started</option>
+                    <option value="session_login_success">Login Success</option>
+                    <option value="session_login_failed">Login Failed</option>
+                    <option value="session_claimed">Session Claimed</option>
+                    <option value="session_heartbeat_lost">Heartbeat Lost</option>
+                    <option value="session_released">Session Released</option>
+                    <option value="fetch_request_submitted">Request Submitted</option>
+                    <option value="fetch_request_fulfilled">Request Fulfilled</option>
+                    <option value="fetch_request_failed">Request Failed</option>
+                  </select>
+                </div>
+              </div>
+
+              {logsLoading ? (
+                <div className="text-center py-12 text-zinc-500 font-medium">Loading session activity logs...</div>
+              ) : sessionLogs.length === 0 ? (
+                <div className="text-center py-12 text-zinc-500 italic">No session logs match your criteria.</div>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-zinc-800 text-zinc-400 font-semibold">
+                          <th className="pb-3 pr-4">Timestamp</th>
+                          <th className="pb-3 pr-4">Terminal / Company</th>
+                          <th className="pb-3 pr-4">Account</th>
+                          <th className="pb-3 pr-4">Event Type</th>
+                          <th className="pb-3 pr-4">Summary</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-900">
+                        {sessionLogs.map((log: any) => {
+                          const dateStr = new Date(log.created_at).toLocaleString();
+                          // Determine event badge color
+                          let badgeClass = "bg-zinc-800 text-zinc-400 border border-zinc-700";
+                          if (['session_login_success', 'session_claimed', 'fetch_request_fulfilled'].includes(log.event_type)) {
+                            badgeClass = "bg-green-950/40 text-green-400 border border-green-500/20";
+                          } else if (['session_login_failed', 'fetch_request_failed'].includes(log.event_type)) {
+                            badgeClass = "bg-red-950/40 text-red-400 border border-red-500/20";
+                          } else if (['session_heartbeat_lost', 'session_released'].includes(log.event_type)) {
+                            badgeClass = "bg-orange-950/40 text-orange-400 border border-orange-500/20";
+                          }
+
+                          return (
+                            <tr key={log.id} className="hover:bg-zinc-900/30 transition-colors">
+                              <td className="py-3 pr-4 font-mono text-zinc-400">{dateStr}</td>
+                              <td className="py-3 pr-4 font-medium text-white">
+                                {log.terminal_name || "System"} 
+                                <span className="text-[10px] text-zinc-500 block">{log.tenant?.name}</span>
+                              </td>
+                              <td className="py-3 pr-4 font-mono text-zinc-400">
+                                {log.bank_name || "N/A"}
+                                <span className="text-[10px] block">{log.account_number_masked || ""}</span>
+                              </td>
+                              <td className="py-3 pr-4">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${badgeClass}`}>
+                                  {log.event_type.replace(/_/g, ' ').toUpperCase()}
+                                </span>
+                              </td>
+                              <td className="py-3 pr-4 text-zinc-300 font-medium">
+                                {log.event_summary}
+                                {log.event_detail && (
+                                  <pre className="text-[10px] text-zinc-500 mt-1 bg-black/40 p-2 rounded overflow-x-auto max-w-lg scrollbar-thin">
+                                    {JSON.stringify(log.event_detail, null, 2)}
+                                  </pre>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Pagination Footer */}
+                  <div className="flex items-center justify-between border-t border-zinc-800 pt-4 mt-2">
+                    <button
+                      className="btn btn-outline text-xs px-3 py-1.5"
+                      disabled={logsPage === 1}
+                      onClick={() => setLogsPage(prev => Math.max(prev - 1, 1))}
+                    >
+                      Previous
+                    </button>
+                    <span className="text-xs text-zinc-400 font-mono">
+                      Page {logsPage} of {logsTotalPages}
+                    </span>
+                    <button
+                      className="btn btn-outline text-xs px-3 py-1.5"
+                      disabled={logsPage === logsTotalPages}
+                      onClick={() => setLogsPage(prev => Math.min(prev + 1, logsTotalPages))}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Debug Logs Viewer Modal */}
