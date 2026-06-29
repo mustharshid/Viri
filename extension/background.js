@@ -1397,7 +1397,6 @@ function parseProfilesFromHtml(html) {
   
   return profiles;
 }
-
 /**
  * Parse account numbers from MIB accounts HTML page
  */
@@ -1533,7 +1532,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     }
 
     const authPageHtml = await authPageRes.text();
-    rTag = extractRTag(authPageHtml);
+    updateRTag(extractRTag(authPageHtml));
     emitLog(port, `> [MIB] ✓ Session initialized. rTag: ${rTag.substring(0, 8)}...`);
 
     // ═══════════════════════════════════════════════════════════════
@@ -1660,7 +1659,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     }
 
     const dashHtml = await dashboardPageRes.text();
-    try { rTag = extractRTag(dashHtml); } catch (e) {
+    try { updateRTag(extractRTag(dashHtml)); } catch (e) {
       emitLog(port, `> [MIB] Could not extract rTag from dashboard — keeping previous.`);
     }
 
@@ -1682,7 +1681,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     }
 
     const auth2faHtml = await auth2faRes.text();
-    try { rTag = extractRTag(auth2faHtml); } catch (e) {
+    try { updateRTag(extractRTag(auth2faHtml)); } catch (e) {
       emitLog(port, `> [MIB] Could not extract rTag from auth2FA — keeping previous.`);
     }
     emitLog(port, `> [MIB] ✓ 2FA page loaded. rTag: ${rTag ? rTag.substring(0, 8) + '...' : 'none'}`);
@@ -1838,7 +1837,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     // Extract rTag from accounts page if we don't have one yet (e.g. fetch_only mode)
     if (!rTag) {
       try {
-        rTag = extractRTag(accountsHtml);
+        updateRTag(extractRTag(accountsHtml));
         emitLog(port, `> [MIB] ✓ Extracted rTag from accounts page: ${rTag.substring(0, 8)}...`);
       } catch (e) {
         emitLog(port, `> [MIB] ⚠ Could not extract rTag from accounts page.`);
@@ -1914,7 +1913,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
         }
         // Extract rTag from details page for the trxHistory POST
         try {
-          rTag = extractRTag(detailsHtml);
+          updateRTag(extractRTag(detailsHtml));
           emitLog(port, `> [MIB] ✓ Refreshed rTag from details page: ${rTag.substring(0, 8)}...`);
         } catch (e) {
           emitLog(port, `> [MIB] Could not extract rTag from details page — keeping previous.`);
