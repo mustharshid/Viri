@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle } from 'lucide-react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight } from 'lucide-react';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -104,6 +104,10 @@ function App() {
     return localStorage.getItem('viri_backend_url') || defaultUrl;
   });
   const [showSettings, setShowSettings] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('viri_sidebar_collapsed') === 'true';
+  });
+  const [ledgerPage, setLedgerPage] = useState(1);
 
   // Credentials States
   const [accountsCreds, setAccountsCreds] = useState<Record<string, { username?: string; password?: string; totpSeed?: string }>>(() => {
@@ -1633,90 +1637,115 @@ function App() {
     : (result ? 5 : 0);
 
   const Sidebar = () => (
-    <aside className="w-16 md:w-64 border-r border-[var(--border-color)] bg-[var(--bg-surface)] flex flex-col items-center md:items-stretch justify-between py-6 shrink-0 transition-all duration-300">
+    <aside className={`border-r border-[var(--border-color)] bg-[var(--bg-surface)] flex flex-col items-center justify-between py-6 shrink-0 transition-all duration-300 relative ${
+      isSidebarCollapsed ? 'w-16' : 'w-16 md:w-64'
+    }`}>
+      {/* Collapse / Expand Toggle Button */}
+      <button
+        onClick={() => {
+          const nextState = !isSidebarCollapsed;
+          setIsSidebarCollapsed(nextState);
+          localStorage.setItem('viri_sidebar_collapsed', String(nextState));
+        }}
+        className="absolute -right-3 top-7 w-6 h-6 rounded-full border border-[var(--border-color)] bg-[var(--bg-surface)] hover:bg-zinc-800 text-[var(--text-secondary)] hover:text-white flex items-center justify-center transition-all z-20 shadow-md"
+        title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+      >
+        <ChevronRight size={14} className={`transform transition-transform duration-300 ${isSidebarCollapsed ? '' : 'rotate-180'}`} />
+      </button>
+
       {/* Top section: Brand / Logo - Vertical Premium Layout */}
-      <div className="flex flex-col items-center md:items-start px-5 mb-8">
+      <div className={`flex flex-col items-center px-4 mb-8 transition-all ${isSidebarCollapsed ? 'md:items-center' : 'md:items-start w-full'}`}>
         {/* Viri Logo Container */}
         <div className="mb-3">
-          <img src="/logo_en.png" alt="Viri Logo" className="h-20 md:h-24 w-auto object-contain mx-auto md:mx-0" />
+          <img src="/logo_en.png" alt="Viri Logo" className={`w-auto object-contain mx-auto transition-all ${isSidebarCollapsed ? 'h-10 md:h-12' : 'h-20 md:h-24'}`} />
         </div>
         
         {/* Company Name */}
-        <span className="font-bold text-sm text-white hidden md:block truncate max-w-full tracking-tight">
+        <span className={`font-bold text-sm text-white truncate max-w-full tracking-tight transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:block'}`}>
           {companyName}
         </span>
         
         {/* Terminal PWA Subtitle */}
-        <span className="text-[10px] text-emerald-500/80 font-mono font-bold tracking-widest mt-0.5 uppercase hidden md:block">
+        <span className={`text-[10px] text-emerald-500/80 font-mono font-bold tracking-widest mt-0.5 uppercase transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:block'}`}>
           Terminal PWA
         </span>
       </div>
 
       {/* Nav items */}
-      <nav className="flex-1 w-full px-2 space-y-1.5 flex flex-col items-center md:items-stretch">
+      <nav className={`flex-1 w-full px-2 space-y-1.5 flex flex-col items-center transition-all ${isSidebarCollapsed ? 'md:items-center' : 'md:items-stretch'}`}>
         <button
           onClick={() => { setShowSettings(false); setActiveTab('verify'); }}
-          className={`w-10 h-10 md:w-full md:h-auto flex items-center justify-center md:justify-start gap-3 px-3 py-2.5 rounded-lg transition-colors text-xs font-semibold ${
+          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${
+            isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+          } ${
             activeTab === 'verify' && !showSettings
               ? 'bg-[var(--color-success)] text-black font-bold'
               : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
           }`}
           title="Verification"
         >
-          <MonitorSmartphone size={16} />
-          <span className="hidden md:inline">Verification</span>
+          <MonitorSmartphone size={16} className="shrink-0" />
+          <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Verification</span>
         </button>
 
         {permissions.ledger_enabled && (
           <button
             onClick={() => { setShowSettings(false); setActiveTab('ledger'); }}
-            className={`w-10 h-10 md:w-full md:h-auto flex items-center justify-center md:justify-start gap-3 px-3 py-2.5 rounded-lg transition-colors text-xs font-semibold ${
+            className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${
+              isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+            } ${
               activeTab === 'ledger' && !showSettings
                 ? 'bg-[var(--color-success)] text-black font-bold'
                 : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
             }`}
             title="Transaction Ledger"
           >
-            <BookOpen size={16} />
-            <span className="hidden md:inline">Transaction Ledger</span>
+            <BookOpen size={16} className="shrink-0" />
+            <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Transaction Ledger</span>
           </button>
         )}
 
         {permissions.reports_enabled && (
           <button
             disabled
-            className="w-10 h-10 md:w-full md:h-auto flex items-center justify-center md:justify-start gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold text-zinc-600 cursor-not-allowed"
+            className={`w-10 h-10 flex items-center justify-center rounded-lg text-xs font-semibold text-zinc-600 cursor-not-allowed ${
+              isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+            }`}
             title="Reports (Coming soon)"
           >
-            <BarChart3 size={16} />
-            <span className="hidden md:inline">Reports (Soon)</span>
+            <BarChart3 size={16} className="shrink-0" />
+            <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Reports (Soon)</span>
           </button>
         )}
 
         <button
           onClick={() => { setShowSettings(false); setActiveTab('help'); }}
-          className={`w-10 h-10 md:w-full md:h-auto flex items-center justify-center md:justify-start gap-3 px-3 py-2.5 rounded-lg transition-colors text-xs font-semibold ${
+          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${
+            isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+          } ${
             activeTab === 'help' && !showSettings
               ? 'bg-[var(--color-success)] text-black font-bold'
               : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
           }`}
           title="Help & Support"
         >
-          <HelpCircle size={16} />
-          <span className="hidden md:inline">Help & Support</span>
+          <HelpCircle size={16} className="shrink-0" />
+          <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Help & Support</span>
         </button>
       </nav>
 
       {/* Bottom section: Settings & Locking */}
-      <div className="w-full px-2 space-y-2 flex flex-col items-center md:items-stretch">
+      <div className={`w-full px-2 space-y-2 flex flex-col items-center transition-all ${isSidebarCollapsed ? 'md:items-center' : 'md:items-stretch'}`}>
         {pin && (
           <button
             onClick={() => setIsLocked(true)}
-            className="w-10 h-10 md:w-full md:h-auto flex items-center justify-center md:justify-start gap-3 px-3 py-2.5 rounded-lg transition-colors text-xs font-semibold hover:bg-red-955/20 text-red-400 hover:text-red-300 border border-transparent hover:border-red-900/30"
+            className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold hover:bg-red-955/20 text-red-400 hover:text-red-300 border border-transparent hover:border-red-900/30 ${
+              isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+            }`}
             title="Lock Terminal"
           >
-            <Lock size={16} />
-            <span className="hidden md:inline">Lock Terminal</span>
+            <Lock size={16} className="shrink-0" />
+            <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Lock Terminal</span>
           </button>
         )}
 
@@ -1735,15 +1764,17 @@ function App() {
               setShowSettings(true);
             }
           }}
-          className={`w-10 h-10 md:w-full md:h-auto flex items-center justify-center md:justify-start gap-3 px-3 py-2.5 rounded-lg transition-colors text-xs font-semibold border ${
+          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold border ${
+            isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+          } ${
             showSettings
               ? 'bg-zinc-800 text-[var(--color-success)] border-[var(--color-success)]'
               : 'hover:bg-white/5 text-[var(--text-secondary)] border-transparent hover:text-white'
           }`}
           title="Settings"
         >
-          <Settings size={16} />
-          <span className="hidden md:inline">Settings</span>
+          <Settings size={16} className="shrink-0" />
+          <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Settings</span>
         </button>
       </div>
     </aside>
@@ -2538,7 +2569,10 @@ function App() {
                             return (
                               <button
                                 key={acc.id}
-                                onClick={() => setSelectedLedgerAccountId(acc.id.toString())}
+                                onClick={() => {
+                                  setSelectedLedgerAccountId(acc.id.toString());
+                                  setLedgerPage(1);
+                                }}
                                 className={`px-4 py-3 rounded-xl border text-left flex items-center gap-3 transition-all shrink-0 lg:shrink w-[260px] lg:w-full ${
                                   isSelected
                                     ? isBml
@@ -2712,24 +2746,30 @@ function App() {
                       const isBml = activeLedgerAcc.bank_name === 'BML';
                       const isSyncing = loading && loadingMode === 'ledger';
                       const isLockedByVerify = loading && loadingMode !== 'ledger';
-                      const activeLedgerStepIndex = (loading && loadingMode === 'ledger') || progress.stage === 'success' || progress.stage === 'error'
-                        ? (progress.stage === 'init' || progress.stage === 'lock' ? 1
-                          : (progress.stage === 'auth' ? 2
-                            : (progress.stage === 'fetch' ? 3
-                              : (progress.stage === 'match' ? 4
-                                : (progress.stage === 'success' ? 5
-                                  : (progress.percent >= 95 ? 4
-                                    : (progress.percent >= 75 ? 3
-                                      : (progress.percent >= 45 ? 2 : 1))))))))
-                        : (cache.balance !== 'Not synced' && cache.balance !== 'Not found' ? 5 : 0);
+
+                      // Pagination variables
+                      const itemsPerPage = 20;
+                      const totalPages = Math.ceil(displayedTransactions.length / itemsPerPage);
+                      // Reset page to 1 if it exceeds total pages
+                      const currentPage = Math.min(ledgerPage, totalPages || 1);
+                      const startIndex = (currentPage - 1) * itemsPerPage;
+                      const paginatedTransactions = displayedTransactions.slice(startIndex, startIndex + itemsPerPage);
 
                       return (
                         <div className="glass-panel p-5 w-full space-y-4">
                           {/* Panel Header with Title and Sync Button */}
                           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-[var(--border-color)] pb-4">
-                            <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider flex items-center gap-1.5 font-sans">
-                              Statement Entries ({displayedTransactions.length}) <Tooltip text="List of statement entries fetched from the selected bank account." />
-                            </h3>
+                            <div>
+                              <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider flex items-center gap-1.5 font-sans">
+                                Statement Entries ({displayedTransactions.length}) <Tooltip text="List of statement entries fetched from the selected bank account." />
+                              </h3>
+                              <div className="text-sm font-bold text-white mt-1 flex items-center gap-2">
+                                <span>{activeLedgerAcc.account_name}</span>
+                                <span className="bg-zinc-800 text-[10px] text-zinc-300 px-2 py-0.5 rounded font-mono font-semibold uppercase tracking-wider">
+                                  {ledgerCurrency}
+                                </span>
+                              </div>
+                            </div>
                             {(() => {
                               const selectedLedgerAccount = bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId);
                               const isSelectedLedgerAccountLocked = selectedLedgerAccount && (selectedLedgerAccount.login_failures || 0) >= 2;
@@ -2750,191 +2790,160 @@ function App() {
                             })()}
                           </div>
 
-                          {/* 5-stage Progress Stepper (always visible) */}
-                          <div className="p-4 rounded-xl bg-black/40 border border-[var(--border-color)] animate-fade-in space-y-4">
-                            <div className="flex justify-between items-center">
-                              <span className={`text-xs font-semibold flex items-center gap-2 ${
-                                activeLedgerStepIndex === 5 ? 'text-[var(--color-success)] animate-pulse' :
-                                loadingMode === 'ledger' && progress.stage === 'lock' ? 'text-[var(--color-warning)]' :
-                                activeLedgerStepIndex > 0 ? 'text-blue-400' : 'text-zinc-500'
-                              }`}>
-                                {loading && loadingMode === 'ledger' ? (
-                                  progress.stage === 'success' ? (
-                                    <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                    </svg>
-                                  ) : progress.stage === 'lock' ? (
-                                    <span className="relative flex h-2 w-2 mr-1">
-                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-warning)] opacity-75"></span>
-                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-warning)]"></span>
-                                    </span>
+                          {/* Linear Sync Progress Bar */}
+                          {(isSyncing || progress.stage === 'error') && (
+                            <div className="p-4 rounded-xl bg-black/40 border border-[var(--border-color)] animate-fade-in space-y-3">
+                              <div className="flex justify-between items-center text-xs font-semibold">
+                                <span className={`flex items-center gap-2 ${
+                                  progress.stage === 'error' ? 'text-red-400' : 'text-blue-400'
+                                }`}>
+                                  {progress.stage === 'error' ? (
+                                    <AlertTriangle size={14} />
                                   ) : (
-                                    <Loader2 className="animate-spin shrink-0 text-blue-400" size={14} />
-                                  )
-                                ) : activeLedgerStepIndex === 5 ? (
-                                  <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                  </svg>
-                                ) : null}
-                                {loading && loadingMode === 'ledger' ? (progress.text || "Processing...") : (activeLedgerStepIndex === 5 ? "Ledger Synced!" : (progress.stage === 'error' ? "Sync failed." : "Ready for sync."))}
-                              </span>
-                              <div className="flex items-center gap-3 shrink-0">
-                                {loading && loadingMode === 'ledger' && timeLeft !== null && progress.stage !== 'success' && (
-                                  <span className="text-[9px] text-[var(--text-secondary)] font-mono">
-                                    Est. remaining: ~{timeLeft}s
-                                  </span>
-                                )}
-                                {syncTimeElapsed !== null && (
-                                  <span className="text-[10px] text-zinc-400 font-mono">
-                                    Time: {(syncTimeElapsed / 1000).toFixed(3)}s
-                                  </span>
-                                )}
+                                    <Loader2 className="animate-spin text-blue-400" size={14} />
+                                  )}
+                                  {progress.text || "Synchronizing account..."}
+                                </span>
+                                <span className="font-mono text-zinc-400">
+                                  {progress.stage === 'error' ? '0%' : `${progress.percent}%`}
+                                </span>
+                              </div>
+                              
+                              <div className="w-full bg-zinc-800 h-2 rounded-full overflow-hidden relative border border-zinc-900">
+                                <div 
+                                  className={`h-full transition-all duration-300 rounded-full ${
+                                    progress.stage === 'error' 
+                                      ? 'bg-red-500' 
+                                      : 'bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-500'
+                                  }`}
+                                  style={{ width: `${progress.stage === 'error' ? 100 : progress.percent}%` }}
+                                />
+                              </div>
+                              
+                              <div className="flex justify-between items-center text-[10px] text-zinc-500 font-mono">
+                                <span>
+                                  {timeLeft !== null && progress.stage !== 'success' && `Est. remaining: ~${timeLeft}s`}
+                                </span>
+                                <span>
+                                  {syncTimeElapsed !== null && `Elapsed: ${(syncTimeElapsed / 1000).toFixed(1)}s`}
+                                </span>
                               </div>
                             </div>
-
-                            <div className="relative flex justify-between items-center w-full px-1 select-none">
-                              <div className="absolute left-6 right-6 top-[13px] h-[2px] bg-zinc-800 -z-10 rounded-full flex overflow-hidden">
-                                <div className={`flex-1 h-full transition-all duration-500 ${
-                                  activeLedgerStepIndex >= 2 ? 'bg-emerald-500' :
-                                  activeLedgerStepIndex === 1 ? 'bg-gradient-to-r from-blue-500 to-zinc-700' : 'bg-zinc-700'
-                                }`} />
-                                <div className={`flex-1 h-full transition-all duration-500 ${
-                                  activeLedgerStepIndex >= 3 ? 'bg-emerald-500' :
-                                  activeLedgerStepIndex === 2 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
-                                }`} />
-                                <div className={`flex-1 h-full transition-all duration-500 ${
-                                  activeLedgerStepIndex >= 4 ? 'bg-emerald-500' :
-                                  activeLedgerStepIndex === 3 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
-                                }`} />
-                                <div className={`flex-1 h-full transition-all duration-500 ${
-                                  activeLedgerStepIndex >= 5 ? 'bg-emerald-500' :
-                                  activeLedgerStepIndex === 4 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
-                                }`} />
-                              </div>
-
-                              {[
-                                { id: 1, label: 'Start' },
-                                { id: 2, label: 'Auth' },
-                                { id: 3, label: 'Fetch' },
-                                { id: 4, label: 'Match' },
-                                { id: 5, label: 'Verify' }
-                              ].map((step) => {
-                                const isCompleted = activeLedgerStepIndex > step.id || activeLedgerStepIndex === 5;
-                                const isActive = activeLedgerStepIndex === step.id && activeLedgerStepIndex !== 5;
-                                return (
-                                  <div key={step.id} className="flex flex-col items-center z-10">
-                                    <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center font-bold text-[10px] transition-all duration-500 ${
-                                      isCompleted 
-                                        ? 'bg-emerald-500 border-emerald-500 text-white shadow-[0_0_10px_rgba(16,185,129,0.3)]'
-                                        : isActive
-                                          ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_10px_rgba(59,130,246,0.3)]'
-                                          : 'bg-zinc-950 border-zinc-800 text-zinc-500'
-                                    }`}>
-                                      {isCompleted ? (
-                                        <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                        </svg>
-                                      ) : (
-                                        <span>{step.id}</span>
-                                      )}
-                                    </div>
-                                    <span className={`text-[9px] mt-1 font-semibold transition-colors duration-500 ${
-                                      isCompleted ? 'text-emerald-400 font-bold' : isActive ? 'text-blue-400 font-bold' : 'text-zinc-500'
-                                    }`}>
-                                      {step.label}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
+                          )}
 
                           <div className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-black/30 flex flex-col font-sans">
-                            {isSyncing && displayedTransactions.length === 0 ? (
+                            {isSyncing && paginatedTransactions.length === 0 ? (
                               <div className="p-12 text-center text-zinc-500 flex flex-col items-center gap-3">
                                 <Loader2 className="animate-spin text-zinc-600" size={32} />
                                 <span className="italic text-sm">Logging into bank account securely...</span>
                               </div>
-                            ) : displayedTransactions.length === 0 ? (
+                            ) : paginatedTransactions.length === 0 ? (
                               <div className="p-12 text-center text-zinc-500 italic text-sm">
                                 No statement entries available. Click "Sync" to fetch recent history.
                               </div>
                             ) : (
-                              <div className="max-h-[65vh] lg:max-h-[70vh] overflow-y-auto scrollbar-thin">
-                                {/* Desktop Table Layout */}
-                                <div className="hidden md:block overflow-x-auto">
-                                  <table className="w-full text-left border-collapse">
-                                    <thead>
-                                      <tr className="border-b border-zinc-800/80 text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">
-                                        <th className="py-3 px-4 font-medium">Date & Time <Tooltip text="The transaction posting date." /></th>
-                                        <th className="py-3 px-4 font-medium">Description <Tooltip text="Primary transaction description/type." /></th>
-                                        <th className="py-3 px-4 font-medium">Details <Tooltip text="Additional transaction info (refs, IDs, card details, sender info)." /></th>
-                                        <th className="py-3 px-4 font-medium text-right">Amount / Balance <Tooltip text="Green indicates credits (+), red indicates debits (-)." /></th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-zinc-900/50">
-                                      {displayedTransactions.map((tx, idx) => {
-                                        const isCredit = tx.amount.startsWith('+');
-                                        const detailsParts = tx.details.split('\n');
-                                        const description = (detailsParts[0] || '').trim();
-                                        const details = detailsParts.slice(1).join('\n').trim();
-                                        
-                                        return (
-                                          <tr key={idx} className="hover:bg-white/[0.02] transition-colors group">
-                                            <td className="py-3.5 px-4 text-xs font-mono text-zinc-400 whitespace-nowrap align-top">
-                                              {tx.date}
-                                            </td>
-                                            <td className="py-3.5 px-4 text-xs font-semibold text-zinc-200 align-top">
-                                              {description}
-                                            </td>
-                                            <td className="py-3.5 px-4 text-[11px] text-zinc-400 font-mono whitespace-pre-line leading-relaxed align-top break-words max-w-xs lg:max-w-md">
-                                              {details || <span className="text-zinc-600 italic">-</span>}
-                                            </td>
-                                            <td className="py-3.5 px-4 text-right align-top whitespace-nowrap">
-                                              <div className={`font-mono font-bold text-sm leading-none ${
-                                                isCredit ? 'text-[var(--color-success)]' : 'text-red-400'
-                                              }`}>
-                                                {tx.amount}
-                                              </div>
-                                              {permissions.ledger_show_balance && tx.runningBalance && (
-                                                <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1.5">
-                                                  Bal: {ledgerCurrency} {tx.runningBalance}
+                              <div className="flex flex-col">
+                                <div className="max-h-[65vh] lg:max-h-[70vh] overflow-y-auto scrollbar-thin">
+                                  {/* Desktop Table Layout */}
+                                  <div className="hidden md:block overflow-x-auto">
+                                    <table className="w-full text-left border-collapse">
+                                      <thead>
+                                        <tr className="border-b border-zinc-800/80 text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">
+                                          <th className="py-3 px-4 font-medium">Date & Time <Tooltip text="The transaction posting date." /></th>
+                                          <th className="py-3 px-4 font-medium">Description <Tooltip text="Primary transaction description/type." /></th>
+                                          <th className="py-3 px-4 font-medium">Details <Tooltip text="Additional transaction info (refs, IDs, card details, sender info)." /></th>
+                                          <th className="py-3 px-4 font-medium text-right">Amount / Balance <Tooltip text="Green indicates credits (+), red indicates debits (-)." /></th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-zinc-900/50">
+                                        {paginatedTransactions.map((tx, idx) => {
+                                          const isCredit = tx.amount.startsWith('+');
+                                          const detailsParts = tx.details.split('\n');
+                                          const description = (detailsParts[0] || '').trim();
+                                          const details = detailsParts.slice(1).join('\n').trim();
+                                          
+                                          return (
+                                            <tr key={idx} className="hover:bg-white/[0.02] transition-colors group">
+                                              <td className="py-3.5 px-4 text-xs font-mono text-zinc-400 whitespace-nowrap align-top">
+                                                {tx.date}
+                                              </td>
+                                              <td className="py-3.5 px-4 text-xs font-semibold text-zinc-200 align-top">
+                                                {description}
+                                              </td>
+                                              <td className="py-3.5 px-4 text-[11px] text-zinc-400 font-mono whitespace-pre-line leading-relaxed align-top break-words max-w-xs lg:max-w-md">
+                                                {details || <span className="text-zinc-600 italic">-</span>}
+                                              </td>
+                                              <td className="py-3.5 px-4 text-right align-top whitespace-nowrap">
+                                                <div className={`font-mono font-bold text-sm leading-none ${
+                                                  isCredit ? 'text-[var(--color-success)]' : 'text-red-400'
+                                                }`}>
+                                                  {tx.amount}
                                                 </div>
-                                              )}
-                                            </td>
-                                          </tr>
-                                        );
-                                      })}
-                                    </tbody>
-                                  </table>
+                                                {permissions.ledger_show_balance && tx.runningBalance && (
+                                                  <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1.5">
+                                                    Bal: {ledgerCurrency} {tx.runningBalance}
+                                                  </div>
+                                                )}
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+
+                                  {/* Mobile List Layout */}
+                                  <div className="block md:hidden divide-y divide-zinc-900/50">
+                                    {paginatedTransactions.map((tx, idx) => {
+                                      const isCredit = tx.amount.startsWith('+');
+                                      return (
+                                        <div key={idx} className="p-4 flex justify-between items-start hover:bg-white/[0.02] transition-colors gap-4">
+                                          <div className="space-y-1 flex-1">
+                                            <div className="text-xs font-mono text-zinc-500">{tx.date}</div>
+                                            <div className="text-[11px] text-zinc-200 whitespace-pre-line leading-relaxed break-words max-w-md">{tx.details}</div>
+                                          </div>
+                                          <div className="text-right space-y-1 shrink-0">
+                                            <div className={`font-mono font-bold text-sm leading-none ${
+                                              isCredit ? 'text-[var(--color-success)]' : 'text-red-400'
+                                            }`}>
+                                              {tx.amount}
+                                            </div>
+                                            {permissions.ledger_show_balance && tx.runningBalance && (
+                                              <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1">
+                                                Bal: {ledgerCurrency} {tx.runningBalance}
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
 
-                                {/* Mobile List Layout */}
-                                <div className="block md:hidden divide-y divide-zinc-900/50">
-                                  {displayedTransactions.map((tx, idx) => {
-                                    const isCredit = tx.amount.startsWith('+');
-                                    return (
-                                      <div key={idx} className="p-4 flex justify-between items-start hover:bg-white/[0.02] transition-colors gap-4">
-                                        <div className="space-y-1 flex-1">
-                                          <div className="text-xs font-mono text-zinc-500">{tx.date}</div>
-                                          <div className="text-[11px] text-zinc-200 whitespace-pre-line leading-relaxed break-words max-w-md">{tx.details}</div>
-                                        </div>
-                                        <div className="text-right space-y-1 shrink-0">
-                                          <div className={`font-mono font-bold text-sm leading-none ${
-                                            isCredit ? 'text-[var(--color-success)]' : 'text-red-400'
-                                          }`}>
-                                            {tx.amount}
-                                          </div>
-                                          {permissions.ledger_show_balance && tx.runningBalance && (
-                                            <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1">
-                                              Bal: {ledgerCurrency} {tx.runningBalance}
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
+                                {/* Pagination Controls */}
+                                {totalPages > 1 && (
+                                  <div className="flex items-center justify-between px-4 py-3 bg-black/40 border-t border-[var(--border-color)] text-xs">
+                                    <div className="text-[var(--text-secondary)] font-mono">
+                                      Page <span className="text-white font-bold">{currentPage}</span> of <span className="text-white font-bold">{totalPages}</span> (Entries {startIndex + 1}-{Math.min(startIndex + itemsPerPage, displayedTransactions.length)} of {displayedTransactions.length})
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <button
+                                        onClick={() => setLedgerPage(prev => Math.max(prev - 1, 1))}
+                                        disabled={currentPage === 1}
+                                        className="btn btn-outline py-1 px-3 text-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/5"
+                                      >
+                                        Previous
+                                      </button>
+                                      <button
+                                        onClick={() => setLedgerPage(prev => Math.min(prev + 1, totalPages))}
+                                        disabled={currentPage === totalPages}
+                                        className="btn btn-outline py-1 px-3 text-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/5"
+                                      >
+                                        Next
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
