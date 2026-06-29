@@ -108,6 +108,9 @@ function App() {
     return localStorage.getItem('viri_sidebar_collapsed') === 'true';
   });
   const [ledgerPage, setLedgerPage] = useState(1);
+  const [ledgerFilter, setLedgerFilter] = useState<'all' | 'in' | 'out'>('all');
+  const [ledgerSearch, setLedgerSearch] = useState('');
+  const [ledgerPageSize, setLedgerPageSize] = useState(25);
 
   // Credentials States
   const [accountsCreds, setAccountsCreds] = useState<Record<string, { username?: string; password?: string; totpSeed?: string }>>(() => {
@@ -2534,426 +2537,307 @@ function App() {
               </div>
             )}
 
-            {/* View Tab 2: Transaction Ledger */}
-            {activeTab === 'ledger' && (
-              <div className="w-full max-w-xl lg:max-w-full w-full animate-fade-in flex flex-col gap-6">
-                {/* Section Header */}
-                <div className="w-full flex justify-between items-center border-b border-[var(--border-color)] pb-4">
-                  <div>
-                    <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-1.5">Transaction Ledger <Tooltip text="A real-time ledger list showing statement entries and balance updates for your bank accounts." /></h2>
-                    <p className="text-xs text-[var(--text-secondary)] mt-0.5">Real-time statements fetched directly from your bank</p>
+            {activeTab === 'ledger' && (() => {
+              // Resolve active ledger account context
+              const activeLedgerAcc = selectedLedgerAccountId 
+                ? bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId) 
+                : bankAccounts[0];
+              const ledgerCurrency = activeLedgerAcc?.currency || 'MVR';
+              const cache = activeLedgerAcc ? (ledgerCache[activeLedgerAcc.id.toString()] || {
+                balance: 'Not synced',
+                lastUpdated: 'Never',
+                transactions: []
+              }) : { balance: 'Not synced', lastUpdated: 'Never', transactions: [] };
+
+              // Apply filters & search logic
+              const rawTransactions = cache.transactions || [];
+              const filteredTransactions = rawTransactions.filter(tx => {
+                const isCredit = tx.amount.startsWith('+');
+                
+                // 1. Direction Filter
+                if (ledgerFilter === 'in' && !isCredit) return false;
+                if (ledgerFilter === 'out' && isCredit) return false;
+
+                // 2. Search Query Matching (description, details, date)
+                if (ledgerSearch.trim()) {
+                  const query = ledgerSearch.toLowerCase();
+                  const matchesDesc = tx.details.toLowerCase().includes(query);
+                  const matchesDate = tx.date.toLowerCase().includes(query);
+                  const matchesAmount = tx.amount.toLowerCase().includes(query);
+                  return matchesDesc || matchesDate || matchesAmount;
+                }
+                return true;
+              });
+
+              const isSyncing = loading && loadingMode === 'ledger';
+              const isLockedByVerify = loading && loadingMode !== 'ledger';
+
+              // Pagination variables
+              const totalPages = Math.ceil(filteredTransactions.length / ledgerPageSize);
+              const currentPage = Math.min(ledgerPage, totalPages || 1);
+              const startIndex = (currentPage - 1) * ledgerPageSize;
+              const paginatedTransactions = filteredTransactions.slice(startIndex, startIndex + ledgerPageSize);
+
+              // Helper function to return icon based on transaction description
+              const getTransactionIcon = (description: string) => {
+                const descLower = description.toLowerCase();
+                if (descLower.includes('annual') || descLower.includes('fee') || descLower.includes('charge')) {
+                  return <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-400 border border-zinc-700/50"><Copy size={14} /></div>;
+                }
+                if (descLower.includes('withdrawal') || descLower.includes('atm') || descLower.includes('cash')) {
+                  return <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-400 border border-zinc-700/50 font-mono text-[9px] font-bold">ATM</div>;
+                }
+                if (descLower.includes('purchase') || descLower.includes('visa') || descLower.includes('pos') || descLower.includes('card')) {
+                  return <div className="w-8 h-8 rounded-lg bg-red-955/20 flex items-center justify-center text-red-400 border border-red-900/30"><MonitorSmartphone size={14} /></div>;
+                }
+                // default bank icon
+                return <div className="w-8 h-8 rounded-lg bg-emerald-955/20 flex items-center justify-center text-emerald-400 border border-emerald-900/30"><BookOpen size={14} /></div>;
+              };
+
+              return (
+                <div className="w-full max-w-5xl mx-auto animate-fade-in flex flex-col gap-6 font-sans">
+                  {/* Top Header Section */}
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-zinc-800/80 pb-6">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-950/30 border border-emerald-500/20 rounded-full text-[10px] font-semibold text-emerald-400">
+                          <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse"></span>
+                          <span>ONLINE — C2</span>
+                        </div>
+                        <span className="text-[10px] text-zinc-500 font-mono flex items-center gap-1">
+                          <Shield size={10} /> Viri Zero-Knowledge Architecture: Fully encrypted local storage.
+                        </span>
+                      </div>
+                      <h1 className="text-3xl font-extrabold text-white tracking-tight">Transaction Ledger</h1>
+                      <p className="text-sm text-zinc-400 mt-1">Real-time terminal view for authenticated accounts</p>
+                    </div>
+
+                    {/* Total Position widget */}
+                    <div className="text-right">
+                      <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold font-sans">Total Position</div>
+                      <div className="text-3xl font-black text-emerald-400 tracking-tight mt-1">
+                        {ledgerCurrency} {cache.balance !== 'Not synced' && cache.balance !== 'Not found' ? cache.balance : '0.00'}
+                      </div>
+                      <div className="text-[10px] text-zinc-500 font-mono mt-1">
+                        LAST SYNC: {cache.lastUpdated}
+                      </div>
+                    </div>
                   </div>
-                  
-                  {loading && loadingMode === 'ledger' && (
-                    <div className="flex items-center gap-2 bg-blue-950/40 text-blue-400 border border-blue-900/50 px-3 py-1 rounded-full text-xs font-semibold">
-                      <Loader2 className="animate-spin" size={14} /> Synchronizing...
+
+                  {/* Horizontal Bank Account Cards Selector */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
+                    {bankAccounts.map(acc => {
+                      const isSelected = selectedLedgerAccountId === acc.id.toString();
+                      const isBml = acc.bank_name === 'BML';
+                      const accCache = ledgerCache[acc.id.toString()] || { balance: 'Not synced' };
+                      return (
+                        <button
+                          key={acc.id}
+                          onClick={() => {
+                            setSelectedLedgerAccountId(acc.id.toString());
+                            setLedgerPage(1);
+                          }}
+                          className={`p-4 rounded-xl border text-left flex items-center gap-3.5 transition-all shadow-lg ${
+                            isSelected
+                              ? 'bg-zinc-900 border-emerald-500/60 ring-1 ring-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.08)]'
+                              : 'bg-zinc-950/60 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/30'
+                          }`}
+                        >
+                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-base shadow-inner shrink-0 ${
+                            isBml ? 'bg-red-650 text-white' : 'bg-emerald-950 text-emerald-400 border border-emerald-900/30'
+                          }`}>
+                            {isBml ? 'B' : <BookOpen size={16} />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">{acc.bank_name} • Active</span>
+                            </div>
+                            <div className="text-sm font-bold text-white truncate mt-0.5">{acc.account_name}</div>
+                            <div className="text-[11px] text-zinc-500 font-mono mt-0.5">
+                              {accCache.balance !== 'Not synced' ? `${acc.currency || 'MVR'} ${accCache.balance}` : 'Not synced'}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Main Table Container */}
+                  {activeLedgerAcc && (
+                    <div className="glass-panel p-5 w-full bg-zinc-950/40 border border-zinc-800 rounded-2xl flex flex-col gap-5">
+                      
+                      {/* Filter & Toolbar Area */}
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-lg font-bold text-white tracking-tight">Daily Entries</h3>
+                          <span className="text-sm font-mono text-zinc-500">({filteredTransactions.length})</span>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-4">
+                          {/* Segmented Filter Control */}
+                          <div className="bg-zinc-900/80 p-0.5 rounded-lg border border-zinc-800 flex items-center gap-1">
+                            <button
+                              onClick={() => { setLedgerFilter('all'); setLedgerPage(1); }}
+                              className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${
+                                ledgerFilter === 'all' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
+                              }`}
+                            >
+                              All
+                            </button>
+                            <button
+                              onClick={() => { setLedgerFilter('in'); setLedgerPage(1); }}
+                              className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${
+                                ledgerFilter === 'in' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
+                              }`}
+                            >
+                              Inwards
+                            </button>
+                            <button
+                              onClick={() => { setLedgerFilter('out'); setLedgerPage(1); }}
+                              className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${
+                                ledgerFilter === 'out' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
+                              }`}
+                            >
+                              Outwards
+                            </button>
+                          </div>
+
+                          {/* Search Inputs */}
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={14} />
+                            <input
+                              type="text"
+                              value={ledgerSearch}
+                              onChange={(e) => { setLedgerSearch(e.target.value); setLedgerPage(1); }}
+                              placeholder="Search..."
+                              className="pl-9 pr-4 py-1.5 bg-zinc-900/60 border border-zinc-800 focus:border-zinc-700 text-xs text-white rounded-lg w-48 font-medium focus:outline-none transition-colors"
+                            />
+                          </div>
+
+                          {/* Sync Button */}
+                          <button
+                            onClick={() => syncLedger(activeLedgerAcc.id.toString())}
+                            disabled={isSyncing || isLockedByVerify}
+                            className="bg-emerald-400 hover:bg-emerald-300 text-zinc-950 font-bold text-xs px-4 py-2 rounded-lg flex items-center gap-2 transition-all shadow-[0_0_15px_rgba(52,211,153,0.15)] disabled:opacity-40"
+                          >
+                            <RefreshCw size={13} className={isSyncing ? 'animate-spin' : ''} />
+                            Sync History
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Entries Table */}
+                      <div className="overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-900/10 flex flex-col font-sans">
+                        {isSyncing && paginatedTransactions.length === 0 ? (
+                          <div className="p-16 text-center text-zinc-500 flex flex-col items-center gap-3">
+                            <Loader2 className="animate-spin text-zinc-600" size={32} />
+                            <span className="italic text-sm">Logging into banking portal securely...</span>
+                          </div>
+                        ) : paginatedTransactions.length === 0 ? (
+                          <div className="p-16 text-center text-zinc-500 italic text-sm">
+                            No ledger entries found. Modify filters or click "Sync History" to fetch statement.
+                          </div>
+                        ) : (
+                          <div className="flex flex-col">
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left border-collapse">
+                                <thead>
+                                  <tr className="border-b border-zinc-800 text-[10px] text-zinc-500 uppercase tracking-wider font-bold">
+                                    <th className="py-4 px-5 font-semibold">Date & Time</th>
+                                    <th className="py-4 px-5 font-semibold">Description</th>
+                                    <th className="py-4 px-5 font-semibold">Details / Meta</th>
+                                    <th className="py-4 px-5 font-semibold text-right">Amount ({ledgerCurrency})</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-zinc-900/60">
+                                  {paginatedTransactions.map((tx, idx) => {
+                                    const isCredit = tx.amount.startsWith('+');
+                                    const detailsParts = tx.details.split('\n');
+                                    const description = (detailsParts[0] || '').trim();
+                                    const details = detailsParts.slice(1).join('\n').trim();
+
+                                    return (
+                                      <tr key={idx} className="hover:bg-white/[0.01] transition-colors group">
+                                        <td className="py-4 px-5 text-xs font-mono text-zinc-400 whitespace-nowrap align-middle">
+                                          {tx.date}
+                                        </td>
+                                        <td className="py-4 px-5 text-sm font-bold text-zinc-200 align-middle">
+                                          <div className="flex items-center gap-3">
+                                            {getTransactionIcon(description)}
+                                            <span>{description}</span>
+                                          </div>
+                                        </td>
+                                        <td className="py-4 px-5 text-xs text-zinc-400 font-mono whitespace-pre-line leading-relaxed align-middle break-all max-w-sm">
+                                          {details || <span className="text-zinc-600 italic">-</span>}
+                                        </td>
+                                        <td className="py-4 px-5 text-right align-middle whitespace-nowrap">
+                                          <div className={`font-mono font-extrabold text-base ${
+                                            isCredit ? 'text-emerald-400' : 'text-red-400'
+                                          }`}>
+                                            {tx.amount}
+                                          </div>
+                                          {permissions.ledger_show_balance && tx.runningBalance && (
+                                            <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1 uppercase">
+                                              Bal {tx.runningBalance}
+                                            </div>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+
+                            {/* Bottom Progress Bar & Pagination Panel */}
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-5 py-4 bg-zinc-950/60 border-t border-zinc-800 text-xs">
+                              {/* Sync Progress */}
+                              <div className="flex items-center gap-3 min-w-[200px]">
+                                <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold font-sans">Sync Progress</span>
+                                <div className="flex-1 bg-zinc-800 h-1.5 rounded-full overflow-hidden relative">
+                                  <div
+                                    className={`h-full transition-all duration-300 rounded-full ${
+                                      progress.stage === 'error' ? 'bg-red-500' : 'bg-emerald-400'
+                                    }`}
+                                    style={{ width: `${isSyncing ? progress.percent : 100}%` }}
+                                  />
+                                </div>
+                                <span className="font-mono text-zinc-400 text-[10px] font-bold">
+                                  {isSyncing ? `${progress.percent}%` : '100%'}
+                                </span>
+                              </div>
+
+                              {/* Action Metadata */}
+                              <div className="text-zinc-500 font-mono text-[10px]">
+                                {syncTimeElapsed !== null ? `Elapsed: ${(syncTimeElapsed / 1000).toFixed(1)}s` : `Last full sync: ${cache.lastUpdated !== 'Never' ? 'just recently' : 'Never'}`}
+                              </div>
+
+                              {/* Paging controls */}
+                              <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-zinc-500">Show</span>
+                                  <select
+                                    value={ledgerPageSize}
+                                    onChange={(e) => { setLedgerPageSize(Number(e.target.value)); setLedgerPage(1); }}
+                                    className="bg-zinc-900 border border-zinc-800 text-zinc-300 font-bold px-2 py-1 rounded text-xs focus:outline-none focus:border-zinc-700"
+                                  >
+                                    <option value={10}>10 rows</option>
+                                    <option value={20}>20 rows</option>
+                                    <option value={25}>25 rows</option>
+                                    <option value={50}>50 rows</option>
+                                  </select>
+                                </div>
+
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start w-full">
-                  {/* Left Column: Bank Accounts & Summary Card (lg:col-span-5) */}
-                  <div className="lg:col-span-5 space-y-6 w-full flex flex-col">
-                    {/* Account Tabs Switcher */}
-                    <div className="glass-panel p-5 w-full">
-                      <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold mb-2.5 flex items-center gap-1.5 font-sans">Select Bank Account <Tooltip text="Filter transaction ledger entries by a specific configured bank account." /></label>
-                      {bankAccounts.length === 0 ? (
-                        <div className="p-4 bg-zinc-900/30 border border-zinc-800 rounded-lg text-center text-zinc-500 italic text-sm">
-                          No bank accounts configured. Please contact the administrator.
-                        </div>
-                      ) : (
-                        <div className="flex flex-row lg:flex-col gap-2.5 overflow-x-auto lg:overflow-x-visible pb-2 lg:pb-0 scrollbar-thin w-full">
-                          {bankAccounts.map(acc => {
-                            const isSelected = selectedLedgerAccountId === acc.id.toString();
-                            const isBml = acc.bank_name === 'BML';
-                            return (
-                              <button
-                                key={acc.id}
-                                onClick={() => {
-                                  setSelectedLedgerAccountId(acc.id.toString());
-                                  setLedgerPage(1);
-                                }}
-                                className={`px-4 py-3 rounded-xl border text-left flex items-center gap-3 transition-all shrink-0 lg:shrink w-[260px] lg:w-full ${
-                                  isSelected
-                                    ? isBml
-                                      ? 'bg-red-955/20 border-red-500/80 shadow-[0_0_15px_rgba(239,68,68,0.15)]'
-                                      : 'bg-emerald-955/20 border-emerald-500/80 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
-                                    : 'bg-[var(--bg-surface)] border-[var(--border-color)] hover:border-zinc-700'
-                                }`}
-                              >
-                                <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800 p-1 flex items-center justify-center shrink-0">
-                                  <img src={isBml ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt="" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className={`text-[9px] uppercase font-bold tracking-wider ${
-                                      isBml ? 'text-red-400' : 'text-emerald-400'
-                                    }`}>
-                                      {acc.bank_name}
-                                    </span>
-                                    {acc.label && (
-                                      <span className="text-[9px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium">
-                                        {acc.label}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="text-xs font-semibold text-white truncate max-w-full">
-                                    {acc.account_name}
-                                  </div>
-                                  <div className="text-[10px] font-mono text-[var(--text-secondary)]">
-                                    {acc.account_number}
-                                  </div>
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Account Summary & Refresh Bar */}
-                    {selectedLedgerAccountId && (() => {
-                      const activeLedgerAcc = bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId);
-                      if (!activeLedgerAcc) return null;
-                      
-                      const cache = ledgerCache[selectedLedgerAccountId] || {
-                        balance: 'Not synced',
-                        lastUpdated: 'Never',
-                        transactions: []
-                      };
-                      const ledgerCurrency = activeLedgerAcc.currency || 'MVR';
-                      const isLockedByVerify = loading && loadingMode !== 'ledger';
-                      const isSelectedLedgerAccountLocked = activeLedgerAcc && (activeLedgerAcc.login_failures || 0) >= 2;
-
-                      return (
-                        <div className="space-y-6">
-                          {isSelectedLedgerAccountLocked && (
-                            <div className="p-3.5 bg-red-955/20 border border-red-500/30 rounded-xl text-xs text-red-400 leading-normal flex items-start gap-2.5">
-                              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-                              <div>
-                                <strong className="block font-bold mb-0.5">Account Security Lockout</strong>
-                                This account is locked due to 2 consecutive failed logins. To prevent a permanent block, please log in manually in a web browser, verify the account is active, and then ask an administrator to reset this lockout from the Company Admin Panel.
-                              </div>
-                            </div>
-                          )}
-                          
-                          {/* Summary Card */}
-                          {permissions.ledger_show_balance && (
-                            <div className="glass-panel p-6 border-[var(--border-color)] bg-gradient-to-br from-zinc-950 to-zinc-900/60 relative overflow-hidden flex flex-col justify-between items-start gap-4">
-                              <div className="space-y-1">
-                                <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold flex items-center gap-1.5 font-sans">Available Balance <Tooltip text="The cleared account balance fetched directly from the bank's portal." /></span>
-                                <div className={`text-3xl font-bold tracking-tight ${
-                                  cache.balance === 'Not synced' ? 'text-zinc-500' : 'text-white'
-                                }`}>
-                                  {cache.balance !== 'Not synced' && cache.balance !== 'Not found' ? `${ledgerCurrency} ${cache.balance}` : cache.balance}
-                                </div>
-                                <div className="text-[10px] text-[var(--text-secondary)] flex items-center gap-1.5 font-mono">
-                                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-zinc-600"></span>
-                                  Last updated: {cache.lastUpdated}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Locking Overlay notification */}
-                          {isLockedByVerify && (
-                            <div className="p-3.5 bg-red-950/20 border border-red-900/30 rounded-xl text-xs text-red-400 flex items-center gap-2 animate-pulse">
-                              <AlertTriangle size={14} className="shrink-0" />
-                              <span>Ledger synchronization disabled. A transfer verification is currently in progress.</span>
-                            </div>
-                          )}
-
-                          {/* Sync Error Block */}
-                          {cache.error && (
-                            <div className="p-3.5 bg-red-900/20 border border-red-500/30 rounded-xl text-xs text-red-400 leading-normal flex items-start gap-2.5">
-                              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-                              <div>
-                                <strong className="block font-bold mb-0.5">Sync Failed:</strong>
-                                {cache.error}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Ledger Logs Panel */}
-                          {permissions.show_vbtl && activeTab === 'ledger' && (
-                            <div className="w-full bg-black border border-zinc-800 rounded-lg overflow-hidden animate-fade-in shadow-2xl">
-                              <div className="bg-zinc-900 px-4 py-2 border-b border-zinc-800 flex items-center gap-2">
-                                <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                                <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-                                <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                                <span className="text-xs text-zinc-400 ml-2 font-mono flex items-center gap-1">Viri Bridge Ledger Logs <Tooltip text="Real-time network crawler debugging logs execution stream." /></span>
-                                {loading && <Loader2 size={12} className="text-[var(--color-success)] animate-spin ml-2" />}
-
-                                <div className="ml-auto flex items-center gap-2">
-                                  {logs.length > 0 && (
-                                    <button
-                                      onClick={copyLogs}
-                                      className="flex items-center gap-1 text-[10px] uppercase font-bold text-zinc-400 bg-zinc-900 border border-zinc-800 px-2 py-1 rounded hover:bg-zinc-800 transition-colors"
-                                    >
-                                      <Copy size={12} /> Copy
-                                    </button>
-                                  )}
-                                  {loading && (
-                                    <button
-                                      onClick={killRobot}
-                                      className="flex items-center gap-1 text-[10px] uppercase font-bold text-red-500 bg-red-955 border border-red-900 px-2 py-1 rounded hover:bg-red-900 transition-colors"
-                                    >
-                                      <XCircle size={12} /> Kill
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="p-4 font-mono text-xs text-[var(--color-success)] h-40 overflow-y-auto flex flex-col gap-1 scrollbar-thin"
-                                ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}>
-                                {logs.length === 0 ? (
-                                  <span className="text-zinc-500">Waiting for extension connection...</span>
-                                ) : (
-                                  logs.map((log, i) => (
-                                    <div key={i} className={`${log.includes('error') || log.includes('Exception') || log.includes('Failed') ? 'text-red-400' : ''}`}>
-                                      {log}
-                                    </div>
-                                  ))
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                        </div>
-                      );
-                    })()}
-                  </div>
-
-                  {/* Right Column: Statement Entries Feed (lg:col-span-7) */}
-                  <div className="lg:col-span-7 w-full">
-                    {selectedLedgerAccountId && (() => {
-                      const activeLedgerAcc = bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId);
-                      if (!activeLedgerAcc) return null;
-                      
-                      const cache = ledgerCache[selectedLedgerAccountId] || {
-                        balance: 'Not synced',
-                        lastUpdated: 'Never',
-                        transactions: []
-                      };
-                      const ledgerCurrency = activeLedgerAcc.currency || 'MVR';
-
-                      const displayedTransactions = cache.transactions.filter(tx => {
-                        if (!permissions.ledger_show_debit) {
-                          return tx.amount.startsWith('+');
-                        }
-                        return true;
-                      });
-
-                      const isBml = activeLedgerAcc.bank_name === 'BML';
-                      const isSyncing = loading && loadingMode === 'ledger';
-                      const isLockedByVerify = loading && loadingMode !== 'ledger';
-
-                      // Pagination variables
-                      const itemsPerPage = 20;
-                      const totalPages = Math.ceil(displayedTransactions.length / itemsPerPage);
-                      // Reset page to 1 if it exceeds total pages
-                      const currentPage = Math.min(ledgerPage, totalPages || 1);
-                      const startIndex = (currentPage - 1) * itemsPerPage;
-                      const paginatedTransactions = displayedTransactions.slice(startIndex, startIndex + itemsPerPage);
-
-                      return (
-                        <div className="glass-panel p-5 w-full space-y-4">
-                          {/* Panel Header with Title and Sync Button */}
-                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-[var(--border-color)] pb-4">
-                            <div>
-                              <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider flex items-center gap-1.5 font-sans">
-                                Statement Entries ({displayedTransactions.length}) <Tooltip text="List of statement entries fetched from the selected bank account." />
-                              </h3>
-                              <div className="text-sm font-bold text-white mt-1 flex items-center gap-2">
-                                <span>{activeLedgerAcc.account_name}</span>
-                                <span className="bg-zinc-800 text-[10px] text-zinc-300 px-2 py-0.5 rounded font-mono font-semibold uppercase tracking-wider">
-                                  {ledgerCurrency}
-                                </span>
-                              </div>
-                            </div>
-                            {(() => {
-                              const selectedLedgerAccount = bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId);
-                              const isSelectedLedgerAccountLocked = selectedLedgerAccount && (selectedLedgerAccount.login_failures || 0) >= 2;
-                              return (
-                                <button
-                                  onClick={() => syncLedger(selectedLedgerAccountId)}
-                                  disabled={isSyncing || isLockedByVerify || isSelectedLedgerAccountLocked}
-                                  className={`btn ${
-                                    isBml ? 'btn-outline border-red-500/50 hover:bg-red-500 hover:text-white' : 'btn-success'
-                                  } py-2.5 px-5 text-xs font-semibold flex items-center justify-center gap-2 transition-all shrink-0 ${
-                                    isSyncing || isLockedByVerify || isSelectedLedgerAccountLocked ? 'opacity-50 cursor-not-allowed' : ''
-                                  }`}
-                                >
-                                  <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
-                                  {isSyncing ? 'Syncing...' : isSelectedLedgerAccountLocked ? 'Blocked' : 'Sync Balance & History'}
-                                </button>
-                              );
-                            })()}
-                          </div>
-
-                          {/* Linear Sync Progress Bar */}
-                          {(isSyncing || progress.stage === 'error') && (
-                            <div className="p-4 rounded-xl bg-black/40 border border-[var(--border-color)] animate-fade-in space-y-3">
-                              <div className="flex justify-between items-center text-xs font-semibold">
-                                <span className={`flex items-center gap-2 ${
-                                  progress.stage === 'error' ? 'text-red-400' : 'text-blue-400'
-                                }`}>
-                                  {progress.stage === 'error' ? (
-                                    <AlertTriangle size={14} />
-                                  ) : (
-                                    <Loader2 className="animate-spin text-blue-400" size={14} />
-                                  )}
-                                  {progress.text || "Synchronizing account..."}
-                                </span>
-                                <span className="font-mono text-zinc-400">
-                                  {progress.stage === 'error' ? '0%' : `${progress.percent}%`}
-                                </span>
-                              </div>
-                              
-                              <div className="w-full bg-zinc-800 h-2 rounded-full overflow-hidden relative border border-zinc-900">
-                                <div 
-                                  className={`h-full transition-all duration-300 rounded-full ${
-                                    progress.stage === 'error' 
-                                      ? 'bg-red-500' 
-                                      : 'bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-500'
-                                  }`}
-                                  style={{ width: `${progress.stage === 'error' ? 100 : progress.percent}%` }}
-                                />
-                              </div>
-                              
-                              <div className="flex justify-between items-center text-[10px] text-zinc-500 font-mono">
-                                <span>
-                                  {timeLeft !== null && progress.stage !== 'success' && `Est. remaining: ~${timeLeft}s`}
-                                </span>
-                                <span>
-                                  {syncTimeElapsed !== null && `Elapsed: ${(syncTimeElapsed / 1000).toFixed(1)}s`}
-                                </span>
-                              </div>
-                            </div>
-                          )}
-
-                          <div className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-black/30 flex flex-col font-sans">
-                            {isSyncing && paginatedTransactions.length === 0 ? (
-                              <div className="p-12 text-center text-zinc-500 flex flex-col items-center gap-3">
-                                <Loader2 className="animate-spin text-zinc-600" size={32} />
-                                <span className="italic text-sm">Logging into bank account securely...</span>
-                              </div>
-                            ) : paginatedTransactions.length === 0 ? (
-                              <div className="p-12 text-center text-zinc-500 italic text-sm">
-                                No statement entries available. Click "Sync" to fetch recent history.
-                              </div>
-                            ) : (
-                              <div className="flex flex-col">
-                                <div className="max-h-[65vh] lg:max-h-[70vh] overflow-y-auto scrollbar-thin">
-                                  {/* Desktop Table Layout */}
-                                  <div className="hidden md:block overflow-x-auto">
-                                    <table className="w-full text-left border-collapse">
-                                      <thead>
-                                        <tr className="border-b border-zinc-800/80 text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">
-                                          <th className="py-3 px-4 font-medium">Date & Time <Tooltip text="The transaction posting date." /></th>
-                                          <th className="py-3 px-4 font-medium">Description <Tooltip text="Primary transaction description/type." /></th>
-                                          <th className="py-3 px-4 font-medium">Details <Tooltip text="Additional transaction info (refs, IDs, card details, sender info)." /></th>
-                                          <th className="py-3 px-4 font-medium text-right">Amount / Balance <Tooltip text="Green indicates credits (+), red indicates debits (-)." /></th>
-                                        </tr>
-                                      </thead>
-                                      <tbody className="divide-y divide-zinc-900/50">
-                                        {paginatedTransactions.map((tx, idx) => {
-                                          const isCredit = tx.amount.startsWith('+');
-                                          const detailsParts = tx.details.split('\n');
-                                          const description = (detailsParts[0] || '').trim();
-                                          const details = detailsParts.slice(1).join('\n').trim();
-                                          
-                                          return (
-                                            <tr key={idx} className="hover:bg-white/[0.02] transition-colors group">
-                                              <td className="py-3.5 px-4 text-xs font-mono text-zinc-400 whitespace-nowrap align-top">
-                                                {tx.date}
-                                              </td>
-                                              <td className="py-3.5 px-4 text-xs font-semibold text-zinc-200 align-top">
-                                                {description}
-                                              </td>
-                                              <td className="py-3.5 px-4 text-[11px] text-zinc-400 font-mono whitespace-pre-line leading-relaxed align-top break-words max-w-xs lg:max-w-md">
-                                                {details || <span className="text-zinc-600 italic">-</span>}
-                                              </td>
-                                              <td className="py-3.5 px-4 text-right align-top whitespace-nowrap">
-                                                <div className={`font-mono font-bold text-sm leading-none ${
-                                                  isCredit ? 'text-[var(--color-success)]' : 'text-red-400'
-                                                }`}>
-                                                  {tx.amount}
-                                                </div>
-                                                {permissions.ledger_show_balance && tx.runningBalance && (
-                                                  <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1.5">
-                                                    Bal: {ledgerCurrency} {tx.runningBalance}
-                                                  </div>
-                                                )}
-                                              </td>
-                                            </tr>
-                                          );
-                                        })}
-                                      </tbody>
-                                    </table>
-                                  </div>
-
-                                  {/* Mobile List Layout */}
-                                  <div className="block md:hidden divide-y divide-zinc-900/50">
-                                    {paginatedTransactions.map((tx, idx) => {
-                                      const isCredit = tx.amount.startsWith('+');
-                                      return (
-                                        <div key={idx} className="p-4 flex justify-between items-start hover:bg-white/[0.02] transition-colors gap-4">
-                                          <div className="space-y-1 flex-1">
-                                            <div className="text-xs font-mono text-zinc-500">{tx.date}</div>
-                                            <div className="text-[11px] text-zinc-200 whitespace-pre-line leading-relaxed break-words max-w-md">{tx.details}</div>
-                                          </div>
-                                          <div className="text-right space-y-1 shrink-0">
-                                            <div className={`font-mono font-bold text-sm leading-none ${
-                                              isCredit ? 'text-[var(--color-success)]' : 'text-red-400'
-                                            }`}>
-                                              {tx.amount}
-                                            </div>
-                                            {permissions.ledger_show_balance && tx.runningBalance && (
-                                              <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1">
-                                                Bal: {ledgerCurrency} {tx.runningBalance}
-                                              </div>
-                                            )}
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-
-                                {/* Pagination Controls */}
-                                {totalPages > 1 && (
-                                  <div className="flex items-center justify-between px-4 py-3 bg-black/40 border-t border-[var(--border-color)] text-xs">
-                                    <div className="text-[var(--text-secondary)] font-mono">
-                                      Page <span className="text-white font-bold">{currentPage}</span> of <span className="text-white font-bold">{totalPages}</span> (Entries {startIndex + 1}-{Math.min(startIndex + itemsPerPage, displayedTransactions.length)} of {displayedTransactions.length})
-                                    </div>
-                                    <div className="flex gap-2">
-                                      <button
-                                        onClick={() => setLedgerPage(prev => Math.max(prev - 1, 1))}
-                                        disabled={currentPage === 1}
-                                        className="btn btn-outline py-1 px-3 text-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/5"
-                                      >
-                                        Previous
-                                      </button>
-                                      <button
-                                        onClick={() => setLedgerPage(prev => Math.min(prev + 1, totalPages))}
-                                        disabled={currentPage === totalPages}
-                                        className="btn btn-outline py-1 px-3 text-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/5"
-                                      >
-                                        Next
-                                      </button>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-              </div>
-            )}
+              );
+            })()}
             
             {activeTab === 'help' && (
               <div className="flex-1 w-full max-w-4xl mx-auto flex flex-col items-center justify-start p-4 md:p-8 animate-fade-in overflow-y-auto space-y-8">
