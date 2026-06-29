@@ -1871,12 +1871,10 @@ async function runMibFlowInternal(credentials, targetAccount, port, targetAmount
         }, port);
       } else {
         emitLog(port, `> [MIB] Step 3: Submitting primary credentials (salted auth)...`);
-        const hashedPassword = await hashPasswordSHA256(credentials.password);
+        const passHash = await hashPasswordSHA256(credentials.password);
+        const saltedHash = await hashPasswordSHA256(passHash + (userSalt || ""));
         const clientSalt = generateClientSalt();
-        const clientSaltHashed = await hashPasswordSHA256(clientSalt);
-        
-        const keyText = hashedPassword + userSalt + clientSaltHashed;
-        const keyHash = await hashPasswordSHA256(keyText);
+        const clientSaltedHash = await hashPasswordSHA256(clientSalt + saltedHash);
 
         xAuthRes = await mibFetch(`${MIB_BASE_URL}/aAuth/xAuth`, {
           method: 'POST',
@@ -1884,7 +1882,7 @@ async function runMibFlowInternal(credentials, targetAccount, port, targetAmount
           body: buildFormBody({
             rTag,
             pgf01: credentials.username,
-            pgf02: keyHash,
+            pgf02: clientSaltedHash,
             pgf03: clientSalt
           })
         }, port);
