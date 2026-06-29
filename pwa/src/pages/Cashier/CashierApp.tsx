@@ -1212,7 +1212,7 @@ function App() {
         action: 'VERIFY_TRANSFER',
         payload: {
           mode: mode,
-          sessionMode: strategy === 'FETCH_ONLY' ? 'fetch_only' : 'fresh_login',
+          sessionMode: strategy === 'FETCH_ONLY' ? 'fetch_only' : (claimSuccess ? 'claim_and_login' : 'fresh_login'),
           amount: mode === 'search' ? parseFloat(amount).toFixed(2) : '0.00',
           bank: selectedBankName,
           accountId: selectedAccountId,
@@ -1457,7 +1457,7 @@ function App() {
         action: 'VERIFY_TRANSFER',
         payload: {
           mode: 'ledger',
-          sessionMode: strategy === 'FETCH_ONLY' ? 'fetch_only' : 'fresh_login',
+          sessionMode: strategy === 'FETCH_ONLY' ? 'fetch_only' : (claimSuccess ? 'claim_and_login' : 'fresh_login'),
           amount: '0.00',
           bank: selectedBankName,
           accountId: targetAccountId,

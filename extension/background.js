@@ -1052,6 +1052,13 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
     }
 
     const accounts = dashboardData.payload?.dashboard || dashboardData.accounts || [];
+    
+    // If fetch_only mode returned 0 accounts, the session has expired — fall back to fresh login
+    if (sessionMode === 'fetch_only' && accounts.length === 0) {
+      emitLog(port, `> [BML] ⚠ Session appears expired (0 accounts in fetch_only mode). Falling back to fresh_login...`);
+      return await runBmlFlow(credentials, targetAccount, port, targetAmount, mode, 'fresh_login');
+    }
+
     let bmlAccountId = null;
     let balance = "Not found";
 
@@ -1152,7 +1159,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
     // ═══════════════════════════════════════════════════════════════
     // STEP 8: Cleanup and Report
     // ═══════════════════════════════════════════════════════════════
-    if (!heldSession) {
+    if (!heldSession && sessionMode !== 'claim_and_login') {
       try {
         await loggedFetch(`${BASE_URL}/web/2fa/logout`, {
           method: 'GET',
@@ -1774,6 +1781,12 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     const parsedAccounts = parseAccountsFromHtml(accountsHtml);
     emitLog(port, `> [MIB] Found ${parsedAccounts.length} account(s) in dashboard.`);
 
+    // If fetch_only mode returned 0 accounts, the session has expired — fall back to fresh login
+    if (sessionMode === 'fetch_only' && parsedAccounts.length === 0) {
+      emitLog(port, `> [MIB] ⚠ Session appears expired (0 accounts in fetch_only mode). Falling back to fresh_login...`);
+      return await runMibFlow(credentials, targetAccount, port, targetAmount, profileType, mode, 'fresh_login');
+    }
+
     // Extract rTag from accounts page if we don't have one yet (e.g. fetch_only mode)
     if (!rTag) {
       try {
@@ -1945,7 +1958,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     // ═══════════════════════════════════════════════════════════════
     // STEP 10: Logout and Report
     // ═══════════════════════════════════════════════════════════════
-    if (!heldSession) {
+    if (!heldSession && sessionMode !== 'claim_and_login') {
       emitLog(port, `> [MIB] Step 10: Logging out and cleaning up...`);
       try {
         await mibFetch(`${MIB_BASE_URL}/aAuth/logout`, {
