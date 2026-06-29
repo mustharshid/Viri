@@ -1268,7 +1268,9 @@ function App() {
       isIndeterminate: true
     });
 
+    addLog("> [Session] Resolving session strategy...");
     const strategy = await resolveSessionStrategy(targetAccountId);
+    addLog(`> [Session] Resolved Strategy: ${strategy}`);
 
     if (strategy === 'DELEGATE') {
       setSessionStatus('delegating');
@@ -1279,6 +1281,7 @@ function App() {
     let claimSuccess = false;
     if (strategy === 'CLAIM_AND_LOGIN') {
       setSessionStatus('claiming');
+      addLog("> [Session] Claiming session on backend...");
       try {
         const claimRes = await fetch(`${backendUrl}/terminal/session/claim`, {
           method: 'POST',
@@ -1296,14 +1299,19 @@ function App() {
             return;
           }
           claimSuccess = true;
+          addLog("> [Session] Session claim succeeded.");
+        } else {
+          addLog(`> [Session] Session claim returned HTTP ${claimRes.status}, proceeding with fresh login.`);
         }
       } catch (err) {
         console.error("Failed to claim session:", err);
+        addLog("> [Session] Session claim failed (network error), proceeding with fresh login.");
       }
     } else {
       setSessionStatus('holder');
     }
 
+    addLog("> [System] Validating terminal license...");
     try {
       const response = await fetch(`${backendUrl}/verify-terminal`, {
         method: 'POST',
@@ -1313,8 +1321,10 @@ function App() {
       if (!response.ok) {
         throw new Error("License validation failed.");
       }
+      addLog("> [System] License valid.");
     } catch (err: any) {
       setError(`Backend Connection Failed: ${err.message}`);
+      addLog(`> [System] License validation FAILED: ${err.message}`);
       setLoading(false);
       isVerifyingRef.current = false;
       setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
@@ -1323,22 +1333,26 @@ function App() {
 
     if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
       setError("Browser extension API not detected.");
+      addLog("> [System] Chrome extension API not found.");
       setLoading(false);
       isVerifyingRef.current = false;
       return;
     }
 
+    addLog("> [System] Connecting to extension...");
     let port;
     try {
       port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
     } catch (e: any) {
       setError(`Extension connection failed: ${e.message}`);
+      addLog(`> [System] Extension connection FAILED: ${e.message}`);
       setLoading(false);
       isVerifyingRef.current = false;
       return;
     }
 
     activePortRef.current = port;
+    addLog("> [System] Extension port connected. Preparing credentials...");
 
     const currentCreds = accountsCreds[targetAccountId] || {};
     const activeCreds = {
@@ -1437,11 +1451,13 @@ function App() {
       }
     });
 
+    addLog("> [System] Sending VERIFY_TRANSFER (ledger mode) to extension...");
     try {
       port.postMessage({
         action: 'VERIFY_TRANSFER',
         payload: {
           mode: 'ledger',
+          sessionMode: strategy === 'FETCH_ONLY' ? 'fetch_only' : 'fresh_login',
           amount: '0.00',
           bank: selectedBankName,
           accountId: targetAccountId,
@@ -1452,6 +1468,7 @@ function App() {
       });
     } catch (msgErr: any) {
       setError(`Failed to start sync: ${msgErr.message}`);
+      addLog(`> [System] Failed to send message to extension: ${msgErr.message}`);
       setLoading(false);
       port.disconnect();
       activePortRef.current = null;
