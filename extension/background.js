@@ -1218,7 +1218,6 @@ chrome.declarativeNetRequest.updateDynamicRules({
           { header: "Origin", operation: "remove" },
           { header: "Referer", operation: "remove" }
         ],
-        bodyLog: "",
         responseHeaders: [
           { header: "Access-Control-Allow-Origin", operation: "set", value: "*" }
         ]
@@ -1775,6 +1774,16 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     const parsedAccounts = parseAccountsFromHtml(accountsHtml);
     emitLog(port, `> [MIB] Found ${parsedAccounts.length} account(s) in dashboard.`);
 
+    // Extract rTag from accounts page if we don't have one yet (e.g. fetch_only mode)
+    if (!rTag) {
+      try {
+        rTag = extractRTag(accountsHtml);
+        emitLog(port, `> [MIB] ✓ Extracted rTag from accounts page: ${rTag.substring(0, 8)}...`);
+      } catch (e) {
+        emitLog(port, `> [MIB] ⚠ Could not extract rTag from accounts page.`);
+      }
+    }
+
     // Find the target account
     let matchedAccountNo = null;
     for (const acc of parsedAccounts) {
@@ -1841,6 +1850,13 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
           emitLog(port, `> [MIB] 💰 Balance parsed from details page: ${mibBalance} MVR`);
         } else {
           emitLog(port, `> [MIB] No balance parsed from details page. Available fallback: ${mibBalance}`);
+        }
+        // Extract rTag from details page for the trxHistory POST
+        try {
+          rTag = extractRTag(detailsHtml);
+          emitLog(port, `> [MIB] ✓ Refreshed rTag from details page: ${rTag.substring(0, 8)}...`);
+        } catch (e) {
+          emitLog(port, `> [MIB] Could not extract rTag from details page — keeping previous.`);
         }
       } catch (err) {
         emitLog(port, `> [MIB] Error parsing balance: ${err.message}`);
