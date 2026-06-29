@@ -116,6 +116,16 @@ let heldSession = null;
 let heartbeatInterval = null;
 let pollInterval = null;
 
+// Restore session state on worker wake up
+chrome.storage.local.get(['viri_held_session'], (result) => {
+  if (result.viri_held_session) {
+    heldSession = result.viri_held_session;
+    startHeartbeat();
+    startRequestPolling();
+    console.log("[Viri Bridge] Restored heldSession from storage.");
+  }
+});
+
 async function logSessionEvent(event_type, detail = {}) {
   if (!heldSession || !heldSession.backendUrl) return;
   await fetch(`${heldSession.backendUrl}/terminal/session/log`, {
@@ -275,6 +285,7 @@ chrome.runtime.onConnectExternal.addListener((port) => {
           hardwareId: msg.payload.hardwareId,
           credentials: msg.payload.credentials
         };
+        chrome.storage.local.set({ viri_held_session: heldSession });
         startHeartbeat();
         startRequestPolling();
         emitLog(port, `> [Session] Session holder status activated.`);
@@ -284,6 +295,7 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         stopRequestPolling();
         clearBankSessions();
         heldSession = null;
+        chrome.storage.local.remove('viri_held_session');
         emitLog(port, `> [Session] Session holder status released.`);
       }
       // Handle legacy test format
@@ -639,7 +651,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
   }
 
   try {
-    if (sessionMode === 'fresh_login') {
+    if (sessionMode === 'fresh_login' || sessionMode === 'claim_and_login') {
     // ═══════════════════════════════════════════════════════════════
     // STEP 0: Clear Previous Session State
     // ═══════════════════════════════════════════════════════════════
@@ -1448,7 +1460,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
   let mibClockOffset = 0;
 
   try {
-    if (sessionMode === 'fresh_login') {
+    if (sessionMode === 'fresh_login' || sessionMode === 'claim_and_login') {
     // ═══════════════════════════════════════════════════════════════
     // STEP 0: Clear Previous MIB Session Cookies
     // ═══════════════════════════════════════════════════════════════

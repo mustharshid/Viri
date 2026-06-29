@@ -256,6 +256,7 @@ function App() {
     }
   }, [bankAccounts, accountsCreds]);
 
+
   const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<string>('');
 
   const activePortRef = useRef<chrome.runtime.Port | null>(null);
@@ -708,7 +709,29 @@ function App() {
     alert("Logs copied to clipboard!");
   };
 
-  const [sessionStatus, setSessionStatus] = useState<'idle' | 'holder' | 'delegating' | 'claiming'>('idle');
+  const [sessionStatus, setSessionStatus] = useState<'idle' | 'claiming' | 'holder' | 'delegating'>('idle');
+  const [sessionHolderAccountId, setSessionHolderAccountId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    if (sessionStatus === 'holder' && hardwareId && backendUrl && sessionHolderAccountId) {
+      interval = setInterval(async () => {
+        try {
+          await fetch(`${backendUrl}/terminal/session/heartbeat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              hardware_id: hardwareId,
+              bank_account_id: parseInt(sessionHolderAccountId)
+            })
+          });
+        } catch (e) {
+          console.error("PWA Heartbeat failed:", e);
+        }
+      }, 10000);
+    }
+    return () => clearInterval(interval);
+  }, [sessionStatus, hardwareId, backendUrl, sessionHolderAccountId]);
 
   const resolveSessionStrategy = async (accountId: string) => {
     try {
@@ -1309,6 +1332,7 @@ function App() {
       }
     } else {
       setSessionStatus('holder');
+      setSessionHolderAccountId(targetAccountId);
     }
 
     addLog("> [System] Validating terminal license...");
@@ -1403,6 +1427,7 @@ function App() {
                 }
               });
               setSessionStatus('holder');
+              setSessionHolderAccountId(targetAccountId);
             }
           } catch (e) {
             console.error("Failed to reset failures:", e);
