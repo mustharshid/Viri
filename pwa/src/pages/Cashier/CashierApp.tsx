@@ -2280,7 +2280,7 @@ function App() {
                   </div>
 
                   {/* Verification Log Panel (only shows verification flow logs) */}
-                  {permissions.show_vbtl && loadingMode !== 'ledger' && (loading || logs.length > 0) && (
+                  {permissions.show_vbtl && activeTab === 'verify' && (
                     <div className="w-full bg-black border border-zinc-800 rounded-lg overflow-hidden animate-fade-in shadow-2xl">
                       <div className="bg-zinc-900 px-4 py-2 border-b border-zinc-800 flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full bg-red-500"></div>
@@ -2546,7 +2546,7 @@ function App() {
                           )}
 
                           {/* Ledger Logs Panel */}
-                          {permissions.show_vbtl && loadingMode === 'ledger' && (loading || logs.length > 0) && (
+                          {permissions.show_vbtl && activeTab === 'ledger' && (
                             <div className="w-full bg-black border border-zinc-800 rounded-lg overflow-hidden animate-fade-in shadow-2xl">
                               <div className="bg-zinc-900 px-4 py-2 border-b border-zinc-800 flex items-center gap-2">
                                 <div className="w-3 h-3 rounded-full bg-red-500"></div>
