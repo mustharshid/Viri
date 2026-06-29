@@ -1123,12 +1123,6 @@ function App() {
           if (mode === 'search' && response.data) {
             setAmount(''); // clear input on success
           }
-          port.disconnect();
-          activePortRef.current = null;
-          releaseLock();
-          isVerifyingRef.current = false;
-          uploadLogsToServer();
-
           // Register session holder to extension
           if (sessionStatus === 'claiming' || claimSuccess) {
             port.postMessage({
@@ -1143,6 +1137,12 @@ function App() {
             });
             setSessionStatus('holder');
           }
+
+          port.disconnect();
+          activePortRef.current = null;
+          releaseLock();
+          isVerifyingRef.current = false;
+          uploadLogsToServer();
 
            // Reset failures on server
            const currentCreds = accountsCreds[selectedAccountId] || {};

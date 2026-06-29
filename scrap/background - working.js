@@ -112,137 +112,6 @@ clearBankSessions();
 
 // Global active port
 let activePort = null;
-let heldSession = null;
-let heartbeatInterval = null;
-let pollInterval = null;
-
-async function logSessionEvent(event_type, detail = {}) {
-  if (!heldSession || !heldSession.backendUrl) return;
-  await fetch(`${heldSession.backendUrl}/terminal/session/log`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      hardware_id: heldSession.hardwareId,
-      event_type,
-      ...detail
-    })
-  }).catch(() => {});
-}
-
-function startHeartbeat() {
-  if (heartbeatInterval) clearInterval(heartbeatInterval);
-  heartbeatInterval = setInterval(async () => {
-    if (!heldSession || !heldSession.backendUrl) return;
-    try {
-      await fetch(`${heldSession.backendUrl}/terminal/session/heartbeat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hardware_id: heldSession.hardwareId,
-          bank_account_id: parseInt(heldSession.accountId)
-        })
-      });
-    } catch (e) {
-      console.error("Heartbeat post failed:", e);
-    }
-  }, 10000);
-}
-
-function stopHeartbeat() {
-  if (heartbeatInterval) {
-    clearInterval(heartbeatInterval);
-    heartbeatInterval = null;
-  }
-}
-
-function startRequestPolling() {
-  if (pollInterval) clearInterval(pollInterval);
-  pollInterval = setInterval(async () => {
-    if (!heldSession || !heldSession.backendUrl) return;
-    try {
-      const res = await fetch(`${heldSession.backendUrl}/terminal/session/pending`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hardware_id: heldSession.hardwareId,
-          bank_account_id: parseInt(heldSession.accountId)
-        })
-      });
-      if (!res.ok) return;
-      const requests = await res.json();
-      if (Array.isArray(requests) && requests.length > 0) {
-        for (const req of requests) {
-          await fulfillPendingRequest(req);
-        }
-      }
-    } catch (e) {
-      console.error("Error polling pending requests:", e);
-    }
-  }, 3000);
-}
-
-function stopRequestPolling() {
-  if (pollInterval) {
-    clearInterval(pollInterval);
-    pollInterval = null;
-  }
-}
-
-async function fulfillPendingRequest(req) {
-  if (!heldSession) return;
-  emitLog(activePort, `> [Session] Fulfilling pending request ID ${req.id} (${req.request_type})...`);
-  try {
-    const fakePort = {
-      postMessage: (msg) => {
-        if (msg.type === 'log' && activePort) {
-          activePort.postMessage(msg);
-        }
-      }
-    };
-
-    let result;
-    if (heldSession.bankName === 'MIB') {
-      result = await runMibFlow(heldSession.credentials, heldSession.accountId, fakePort, req.target_amount || '1.00', '0', req.request_type, 'fetch_only');
-    } else {
-      result = await runBmlFlow(heldSession.credentials, heldSession.accountId, fakePort, req.target_amount || '1.00', req.request_type, 'fetch_only');
-    }
-
-    await fetch(`${heldSession.backendUrl}/terminal/session/fulfill`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        hardware_id: heldSession.hardwareId,
-        request_id: req.id,
-        status: 'fulfilled',
-        result_json: result
-      })
-    });
-    
-    await logSessionEvent('fetch_request_fulfilled', {
-      bank_name: heldSession.bankName,
-      account_number_masked: maskString(heldSession.accountId),
-      event_summary: `Fulfilled request ID ${req.id} (${req.request_type})`
-    });
-  } catch (err) {
-    console.error("Failed to fulfill request:", err);
-    await fetch(`${heldSession.backendUrl}/terminal/session/fulfill`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        hardware_id: heldSession.hardwareId,
-        request_id: req.id,
-        status: 'failed',
-        error_message: err.message
-      })
-    }).catch(() => {});
-
-    await logSessionEvent('fetch_request_failed', {
-      bank_name: heldSession.bankName,
-      account_number_masked: maskString(heldSession.accountId),
-      event_summary: `Failed request ID ${req.id}: ${err.message}`
-    });
-  }
-}
 
 chrome.runtime.onConnectExternal.addListener((port) => {
   console.log("[Viri Bridge] PWA Connected via Port:", port.name);
@@ -256,35 +125,17 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         const payload = msg.payload;
         const targetAcc = payload.accountNumber || payload.accountId || payload.account;
         const mode = payload.mode || 'search';
-        const sessionMode = payload.sessionMode || 'fresh_login';
         try {
           if (payload.bank === 'MIB') {
-            await runMibFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode, sessionMode);
+            // Route to MIB Faisanet flow
+            await runMibFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode);
           } else {
-            await runBmlFlow(payload.credentials, targetAcc, port, payload.amount, mode, sessionMode);
+            // Default: BML flow
+            await runBmlFlow(payload.credentials, targetAcc, port, payload.amount, mode);
           }
         } catch (error) {
           port.postMessage({ type: 'error', error: error.message });
         }
-      }
-      else if (msg.action === 'CLAIM_SESSION') {
-        heldSession = {
-          accountId: msg.payload.accountId,
-          bankName: msg.payload.bankName,
-          backendUrl: msg.payload.backendUrl,
-          hardwareId: msg.payload.hardwareId,
-          credentials: msg.payload.credentials
-        };
-        startHeartbeat();
-        startRequestPolling();
-        emitLog(port, `> [Session] Session holder status activated.`);
-      }
-      else if (msg.action === 'RELEASE_SESSION') {
-        stopHeartbeat();
-        stopRequestPolling();
-        clearBankSessions();
-        heldSession = null;
-        emitLog(port, `> [Session] Session holder status released.`);
       }
       // Handle legacy test format
       else if (msg.type === "start_bml_flow") {
@@ -301,9 +152,7 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         activePort = null;
       }
       disableBankLockdown();
-      if (!heldSession) {
-        clearBankSessions();
-      }
+      clearBankSessions();
     });
   }
 });
@@ -496,8 +345,8 @@ function normalizeTransactions(rawTxList, bankType, limit = 50) {
 // -------------------------------------------------------------
 // The main BML background flow
 // -------------------------------------------------------------
-async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode = 'search', sessionMode = 'fresh_login') {
-  emitLog(port, `> [BML] Starting background auth flow (sessionMode: ${sessionMode})...`);
+async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode = 'search') {
+  emitLog(port, `> [BML] Starting background auth flow...`);
   let last3Txs = [];
 
   let xsrfToken = null;
@@ -639,7 +488,6 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
   }
 
   try {
-    if (sessionMode === 'fresh_login') {
     // ═══════════════════════════════════════════════════════════════
     // STEP 0: Clear Previous Session State
     // ═══════════════════════════════════════════════════════════════
@@ -1000,7 +848,8 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
       emitLog(port, `> [BML] No profiles found. Proceeding with single-profile assumption...`);
     }
 
-    }
+    // Add small delay to let backend sync
+    await new Promise(resolve => setTimeout(resolve, 10));
 
     // ═══════════════════════════════════════════════════════════════
     // STEP 5: Navigate to accounts overview  
@@ -1152,24 +1001,20 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
     // ═══════════════════════════════════════════════════════════════
     // STEP 8: Cleanup and Report
     // ═══════════════════════════════════════════════════════════════
-    if (!heldSession) {
-      try {
-        await loggedFetch(`${BASE_URL}/web/2fa/logout`, {
-          method: 'GET',
-          headers: {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-            'Upgrade-Insecure-Requests': '1',
-            'X-XSRF-TOKEN': xsrfToken,
-            'Referer': `${BASE_URL}/vf/accounts/overview`,
-            'User-Agent': USER_AGENT
-          }
-        });
-        emitLog(port, `> [BML] Session destroyed.`);
-      } catch (e) {
-        emitLog(port, `> [BML] Session destruction failed or skipped: ${e.message}`);
-      }
-    } else {
-      emitLog(port, `> [BML] Session holder mode active: keeping BML session alive.`);
+    try {
+      await loggedFetch(`${BASE_URL}/web/2fa/logout`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Upgrade-Insecure-Requests': '1',
+          'X-XSRF-TOKEN': xsrfToken,
+          'Referer': `${BASE_URL}/vf/accounts/overview`,
+          'User-Agent': USER_AGENT
+        }
+      });
+      emitLog(port, `> [BML] Session destroyed.`);
+    } catch (e) {
+      emitLog(port, `> [BML] Session destruction failed or skipped: ${e.message}`);
     }
 
     if (mode === 'history' || mode === 'ledger') {
@@ -1218,7 +1063,6 @@ chrome.declarativeNetRequest.updateDynamicRules({
           { header: "Origin", operation: "remove" },
           { header: "Referer", operation: "remove" }
         ],
-        bodyLog: "",
         responseHeaders: [
           { header: "Access-Control-Allow-Origin", operation: "set", value: "*" }
         ]
@@ -1425,8 +1269,8 @@ function buildFormBody(params) {
  * @param {string} targetAmount - Amount to verify
  * @param {string} profileType - '0' for Personal, '1' for Business
  */
-async function runMibFlow(credentials, targetAccount, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login') {
-  emitLog(port, `> [MIB] Starting MIB Faisanet auth flow (sessionMode: ${sessionMode})...`);
+async function runMibFlow(credentials, targetAccount, port, targetAmount, profileType = '0', mode = 'search') {
+  emitLog(port, `> [MIB] Starting MIB Faisanet auth flow...`);
   let last3Txs = [];
 
   const mibHeaders = {
@@ -1439,10 +1283,8 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
   function isMibSuccess(status) { return status === 200 || status === 203; }
 
   let rTag = null;
-  let mibClockOffset = 0;
 
   try {
-    if (sessionMode === 'fresh_login') {
     // ═══════════════════════════════════════════════════════════════
     // STEP 0: Clear Previous MIB Session Cookies
     // ═══════════════════════════════════════════════════════════════
@@ -1592,6 +1434,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
 
     // ═══════════════════════════════════════════════════════════════
     // STEP 4: Load Dashboard — GET /dashboard
+    // HAR: After xAuth, browser navigates to /dashboard.
     // ═══════════════════════════════════════════════════════════════
     emitLog(port, `> [MIB] Step 4: Loading dashboard...`);
     const dashboardPageRes = await mibFetch(`${MIB_BASE_URL}/dashboard`, {
@@ -1754,7 +1597,8 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
       emitLog(port, `> [MIB] No profiles found. Proceeding with default profile...`);
     }
 
-    }
+    // Small delay to let server sync
+    await new Promise(r => setTimeout(r, 200));
 
     // ═══════════════════════════════════════════════════════════════
     // STEP 8: Load Accounts — GET /accounts
@@ -1929,32 +1773,28 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     // ═══════════════════════════════════════════════════════════════
     // STEP 10: Logout and Report
     // ═══════════════════════════════════════════════════════════════
-    if (!heldSession) {
-      emitLog(port, `> [MIB] Step 10: Logging out and cleaning up...`);
-      try {
-        await mibFetch(`${MIB_BASE_URL}/aAuth/logout`, {
-          method: 'POST',
-          headers: {
-            ...mibHeaders,
-            'Referer': `${MIB_BASE_URL}/accountDetails?accountNo=${matchedAccountNo}`
-          },
-          body: ''
-        }, port);
-        emitLog(port, `> [MIB] ✓ Session destroyed.`);
-      } catch (e) {
-        emitLog(port, `> [MIB] Session destruction failed: ${e.message}`);
-      }
+    emitLog(port, `> [MIB] Step 10: Logging out and cleaning up...`);
+    try {
+      await mibFetch(`${MIB_BASE_URL}/aAuth/logout`, {
+        method: 'POST',
+        headers: {
+          ...mibHeaders,
+          'Referer': `${MIB_BASE_URL}/accountDetails?accountNo=${matchedAccountNo}`
+        },
+        body: ''
+      }, port);
+      emitLog(port, `> [MIB] ✓ Session destroyed.`);
+    } catch (e) {
+      emitLog(port, `> [MIB] Session destruction failed: ${e.message}`);
+    }
 
-      // Clear MIB cookies after logout
-      const postLogoutCookies = await chrome.cookies.getAll({ domain: "mib.com.mv" });
-      for (const cookie of postLogoutCookies) {
-        const protocol = cookie.secure ? "https://" : "http://";
-        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
-        const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
-        await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
-      }
-    } else {
-      emitLog(port, `> [MIB] Session holder mode active: keeping MIB session alive.`);
+    // Clear MIB cookies after logout
+    const postLogoutCookies = await chrome.cookies.getAll({ domain: "mib.com.mv" });
+    for (const cookie of postLogoutCookies) {
+      const protocol = cookie.secure ? "https://" : "http://";
+      const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+      const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
+      await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
     }
 
     // Report result
