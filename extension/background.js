@@ -254,6 +254,17 @@ async function fulfillPendingRequest(req) {
   }
 }
 
+chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
+  if (msg.action === 'PING_BANK') {
+    if (heldSession) {
+      const url = heldSession.bankName === 'MIB' ? "https://faisanet.mib.com.mv/accounts" : "https://www.bankofmaldives.com.mv/internetbanking/api/dashboard";
+      fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, credentials: 'include' }).catch(() => {});
+    }
+    sendResponse({ status: 'ok' });
+  }
+  return true;
+});
+
 chrome.runtime.onConnectExternal.addListener((port) => {
   console.log("[Viri Bridge] PWA Connected via Port:", port.name);
   if (port.name === "viri-verify" || port.name === "bml-auth") {
