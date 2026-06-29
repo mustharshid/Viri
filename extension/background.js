@@ -155,7 +155,7 @@ function startHeartbeat() {
     } catch (e) {
       console.error("Heartbeat post failed:", e);
     }
-  }, 10000);
+  }, 20000);
 }
 
 function stopHeartbeat() {
@@ -1470,6 +1470,11 @@ function buildFormBody(params) {
     .join('&');
 }
 
+let currentMibRTag = null;
+chrome.storage.local.get(['viri_mib_rtag'], (res) => {
+  if (res.viri_mib_rtag) currentMibRTag = res.viri_mib_rtag;
+});
+
 /**
  * The main MIB Faisanet background flow
  * @param {Object} credentials - {username, password, totpSeed}
@@ -1492,6 +1497,26 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
   function isMibSuccess(status) { return status === 200 || status === 203; }
 
   let rTag = null;
+  if (sessionMode !== 'fresh_login' && sessionMode !== 'claim_and_login') {
+    if (currentMibRTag) {
+      rTag = currentMibRTag;
+    } else {
+      const res = await chrome.storage.local.get(['viri_mib_rtag']);
+      if (res.viri_mib_rtag) {
+        currentMibRTag = res.viri_mib_rtag;
+        rTag = currentMibRTag;
+      }
+    }
+  }
+  
+  function updateRTag(newTag) {
+    if (newTag) {
+      rTag = newTag;
+      currentMibRTag = newTag;
+      chrome.storage.local.set({ viri_mib_rtag: newTag });
+    }
+  }
+
   let mibClockOffset = 0;
 
   try {
@@ -1911,12 +1936,14 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
         } else {
           emitLog(port, `> [MIB] No balance parsed from details page. Available fallback: ${mibBalance}`);
         }
-        // Extract rTag from details page for the trxHistory POST
-        try {
-          updateRTag(extractRTag(detailsHtml));
-          emitLog(port, `> [MIB] ✓ Refreshed rTag from details page: ${rTag.substring(0, 8)}...`);
-        } catch (e) {
-          emitLog(port, `> [MIB] Could not extract rTag from details page — keeping previous.`);
+        // Extract rTag from details page for the trxHistory POST only if missing
+        if (!rTag) {
+          try {
+            updateRTag(extractRTag(detailsHtml));
+            emitLog(port, `> [MIB] ✓ Refreshed rTag from details page: ${rTag.substring(0, 8)}...`);
+          } catch (e) {
+            emitLog(port, `> [MIB] Could not extract rTag from details page — keeping previous.`);
+          }
         }
       } catch (err) {
         emitLog(port, `> [MIB] Error parsing balance: ${err.message}`);

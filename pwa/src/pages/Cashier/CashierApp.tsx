@@ -733,7 +733,7 @@ function App() {
         } catch (e) {
           console.error("PWA Heartbeat failed:", e);
         }
-      }, 10000);
+      }, 20000);
     }
     return () => clearInterval(interval);
   }, [sessionStatus, hardwareId, backendUrl, sessionHolderAccountId, extensionId]);
