@@ -725,13 +725,18 @@ function App() {
               bank_account_id: parseInt(sessionHolderAccountId)
             })
           });
+
+          // Wake up the extension to ping the bank and keep the bank's own idle timer alive
+          if (typeof chrome !== 'undefined' && chrome.runtime && extensionId) {
+            chrome.runtime.sendMessage(extensionId, { action: 'PING_BANK' }).catch(() => {});
+          }
         } catch (e) {
           console.error("PWA Heartbeat failed:", e);
         }
       }, 10000);
     }
     return () => clearInterval(interval);
-  }, [sessionStatus, hardwareId, backendUrl, sessionHolderAccountId]);
+  }, [sessionStatus, hardwareId, backendUrl, sessionHolderAccountId, extensionId]);
 
   const resolveSessionStrategy = async (accountId: string) => {
     try {

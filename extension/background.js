@@ -298,6 +298,12 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         chrome.storage.local.remove('viri_held_session');
         emitLog(port, `> [Session] Session holder status released.`);
       }
+      else if (msg.action === 'PING_BANK') {
+        if (heldSession) {
+          const url = heldSession.bankName === 'MIB' ? "https://faisanet.mib.com.mv/accounts" : "https://www.bankofmaldives.com.mv/internetbanking/api/dashboard";
+          fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => {});
+        }
+      }
       // Handle legacy test format
       else if (msg.type === "start_bml_flow") {
         try {
