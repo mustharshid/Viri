@@ -47,6 +47,7 @@ interface LedgerTransaction {
 interface LedgerData {
   balance: string;
   lastUpdated: string;
+  lastUpdatedTimestamp?: number;
   transactions: LedgerTransaction[];
   error?: string;
 }
@@ -77,6 +78,12 @@ function App() {
   const [lastPopulatedTime, setLastPopulatedTime] = useState<string>('');
   const [syncTimeElapsed, setSyncTimeElapsed] = useState<number | null>(null);
   const syncStartTimeRef = useRef<number | null>(null);
+  const [currentTick, setCurrentTick] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTick(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
 
   // Hardware bound Terminal ID
@@ -1451,6 +1458,7 @@ function App() {
             [targetAccountId]: {
               balance: response.balance || 'Not found',
               lastUpdated: new Date().toLocaleTimeString(),
+              lastUpdatedTimestamp: Date.now(),
               transactions: response.transactions || []
             }
           }));
@@ -2480,15 +2488,16 @@ function App() {
                               <th className="px-4 py-2 font-medium text-right">Amount / Balance <Tooltip text="Green indicates credits (+), red indicates debits (-)." /></th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-zinc-900/50">
+                          <tbody className="divide-y divide-[var(--border-color)] text-xs text-[var(--text-secondary)]">
                             {lastTransactions.map((tx, idx) => {
+                              const rowKey = `${tx.date}-${tx.amount}-${tx.details.substring(0,30)}-${tx.runningBalance || idx}`;
                               const isCredit = tx.amount.startsWith('+');
                               const detailsParts = tx.details.split('\n');
                               const description = (detailsParts[0] || '').trim();
                               const details = detailsParts.slice(1).join('\n').trim();
 
                               return (
-                                <tr key={idx} className="hover:bg-white/[0.02] transition-colors group">
+                                <tr key={rowKey} className="hover:bg-zinc-800/50 transition-colors group">
                                   <td className="px-4 py-3.5 text-xs font-mono text-zinc-400 whitespace-nowrap align-top">
                                     {tx.date}
                                   </td>
@@ -2648,14 +2657,17 @@ function App() {
                               : 'bg-zinc-950/60 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/30'
                           }`}
                         >
-                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-base shadow-inner shrink-0 ${
-                            isBml ? 'bg-red-650 text-white' : 'bg-emerald-950 text-emerald-400 border border-emerald-900/30'
-                          }`}>
-                            {isBml ? 'B' : <BookOpen size={16} />}
+                          <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800 p-1 flex items-center justify-center shrink-0">
+                            <img src={isBml ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt={acc.bank_name} />
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">{acc.bank_name} • Active</span>
+                              {acc.label && (
+                                <span className="text-[9px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium">
+                                  {acc.label}
+                                </span>
+                              )}
                             </div>
                             <div className="text-sm font-bold text-white truncate mt-0.5">{acc.account_name}</div>
                             <div className="text-[11px] text-zinc-500 font-mono mt-0.5">
@@ -2750,12 +2762,18 @@ function App() {
                         </div>
 
                         {/* Sync Info / Metadata */}
-                        <div className="flex flex-wrap items-center gap-3 text-zinc-500 font-mono text-[10px]">
-                          <span className="text-zinc-300">{syncTimeElapsed !== null ? `${(syncTimeElapsed / 1000).toFixed(2)} seconds` : '0.00 seconds'}</span>
+                        <div className="flex flex-wrap items-center gap-3 font-mono text-[11px]">
+                          <span className={`${isSyncing ? 'text-zinc-300' : 'text-zinc-500'}`}>
+                            {isSyncing && syncStartTimeRef.current 
+                              ? `${((currentTick - syncStartTimeRef.current) / 1000).toFixed(1)}s` 
+                              : (syncTimeElapsed !== null ? `${(syncTimeElapsed / 1000).toFixed(1)}s` : '0.0s')}
+                          </span>
                           <span className="text-zinc-700">|</span>
-                          <span>Since last sync: <span className="text-zinc-400">{syncTimeElapsed !== null ? `${(syncTimeElapsed / 1000).toFixed(0)}s` : '0s'}</span></span>
+                          <span className="text-zinc-500">Since last sync: <span className={`${!isSyncing ? 'text-zinc-300' : 'text-zinc-500'}`}>
+                            {cache.lastUpdatedTimestamp ? `${Math.floor((currentTick - cache.lastUpdatedTimestamp) / 1000)}s` : '0s'}
+                          </span></span>
                           <span className="text-zinc-700">|</span>
-                          <span>{cache.lastUpdated !== 'Never' ? cache.lastUpdated : 'Never synced'}</span>
+                          <span className="text-zinc-500">{cache.lastUpdated !== 'Never' ? cache.lastUpdated : 'Never synced'}</span>
                         </div>
                       </div>
 
@@ -2784,13 +2802,14 @@ function App() {
                                 </thead>
                                 <tbody className="divide-y divide-zinc-900/60">
                                   {paginatedTransactions.map((tx, idx) => {
+                                    const rowKey = `${tx.date}-${tx.amount}-${tx.details.substring(0,30)}-${tx.runningBalance || idx}`;
                                     const isCredit = tx.amount.startsWith('+');
                                     const detailsParts = tx.details.split('\n');
                                     const description = (detailsParts[0] || '').trim();
                                     const details = detailsParts.slice(1).join('\n').trim();
 
                                     return (
-                                      <tr key={idx} className="hover:bg-white/[0.01] transition-colors group">
+                                      <tr key={rowKey} className="hover:bg-white/[0.01] transition-colors group">
                                         <td className="py-4 px-5 text-xs font-mono text-zinc-400 whitespace-nowrap align-middle">
                                           {tx.date}
                                         </td>
