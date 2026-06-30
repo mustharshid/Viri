@@ -1569,6 +1569,40 @@ function App() {
                                 !!selectedAccountCreds.password?.trim() && 
                                 !!selectedAccountCreds.totpSeed?.trim();
 
+  const isSelectedAccountLocked = selectedAccount ? (selectedAccount.login_failures || 0) >= 2 : false;
+  
+  const activeLedgerAcc = selectedLedgerAccountId 
+    ? bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId) 
+    : bankAccounts[0];
+  const isLockedByVerify = loading && loadingMode !== 'ledger';
+  const isLedgerSyncing = loading && loadingMode === 'ledger';
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      
+      if (e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        
+        if (activeTab === 'verify') {
+          if (!loading && isCredentialsComplete && !creditsExhausted && !isSelectedAccountLocked) {
+             handleVerify('history');
+          }
+        } else if (activeTab === 'ledger') {
+          if (activeLedgerAcc && !isLedgerSyncing && !isLockedByVerify) {
+             syncLedger(activeLedgerAcc.id.toString());
+          }
+        }
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeTab, loading, isCredentialsComplete, creditsExhausted, isSelectedAccountLocked, activeLedgerAcc, isLedgerSyncing, isLockedByVerify]);
+
+
   if (isSetupMode) {
     return (
       <div className="min-h-screen bg-[var(--bg-base)] flex flex-col items-center justify-center p-4">
@@ -2221,8 +2255,6 @@ function App() {
 
                     {/* Lockout and Credentials Checks */}
                     {(() => {
-                      const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
-                      const isSelectedAccountLocked = selectedAccount && (selectedAccount.login_failures || 0) >= 2;
                       return (
                         <>
                           <div className="space-y-3 mt-2">
@@ -2268,7 +2300,7 @@ function App() {
                               ) : (
                                 <>
                                   <History size={16} />
-                                  VIEW HISTORY
+                                  VIEW HISTORY <span className="ml-1 opacity-50 text-[10px] font-mono">[S]</span>
                                 </>
                               )}
                             </button>
@@ -2555,9 +2587,7 @@ function App() {
 
             {activeTab === 'ledger' && (() => {
               // Resolve active ledger account context
-              const activeLedgerAcc = selectedLedgerAccountId 
-                ? bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId) 
-                : bankAccounts[0];
+
               const ledgerCurrency = activeLedgerAcc?.currency || 'MVR';
               const cache = activeLedgerAcc ? (ledgerCache[activeLedgerAcc.id.toString()] || {
                 balance: 'Not synced',
@@ -2586,7 +2616,6 @@ function App() {
               });
 
               const isSyncing = loading && loadingMode === 'ledger';
-              const isLockedByVerify = loading && loadingMode !== 'ledger';
 
               // Pagination variables
               const totalPages = Math.ceil(filteredTransactions.length / ledgerPageSize);
@@ -2741,7 +2770,7 @@ function App() {
                             className="bg-emerald-400 hover:bg-emerald-300 text-zinc-950 font-bold text-xs px-4 py-2 rounded-lg flex items-center gap-2 transition-all shadow-[0_0_15px_rgba(52,211,153,0.15)] disabled:opacity-40"
                           >
                             <RefreshCw size={13} className={isSyncing ? 'animate-spin' : ''} />
-                            Sync History
+                            <span>Sync History <span className="opacity-50 text-[10px] font-mono ml-1">[S]</span></span>
                           </button>
                         </div>
                       </div>
