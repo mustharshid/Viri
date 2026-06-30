@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight } from 'lucide-react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, Terminal } from 'lucide-react';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -77,6 +77,7 @@ function App() {
     runningBalance?: string;
   }[]>([]);
   const [lastPopulatedTime, setLastPopulatedTime] = useState<string>('');
+  const [lastPopulatedTimestamp, setLastPopulatedTimestamp] = useState<number | null>(null);
   const [syncTimeElapsed, setSyncTimeElapsed] = useState<number | null>(null);
   const syncStartTimeRef = useRef<number | null>(null);
   const [currentTick, setCurrentTick] = useState(Date.now());
@@ -879,6 +880,7 @@ function App() {
               setResult(response.data || null);
               setLastTransactions(response.transactions || []);
               setLastPopulatedTime(new Date().toLocaleTimeString());
+              setLastPopulatedTimestamp(Date.now());
 
               if (response.balance) {
                 setLedgerCache(prev => ({
@@ -1200,6 +1202,7 @@ function App() {
           setResult(response.data || null);
           setLastTransactions(response.transactions || []);
           setLastPopulatedTime(new Date().toLocaleTimeString());
+          setLastPopulatedTimestamp(Date.now());
 
           if (response.balance) {
             setLedgerCache(prev => ({
@@ -1283,6 +1286,7 @@ function App() {
         }
         setLastTransactions(response.transactions || []);
         setLastPopulatedTime(new Date().toLocaleTimeString());
+        setLastPopulatedTimestamp(Date.now());
         port.disconnect();
         activePortRef.current = null;
         releaseLock();
@@ -1634,12 +1638,24 @@ function App() {
              syncLedger(activeLedgerAcc.id.toString());
           }
         }
+      } else if (e.key >= '1' && e.key <= '9') {
+        const index = parseInt(e.key) - 1;
+        if (index < bankAccounts.length) {
+          e.preventDefault();
+          const accId = bankAccounts[index].id.toString();
+          if (activeTab === 'verify') {
+            setSelectedAccountId(accId);
+          } else if (activeTab === 'ledger') {
+            setSelectedLedgerAccountId(accId);
+            setLedgerPage(1);
+          }
+        }
       }
     };
     
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab, loading, isCredentialsComplete, creditsExhausted, isSelectedAccountLocked, activeLedgerAcc, isLedgerSyncing, isLockedByVerify]);
+  }, [activeTab, loading, isCredentialsComplete, creditsExhausted, isSelectedAccountLocked, activeLedgerAcc, isLedgerSyncing, isLockedByVerify, bankAccounts]);
 
 
   if (isSetupMode) {
@@ -1827,6 +1843,20 @@ function App() {
 
       {/* Bottom section: Settings & Locking */}
       <div className={`w-full px-2 space-y-2 flex flex-col items-center transition-all ${isSidebarCollapsed ? 'md:items-center' : 'md:items-stretch'}`}>
+        {/* Keyboard Shortcuts Info */}
+        <div className={`mt-auto mb-2 border border-zinc-800/60 bg-zinc-900/30 rounded-lg p-3 transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:block'}`}>
+          <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><Terminal size={10} /> Keyboard Shortcuts</h4>
+          <div className="flex flex-col gap-1.5">
+            <div className="flex justify-between items-center text-[10px]">
+              <span className="text-zinc-400">Sync / View History</span>
+              <span className="bg-zinc-800 text-zinc-300 font-mono px-1.5 rounded border border-zinc-700">S</span>
+            </div>
+            <div className="flex justify-between items-center text-[10px]">
+              <span className="text-zinc-400">Select Bank Account</span>
+              <span className="bg-zinc-800 text-zinc-300 font-mono px-1.5 rounded border border-zinc-700">1-9</span>
+            </div>
+          </div>
+        </div>
         {pin && (
           <button
             onClick={() => setIsLocked(true)}
@@ -2540,15 +2570,48 @@ function App() {
 
                   {/* Recent Transactions Table */}
                   <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl w-full flex flex-col gap-4">
-                    <div className="flex justify-between items-center border-b border-zinc-800/80 pb-3">
-                      <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-1.5">
-                        Recent Transactions <Tooltip text="The last few statement entries cached/fetched from the bank's database." />
-                      </h3>
-                      {lastPopulatedTime && (
-                        <span className="text-[10px] text-zinc-500 font-mono">
-                          [{lastPopulatedTime}]
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pb-3 border-b border-zinc-800/80">
+                      {/* Sync Progress */}
+                      <div className="flex items-center gap-4 w-full sm:w-1/3 min-w-[200px]">
+                        <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-1.5 mr-2">
+                          Recent <Tooltip text="The last few statement entries cached/fetched from the bank's database." />
+                        </h3>
+                        <div className="flex-1 bg-zinc-800 h-3 rounded-full overflow-hidden relative shadow-inner hidden sm:block">
+                          <div
+                            className={`h-full transition-all duration-300 rounded-full ${
+                              progress.stage === 'error' ? 'bg-red-500' : 'bg-emerald-400'
+                            }`}
+                            style={{ width: `${(loading && loadingMode === 'history') ? progress.percent : 100}%` }}
+                          />
+                        </div>
+                        <span className="font-mono text-zinc-300 text-[10px] font-bold whitespace-nowrap hidden sm:block">
+                          {(loading && loadingMode === 'history') ? `${progress.percent}%` : '100%'}
                         </span>
-                      )}
+                        <span className="font-mono text-zinc-300 text-[11px] font-bold ml-2 truncate">
+                          {progress.text || ((loading && loadingMode === 'history') ? 'Fetching...' : 'Ready')}
+                        </span>
+                      </div>
+
+                      {/* Sync Info / Metadata */}
+                      <div className="flex flex-wrap items-center justify-end gap-3 font-mono text-[11px] min-w-0">
+                        <span className={`${(loading && loadingMode === 'history') ? 'text-zinc-300' : 'text-zinc-500'}`}>
+                          {(loading && loadingMode === 'history') && syncStartTimeRef.current 
+                            ? `${((currentTick - syncStartTimeRef.current) / 1000).toFixed(1)}s` 
+                            : (syncTimeElapsed !== null ? `${(syncTimeElapsed / 1000).toFixed(1)}s` : '0.0s')}
+                        </span>
+                        <span className="text-zinc-700 hidden sm:inline">|</span>
+                        <span className="text-zinc-500 whitespace-nowrap hidden sm:inline">Since last fetch: <span className={`${!(loading && loadingMode === 'history') ? 'text-zinc-300' : 'text-zinc-500'}`}>
+                          {lastPopulatedTimestamp ? (() => {
+                            const diffSeconds = Math.floor((currentTick - lastPopulatedTimestamp) / 1000);
+                            const h = Math.floor(diffSeconds / 3600);
+                            const m = Math.floor((diffSeconds % 3600) / 60);
+                            const s = diffSeconds % 60;
+                            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                          })() : '00:00:00'}
+                        </span></span>
+                        <span className="text-zinc-700 hidden sm:inline">|</span>
+                        <span className="text-zinc-500 truncate">{lastPopulatedTime ? lastPopulatedTime : 'Never fetched'}</span>
+                      </div>
                     </div>
                     
                     <div className="overflow-x-auto bg-transparent">
@@ -2841,6 +2904,9 @@ function App() {
                           </div>
                           <span className="font-mono text-zinc-300 text-[10px] font-bold">
                             {isSyncing ? `${progress.percent}%` : '100%'}
+                          </span>
+                          <span className="font-mono text-zinc-300 text-[11px] font-bold ml-2 truncate">
+                            {progress.text || (isSyncing ? 'Syncing...' : 'Success')}
                           </span>
                         </div>
 
