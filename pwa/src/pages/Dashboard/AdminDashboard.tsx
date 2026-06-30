@@ -118,7 +118,7 @@ export default function AdminDashboard() {
     navigate('/login');
   };
 
-  const updateCompany = async (id: number, status: string, tier: string, lockTimeout?: number, maxTerminals?: number) => {
+  const updateCompany = async (id: number, status: string, tier: string, lockTimeout?: number, maxTerminals?: number, licenseExpiresAt?: string | null) => {
     const userPin = window.prompt(`To confirm this action, please enter the 4-letter security PIN displayed at the top of the panel (${securityPin}):`);
     if (!userPin || userPin.toUpperCase() !== securityPin) {
       alert("Invalid or empty PIN. Action aborted.");
@@ -133,6 +133,9 @@ export default function AdminDashboard() {
     }
     if (maxTerminals !== undefined) {
       payload.max_terminals = maxTerminals;
+    }
+    if (licenseExpiresAt !== undefined) {
+      payload.license_expires_at = licenseExpiresAt;
     }
     await fetch(`/api/admin/companies/${id}`, {
       method: 'PUT',
@@ -341,7 +344,7 @@ export default function AdminDashboard() {
               </div>
 
               {/* Grid Section: Key settings */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
                 {/* Subscription Tier */}
                 <div className="input-group">
                   <label className="input-label flex items-center gap-1">
@@ -351,7 +354,7 @@ export default function AdminDashboard() {
                   <select 
                     className="input-field w-full text-sm font-medium"
                     value={company.subscription_tier}
-                    onChange={(e) => updateCompany(company.id, company.status, e.target.value, company.lock_timeout, company.max_terminals)}
+                    onChange={(e) => updateCompany(company.id, company.status, e.target.value, company.lock_timeout, company.max_terminals, company.license_expires_at)}
                   >
                     <option value="free">Free (1 Cashier Terminal)</option>
                     <option value="499">Starter - MVR 499 (1 Cashier Terminal)</option>
@@ -395,7 +398,7 @@ export default function AdminDashboard() {
                       onBlur={(e) => {
                         const val = parseInt(e.target.value);
                         if (!isNaN(val)) {
-                          updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, val);
+                          updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, val, company.license_expires_at);
                         }
                       }}
                     />
@@ -426,12 +429,36 @@ export default function AdminDashboard() {
                       onBlur={(e) => {
                         const val = parseInt(e.target.value);
                         if (!isNaN(val)) {
-                          updateCompany(company.id, company.status, company.subscription_tier, val, company.max_terminals);
+                          updateCompany(company.id, company.status, company.subscription_tier, val, company.max_terminals, company.license_expires_at);
                         }
                       }}
                     />
                     <span className="text-xs text-zinc-400">seconds</span>
                   </div>
+                </div>
+
+                {/* Plan Expiry Date */}
+                <div className="input-group">
+                  <label className="input-label flex items-center gap-1 text-red-400 font-semibold">
+                    Plan Expiry Date
+                    <Tooltip text="The date when this company's subscription will expire." />
+                  </label>
+                  <input 
+                    type="date"
+                    className="input-field w-full text-sm font-mono text-white bg-zinc-900 border-zinc-800"
+                    value={(() => {
+                      if (!company.license_expires_at) return '';
+                      try {
+                        return new Date(company.license_expires_at).toISOString().split('T')[0];
+                      } catch (e) {
+                        return '';
+                      }
+                    })()}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, company.max_terminals, val || null);
+                    }}
+                  />
                 </div>
               </div>
 

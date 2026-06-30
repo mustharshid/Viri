@@ -18,9 +18,15 @@ class SessionController extends Controller
 
     private function resolveTerminal(string $hardwareId): ?Terminal
     {
-        return Terminal::where('hardware_id', $hardwareId)
+        $terminal = Terminal::where('hardware_id', $hardwareId)
             ->where('status', 'active')
             ->first();
+
+        if ($terminal && $terminal->tenant && $terminal->tenant->license_expires_at && \Carbon\Carbon::parse($terminal->tenant->license_expires_at)->isPast()) {
+            abort(response()->json(['error' => 'Subscription Expired - contact your admin!'], 403));
+        }
+
+        return $terminal;
     }
 
     private function resolveAccount(int $accountId, int $tenantId): ?BankAccount

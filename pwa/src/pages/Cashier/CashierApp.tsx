@@ -65,6 +65,7 @@ function App() {
     show_vbtl: false
   });
   const [creditsExhausted, setCreditsExhausted] = useState(false);
+  const [subscriptionExpired, setSubscriptionExpired] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [isDefault, setIsDefault] = useState(true);
   const [defaultAccountId, setDefaultAccountId] = useState<string>(() => {
@@ -572,6 +573,9 @@ function App() {
         if (data.credits_exhausted !== undefined) {
           setCreditsExhausted(data.credits_exhausted);
         }
+        if (data.subscription_expired !== undefined) {
+          setSubscriptionExpired(data.subscription_expired);
+        }
 
         if (data.credentials && data.credentials.accounts) {
           setAccountsCreds(data.credentials.accounts);
@@ -1042,6 +1046,17 @@ function App() {
         setTimeLeft(null);
         return;
       }
+
+      const data = await response.json().catch(() => ({}));
+      if (data.subscription_expired) {
+        setSubscriptionExpired(true);
+        setError("Subscription Expired - contact your admin!");
+        setLoading(false);
+        isVerifyingRef.current = false;
+        setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+        setTimeLeft(null);
+        return;
+      }
     } catch (err: any) {
       setError(`Backend Connection Failed: Could not connect to licensing server at ${backendUrl}. Check your network or settings.`);
       setLoading(false);
@@ -1463,6 +1478,11 @@ function App() {
       if (!response.ok) {
         throw new Error("License validation failed.");
       }
+      const data = await response.json().catch(() => ({}));
+      if (data.subscription_expired) {
+        setSubscriptionExpired(true);
+        throw new Error("Subscription Expired - contact your admin!");
+      }
       addLog("> [System] License valid.");
     } catch (err: any) {
       setError(`Backend Connection Failed: ${err.message}`);
@@ -1654,6 +1674,7 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (subscriptionExpired) return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
@@ -1942,6 +1963,16 @@ function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 h-screen overflow-y-auto p-4 md:p-8 flex flex-col items-center">
+        {subscriptionExpired && (
+          <div className="w-full max-w-xl lg:max-w-full mb-6 bg-red-955/25 border-2 border-red-500 text-red-300 px-6 py-4 rounded-2xl flex items-center justify-between gap-4 shadow-[0_0_30px_rgba(239,68,68,0.15)]">
+            <div className="flex items-center gap-3">
+              <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse shrink-0"></span>
+              <span className="font-extrabold text-base tracking-wide uppercase font-mono">
+                Subscription Expired - contact your admin!
+              </span>
+            </div>
+          </div>
+        )}
 
 
 
@@ -2362,9 +2393,9 @@ function App() {
                           <div className="space-y-3 mt-2">
                             <button
                               onClick={() => handleVerify('search')}
-                              disabled={loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 || creditsExhausted || isSelectedAccountLocked}
+                              disabled={loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 || creditsExhausted || isSelectedAccountLocked || subscriptionExpired}
                               className={`w-full btn btn-success py-3.5 text-base justify-center gap-2 font-bold rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.2)] transition-all ${
-                                loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 || creditsExhausted || isSelectedAccountLocked ? 'opacity-50 cursor-not-allowed' : ''
+                                loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 || creditsExhausted || isSelectedAccountLocked || subscriptionExpired ? 'opacity-50 cursor-not-allowed' : ''
                               }`}
                             >
                               {loading && loadingMode === 'search' ? (
@@ -2385,9 +2416,9 @@ function App() {
                             </button>
                             <button
                               onClick={() => handleVerify('history')}
-                              disabled={loading || !isCredentialsComplete || creditsExhausted || isSelectedAccountLocked}
+                              disabled={loading || !isCredentialsComplete || creditsExhausted || isSelectedAccountLocked || subscriptionExpired}
                               className={`w-full btn btn-outline py-3 text-sm justify-center gap-2 font-semibold rounded-xl transition-all border border-zinc-800 hover:border-zinc-700 bg-transparent text-zinc-300 hover:text-white ${
-                                loading || !isCredentialsComplete || creditsExhausted || isSelectedAccountLocked ? 'opacity-50 cursor-not-allowed' : ''
+                                loading || !isCredentialsComplete || creditsExhausted || isSelectedAccountLocked || subscriptionExpired ? 'opacity-50 cursor-not-allowed' : ''
                               }`}
                             >
                               {loading && loadingMode === 'history' ? (
@@ -2479,22 +2510,30 @@ function App() {
                             </>
                           )}
                         </h2>
-                        {activeStepIndex === 5 && result ? (
-                          <div className="space-y-1 font-mono text-[11px] mt-1.5 text-zinc-300">
-                            <div className="font-bold flex items-center gap-1.5">
-                              <span>Date: {result.transaction?.date || new Date(result.timestamp).toLocaleString()}</span>
-                              <span className="text-zinc-600">|</span>
-                              <span>Ref: {result.reference}</span>
-                            </div>
-                            {result.transaction?.details ? (
-                              <div className="text-zinc-400 whitespace-pre-line leading-relaxed">
-                                {result.transaction.details}
+                        {activeStepIndex === 5 && result ? (() => {
+                          const successTx = result.transaction || lastTransactions.find(tx => {
+                            if (!result.reference) return false;
+                            const refClean = String(result.reference).trim().toLowerCase();
+                            const detailsClean = String(tx.details).toLowerCase();
+                            return detailsClean.includes(refClean) || (tx.amount && tx.amount.includes(result.amount));
+                          });
+                          return (
+                            <div className="space-y-1 font-mono text-[11px] mt-1.5 text-zinc-300">
+                              <div className="font-bold flex items-center gap-1.5">
+                                <span>Date: {successTx?.date || new Date(result.timestamp).toLocaleString()}</span>
+                                <span className="text-zinc-600">|</span>
+                                <span>Ref: {result.reference}</span>
                               </div>
-                            ) : (
-                              <div className="text-zinc-500 italic">No additional transaction details.</div>
-                            )}
-                          </div>
-                        ) : (
+                              {successTx?.details ? (
+                                <div className="text-zinc-400 whitespace-pre-line leading-relaxed">
+                                  {successTx.details}
+                                </div>
+                              ) : (
+                                <div className="text-zinc-500 italic">No additional transaction details.</div>
+                              )}
+                            </div>
+                          );
+                        })() : (
                           <p className="text-xs text-[var(--text-secondary)] mt-1 font-medium leading-relaxed">
                             {progress.stage === 'error' ? (
                               error || "An error occurred during verification."
@@ -2742,8 +2781,10 @@ function App() {
                         return (
                           <button 
                             onClick={() => handleVerify('history')}
-                            disabled={loading || isLocked}
-                            className="text-[10px] uppercase font-bold text-zinc-400 hover:text-white transition-colors py-2 px-4 hover:bg-white/5 rounded-lg border border-zinc-800"
+                            disabled={loading || isLocked || subscriptionExpired}
+                            className={`text-[10px] uppercase font-bold text-zinc-400 hover:text-white transition-colors py-2 px-4 hover:bg-white/5 rounded-lg border border-zinc-800 ${
+                              loading || isLocked || subscriptionExpired ? 'opacity-45 cursor-not-allowed' : ''
+                            }`}
                           >
                             {loading && loadingMode === 'history' ? 'Loading...' : isLocked ? 'Blocked: Account Locked' : 'Load More Transactions'}
                           </button>
@@ -2947,7 +2988,7 @@ function App() {
                           {/* Sync Button */}
                           <button
                             onClick={() => syncLedger(activeLedgerAcc.id.toString())}
-                            disabled={isSyncing || isLockedByVerify}
+                            disabled={isSyncing || isLockedByVerify || subscriptionExpired}
                             className="bg-emerald-400 hover:bg-emerald-300 text-zinc-950 font-bold text-xs px-4 py-2 rounded-lg flex items-center gap-2 transition-all shadow-[0_0_15px_rgba(52,211,153,0.15)] disabled:opacity-40"
                           >
                             <RefreshCw size={13} className={isSyncing ? 'animate-spin' : ''} />

@@ -91,7 +91,6 @@ Route::post('/verify-terminal', function (Request $request) {
         return response()->json(['error' => 'Company account pending approval or suspended'], 403);
     }
 
-    // --- Subscription Tier Verification Limits ---
     $limits = [
         'free' => 20,
         '499' => 300,
@@ -103,7 +102,12 @@ Route::post('/verify-terminal', function (Request $request) {
 
     $creditsExhausted = ($tenant->verifications_count >= $limit);
 
-    if (!$creditsExhausted && $request->input('action') === 'verify') {
+    $subscriptionExpired = false;
+    if ($tenant->license_expires_at && \Carbon\Carbon::parse($tenant->license_expires_at)->isPast()) {
+        $subscriptionExpired = true;
+    }
+
+    if (!$creditsExhausted && !$subscriptionExpired && $request->input('action') === 'verify') {
         // Increment count
         $tenant->increment('verifications_count');
     }
@@ -111,6 +115,7 @@ Route::post('/verify-terminal', function (Request $request) {
     return response()->json([
         'status' => 'authorized',
         'credits_exhausted' => $creditsExhausted,
+        'subscription_expired' => $subscriptionExpired,
         'tenant' => [
             'name' => $tenant->name,
             'logo' => $tenant->company_logo,

@@ -29,6 +29,7 @@ class SuperadminController extends Controller
             'subscription_tier' => 'required|in:free,499,999,1999',
             'lock_timeout' => 'sometimes|integer|min:5|max:300',
             'max_terminals' => 'sometimes|integer|min:1',
+            'license_expires_at' => 'sometimes|nullable|date',
         ]);
 
         $tenant = Tenant::findOrFail($id);
@@ -36,6 +37,9 @@ class SuperadminController extends Controller
         $tenant->subscription_tier = $request->subscription_tier;
         if ($request->has('lock_timeout')) {
             $tenant->lock_timeout = $request->lock_timeout;
+        }
+        if ($request->has('license_expires_at')) {
+            $tenant->license_expires_at = $request->license_expires_at;
         }
 
         // Handle max terminals updating and dynamic baselines
