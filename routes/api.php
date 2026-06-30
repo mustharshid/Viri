@@ -46,6 +46,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/company/bank-accounts/{id}', [CompanyController::class, 'deleteBankAccount']);
     Route::post('/company/bank-accounts/{id}/reset-failures', [CompanyController::class, 'resetBankAccountFailures']);
     Route::put('/company/profile', [CompanyController::class, 'updateProfile']);
+    
+    Route::get('/company/audit-logs', [CompanyController::class, 'getAuditLogs']);
 
     // Session activity logs for Superadmin
     Route::get('/admin/session-logs', [SuperadminController::class, 'getSessionLogs']);
@@ -132,6 +134,7 @@ Route::post('/verify-terminal', function (Request $request) {
             })
         ],
         'terminal_name' => $terminal->terminal_name,
+        'settings_pin' => $terminal->settings_pin,
         'credentials' => $terminal->credentials,
         'permissions' => ($tier === 'free' || $tier === '499') ? [
             'verification_enabled' => true,
@@ -147,6 +150,7 @@ Route::post('/verify-terminal', function (Request $request) {
 Route::post('/terminal/lock-account', [BankAccountLockController::class, 'lockAccount']);
 Route::post('/terminal/heartbeat', [BankAccountLockController::class, 'heartbeat']);
 Route::post('/terminal/unlock-account', [BankAccountLockController::class, 'unlockAccount']);
+Route::post('/terminal/status/log', [TerminalPairingController::class, 'logStatus']);
 Route::post('/terminal/logs', [TerminalPairingController::class, 'uploadLogs']);
 Route::post('/terminal/credentials', [TerminalPairingController::class, 'saveCredentials']);
 Route::post('/terminal/bank-accounts/increment-failures', [BankAccountLockController::class, 'incrementFailures']);

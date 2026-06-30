@@ -5,6 +5,7 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Terminal;
+use App\Models\AuditLog;
 
 class TerminalPairingController extends Controller
 {
@@ -107,5 +108,32 @@ class TerminalPairingController extends Controller
         ]);
 
         return response()->json(['message' => 'Logs uploaded successfully.']);
+    }
+
+    public function logStatus(Request $request)
+    {
+        $request->validate([
+            'hardware_id' => 'required|string',
+            'event' => 'required|string', // 'online', 'offline', 'settings_changed'
+            'metadata' => 'nullable|array'
+        ]);
+
+        $terminal = Terminal::where('hardware_id', $request->hardware_id)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$terminal) {
+            return response()->json(['error' => 'Terminal unauthorized'], 403);
+        }
+
+        AuditLog::create([
+            'tenant_id' => $terminal->tenant_id,
+            'event_type' => $request->event,
+            'actor' => $terminal->terminal_name,
+            'ip_address' => $request->ip(),
+            'metadata' => array_merge($request->metadata ?? [], ['hardware_id' => $request->hardware_id])
+        ]);
+
+        return response()->json(['message' => 'Event logged successfully.']);
     }
 }

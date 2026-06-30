@@ -7,9 +7,20 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use App\Models\Terminal;
 use App\Models\BankAccount;
+use App\Models\AuditLog;
 
 class CompanyController extends Controller
 {
+    public function getAuditLogs(Request $request)
+    {
+        $tenantId = $request->user()->tenant_id;
+        $logs = AuditLog::where('tenant_id', $tenantId)
+            ->orderBy('created_at', 'desc')
+            ->limit(500)
+            ->get();
+        return response()->json($logs);
+    }
+
     // === TERMINALS ===
     public function getTerminals(Request $request)
     {
@@ -22,7 +33,8 @@ class CompanyController extends Controller
     {
         $request->validate([
             'name' => 'required|string',
-            'permissions' => 'nullable|array'
+            'permissions' => 'nullable|array',
+            'settings_pin' => 'nullable|string|size:6'
         ]);
 
         $tenant = $request->user()->tenant;
@@ -72,8 +84,17 @@ class CompanyController extends Controller
             'hardware_id' => $hardwareId,
             'pairing_code' => $pairingCode,
             'pairing_code_expires_at' => now()->addMinutes(10),
+            'settings_pin' => $request->settings_pin,
             'status' => 'active',
             'permissions' => $permissions
+        ]);
+
+        \App\Models\AuditLog::create([
+            'tenant_id' => $tenantId,
+            'event_type' => 'terminal_created',
+            'actor' => $request->user()->name,
+            'ip_address' => $request->ip(),
+            'metadata' => ['terminal_id' => $terminal->id, 'terminal_name' => $terminal->terminal_name]
         ]);
 
         return response()->json(['terminal' => $terminal]);
@@ -83,7 +104,8 @@ class CompanyController extends Controller
     {
         $request->validate([
             'name' => 'required|string',
-            'permissions' => 'nullable|array'
+            'permissions' => 'nullable|array',
+            'settings_pin' => 'nullable|string|size:6'
         ]);
 
         $tenant = $request->user()->tenant;
@@ -112,7 +134,16 @@ class CompanyController extends Controller
 
         $terminal->update([
             'terminal_name' => $request->name,
+            'settings_pin' => $request->settings_pin,
             'permissions' => $permissions
+        ]);
+
+        \App\Models\AuditLog::create([
+            'tenant_id' => $tenant->id,
+            'event_type' => 'terminal_updated',
+            'actor' => $request->user()->name,
+            'ip_address' => $request->ip(),
+            'metadata' => ['terminal_id' => $terminal->id, 'terminal_name' => $terminal->terminal_name]
         ]);
 
         return response()->json(['terminal' => $terminal]);
@@ -121,6 +152,15 @@ class CompanyController extends Controller
     public function deleteTerminal(Request $request, $id)
     {
         $terminal = Terminal::where('tenant_id', $request->user()->tenant_id)->findOrFail($id);
+        
+        \App\Models\AuditLog::create([
+            'tenant_id' => $request->user()->tenant_id,
+            'event_type' => 'terminal_deleted',
+            'actor' => $request->user()->name,
+            'ip_address' => $request->ip(),
+            'metadata' => ['terminal_id' => $terminal->id, 'terminal_name' => $terminal->terminal_name]
+        ]);
+
         $terminal->delete();
         return response()->json(['message' => 'Terminal deleted']);
     }

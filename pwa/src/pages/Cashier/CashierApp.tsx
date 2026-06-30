@@ -55,6 +55,7 @@ interface LedgerData {
 function App() {
   const [amount, setAmount] = useState('');
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [settingsPin, setSettingsPin] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<any>({
     verification_enabled: true,
     ledger_enabled: true,
@@ -152,6 +153,41 @@ function App() {
     }
   };
 
+  const logActivityToServer = async (eventType: string, metadata: any = {}) => {
+    if (!hardwareId || !backendUrl) return;
+    try {
+      await fetch(`${backendUrl}/terminal/status/log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hardware_id: hardwareId,
+          event: eventType,
+          metadata
+        })
+      });
+    } catch (e) {
+      console.error("Error logging activity to server:", e);
+    }
+  };
+
+  useEffect(() => {
+    const handleOnline = () => logActivityToServer('terminal_online');
+    const handleOffline = () => logActivityToServer('terminal_offline');
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Also log initial connect if hardwareId is present
+    if (hardwareId && backendUrl) {
+      logActivityToServer('terminal_online');
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [hardwareId, backendUrl]);
+
   const saveAccountCredentials = async (accId: string, uName: string, pWord: string, seed: string) => {
     const updated = {
       ...accountsCreds,
@@ -164,6 +200,7 @@ function App() {
     setAccountsCreds(updated);
     localStorage.setItem('viri_accounts_creds', JSON.stringify(updated));
     await syncCredentialsToServer(updated);
+    logActivityToServer('settings_changed', { action: 'saved_credentials', account_id: accId });
   };
 
   const clearAccountCredentials = async (accId: string) => {
@@ -172,6 +209,7 @@ function App() {
     setAccountsCreds(updated);
     localStorage.setItem('viri_accounts_creds', JSON.stringify(updated));
     await syncCredentialsToServer(updated);
+    logActivityToServer('settings_changed', { action: 'cleared_credentials', account_id: accId });
   };
 
   // Verification State
@@ -487,6 +525,7 @@ function App() {
         if (data.tenant?.lock_timeout) setLockTimeout(data.tenant.lock_timeout);
         if (data.tenant?.extension_id) setExtensionId(data.tenant.extension_id);
         if (data.terminal_name) setTerminalName(data.terminal_name);
+        setSettingsPin(data.settings_pin || null);
         if (data.permissions) {
           setPermissions({
             verification_enabled: data.permissions.verification_enabled ?? true,
@@ -1806,13 +1845,14 @@ function App() {
             if (showSettings) {
               setShowSettings(false);
             } else {
-              if (pin) {
-                const check = prompt("Enter Terminal PIN to open settings:");
-                if (check !== pin) {
+              if (settingsPin) {
+                const check = prompt("Enter Terminal Settings PIN to open settings:");
+                if (check !== settingsPin) {
                   alert("Incorrect PIN");
                   return;
                 }
               }
+              logActivityToServer('settings_opened');
               setShowSettings(true);
             }
           }}
@@ -2661,7 +2701,11 @@ function App() {
                     <div className="text-right">
                       <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold font-sans">Total Position</div>
                       <div className="text-3xl font-black text-emerald-400 tracking-tight mt-1">
-                        {ledgerCurrency} {cache.balance !== 'Not synced' && cache.balance !== 'Not found' ? cache.balance : '0.00'}
+                        {permissions.ledger_show_balance ? (
+                          `${ledgerCurrency} ${cache.balance !== 'Not synced' && cache.balance !== 'Not found' ? cache.balance : '0.00'}`
+                        ) : (
+                          '[hidden]'
+                        )}
                       </div>
                       <div className="text-[10px] text-zinc-500 font-mono mt-1">
                         LAST SYNC: {cache.lastUpdated}
@@ -2703,7 +2747,11 @@ function App() {
                             <div className="text-sm font-bold text-white truncate mt-0.5">{acc.account_name}</div>
                             <div className="text-[10px] text-zinc-500 font-mono tracking-widest">{acc.account_number}</div>
                             <div className="text-[11px] text-zinc-500 font-mono mt-0.5">
-                              {accCache.balance !== 'Not synced' ? `${acc.currency || 'MVR'} ${accCache.balance}` : 'Not synced'}
+                              {permissions.ledger_show_balance ? (
+                                accCache.balance !== 'Not synced' ? `${acc.currency || 'MVR'} ${accCache.balance}` : 'Not synced'
+                              ) : (
+                                '[hidden]'
+                              )}
                             </div>
                           </div>
                         </button>

@@ -134,6 +134,11 @@ class SuperadminController extends Controller
         }
 
         $logs = $query->paginate($request->input('per_page', 50));
-        return response()->json($logs);
+        
+        $response = $logs->toArray();
+        $response['active_terminals'] = \App\Models\Terminal::where('status', 'active')->count();
+        $response['session_holders'] = \App\Models\BankAccount::whereNotNull('session_holder_terminal_id')->with('tenant')->get();
+        
+        return response()->json($response);
     }
 }

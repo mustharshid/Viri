@@ -19,6 +19,7 @@ export default function CompanyDashboard() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [now, setNow] = useState(Date.now());
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
   
   // Forms
   const [newTerminalName, setNewTerminalName] = useState('');
@@ -26,6 +27,7 @@ export default function CompanyDashboard() {
   const [isTerminalModalOpen, setIsTerminalModalOpen] = useState(false);
   const [editingTerminal, setEditingTerminal] = useState<any>(null);
   const [terminalFormName, setTerminalFormName] = useState('');
+  const [terminalSettingsPin, setTerminalSettingsPin] = useState('');
   const [permissionsForm, setPermissionsForm] = useState({
     verification_enabled: true,
     ledger_enabled: false,
@@ -90,6 +92,9 @@ export default function CompanyDashboard() {
 
       const banksRes = await fetch('/api/company/bank-accounts', { headers });
       setBankAccounts(await banksRes.json());
+
+      const logsRes = await fetch('/api/company/audit-logs', { headers });
+      setAuditLogs(await logsRes.json());
 
     } catch (err) {
       navigate('/login');
@@ -192,9 +197,10 @@ export default function CompanyDashboard() {
     }
   };
 
-  const openEditModal = (term: any) => {
+  const editTerminal = (term: any) => {
     setEditingTerminal(term);
     setTerminalFormName(term.terminal_name);
+    setTerminalSettingsPin(term.settings_pin || '');
     setPermissionsForm({
       verification_enabled: term.permissions?.verification_enabled ?? true,
       ledger_enabled: term.permissions?.ledger_enabled ?? false,
@@ -219,6 +225,7 @@ export default function CompanyDashboard() {
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: terminalFormName,
+        settings_pin: terminalSettingsPin.trim() || null,
         permissions: permissionsForm
       })
     });
@@ -227,6 +234,7 @@ export default function CompanyDashboard() {
       setIsTerminalModalOpen(false);
       setNewTerminalName('');
       setTerminalFormName('');
+      setTerminalSettingsPin('');
       setEditingTerminal(null);
       fetchData();
     } else {
@@ -367,11 +375,17 @@ export default function CompanyDashboard() {
             <button onClick={() => setActiveTab('reporting')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'reporting' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
               <BarChart3 size={20} /> Reporting
             </button>
+            <button onClick={() => setActiveTab('activity')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'activity' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
+              <Clock size={20} /> Activity Logs
+            </button>
             <button onClick={() => setActiveTab('plans')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'plans' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
               <CreditCard size={20} /> Plans & Upgrades
             </button>
             <button onClick={() => setActiveTab('support')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'support' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
               <LifeBuoy size={20} /> Support
+            </button>
+            <button onClick={() => setActiveTab('help')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'help' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
+              <Info size={20} /> Help Center
             </button>
           </nav>
         </div>
@@ -464,7 +478,7 @@ export default function CompanyDashboard() {
                           {term.terminal_name}
                         </strong>
                         <div className="flex items-center gap-2">
-                          <button onClick={() => openEditModal(term)} className="text-zinc-400 hover:text-white" title="Edit Terminal"><Edit size={16}/></button>
+                          <button onClick={() => editTerminal(term)} className="text-zinc-400 hover:text-white" title="Edit Terminal"><Edit size={16}/></button>
                           <button onClick={() => deleteTerminal(term.id)} className="text-red-400 hover:text-red-300" title="Delete Terminal"><Trash2 size={16}/></button>
                         </div>
                       </div>
@@ -701,6 +715,96 @@ export default function CompanyDashboard() {
             </div>
           </div>
         )}
+        {/* --- TAB: ACTIVITY LOGS --- */}
+        {activeTab === 'activity' && (
+          <div className="glass-panel p-6 animate-fade-in overflow-hidden flex flex-col">
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+              <Clock size={24} className="text-[var(--color-success)]" />
+              Activity Logs (Last 30 Days)
+            </h2>
+            <div className="overflow-x-auto flex-1">
+              <table className="w-full text-left text-sm whitespace-nowrap">
+                <thead>
+                  <tr className="border-b border-[var(--border-color)] text-[var(--text-secondary)]">
+                    <th className="py-3 px-4">Date / Time</th>
+                    <th className="py-3 px-4">Event Type</th>
+                    <th className="py-3 px-4">Terminal (Actor)</th>
+                    <th className="py-3 px-4">IP Address</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border-color)]">
+                  {auditLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="py-8 text-center text-zinc-500">No activity logs found.</td>
+                    </tr>
+                  ) : (
+                    auditLogs.map((log: any) => (
+                      <tr key={log.id} className="hover:bg-white/5 transition-colors">
+                        <td className="py-3 px-4 text-xs font-mono text-[var(--text-secondary)]">
+                          {new Date(log.created_at).toLocaleString()}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="bg-zinc-800 text-zinc-200 px-2 py-1 rounded text-xs font-medium uppercase tracking-wider">
+                            {log.event_type}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 font-medium text-white">
+                          {log.actor || 'System'}
+                        </td>
+                        <td className="py-3 px-4 text-xs font-mono text-[var(--text-secondary)]">
+                          {log.ip_address || 'N/A'}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* --- TAB: HELP CENTER --- */}
+        {activeTab === 'help' && (
+          <div className="glass-panel p-8 max-w-4xl animate-fade-in space-y-8">
+            <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+              <Info size={28} className="text-[var(--color-success)]" />
+              Help Center & Documentation
+            </h2>
+
+            <section className="space-y-4">
+              <h3 className="text-xl font-semibold text-[var(--color-success)]">1. Terminals</h3>
+              <p className="text-[var(--text-secondary)] leading-relaxed">
+                A Terminal represents a physical device (like a cashier's PC or tablet) running the Viri Cashier PWA.
+                To create one, click the green "+" button on the Dashboard. You will receive a 6-digit Pairing Code.
+                Open the Viri Cashier app on your terminal device, and enter that code to pair it to your company account.
+              </p>
+            </section>
+
+            <section className="space-y-4">
+              <h3 className="text-xl font-semibold text-[var(--color-success)]">2. Bank Accounts</h3>
+              <p className="text-[var(--text-secondary)] leading-relaxed">
+                You can configure multiple bank accounts for your terminals. The PWA will allow the cashier to view verified
+                transfers made to these specific accounts. If you have multiple accounts, you can set one as the "Default".
+              </p>
+            </section>
+
+            <section className="space-y-4">
+              <h3 className="text-xl font-semibold text-[var(--color-success)]">3. Settings PIN</h3>
+              <p className="text-[var(--text-secondary)] leading-relaxed">
+                When configuring a Terminal, you can set an optional 6-digit Settings PIN. If you set this, the cashier using the 
+                PWA on that terminal will be prompted for this PIN before they can edit any settings or view account credentials.
+              </p>
+            </section>
+
+            <section className="space-y-4">
+              <h3 className="text-xl font-semibold text-[var(--color-success)]">4. Activity Logs</h3>
+              <p className="text-[var(--text-secondary)] leading-relaxed">
+                The Activity Logs tab shows a 30-day history of events across all your terminals. This includes when a terminal goes
+                online, when it goes offline, or if its settings are changed directly from the PWA.
+              </p>
+            </section>
+          </div>
+        )}
 
         {/* --- TAB: PLANS --- */}
         {activeTab === 'plans' && (
@@ -877,6 +981,25 @@ export default function CompanyDashboard() {
                   className="input-field w-full" 
                   value={terminalFormName} 
                   onChange={e => setTerminalFormName(e.target.value)} 
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2 flex items-center gap-2">
+                  Settings PIN (Optional)
+                  <Tooltip text="A 6-digit PIN required on the PWA to edit settings or view sensitive information. Leave blank to disable." />
+                </label>
+                <input 
+                  type="text" 
+                  maxLength={6}
+                  pattern="\d{0,6}"
+                  placeholder="e.g. 123456" 
+                  className="input-field w-full font-mono" 
+                  value={terminalSettingsPin} 
+                  onChange={e => {
+                    const val = e.target.value.replace(/\D/g, '');
+                    setTerminalSettingsPin(val);
+                  }} 
                 />
               </div>
 
