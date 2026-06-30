@@ -1247,13 +1247,15 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
     } else {
       if (matchFound) {
         emitLog(port, `> [Viri Bridge] EXACT MATCH: Ref ${matchFound.reference || matchFound.id}`);
+        const normalizedMatch = normalizeTransactions([matchFound], 'BML', 1)[0];
         port.postMessage({
           type: 'success',
           data: {
             status: 'CREDITED',
             reference: matchFound.reference || matchFound.id || "BML-MATCH",
             amount: Math.abs(matchFound.amount).toFixed(2),
-            timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString()
+            timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString(),
+            transaction: normalizedMatch
           },
           balance: balance,
           transactions: last3Txs
@@ -2085,6 +2087,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     } else {
       if (matchFound) {
         emitLog(port, `> [Viri Bridge] MIB VERIFICATION SUCCESS: ${matchFound.reference || matchFound.description || 'Transaction matched'}`);
+        const normalizedMatch = normalizeTransactions([matchFound], 'MIB', 1)[0];
         port.postMessage({
           type: 'success',
           data: {
@@ -2095,7 +2098,8 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
                 ? matchFound.foreignAmount
                 : (matchFound.amount || matchFound.baseAmount)
             )).toFixed(2),
-            timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString()
+            timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString(),
+            transaction: normalizedMatch
           },
           balance: mibBalance,
           transactions: last3Txs

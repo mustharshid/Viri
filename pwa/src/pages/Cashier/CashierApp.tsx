@@ -82,6 +82,37 @@ function App() {
   const syncStartTimeRef = useRef<number | null>(null);
   const [currentTick, setCurrentTick] = useState(Date.now());
 
+  const formatAmount = (val: any): string => {
+    if (val === undefined || val === null || val === '') return '0.00';
+    const str = String(val).trim();
+    if (str === 'Not synced' || str === 'Not found' || str === 'Never' || str === 'Never synced') {
+      return str;
+    }
+    
+    // Extract optional sign (+/-)
+    let sign = '';
+    let rest = str;
+    if (str.startsWith('+')) {
+      sign = '+';
+      rest = str.substring(1);
+    } else if (str.startsWith('-')) {
+      sign = '-';
+      rest = str.substring(1);
+    }
+    
+    // Clean rest from commas if any exist
+    const cleanRest = rest.replace(/,/g, '');
+    const num = parseFloat(cleanRest);
+    if (isNaN(num)) return str; // return original if not a number
+    
+    // Format with thousandth commas and 2 decimal places
+    const formatted = num.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+    return `${sign}${formatted}`;
+  };
+
   useEffect(() => {
     const interval = setInterval(() => setCurrentTick(Date.now()), 1000);
     return () => clearInterval(interval);
@@ -318,6 +349,7 @@ function App() {
     reference: string;
     amount: string;
     timestamp: string;
+    transaction?: LedgerTransaction;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
@@ -2416,7 +2448,7 @@ function App() {
                         <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
                           {activeStepIndex === 5 ? (
                             <>
-                              <span>Transfer Verified!</span>
+                              <span>Last Credit: {selectedAccountCurrency} {formatAmount(result?.amount)}</span>
                               <Tooltip text="The payment has been confirmed as received on your bank account." />
                               <span className="px-2 py-0.5 bg-emerald-955/50 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold tracking-wider rounded uppercase">
                                 Success
@@ -2447,17 +2479,32 @@ function App() {
                             </>
                           )}
                         </h2>
-                        <p className="text-xs text-[var(--text-secondary)] mt-1 font-medium leading-relaxed">
-                          {activeStepIndex === 5 ? (
-                            `Verification completed at ${result ? new Date(result.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString()} local time. Reference: ${result?.reference || 'N/A'}`
-                          ) : progress.stage === 'error' ? (
-                            error || "An error occurred during verification."
-                          ) : loading ? (
-                            timeLeft !== null ? `Estimated remaining: ~${timeLeft}s` : "Contacting banking server..."
-                          ) : (
-                            "Enter transfer details on the left and click Verify to start."
-                          )}
-                        </p>
+                        {activeStepIndex === 5 && result ? (
+                          <div className="space-y-1 font-mono text-[11px] mt-1.5 text-zinc-300">
+                            <div className="font-bold flex items-center gap-1.5">
+                              <span>Date: {result.transaction?.date || new Date(result.timestamp).toLocaleString()}</span>
+                              <span className="text-zinc-600">|</span>
+                              <span>Ref: {result.reference}</span>
+                            </div>
+                            {result.transaction?.details ? (
+                              <div className="text-zinc-400 whitespace-pre-line leading-relaxed">
+                                {result.transaction.details}
+                              </div>
+                            ) : (
+                              <div className="text-zinc-500 italic">No additional transaction details.</div>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-[var(--text-secondary)] mt-1 font-medium leading-relaxed">
+                            {progress.stage === 'error' ? (
+                              error || "An error occurred during verification."
+                            ) : loading ? (
+                              timeLeft !== null ? `Estimated remaining: ~${timeLeft}s` : "Contacting banking server..."
+                            ) : (
+                              "Enter transfer details on the left and click Verify to start."
+                            )}
+                          </p>
+                        )}
                       </div>
 
 
@@ -2525,7 +2572,7 @@ function App() {
                               {(() => {
                                 const verifyCache = selectedAccount ? (ledgerCache[selectedAccount.id.toString()] || { balance: 'Not synced' }) : { balance: 'Not synced' };
                                 return permissions.ledger_show_balance ? (
-                                  verifyCache.balance !== 'Not synced' && verifyCache.balance !== 'Not found' ? verifyCache.balance : '0.00'
+                                  verifyCache.balance !== 'Not synced' && verifyCache.balance !== 'Not found' ? formatAmount(verifyCache.balance) : '0.00'
                                 ) : '[hidden]';
                               })()}
                             </span>
@@ -2668,11 +2715,11 @@ function App() {
                                     <div className={`font-mono font-bold text-sm leading-none ${
                                       isCredit ? 'text-[var(--color-success)]' : 'text-red-400'
                                     }`}>
-                                      {tx.amount}
+                                      {formatAmount(tx.amount)}
                                     </div>
                                     {tx.runningBalance && (
                                       <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1.5">
-                                        Bal: {selectedAccountCurrency} {tx.runningBalance}
+                                        Bal: {selectedAccountCurrency} {formatAmount(tx.runningBalance)}
                                       </div>
                                     )}
                                   </td>
@@ -2788,7 +2835,7 @@ function App() {
                       <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold font-sans">Total Position</div>
                       <div className="text-3xl font-black text-emerald-400 tracking-tight mt-1">
                         {permissions.ledger_show_balance ? (
-                          `${ledgerCurrency} ${cache.balance !== 'Not synced' && cache.balance !== 'Not found' ? cache.balance : '0.00'}`
+                          `${ledgerCurrency} ${cache.balance !== 'Not synced' && cache.balance !== 'Not found' ? formatAmount(cache.balance) : '0.00'}`
                         ) : (
                           '[hidden]'
                         )}
@@ -2834,7 +2881,7 @@ function App() {
                             <div className="text-[10px] text-zinc-500 font-mono tracking-widest">{acc.account_number}</div>
                             <div className="text-[11px] text-zinc-500 font-mono mt-0.5">
                               {permissions.ledger_show_balance ? (
-                                accCache.balance !== 'Not synced' ? `${acc.currency || 'MVR'} ${accCache.balance}` : 'Not synced'
+                                accCache.balance !== 'Not synced' ? `${acc.currency || 'MVR'} ${formatAmount(accCache.balance)}` : 'Not synced'
                               ) : (
                                 '[hidden]'
                               )}
@@ -3005,11 +3052,11 @@ function App() {
                                           <div className={`font-mono font-extrabold text-base ${
                                             isCredit ? 'text-emerald-400' : 'text-red-400'
                                           }`}>
-                                            {tx.amount}
+                                            {formatAmount(tx.amount)}
                                           </div>
                                           {permissions.ledger_show_balance && tx.runningBalance && (
                                             <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1 uppercase">
-                                              Bal {tx.runningBalance}
+                                              Bal {formatAmount(tx.runningBalance)}
                                             </div>
                                           )}
                                         </td>
