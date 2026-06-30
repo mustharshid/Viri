@@ -1322,8 +1322,8 @@ function App() {
     setError(null);
     logsRef.current = [];
     setLogs([]);
-    setSyncTimeElapsed(0);
-    const sTime = performance.now();
+    setSyncTimeElapsed(null);
+    const sTime = Date.now();
     syncStartTimeRef.current = sTime;
 
     isVerifyingRef.current = true;
@@ -1452,6 +1452,7 @@ function App() {
         });
         setTimeout(async () => {
           setLoading(false);
+          setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
           setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
           setLedgerCache(prev => ({
             ...prev,
@@ -1490,6 +1491,7 @@ function App() {
       } else if (response.type === 'error') {
         setError(response.error || "An unknown error occurred during sync.");
         setProgress({ stage: 'error', text: 'Sync failed', percent: 100, isIndeterminate: false });
+        setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
         setTimeLeft(null);
         setLedgerCache(prev => ({
           ...prev,
@@ -2670,6 +2672,7 @@ function App() {
                               )}
                             </div>
                             <div className="text-sm font-bold text-white truncate mt-0.5">{acc.account_name}</div>
+                            <div className="text-[10px] text-zinc-500 font-mono tracking-widest">{acc.account_number}</div>
                             <div className="text-[11px] text-zinc-500 font-mono mt-0.5">
                               {accCache.balance !== 'Not synced' ? `${acc.currency || 'MVR'} ${accCache.balance}` : 'Not synced'}
                             </div>
@@ -2770,7 +2773,13 @@ function App() {
                           </span>
                           <span className="text-zinc-700">|</span>
                           <span className="text-zinc-500">Since last sync: <span className={`${!isSyncing ? 'text-zinc-300' : 'text-zinc-500'}`}>
-                            {cache.lastUpdatedTimestamp ? `${Math.floor((currentTick - cache.lastUpdatedTimestamp) / 1000)}s` : '0s'}
+                            {cache.lastUpdatedTimestamp ? (() => {
+                              const diffSeconds = Math.floor((currentTick - cache.lastUpdatedTimestamp) / 1000);
+                              const h = Math.floor(diffSeconds / 3600);
+                              const m = Math.floor((diffSeconds % 3600) / 60);
+                              const s = diffSeconds % 60;
+                              return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                            })() : '00:00:00'}
                           </span></span>
                           <span className="text-zinc-700">|</span>
                           <span className="text-zinc-500">{cache.lastUpdated !== 'Never' ? cache.lastUpdated : 'Never synced'}</span>
