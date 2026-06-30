@@ -2640,6 +2640,9 @@ function App() {
               const filteredTransactions = rawTransactions.filter(tx => {
                 const isCredit = tx.amount.startsWith('+');
                 
+                // 0. Permission Filter (Hide Outward / Debit)
+                if (!permissions.ledger_show_debit && !isCredit) return false;
+
                 // 1. Direction Filter
                 if (ledgerFilter === 'in' && !isCredit) return false;
                 if (ledgerFilter === 'out' && isCredit) return false;
