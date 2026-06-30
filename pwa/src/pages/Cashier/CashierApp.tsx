@@ -2578,20 +2578,24 @@ function App() {
 
                     <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 bg-zinc-900/40 rounded-xl border border-zinc-800">
                       {/* Sync Progress */}
-                      <div className="flex items-center gap-4 w-full md:flex-1">
-                        <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold font-sans whitespace-nowrap">Sync Progress</span>
-                        <div className="flex-1 bg-zinc-800 h-3 rounded-full overflow-hidden relative shadow-inner">
+                      <div className="flex items-center gap-3 w-full md:flex-1 min-w-0">
+                        <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold font-sans whitespace-nowrap shrink-0">Sync Progress</span>
+                        <div className="w-24 sm:w-40 bg-zinc-800 h-3 rounded-full overflow-hidden relative shadow-inner shrink-0">
                           <div
                             className={`h-full transition-all duration-300 rounded-full ${
-                              progress.stage === 'error' ? 'bg-red-500' : 'bg-emerald-400'
+                              progress.stage === 'error' 
+                                ? 'bg-red-500' 
+                                : ((loading && loadingMode === 'history') 
+                                    ? 'bg-gradient-to-r from-emerald-400 to-cyan-500' 
+                                    : 'bg-emerald-400')
                             }`}
                             style={{ width: `${(loading && loadingMode === 'history') ? progress.percent : 100}%` }}
                           />
                         </div>
-                        <span className="font-mono text-zinc-300 text-[10px] font-bold whitespace-nowrap">
+                        <span className="font-mono text-zinc-300 text-[10px] font-bold whitespace-nowrap shrink-0">
                           {(loading && loadingMode === 'history') ? `${progress.percent}%` : '100%'}
                         </span>
-                        <span className="font-mono text-zinc-300 text-[11px] font-bold ml-1 truncate max-w-[150px] sm:max-w-[200px]">
+                        <span className="font-mono text-zinc-300 text-[11px] font-bold ml-1 truncate flex-1 min-w-0">
                           {progress.text || ((loading && loadingMode === 'history') ? 'Fetching...' : 'Ready')}
                         </span>
                       </div>
@@ -2896,20 +2900,24 @@ function App() {
                       {/* Sync Progress Bar (Moved under Daily Entries) */}
                       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 bg-zinc-900/40 rounded-xl border border-zinc-800">
                         {/* Sync Progress */}
-                        <div className="flex items-center gap-4 w-full md:flex-1">
-                          <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold font-sans whitespace-nowrap">Sync Progress</span>
-                          <div className="flex-1 bg-zinc-800 h-3 rounded-full overflow-hidden relative shadow-inner">
+                        <div className="flex items-center gap-3 w-full md:flex-1 min-w-0">
+                          <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold font-sans whitespace-nowrap shrink-0">Sync Progress</span>
+                          <div className="w-24 sm:w-40 bg-zinc-800 h-3 rounded-full overflow-hidden relative shadow-inner shrink-0">
                             <div
                               className={`h-full transition-all duration-300 rounded-full ${
-                                progress.stage === 'error' ? 'bg-red-500' : 'bg-emerald-400'
+                                progress.stage === 'error' 
+                                  ? 'bg-red-500' 
+                                  : (isSyncing 
+                                      ? 'bg-gradient-to-r from-emerald-400 to-cyan-500' 
+                                      : 'bg-emerald-400')
                               }`}
                               style={{ width: `${isSyncing ? progress.percent : 100}%` }}
                             />
                           </div>
-                          <span className="font-mono text-zinc-300 text-[10px] font-bold whitespace-nowrap">
+                          <span className="font-mono text-zinc-300 text-[10px] font-bold whitespace-nowrap shrink-0">
                             {isSyncing ? `${progress.percent}%` : '100%'}
                           </span>
-                          <span className="font-mono text-zinc-300 text-[11px] font-bold ml-1 truncate max-w-[150px] sm:max-w-[200px]">
+                          <span className="font-mono text-zinc-300 text-[11px] font-bold ml-1 truncate flex-1 min-w-0">
                             {progress.text || (isSyncing ? 'Syncing...' : 'Success')}
                           </span>
                         </div>

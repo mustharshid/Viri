@@ -13,6 +13,7 @@ class Terminal extends Model
         'hardware_id',
         'status',
         'pairing_code',
+        'settings_pin',
         'pairing_code_expires_at',
         'debug_logs',
         'allow_debug_until',
