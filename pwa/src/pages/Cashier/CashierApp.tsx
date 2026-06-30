@@ -1701,13 +1701,13 @@ function App() {
       </button>
 
       {/* Top section: Brand / Logo - Vertical Premium Layout */}
-      <div className={`flex flex-col px-4 mb-8 transition-all ${isSidebarCollapsed ? 'items-center' : 'items-start w-full'}`}>
+      <div className={`flex flex-col items-center text-center px-4 mb-8 transition-all w-full`}>
         {/* Viri Logo Container */}
-        <div className="mb-3 flex flex-col items-start w-full">
-          <img src="/logo_en.png" alt="Viri Logo" className={`w-auto object-contain transition-all ${isSidebarCollapsed ? 'h-10 md:h-12 mx-auto' : 'h-20 md:h-24 ml-0'}`} />
+        <div className={`mb-6 flex ${isSidebarCollapsed ? 'flex-col justify-center' : 'flex-row items-center justify-center gap-3'} w-full`}>
+          <img src="/logo_en.png" alt="Viri Logo" className={`w-auto object-contain transition-all ${isSidebarCollapsed ? 'h-10 mx-auto' : 'h-10'}`} />
           {!isSidebarCollapsed && (
-            <span className="text-[9px] text-zinc-500 font-mono mt-2 tracking-tight uppercase whitespace-nowrap">
-              Zero-Knowledge Architecture
+            <span className="text-[9px] text-zinc-400 font-mono tracking-tight uppercase whitespace-nowrap leading-tight text-left">
+              Zero-Knowledge<br/>Architecture
             </span>
           )}
         </div>
@@ -2971,10 +2971,10 @@ function App() {
                       Link this browser to your company's Viri account by pairing the terminal.
                     </p>
                     <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-4 marker:text-blue-400">
-                      <li>Obtain the <strong>Hardware ID</strong> and <strong>PIN</strong> from your superadmin dashboard.</li>
-                      <li>Click the <strong>Settings</strong> icon (bottom left) to open the setup screen.</li>
-                      <li>Enter the Hardware ID, PIN, and the Extension ID (found in chrome://extensions after installing).</li>
-                      <li>Click <strong>Pair Terminal</strong> to securely authenticate.</li>
+                      <li>Set up the terminal from the <strong>Company Admin Panel</strong>.</li>
+                      <li>Get the generated <strong>6-digit Pairing Code</strong>.</li>
+                      <li>Go to <strong>https://viri.thinksafe.mv/cashier</strong> on the target device.</li>
+                      <li>Enter the pairing code to securely link the terminal.</li>
                     </ol>
                   </div>
 
@@ -2982,19 +2982,22 @@ function App() {
                   <div className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl p-6 shadow-xl">
                     <h3 className="text-xl font-bold mb-4 flex items-center gap-3 text-white">
                       <Search className="text-purple-400" />
-                      3. Transfer Verification
+                      3. Transfer Verification & Ledger
                     </h3>
                     <p className="text-sm text-[var(--text-secondary)] mb-4 leading-relaxed">
                       Verify incoming customer transfers instantly without relying on SMS or full bank logins.
                     </p>
-                    <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-3 marker:text-purple-400">
+                    <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-3 marker:text-purple-400 mb-6">
                       <li>Select the target bank account from the top dropdown.</li>
                       <li>Select the verification mode (e.g. <strong>BML Receipt Match</strong> or <strong>MIB Transfer</strong>).</li>
                       <li>Enter the exact amount shown on the customer's transfer receipt.</li>
                       <li>Click <strong>Verify Transfer</strong>. The system will securely wake up the extension and ping the bank for an exact match.</li>
                     </ol>
-                    <div className="mt-4 p-3 bg-zinc-900 rounded-lg text-xs text-zinc-400 border border-zinc-800">
-                      <strong>Note:</strong> Verification performs a lightweight sync using the cached session credentials to prevent rate-limiting.
+                    <div className="p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg flex gap-3 text-xs text-zinc-400">
+                      <div className="mt-0.5">💡</div>
+                      <div>
+                        <strong>Pro Tip:</strong> Use the <kbd className="bg-zinc-800 border border-zinc-700 px-1.5 rounded font-mono text-white mx-1">S</kbd> key as a global shortcut to quickly <strong>View History</strong> or <strong>Sync Ledger</strong> from anywhere without reaching for your mouse!
+                      </div>
                     </div>
                   </div>
 
