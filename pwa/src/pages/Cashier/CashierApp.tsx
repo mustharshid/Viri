@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, Terminal } from 'lucide-react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, Terminal, Activity } from 'lucide-react';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -2463,64 +2463,76 @@ function App() {
 
                     </div>
 
-                    {/* Stepper progress track */}
-                    <div className="relative flex justify-between items-center w-full mt-4 mb-2 px-1 select-none">
-                      {/* Connecting Line Track */}
-                      <div className="absolute left-6 right-6 top-[22px] h-[4px] bg-zinc-800 -z-10 rounded-full flex overflow-hidden">
-                        <div className={`flex-1 h-full transition-all duration-500 ${
-                          activeStepIndex >= 2 ? 'bg-emerald-500' :
-                          activeStepIndex === 1 ? 'bg-gradient-to-r from-blue-500 to-zinc-700' : 'bg-zinc-700'
-                        }`} />
-                        <div className={`flex-1 h-full transition-all duration-500 ${
-                          activeStepIndex >= 3 ? 'bg-emerald-500' :
-                          activeStepIndex === 2 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
-                        }`} />
-                        <div className={`flex-1 h-full transition-all duration-500 ${
-                          activeStepIndex >= 4 ? 'bg-emerald-500' :
-                          activeStepIndex === 3 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
-                        }`} />
-                        <div className={`flex-1 h-full transition-all duration-500 ${
-                          activeStepIndex >= 5 ? 'bg-emerald-500' :
-                          activeStepIndex === 4 ? 'bg-gradient-to-r from-emerald-500 to-blue-500' : 'bg-zinc-700'
-                        }`} />
+                    {/* Status & Account Dashboard (Replaces Stepper) */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 mb-2">
+                      
+                      {/* Terminal Health & Connection Status */}
+                      <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-xl p-4 flex flex-col gap-3 shadow-sm">
+                        <h4 className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest flex items-center gap-1.5">
+                          <Activity size={12} className="text-zinc-400" /> System Health
+                        </h4>
+                        <div className="flex flex-col gap-2.5 font-mono text-[11px] mt-1">
+                          <div className="flex justify-between items-center">
+                            <span className="text-zinc-400">Bridge Extension</span>
+                            {extensionId ? (
+                              <span className="text-emerald-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" /> Connected</span>
+                            ) : (
+                              <span className="text-red-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-red-400" /> Missing ID</span>
+                            )}
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-zinc-400">Bank Portal Session</span>
+                            {sessionStatus === 'holder' ? (
+                              <span className="text-emerald-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" /> Active</span>
+                            ) : sessionStatus === 'claiming' ? (
+                              <span className="text-blue-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse-glow" /> Claiming</span>
+                            ) : sessionStatus === 'delegating' ? (
+                              <span className="text-purple-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse-glow" /> Busy</span>
+                            ) : (
+                              <span className="text-zinc-500 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-zinc-600" /> Idle</span>
+                            )}
+                          </div>
+                          <div className="flex justify-between items-center mt-1 pt-2.5 border-t border-zinc-800/60">
+                            <span className="text-zinc-500">Last Fetch</span>
+                            <span className="text-zinc-400 font-bold">{lastPopulatedTime || 'Never'}</span>
+                          </div>
+                        </div>
                       </div>
 
-                      {/* Stepper Nodes */}
-                      {[
-                        { id: 1, label: 'START' },
-                        { id: 2, label: 'AUTH' },
-                        { id: 3, label: 'FETCH' },
-                        { id: 4, label: 'MATCH' },
-                        { id: 5, label: 'VERIFY' }
-                      ].map((step) => {
-                        const isCompleted = activeStepIndex > step.id || activeStepIndex === 5;
-                        const isActive = activeStepIndex === step.id && activeStepIndex !== 5;
+                      {/* Active Account & Balance Summary */}
+                      <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-xl p-4 flex flex-col gap-3 relative overflow-hidden group shadow-sm">
+                        {/* Subtle background glow */}
+                        <div className="absolute -top-10 -right-10 w-32 h-32 bg-blue-500/5 rounded-full blur-2xl group-hover:bg-blue-500/10 transition-colors" />
                         
-                        return (
-                          <div key={step.id} className="flex flex-col items-center z-10">
-                            <div className={`w-11 h-11 rounded-full border-2 flex items-center justify-center font-bold text-xs transition-all duration-500 ${
-                              isCompleted 
-                                ? 'bg-emerald-500 border-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)]'
-                                : isActive
-                                  ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.4)] animate-pulse-glow'
-                                  : 'bg-zinc-950 border-zinc-800 text-zinc-500'
-                            }`}>
-                              {isCompleted ? (
-                                <svg className="w-5 h-5 text-white animate-scale-checkmark" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                </svg>
-                              ) : (
-                                <span>{step.id}</span>
-                              )}
-                            </div>
-                            <span className={`text-[9px] mt-2.5 font-bold tracking-wider transition-colors duration-500 ${
-                              isCompleted ? 'text-emerald-400' : isActive ? 'text-blue-400' : 'text-zinc-500'
-                            }`}>
-                              {step.label}
+                        <h4 className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest flex items-center gap-1.5 z-10">
+                          <BookOpen size={12} className="text-zinc-400" /> Active Account
+                        </h4>
+                        
+                        <div className="flex flex-col gap-1 z-10 mt-1">
+                          <span className="text-zinc-200 font-bold text-sm truncate">
+                            {selectedAccount ? selectedAccount.bank_name : 'No Account Selected'}
+                          </span>
+                          <span className="text-zinc-500 font-mono text-[10px]">
+                            {selectedAccount ? selectedAccount.account_number : '---'}
+                          </span>
+                        </div>
+
+                        <div className="mt-auto flex justify-between items-end z-10 pt-2 border-t border-zinc-800/60">
+                          <span className="text-zinc-500 text-[10px] uppercase tracking-wider font-bold">Balance</span>
+                          <div className="text-right">
+                            <span className="text-[10px] text-emerald-500/70 mr-1 font-bold">{selectedAccountCurrency}</span>
+                            <span className="text-sm font-bold font-mono text-emerald-400">
+                              {(() => {
+                                const verifyCache = selectedAccount ? (ledgerCache[selectedAccount.id.toString()] || { balance: 'Not synced' }) : { balance: 'Not synced' };
+                                return permissions.ledger_show_balance ? (
+                                  verifyCache.balance !== 'Not synced' && verifyCache.balance !== 'Not found' ? verifyCache.balance : '0.00'
+                                ) : '[hidden]';
+                              })()}
                             </span>
                           </div>
-                        );
-                      })}
+                        </div>
+                      </div>
+
                     </div>
                   </div>
 
