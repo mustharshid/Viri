@@ -1657,10 +1657,15 @@ function App() {
       </button>
 
       {/* Top section: Brand / Logo - Vertical Premium Layout */}
-      <div className={`flex flex-col items-center px-4 mb-8 transition-all ${isSidebarCollapsed ? 'md:items-center' : 'md:items-start w-full'}`}>
+      <div className={`flex flex-col px-4 mb-8 transition-all ${isSidebarCollapsed ? 'items-center' : 'items-start w-full'}`}>
         {/* Viri Logo Container */}
-        <div className="mb-3">
-          <img src="/logo_en.png" alt="Viri Logo" className={`w-auto object-contain mx-auto transition-all ${isSidebarCollapsed ? 'h-10 md:h-12' : 'h-20 md:h-24'}`} />
+        <div className="mb-3 flex flex-col items-start w-full">
+          <img src="/logo_en.png" alt="Viri Logo" className={`w-auto object-contain transition-all ${isSidebarCollapsed ? 'h-10 md:h-12 mx-auto' : 'h-20 md:h-24 ml-0'}`} />
+          {!isSidebarCollapsed && (
+            <span className="text-[9px] text-zinc-500 font-mono mt-2 tracking-tight uppercase whitespace-nowrap">
+              Zero-Knowledge Architecture
+            </span>
+          )}
         </div>
         
         {/* Company Name */}
@@ -2707,7 +2712,7 @@ function App() {
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={14} />
                             <input
                               type="text"
-                              value={ledgerSearch}
+                          value={ledgerSearch}
                               onChange={(e) => { setLedgerSearch(e.target.value); setLedgerPage(1); }}
                               placeholder="Search..."
                               className="pl-9 pr-4 py-1.5 bg-zinc-900/60 border border-zinc-800 focus:border-zinc-700 text-xs text-white rounded-lg w-48 font-medium focus:outline-none transition-colors"
@@ -2723,6 +2728,34 @@ function App() {
                             <RefreshCw size={13} className={isSyncing ? 'animate-spin' : ''} />
                             Sync History
                           </button>
+                        </div>
+                      </div>
+
+                      {/* Sync Progress Bar (Moved under Daily Entries) */}
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 bg-zinc-900/40 rounded-xl border border-zinc-800">
+                        {/* Sync Progress */}
+                        <div className="flex items-center gap-4 w-full sm:w-1/3 min-w-[200px]">
+                          <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold font-sans">Sync Progress</span>
+                          <div className="flex-1 bg-zinc-800 h-3 rounded-full overflow-hidden relative shadow-inner">
+                            <div
+                              className={`h-full transition-all duration-300 rounded-full ${
+                                progress.stage === 'error' ? 'bg-red-500' : 'bg-emerald-400'
+                              }`}
+                              style={{ width: `${isSyncing ? progress.percent : 100}%` }}
+                            />
+                          </div>
+                          <span className="font-mono text-zinc-300 text-[10px] font-bold">
+                            {isSyncing ? `${progress.percent}%` : '100%'}
+                          </span>
+                        </div>
+
+                        {/* Sync Info / Metadata */}
+                        <div className="flex flex-wrap items-center gap-3 text-zinc-500 font-mono text-[10px]">
+                          <span className="text-zinc-300">{syncTimeElapsed !== null ? `${(syncTimeElapsed / 1000).toFixed(2)} seconds` : '0.00 seconds'}</span>
+                          <span className="text-zinc-700">|</span>
+                          <span>Since last sync: <span className="text-zinc-400">{syncTimeElapsed !== null ? `${(syncTimeElapsed / 1000).toFixed(0)}s` : '0s'}</span></span>
+                          <span className="text-zinc-700">|</span>
+                          <span>{cache.lastUpdated !== 'Never' ? cache.lastUpdated : 'Never synced'}</span>
                         </div>
                       </div>
 
@@ -2789,28 +2822,9 @@ function App() {
                               </table>
                             </div>
 
-                            {/* Bottom Progress Bar & Pagination Panel */}
+                            {/* Bottom Pagination Panel */}
                             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-5 py-4 bg-zinc-950/60 border-t border-zinc-800 text-xs">
-                              {/* Sync Progress */}
-                              <div className="flex items-center gap-3 min-w-[200px]">
-                                <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold font-sans">Sync Progress</span>
-                                <div className="flex-1 bg-zinc-800 h-1.5 rounded-full overflow-hidden relative">
-                                  <div
-                                    className={`h-full transition-all duration-300 rounded-full ${
-                                      progress.stage === 'error' ? 'bg-red-500' : 'bg-emerald-400'
-                                    }`}
-                                    style={{ width: `${isSyncing ? progress.percent : 100}%` }}
-                                  />
-                                </div>
-                                <span className="font-mono text-zinc-400 text-[10px] font-bold">
-                                  {isSyncing ? `${progress.percent}%` : '100%'}
-                                </span>
-                              </div>
-
-                              {/* Action Metadata */}
-                              <div className="text-zinc-500 font-mono text-[10px]">
-                                {syncTimeElapsed !== null ? `Elapsed: ${(syncTimeElapsed / 1000).toFixed(1)}s` : `Last full sync: ${cache.lastUpdated !== 'Never' ? 'just recently' : 'Never'}`}
-                              </div>
+                              <div className="flex-1"></div> {/* Spacer to push paging to right */}
 
                               {/* Paging controls */}
                               <div className="flex items-center gap-4">

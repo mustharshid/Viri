@@ -519,7 +519,16 @@ function normalizeTransactions(rawTxList, bankType, limit = 50) {
       details += `\nID: ${idTrimmed}`;
     }
 
-    let amount = parseFloat(tx.amount || tx.baseAmount) || 0;
+    // For MIB foreign-currency accounts (e.g. USD), the API returns:
+    //   baseAmount = MVR equivalent (e.g. 207.83)
+    //   foreignAmount = actual account currency amount (e.g. 13.5 USD)
+    // We must use foreignAmount when it exists and the account is non-MVR.
+    let amount;
+    if (bankType === 'MIB' && tx.foreignAmount !== undefined && tx.foreignAmount !== null && tx.curCodeDesc && tx.curCodeDesc !== 'MVR') {
+      amount = parseFloat(tx.foreignAmount) || 0;
+    } else {
+      amount = parseFloat(tx.amount || tx.baseAmount) || 0;
+    }
     let formattedAmount = '';
     if (bankType === 'MIB') {
       formattedAmount = `${amount >= 0 ? '+' : ''}${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -2011,8 +2020,12 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     if (mode === 'search') {
       emitLog(port, `> [MIB] Found ${transactions.length} transaction(s). Searching for ${targetAmount} MVR credit...`);
       const matchingTxs = transactions.filter(tx => {
-        const txAmount = Math.abs(parseFloat(tx.amount || tx.baseAmount) || 0);
-        const isCredit = parseFloat(tx.amount || tx.baseAmount) > 0 || tx.type === 'credit' || tx.credit || tx.trxType === 'credit';
+        // Use foreignAmount for non-MVR accounts (e.g. USD) to match against actual currency values
+        const rawAmt = (tx.foreignAmount !== undefined && tx.foreignAmount !== null && tx.curCodeDesc && tx.curCodeDesc !== 'MVR')
+          ? parseFloat(tx.foreignAmount) || 0
+          : parseFloat(tx.amount || tx.baseAmount) || 0;
+        const txAmount = Math.abs(rawAmt);
+        const isCredit = rawAmt > 0 || tx.type === 'credit' || tx.credit || tx.trxType === 'credit';
         return targetAmtNum > 0 && Math.abs(txAmount - targetAmtNum) < 0.01 && isCredit;
       });
       last3Txs = normalizeTransactions(matchingTxs, 'MIB', 3);
@@ -2077,7 +2090,11 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
           data: {
             status: 'CREDITED',
             reference: matchFound.reference || matchFound.descr1 || matchFound.description || 'MIB-MATCH',
-            amount: Math.abs(parseFloat(matchFound.amount || matchFound.baseAmount)).toFixed(2),
+            amount: Math.abs(parseFloat(
+              (matchFound.foreignAmount !== undefined && matchFound.foreignAmount !== null && matchFound.curCodeDesc && matchFound.curCodeDesc !== 'MVR')
+                ? matchFound.foreignAmount
+                : (matchFound.amount || matchFound.baseAmount)
+            )).toFixed(2),
             timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString()
           },
           balance: mibBalance,
