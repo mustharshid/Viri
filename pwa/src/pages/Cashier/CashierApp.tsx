@@ -2671,15 +2671,35 @@ function App() {
                             <div className={`grid gap-x-4 gap-y-1.5 ${bankAccounts.length > 3 ? 'grid-cols-2' : 'grid-cols-1'}`}>
                               {bankAccounts.map((account) => {
                                 let isActive = false;
+                                let elapsedMs: number | null = null;
+                                let heartbeatTime: number | undefined;
                                 if (account.session_holder_terminal_id && account.session_last_heartbeat_at) {
                                   try {
-                                    const heartbeatTime = new Date(account.session_last_heartbeat_at).getTime();
-                                    isActive = (Date.now() - heartbeatTime) <= 90000;
+                                    heartbeatTime = new Date(account.session_last_heartbeat_at).getTime();
+                                    elapsedMs = Math.max(0, currentTick - heartbeatTime);
+                                    isActive = elapsedMs <= 90000;
                                   } catch (e) {
                                     isActive = false;
                                   }
                                 }
-                                const accountLabel = account.label || `${account.bank_name} (${account.account_number.slice(-5)})`;
+                                
+                                const accountLabel = `${account.bank_name} (${account.account_number.slice(-4)})`;
+                                
+                                // Format elapsed time
+                                let timeStr = '';
+                                if (elapsedMs !== null && heartbeatTime !== undefined) {
+                                  // For Active, it ticks using 'currentTick'. For Idle, it's static based on last fetch time.
+                                  let displayMs = elapsedMs;
+                                  if (!isActive && lastPopulatedTimestamp) {
+                                    displayMs = Math.max(0, lastPopulatedTimestamp - heartbeatTime);
+                                  }
+                                  
+                                  const totalSeconds = Math.floor(displayMs / 1000);
+                                  const m = Math.floor(totalSeconds / 60);
+                                  const s = totalSeconds % 60;
+                                  timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}s`;
+                                }
+
                                 return (
                                   <div key={account.id} className="flex justify-between items-center min-w-0">
                                     <span className="text-zinc-400 truncate text-[10px]" title={account.label || account.account_number}>
@@ -2688,12 +2708,12 @@ function App() {
                                     {isActive ? (
                                       <span className="text-emerald-400 flex items-center gap-1 font-bold text-[10px] shrink-0 ml-1" title={account.session_holder_name || undefined}>
                                         <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" /> 
-                                        Active
+                                        Active {timeStr}
                                       </span>
                                     ) : (
                                       <span className="text-zinc-500 flex items-center gap-1 font-bold text-[10px] shrink-0 ml-1">
                                         <div className="w-1.5 h-1.5 rounded-full bg-zinc-600" /> 
-                                        Idle
+                                        Idle {timeStr}
                                       </span>
                                     )}
                                   </div>
