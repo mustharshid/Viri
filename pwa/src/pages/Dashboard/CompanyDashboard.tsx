@@ -2,9 +2,18 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings } from 'lucide-react';
 
-const Tooltip = ({ text }: { text: string }) => (
-  <div className="relative inline-flex items-center group ml-2 cursor-help align-middle">
-    <Info size={16} className="text-[var(--text-secondary)] hover:text-white transition-colors" />
+const Tooltip = ({ text, onClick }: { text: string; onClick?: () => void }) => (
+  <div 
+    className={`relative inline-flex items-center group ml-2 align-middle ${onClick ? 'cursor-pointer' : 'cursor-help'}`}
+    onClick={(e) => {
+      if (onClick) {
+        e.preventDefault();
+        e.stopPropagation();
+        onClick();
+      }
+    }}
+  >
+    <Info size={16} className={`transition-colors ${onClick ? 'text-[var(--color-success)] hover:text-emerald-400' : 'text-[var(--text-secondary)] hover:text-white'}`} />
     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-3 bg-zinc-900 border border-zinc-700 text-white text-xs leading-relaxed rounded shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 font-normal">
       {text}
       <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-zinc-700"></div>
@@ -20,6 +29,20 @@ export default function CompanyDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [now, setNow] = useState(Date.now());
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+
+  const navigateToHelp = (sectionId: string) => {
+    setActiveTab('help');
+    setTimeout(() => {
+      const el = document.getElementById(sectionId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        el.classList.add('bg-zinc-800/60', 'ring-2', 'ring-[var(--color-success)]', 'rounded-lg', 'transition-all', 'duration-500', 'p-4', '-mx-4');
+        setTimeout(() => {
+          el.classList.remove('bg-zinc-800/60', 'ring-2', 'ring-[var(--color-success)]');
+        }, 2000);
+      }
+    }, 100);
+  };
   
   // Forms
   const [newTerminalName, setNewTerminalName] = useState('');
@@ -425,7 +448,7 @@ export default function CompanyDashboard() {
             <div className="glass-panel p-6">
               <div className="flex justify-between items-center border-b border-[var(--border-color)] pb-2 mb-4">
                 <h2 className="text-xl font-bold flex items-center">
-                  Subscription Details <Tooltip text="Your current billing tier and monthly verification usage limits." />
+                  Subscription Details <Tooltip text="Your current billing tier and monthly verification usage limits. Click for more info." onClick={() => navigateToHelp('help-subscription')} />
                 </h2>
                 <span className="text-xs font-semibold text-[var(--text-secondary)]">
                   {getVerificationLimit()} Verifications/ {user?.tenant?.verifications_count ?? 0} used
@@ -476,7 +499,7 @@ export default function CompanyDashboard() {
             <div className="glass-panel p-6">
               <div className="flex justify-between items-center border-b border-[var(--border-color)] pb-2 mb-4">
                 <h2 className="text-xl font-bold flex items-center">
-                  Terminals <Tooltip text="Create terminals to generate unique Hardware IDs. Paste these IDs into the Viri Cashier app on your devices." />
+                  Terminals <Tooltip text="Create terminals to generate unique Hardware IDs. Paste these IDs into the Viri Cashier app on your devices. Click for more info." onClick={() => navigateToHelp('help-terminals')} />
                 </h2>
                 <div className="flex items-center gap-4">
                   <span className="text-xs font-semibold text-[var(--text-secondary)]">
@@ -599,7 +622,7 @@ export default function CompanyDashboard() {
             <div className="glass-panel p-6 md:col-span-2">
               <div className="flex justify-between items-center border-b border-[var(--border-color)] pb-2 mb-4">
                 <h2 className="text-xl font-bold flex items-center">
-                  Bank Accounts <Tooltip text="Add the bank accounts where you receive transfers. These will be automatically checked by the terminals." />
+                  Bank Accounts <Tooltip text="Add the bank accounts where you receive transfers. These will be automatically checked by the terminals. Click for more info." onClick={() => navigateToHelp('help-banks')} />
                 </h2>
                 <span className="text-xs font-semibold text-[var(--text-secondary)]">
                   {getBankAccountLimit()} Bank Accounts/ {bankAccounts.length} used
@@ -792,44 +815,216 @@ export default function CompanyDashboard() {
 
         {/* --- TAB: HELP CENTER --- */}
         {activeTab === 'help' && (
-          <div className="glass-panel p-8 max-w-4xl animate-fade-in space-y-8">
-            <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-              <Info size={28} className="text-[var(--color-success)]" />
-              Help Center & Documentation
-            </h2>
+          <div className="glass-panel p-8 max-w-4xl animate-fade-in space-y-12 mb-12">
+            <div className="border-b border-zinc-800 pb-6">
+              <h2 className="text-3xl font-bold text-white flex items-center gap-3">
+                <Info size={32} className="text-[var(--color-success)]" />
+                Viri Terminal — Setup Guide
+              </h2>
+              <p className="text-zinc-400 mt-4 text-sm leading-relaxed max-w-3xl">
+                This guide walks through the full process of setting up a Viri terminal, from registering your company to handing a ready terminal to a cashier. 
+                Steps 1–4 are completed by the admin in the dashboard. Steps 5–8 are completed on the terminal device itself, and should be done by the admin before handing off to an employee.
+              </p>
+            </div>
 
-            <section className="space-y-4">
-              <h3 className="text-xl font-semibold text-[var(--color-success)]">1. Terminals</h3>
-              <p className="text-[var(--text-secondary)] leading-relaxed">
-                A Terminal represents a physical device (like a cashier's PC or tablet) running the Viri Cashier PWA.
-                To create one, click the green "+" button on the Dashboard. You will receive a 6-digit Pairing Code.
-                Open the Viri Cashier app on your terminal device, and enter that code to pair it to your company account.
+            <section id="help-setup-1" className="space-y-3">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2"><div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm">1</div> Register your company</h3>
+              <p className="text-zinc-300 leading-relaxed pl-8">
+                Go to viri.thinksafe.mv and register your company. This creates your admin account and gives you access to the admin dashboard and panel. Within the admin dashboard, you get access to reports and activity logs of your terminals. Additionally, you can view plans and upgrades, along with the help center. A support number is also provided in case you need extra assistance.
               </p>
             </section>
 
-            <section className="space-y-4">
-              <h3 className="text-xl font-semibold text-[var(--color-success)]">2. Bank Accounts</h3>
-              <p className="text-[var(--text-secondary)] leading-relaxed">
-                You can configure multiple bank accounts for your terminals. The PWA will allow the cashier to view verified
-                transfers made to these specific accounts. If you have multiple accounts, you can set one as the "Default".
+            <section id="help-subscription" className="space-y-3">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2"><div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm">2</div> Choose a subscription plan</h3>
+              <p className="text-zinc-300 leading-relaxed pl-8">
+                After registering, you'll automatically receive a live account (with limits) that allows you to test the full functionality of Viri. Once you're ready, select and pay for a subscription plan from the dashboard. Your plan determines how many terminals you can create, how many bank accounts can be linked, and which features are available.
               </p>
             </section>
 
-            <section className="space-y-4">
-              <h3 className="text-xl font-semibold text-[var(--color-success)]">3. Settings PIN</h3>
-              <p className="text-[var(--text-secondary)] leading-relaxed">
-                When configuring a Terminal, you can set an optional 6-digit Settings PIN. If you set this, the cashier using the 
-                PWA on that terminal will be prompted for this PIN before they can edit any settings or view account credentials.
+            <section id="help-banks" className="space-y-3">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2"><div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm">3</div> Add your bank accounts</h3>
+              <p className="text-zinc-300 leading-relaxed pl-8">
+                From the admin dashboard select your bank type (BML or MIB), then enter the name associated with the bank account, along with the account number. You may also assign a label (e.g., "Main Store" or "Shop 3") for easy identification. Choose the profile type — Business or Personal — that matches the account you're adding. You can add multiple accounts across both banks, depending on your subscription plan limits. Once added, these accounts become available in your terminals.
               </p>
             </section>
 
-            <section className="space-y-4">
-              <h3 className="text-xl font-semibold text-[var(--color-success)]">4. Activity Logs</h3>
-              <p className="text-[var(--text-secondary)] leading-relaxed">
-                The Activity Logs tab shows a 30-day history of events across all your terminals. This includes when a terminal goes
-                online, when it goes offline, or if its settings are changed directly from the PWA.
+            <section id="help-terminals" className="space-y-3">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2"><div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm">4</div> Configure and create a terminal</h3>
+              <div className="text-zinc-300 leading-relaxed pl-8 space-y-4">
+                <p>In the dashboard, create a new terminal. During creation, you will configure two things:</p>
+                <ol className="list-decimal pl-5 space-y-3">
+                  <li id="help-pin">
+                    <strong>Settings PIN</strong> — Optionally set a 6-digit PIN. This would be required to be granted entry on the terminal's settings.
+                  </li>
+                  <li>
+                    <strong>Terminal Tools & Permissions</strong> — choose which tools are available on this terminal. The options are:
+                    <ul className="list-disc pl-5 mt-2 space-y-1 text-sm text-zinc-400">
+                      <li><strong className="text-zinc-300">Verification Panel</strong> — always enabled on every terminal. This is the core payment verification screen and cannot be turned off.</li>
+                      <li><strong className="text-zinc-300">Transaction Ledger</strong> — optional. When enabled, the terminal can view the transaction history for linked accounts. Enabling this reveals two additional options:
+                        <ul className="list-disc pl-5 mt-1">
+                          <li><strong>Show Account Balance</strong> — displays the current balance for each account in the ledger.</li>
+                          <li><strong>Show Outward Transactions (Debit)</strong> — includes debit/outward transactions in the ledger view. If left off, only inward transactions are shown.</li>
+                        </ul>
+                      </li>
+                      <li><strong className="text-zinc-300">Reports</strong> — optional. Enabling this adds the Reports section to the terminal. (Coming soon — no report content is available yet.)</li>
+                    </ul>
+                  </li>
+                </ol>
+                <p>Once configured, click <strong>Create Terminal</strong>. This generates a temporary pairing code for the terminal.</p>
+                <p className="text-sm italic text-zinc-400">Already created a terminal and need to change its tools? You can edit these settings at any time from the terminal's entry in the dashboard. Changes take effect on the terminal immediately.</p>
+              </div>
+            </section>
+
+            <section id="help-setup-5" className="space-y-3">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2"><div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm">5</div> Open the terminal on the device</h3>
+              <p className="text-zinc-300 leading-relaxed pl-8">
+                On the device the terminal will be used on, open a browser and go to <strong>viri.thinksafe.mv/cashier</strong>. When prompted, enter the pairing code generated in Step 4. This links the device to your terminal configuration and opens the terminal interface.
               </p>
             </section>
+
+            <section id="help-setup-6" className="space-y-3">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2"><div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm">6</div> Install Viri Bridge</h3>
+              <p className="text-zinc-300 leading-relaxed pl-8">
+                On the terminal screen, tap the Help button. This opens a menu with a download link for the Viri Bridge browser extension — this is what connects the terminal to your bank and retrieves live data. Detailed installation and setup instructions are available within that same menu.
+              </p>
+            </section>
+
+            <section id="help-setup-7" className="space-y-3">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2"><div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm">7</div> Set a terminal PIN</h3>
+              <p className="text-zinc-300 leading-relaxed pl-8">
+                Next to the Help button, open Settings and set a PIN code. This PIN can be used to lock the terminal when it is left unattended, preventing unauthorised access.
+              </p>
+            </section>
+
+            <section id="help-setup-8" className="space-y-3">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2"><div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm">8</div> Enter bank credentials</h3>
+              <div className="text-zinc-300 leading-relaxed pl-8 space-y-4">
+                <p>For each bank account linked to this terminal, you will need to enter the account's login credentials: username, password, and OTP seed.</p>
+                <p>The <strong>OTP seed</strong> is a one-time setup step that allows Viri Bridge to generate login verification codes automatically. It is stored locally on this device only.</p>
+                <div className="bg-blue-900/20 border border-blue-900/50 p-4 rounded-lg">
+                  <strong>Getting your OTP seed:</strong> Retrieving the seed requires a short process in your bank's internet or mobile banking app. If you have not done this before, refer to the <strong><a href="#help-auth-guide" className="text-blue-400 hover:underline" onClick={(e) => { e.preventDefault(); navigateToHelp('help-auth-guide'); }}>Authenticator Seed Setup Guide</a></strong> below for step-by-step instructions for both BML and MIB, including what to do if you already have an authenticator app connected to your account.
+                </div>
+                <p className="italic text-sm text-zinc-400">This step should be completed by the admin before the terminal is handed to a cashier.</p>
+              </div>
+            </section>
+
+            <div className="pt-6 border-t border-zinc-800 text-center">
+              <h3 className="text-2xl font-bold text-[var(--color-success)] mb-2">Setup complete</h3>
+              <p className="text-zinc-400">Once credentials are entered, the terminal is ready for use. The cashier will see only the tools that were configured in Step 4.</p>
+            </div>
+
+            <div className="mt-16 pt-12 border-t-4 border-zinc-800">
+              <h2 id="help-auth-guide" className="text-3xl font-bold text-white mb-6">Viri Bridge — Authenticator Seed Setup Guide</h2>
+              
+              <div className="bg-zinc-900 border border-zinc-700 p-5 rounded-lg mb-8">
+                <h3 className="text-lg font-bold text-white mb-2">What you're doing and why</h3>
+                <p className="text-sm text-zinc-300">
+                  Viri needs your bank's TOTP (one-time password) seed to generate login codes on your behalf on this device. This seed is the same text key that appears when you set up an authenticator app like Google Authenticator. It never leaves this device.<br/><br/>
+                  You will need to go through your bank's authenticator setup process to reach the screen that shows this key. If you already have an authenticator app connected to your bank account, you will need to reset it first — this disconnects your existing app, so you will need to re-link it after completing this process.
+                </p>
+              </div>
+
+              <div className="space-y-10">
+                {/* BML Guide */}
+                <div className="space-y-6">
+                  <h3 className="text-2xl font-bold text-red-500 border-b border-zinc-800 pb-2">Bank of Maldives (BML)</h3>
+                  <p className="text-sm text-zinc-400">For visual reference, BML's official setup guide is available as a step-by-step PDF and on their authenticator info page.</p>
+                  
+                  <div className="space-y-4">
+                    <h4 className="text-lg font-semibold text-white">Scenario A — Fresh setup (no authenticator previously enabled)</h4>
+                    
+                    <div className="bg-zinc-900/50 p-4 rounded-lg">
+                      <h5 className="font-bold text-zinc-300 mb-2 text-sm uppercase tracking-wider">Via Internet Banking:</h5>
+                      <ol className="list-decimal pl-5 space-y-2 text-sm text-zinc-300">
+                        <li>Log in to BML Internet Banking at bankofmaldives.com.mv/internetbanking</li>
+                        <li>Go to <strong>Settings</strong></li>
+                        <li>Scroll down and click <strong>Setup Authenticator</strong></li>
+                        <li>Enter your debit card details — select your card from the dropdown, then enter the expiry date and security code</li>
+                        <li>Click <strong>Authorize</strong></li>
+                        <li>A QR code will appear on screen. <em>Do not scan it yet.</em> Instead, click <strong>Can't scan QR?</strong> below the QR code</li>
+                        <li>A text key (a long string of letters and numbers) will be revealed. <strong>This is your seed.</strong> Copy it exactly and paste it into the Viri setup screen</li>
+                        <li>Open your authenticator app, add the account manually using that same key, and generate a 6-digit code</li>
+                        <li>Enter that 6-digit code on the BML screen to confirm and activate</li>
+                      </ol>
+                    </div>
+
+                    <div className="bg-zinc-900/50 p-4 rounded-lg">
+                      <h5 className="font-bold text-zinc-300 mb-2 text-sm uppercase tracking-wider">Via Mobile Banking App:</h5>
+                      <ol className="list-decimal pl-5 space-y-2 text-sm text-zinc-300">
+                        <li>Log in to the BML Mobile Banking app</li>
+                        <li>Tap <strong>More</strong> at the bottom navigation</li>
+                        <li>Go to <strong>Applications → Authenticator Setup</strong></li>
+                        <li>Scroll down and tap <strong>Set-up Authenticator</strong></li>
+                        <li>Enter your debit card details (card, expiry, CVC) and tap <strong>Authorize</strong></li>
+                        <li>On the QR code screen, tap the QR link option and then choose <strong>Enter code manually</strong> — this reveals the text seed</li>
+                        <li>Copy that seed and paste it into the Viri setup screen</li>
+                        <li>In your authenticator app, add the account using the same key and enter the generated 6-digit code back into the BML app to confirm</li>
+                      </ol>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <h4 className="text-lg font-semibold text-white">Scenario B — Authenticator already enabled (reset required)</h4>
+                    <p className="text-sm text-zinc-400">You will need to reset your existing authenticator link before a new seed can be issued. Resetting permanently disconnects your current authenticator app from BML.</p>
+                    <div className="bg-zinc-900/50 p-4 rounded-lg">
+                      <ol className="list-decimal pl-5 space-y-2 text-sm text-zinc-300">
+                        <li>Log in to BML Internet Banking or the Mobile Banking app</li>
+                        <li>Navigate to the same authenticator settings screen (Settings → Authenticator on internet banking, or More → Applications → Authenticator Setup on mobile)</li>
+                        <li>Look for a <strong>Reset or Remove Authenticator</strong> option and confirm the reset — you may need to verify using your current method (SMS or existing authenticator code)</li>
+                        <li>Once reset, follow all steps in Scenario A above from step 3 onwards to complete a fresh setup and retrieve your new seed</li>
+                      </ol>
+                    </div>
+                    <p className="text-xs text-zinc-500 italic">If you cannot locate the reset option, contact BML customer support at 1600 or visit your nearest branch. Their authenticator info page also has further guidance.</p>
+                  </div>
+                </div>
+
+                {/* MIB Guide */}
+                <div className="space-y-6">
+                  <h3 className="text-2xl font-bold text-emerald-500 border-b border-zinc-800 pb-2">Maldives Islamic Bank (MIB)</h3>
+                  <p className="text-sm text-zinc-400">For visual reference, MIB's official authenticator setup guide is available at mib.com.mv/authenticator-set-up-guide, including a video walkthrough.</p>
+                  
+                  <div className="space-y-4">
+                    <h4 className="text-lg font-semibold text-white">Scenario A — Fresh setup (no authenticator previously enabled)</h4>
+                    <p className="text-sm text-zinc-400">MIB's authenticator is managed through their internet banking platform, faisanet.</p>
+                    <div className="bg-zinc-900/50 p-4 rounded-lg">
+                      <ol className="list-decimal pl-5 space-y-2 text-sm text-zinc-300">
+                        <li>Open a browser and log in to faisanet at faisanet.mib.com.mv</li>
+                        <li>Once logged in, go to the menu and select <strong>Personal Profile</strong></li>
+                        <li>In your profile settings, select <strong>Set Authenticator</strong></li>
+                        <li>A prompt will ask you to re-enter your password. Enter it and press Submit</li>
+                        <li>You will be asked to enter your card details. <em>If you do not have an MIB card, use the chat function within faisanet or the faisamobilex app to request that MIB set up the authenticator for you</em></li>
+                        <li>After card verification, a QR code will appear. Look for the option to <strong>enter the code manually</strong> instead of scanning</li>
+                        <li>Copy the text key that is shown. <strong>This is your seed.</strong> Paste it into the Viri setup screen</li>
+                        <li>In your authenticator app, add the account using that key and generate a 6-digit OTP</li>
+                        <li>Enter that OTP on the faisanet screen to validate and complete setup</li>
+                        <li>Lastly, in your settings, select <strong>Authenticator Mobile App</strong> as your default 2FA verification method under "Select your preferred channel to receive OTP"</li>
+                      </ol>
+                    </div>
+                    <p className="text-xs text-zinc-500 italic">MIB supports all standard TOTP apps including Google Authenticator, Microsoft Authenticator, and Authy.</p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <h4 className="text-lg font-semibold text-white">Scenario B — Authenticator already enabled (reset required)</h4>
+                    <div className="bg-zinc-900/50 p-4 rounded-lg">
+                      <ol className="list-decimal pl-5 space-y-2 text-sm text-zinc-300">
+                        <li>Log in to faisanet</li>
+                        <li>Go to Personal Profile → Set Authenticator</li>
+                        <li>If a reset or reconfigure option is available, select it. You will likely be asked to verify using your current SMS OTP before the reset is allowed</li>
+                        <li>Once the existing authenticator is cleared, follow all steps in Scenario A above to complete fresh setup and retrieve your new seed</li>
+                      </ol>
+                    </div>
+                    <p className="text-xs text-zinc-500 italic">If you do not see a reset option, contact MIB customer support via the in-app chat, call 1400, or visit a branch. The official MIB setup guide may also have updated instructions.</p>
+                  </div>
+                </div>
+
+                <div className="bg-yellow-900/20 border border-yellow-700/50 p-5 rounded-lg mt-8">
+                  <h4 className="text-yellow-500 font-bold mb-2 flex items-center gap-2"><Shield size={18} /> A note for admins</h4>
+                  <p className="text-sm text-zinc-300">
+                    This step should be completed by the account owner (typically the business admin) before handing the terminal over to a cashier. The seed is stored locally on this device only and is required for Viri to generate login OTPs automatically. <strong>Keep this process confidential and do not share the seed with anyone outside of this setup flow.</strong>
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1014,7 +1209,7 @@ export default function CompanyDashboard() {
               <div>
                 <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2 flex items-center gap-2">
                   Settings PIN (Optional)
-                  <Tooltip text="A 6-digit PIN required on the PWA to edit settings or view sensitive information. Leave blank to disable." />
+                  <Tooltip text="A 6-digit PIN required on the PWA to edit settings or view sensitive information. Leave blank to disable. Click for more info." onClick={() => navigateToHelp('help-pin')} />
                 </label>
                 <input 
                   type="text" 
