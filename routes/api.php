@@ -78,7 +78,7 @@ Route::post('/verify-terminal', function (Request $request) {
     ]);
 
     $terminal = \App\Models\Terminal::where('hardware_id', $request->hardware_id)
-        ->with(['tenant.bankAccounts'])
+        ->with(['tenant.bankAccounts.sessionHolder'])
         ->first();
 
     if (!$terminal || $terminal->status !== 'active') {
@@ -135,6 +135,9 @@ Route::post('/verify-terminal', function (Request $request) {
                     'currency' => $account->currency,
                     'login_failures' => $account->login_failures,
                     'login_credentials_hash' => $account->login_credentials_hash,
+                    'session_holder_terminal_id' => $account->session_holder_terminal_id,
+                    'session_holder_name' => $account->sessionHolder?->terminal_name,
+                    'session_last_heartbeat_at' => $account->session_last_heartbeat_at ? $account->session_last_heartbeat_at->toIso8601String() : null,
                 ];
             })
         ],

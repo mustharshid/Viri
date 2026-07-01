@@ -35,6 +35,9 @@ interface BankAccount {
   currency?: string;
   login_failures?: number;
   login_credentials_hash?: string;
+  session_holder_terminal_id?: number | null;
+  session_holder_name?: string | null;
+  session_last_heartbeat_at?: string | null;
 }
 
 interface LedgerTransaction {
@@ -308,6 +311,38 @@ function App() {
       }
     }
   }, [bankAccounts]);
+
+  // Poll bank accounts session state from server every 6 seconds
+  useEffect(() => {
+    if (!hardwareId || !backendUrl || isSetupMode || isLocked) return;
+    
+    const poll = async () => {
+      try {
+        const response = await fetch(`${backendUrl}/verify-terminal`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hardware_id: hardwareId })
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const accounts = data.tenant?.bank_accounts || [];
+          setBankAccounts(accounts);
+          
+          if (data.credits_exhausted !== undefined) {
+            setCreditsExhausted(data.credits_exhausted);
+          }
+          if (data.subscription_expired !== undefined) {
+            setSubscriptionExpired(data.subscription_expired);
+          }
+        }
+      } catch (e) {
+        console.error("Session status poll failed:", e);
+      }
+    };
+    
+    const interval = setInterval(poll, 6000);
+    return () => clearInterval(interval);
+  }, [hardwareId, backendUrl, isSetupMode, isLocked]);
 
   const syncCredentialsMapping = async (accountsList: BankAccount[]) => {
     if (!hardwareId || !backendUrl || accountsList.length === 0) return;
@@ -2598,18 +2633,52 @@ function App() {
                             )}
                           </div>
                           <div className="flex justify-between items-center">
-                            <span className="text-zinc-400">Bank Portal Session</span>
+                            <span className="text-zinc-400">My Terminal State</span>
                             {sessionStatus === 'holder' ? (
-                              <span className="text-emerald-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" /> Active</span>
+                              <span className="text-emerald-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" /> Active Holder</span>
                             ) : sessionStatus === 'claiming' ? (
                               <span className="text-blue-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse-glow" /> Claiming</span>
                             ) : sessionStatus === 'delegating' ? (
-                              <span className="text-purple-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse-glow" /> Busy</span>
+                              <span className="text-purple-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse-glow" /> Delegating</span>
                             ) : (
                               <span className="text-zinc-500 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-zinc-600" /> Idle</span>
                             )}
                           </div>
-                          <div className="flex justify-between items-center mt-1 pt-2.5 border-t border-zinc-800/60">
+                          
+                          <div className="border-t border-zinc-800/60 mt-1 pt-2 flex flex-col gap-1.5">
+                            <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">All Bank Sessions</span>
+                            {bankAccounts.map((account) => {
+                              let isActive = false;
+                              if (account.session_holder_terminal_id && account.session_last_heartbeat_at) {
+                                try {
+                                  const heartbeatTime = new Date(account.session_last_heartbeat_at).getTime();
+                                  isActive = (Date.now() - heartbeatTime) <= 90000;
+                                } catch (e) {
+                                  isActive = false;
+                                }
+                              }
+                              return (
+                                <div key={account.id} className="flex justify-between items-center pl-0.5">
+                                  <span className="text-zinc-400 truncate max-w-[120px]" title={account.label || account.account_number}>
+                                    {account.label || `${account.bank_name} (${account.account_number.slice(-4)})`}
+                                  </span>
+                                  {isActive ? (
+                                    <span className="text-emerald-400 flex items-center gap-1 font-bold text-[10px]" title={account.session_holder_name || undefined}>
+                                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" /> 
+                                      Active {account.session_holder_name ? `(${account.session_holder_name})` : ''}
+                                    </span>
+                                  ) : (
+                                    <span className="text-zinc-500 flex items-center gap-1 font-bold text-[10px]">
+                                      <div className="w-1.5 h-1.5 rounded-full bg-zinc-600" /> 
+                                      Idle
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          
+                          <div className="flex justify-between items-center mt-1 pt-2 border-t border-zinc-800/60">
                             <span className="text-zinc-500">Last Fetch</span>
                             <span className="text-zinc-400 font-bold">{lastPopulatedTime || 'Never'}</span>
                           </div>
