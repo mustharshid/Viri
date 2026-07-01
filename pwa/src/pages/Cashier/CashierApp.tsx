@@ -2649,12 +2649,12 @@ function App() {
                           <div className="flex justify-between items-center">
                             <span className="text-zinc-400" title="The bank session role this terminal is currently playing. Active Holder = this terminal owns the live bank session. Delegating = another terminal requested this session. Claiming = this terminal is trying to acquire a session.">Session Role</span>
                             {sessionStatus === 'holder' ? (() => {
-                              // Find which account this terminal is holding
-                              const held = bankAccounts.find(a => a.session_holder_terminal_id && a.session_last_heartbeat_at && (Date.now() - new Date(a.session_last_heartbeat_at).getTime()) <= 90000);
+                              // Find which account this terminal is holding based on extension's report
+                              const held = bankAccounts.find(a => a.id.toString() === sessionHolderAccountId);
                               return (
                                 <span className="text-emerald-400 flex items-center gap-1.5 font-bold">
                                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" />
-                                  {held ? `Holding ${held.label || `${held.bank_name} (${held.account_number.slice(-5)})`}` : 'Active Holder'}
+                                  {held ? `Holding ${held.bank_name} (${held.account_number.slice(-4)})` : 'Active Holder'}
                                 </span>
                               );
                             })() : sessionStatus === 'claiming' ? (
