@@ -2670,10 +2670,18 @@ function App() {
                             <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">All Bank Sessions</span>
                             <div className={`grid gap-x-4 gap-y-1.5 ${bankAccounts.length > 3 ? 'grid-cols-2' : 'grid-cols-1'}`}>
                               {bankAccounts.map((account) => {
-                                let isActive = false;
+                                const accountIdStr = account.id.toString();
+                                
+                                // This terminal's own actively-held account is the ground truth.
+                                // We know exactly which account we synced, so override server heartbeat data.
+                                const isOwnSession = sessionStatus === 'holder' && sessionHolderAccountId === accountIdStr;
+                                
+                                let isActive = isOwnSession; // start with local knowledge
                                 let elapsedMs: number | null = null;
                                 let heartbeatTime: number | undefined;
-                                if (account.session_holder_terminal_id && account.session_last_heartbeat_at) {
+                                
+                                if (!isOwnSession && account.session_holder_terminal_id && account.session_last_heartbeat_at) {
+                                  // For other terminals' sessions, fall back to heartbeat timing
                                   try {
                                     heartbeatTime = new Date(account.session_last_heartbeat_at).getTime();
                                     elapsedMs = Math.max(0, currentTick - heartbeatTime);
@@ -2681,16 +2689,25 @@ function App() {
                                   } catch (e) {
                                     isActive = false;
                                   }
+                                } else if (isOwnSession) {
+                                  // For our own session, use the local clock since we're actively heartbeating
+                                  if (account.session_last_heartbeat_at) {
+                                    try {
+                                      heartbeatTime = new Date(account.session_last_heartbeat_at).getTime();
+                                      elapsedMs = Math.max(0, currentTick - heartbeatTime);
+                                    } catch (e) {}
+                                  }
+                                  // Even if heartbeat timestamp is stale, we know we're active
+                                  elapsedMs = elapsedMs !== null ? elapsedMs : 0;
                                 }
                                 
                                 const accountLabel = `${account.bank_name} (${account.account_number.slice(-4)})`;
                                 
                                 // Format elapsed time
                                 let timeStr = '';
-                                if (elapsedMs !== null && heartbeatTime !== undefined) {
-                                  // For Active, it ticks using 'currentTick'. For Idle, it's static based on last fetch time.
-                                  let displayMs = elapsedMs;
-                                  if (!isActive && lastPopulatedTimestamp) {
+                                if (elapsedMs !== null && elapsedMs >= 0) {
+                                  let displayMs = isActive ? elapsedMs : elapsedMs;
+                                  if (!isActive && lastPopulatedTimestamp && heartbeatTime !== undefined) {
                                     displayMs = Math.max(0, lastPopulatedTimestamp - heartbeatTime);
                                   }
                                   
@@ -2706,7 +2723,7 @@ function App() {
                                       {accountLabel}
                                     </span>
                                     {isActive ? (
-                                      <span className="text-emerald-400 flex items-center gap-1 font-bold text-[10px] shrink-0 ml-1" title={account.session_holder_name || undefined}>
+                                      <span className="text-emerald-400 flex items-center gap-1 font-bold text-[10px] shrink-0 ml-1" title={isOwnSession ? 'This terminal' : (account.session_holder_name || undefined)}>
                                         <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" /> 
                                         Active {timeStr}
                                       </span>
