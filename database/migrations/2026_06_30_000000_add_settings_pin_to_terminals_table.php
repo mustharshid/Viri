@@ -6,23 +6,21 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
-        Schema::table('terminals', function (Blueprint $table) {
-            $table->string('settings_pin', 10)->nullable()->after('pairing_code_expires_at');
-        });
+        if (!Schema::hasColumn('terminals', 'settings_pin')) {
+            Schema::table('terminals', function (Blueprint $table) {
+                $table->string('settings_pin', 10)->nullable()->after('pairing_code_expires_at');
+            });
+        }
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
-        Schema::table('terminals', function (Blueprint $table) {
-            $table->dropColumn('settings_pin');
-        });
+        if (Schema::hasColumn('terminals', 'settings_pin')) {
+            Schema::table('terminals', function (Blueprint $table) {
+                $table->dropColumn('settings_pin');
+            });
+        }
     }
 };
