@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('terminals', function (Blueprint $table) {
-            $table->string('settings_pin', 6)->nullable()->after('pairing_code_expires_at');
+            $table->string('settings_pin', 10)->nullable()->after('pairing_code_expires_at');
         });
     }
 
