@@ -46,6 +46,9 @@ export default function AdminDashboard() {
   const [activeTerminalsCount, setActiveTerminalsCount] = useState<number>(0);
   const [sessionHolders, setSessionHolders] = useState<any[]>([]);
 
+  // Buffer for date picker — keyed by company id
+  const [pendingExpiry, setPendingExpiry] = useState<Record<number, string>>({});
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -441,17 +444,30 @@ export default function AdminDashboard() {
                 <div className="input-group">
                   <label className="input-label flex items-center gap-1 text-red-400 font-semibold">
                     Plan Expiry Date
-                    <Tooltip text="The date when this company's subscription will expire." />
+                    <Tooltip text="The date when this company's subscription will expire. Select a date then click Set." />
                   </label>
-                  <input 
-                    type="date"
-                    className="input-field w-full text-sm font-mono text-white bg-zinc-900 border-zinc-800"
-                    value={company.license_expires_at ? String(company.license_expires_at).substring(0, 10) : ''}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, company.max_terminals, val || null);
-                    }}
-                  />
+                  <div className="flex gap-2 items-center">
+                    <input 
+                      type="date"
+                      className="input-field flex-1 text-sm font-mono text-white bg-zinc-900 border-zinc-800"
+                      value={pendingExpiry[company.id] ?? (company.license_expires_at ? String(company.license_expires_at).substring(0, 10) : '')}
+                      onChange={(e) => {
+                        // Only update local buffer, do NOT trigger PIN prompt on every keystroke
+                        setPendingExpiry(prev => ({ ...prev, [company.id]: e.target.value }));
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-success text-xs py-1.5 px-3 whitespace-nowrap"
+                      onClick={() => {
+                        const val = pendingExpiry[company.id] ?? (company.license_expires_at ? String(company.license_expires_at).substring(0, 10) : '');
+                        updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, company.max_terminals, val || null);
+                        setPendingExpiry(prev => { const n = {...prev}; delete n[company.id]; return n; });
+                      }}
+                    >
+                      Set
+                    </button>
+                  </div>
                 </div>
               </div>
 

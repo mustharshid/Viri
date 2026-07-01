@@ -2633,10 +2633,17 @@ function App() {
                             )}
                           </div>
                           <div className="flex justify-between items-center">
-                            <span className="text-zinc-400">My Terminal State</span>
-                            {sessionStatus === 'holder' ? (
-                              <span className="text-emerald-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" /> Active Holder</span>
-                            ) : sessionStatus === 'claiming' ? (
+                            <span className="text-zinc-400" title="The bank session role this terminal is currently playing. Active Holder = this terminal owns the live bank session. Delegating = another terminal requested this session. Claiming = this terminal is trying to acquire a session.">Session Role</span>
+                            {sessionStatus === 'holder' ? (() => {
+                              // Find which account this terminal is holding
+                              const held = bankAccounts.find(a => a.session_holder_terminal_id && a.session_last_heartbeat_at && (Date.now() - new Date(a.session_last_heartbeat_at).getTime()) <= 90000);
+                              return (
+                                <span className="text-emerald-400 flex items-center gap-1.5 font-bold">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" />
+                                  {held ? `Holding ${held.label || `${held.bank_name} (${held.account_number.slice(-5)})`}` : 'Active Holder'}
+                                </span>
+                              );
+                            })() : sessionStatus === 'claiming' ? (
                               <span className="text-blue-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse-glow" /> Claiming</span>
                             ) : sessionStatus === 'delegating' ? (
                               <span className="text-purple-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse-glow" /> Delegating</span>
@@ -2647,35 +2654,38 @@ function App() {
                           
                           <div className="border-t border-zinc-800/60 mt-1 pt-2 flex flex-col gap-1.5">
                             <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">All Bank Sessions</span>
-                            {bankAccounts.map((account) => {
-                              let isActive = false;
-                              if (account.session_holder_terminal_id && account.session_last_heartbeat_at) {
-                                try {
-                                  const heartbeatTime = new Date(account.session_last_heartbeat_at).getTime();
-                                  isActive = (Date.now() - heartbeatTime) <= 90000;
-                                } catch (e) {
-                                  isActive = false;
+                            <div className={`grid gap-x-4 gap-y-1.5 ${bankAccounts.length > 3 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                              {bankAccounts.map((account) => {
+                                let isActive = false;
+                                if (account.session_holder_terminal_id && account.session_last_heartbeat_at) {
+                                  try {
+                                    const heartbeatTime = new Date(account.session_last_heartbeat_at).getTime();
+                                    isActive = (Date.now() - heartbeatTime) <= 90000;
+                                  } catch (e) {
+                                    isActive = false;
+                                  }
                                 }
-                              }
-                              return (
-                                <div key={account.id} className="flex justify-between items-center pl-0.5">
-                                  <span className="text-zinc-400 truncate max-w-[120px]" title={account.label || account.account_number}>
-                                    {account.label || `${account.bank_name} (${account.account_number.slice(-4)})`}
-                                  </span>
-                                  {isActive ? (
-                                    <span className="text-emerald-400 flex items-center gap-1 font-bold text-[10px]" title={account.session_holder_name || undefined}>
-                                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" /> 
-                                      Active {account.session_holder_name ? `(${account.session_holder_name})` : ''}
+                                const accountLabel = account.label || `${account.bank_name} (${account.account_number.slice(-5)})`;
+                                return (
+                                  <div key={account.id} className="flex justify-between items-center min-w-0">
+                                    <span className="text-zinc-400 truncate text-[10px]" title={account.label || account.account_number}>
+                                      {accountLabel}
                                     </span>
-                                  ) : (
-                                    <span className="text-zinc-500 flex items-center gap-1 font-bold text-[10px]">
-                                      <div className="w-1.5 h-1.5 rounded-full bg-zinc-600" /> 
-                                      Idle
-                                    </span>
-                                  )}
-                                </div>
-                              );
-                            })}
+                                    {isActive ? (
+                                      <span className="text-emerald-400 flex items-center gap-1 font-bold text-[10px] shrink-0 ml-1" title={account.session_holder_name || undefined}>
+                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" /> 
+                                        Active
+                                      </span>
+                                    ) : (
+                                      <span className="text-zinc-500 flex items-center gap-1 font-bold text-[10px] shrink-0 ml-1">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-zinc-600" /> 
+                                        Idle
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
                           
                           <div className="flex justify-between items-center mt-1 pt-2 border-t border-zinc-800/60">
