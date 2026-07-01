@@ -438,9 +438,21 @@ export default function CompanyDashboard() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-[var(--text-secondary)]">Status:</span>
-                  <span className={`font-bold uppercase ${user?.tenant?.status === 'active' ? 'text-[var(--color-success)]' : user?.tenant?.status === 'suspended' ? 'text-red-500' : 'text-yellow-500'}`}>
-                    {user?.tenant?.status || 'Unknown'}
-                  </span>
+                  {(() => {
+                    const isExpired = user?.tenant?.license_expires_at ? new Date(user.tenant.license_expires_at).getTime() < Date.now() : false;
+                    const displayStatus = isExpired ? 'expired' : (user?.tenant?.status || 'Unknown');
+                    
+                    let statusColor = 'text-yellow-500';
+                    if (displayStatus === 'active') statusColor = 'text-[var(--color-success)]';
+                    else if (displayStatus === 'suspended') statusColor = 'text-red-500';
+                    else if (displayStatus === 'expired') statusColor = 'text-red-500';
+
+                    return (
+                      <span className={`font-bold uppercase ${statusColor}`}>
+                        {displayStatus}
+                      </span>
+                    );
+                  })()}
                 </div>
                 <div className="flex justify-between">
                   <span className="text-[var(--text-secondary)]">Plan Expiry Date:</span>
