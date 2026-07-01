@@ -1734,6 +1734,12 @@ function App() {
              syncLedger(activeLedgerAcc.id.toString());
           }
         }
+      } else if (e.key.toLowerCase() === 'v') {
+        e.preventDefault();
+        setActiveTab('verify');
+      } else if (e.key.toLowerCase() === 't') {
+        e.preventDefault();
+        setActiveTab('ledger');
       } else if (e.key >= '1' && e.key <= '9') {
         const index = parseInt(e.key) - 1;
         if (index < bankAccounts.length) {
@@ -1950,6 +1956,14 @@ function App() {
             <div className="flex justify-between items-center text-[10px]">
               <span className="text-zinc-400">Select Bank Account</span>
               <span className="bg-zinc-800 text-zinc-300 font-mono px-1.5 rounded border border-zinc-700">1-9</span>
+            </div>
+            <div className="flex justify-between items-center text-[10px]">
+              <span className="text-zinc-400">Verification Tab</span>
+              <span className="bg-zinc-800 text-zinc-300 font-mono px-1.5 rounded border border-zinc-700">V</span>
+            </div>
+            <div className="flex justify-between items-center text-[10px]">
+              <span className="text-zinc-400">Transactions Tab</span>
+              <span className="bg-zinc-800 text-zinc-300 font-mono px-1.5 rounded border border-zinc-700">T</span>
             </div>
           </div>
         </div>
@@ -2704,13 +2718,34 @@ function App() {
                           <BookOpen size={12} className="text-zinc-400" /> Active Account
                         </h4>
                         
-                        <div className="flex flex-col gap-1 z-10 mt-1">
-                          <span className="text-zinc-200 font-bold text-sm truncate">
-                            {selectedAccount ? selectedAccount.bank_name : 'No Account Selected'}
-                          </span>
-                          <span className="text-zinc-500 font-mono text-[10px]">
-                            {selectedAccount ? selectedAccount.account_number : '---'}
-                          </span>
+                        <div className="flex items-center gap-3 z-10 mt-1">
+                          {selectedAccount ? (
+                            <>
+                              <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800/80 p-1 flex items-center justify-center shrink-0">
+                                <img src={selectedAccount.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt="" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className={`text-[10px] uppercase font-bold tracking-wider ${
+                                    selectedAccount.bank_name === 'BML' ? 'text-red-400' : 'text-emerald-400'
+                                  }`}>
+                                    {selectedAccount.bank_name}
+                                  </span>
+                                  {selectedAccount.label && (
+                                    <span className="text-[10px] bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded font-bold">
+                                      {selectedAccount.label}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[13px] font-bold text-white truncate mt-0.5">{selectedAccount.account_name}</div>
+                                <div className="text-[11px] font-mono text-[var(--text-secondary)] mt-0.5">
+                                  {selectedAccount.account_number}
+                                </div>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="text-zinc-500 text-sm">No Account Selected</div>
+                          )}
                         </div>
 
                         <div className="mt-auto flex justify-between items-end z-10 pt-2 border-t border-zinc-800/60">
