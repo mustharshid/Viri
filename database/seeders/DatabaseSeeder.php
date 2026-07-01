@@ -14,9 +14,15 @@ class DatabaseSeeder extends Seeder
     {
         // \App\Models\User::factory(10)->create();
 
-        // \App\Models\User::factory()->create([
-        //     'name' => 'Test User',
-        //     'email' => 'test@example.com',
-        // ]);
+        // Seed default superadmin if not exists
+        if (!\App\Models\User::where('role', 'superadmin')->exists()) {
+            \App\Models\User::create([
+                'name' => 'Super Admin',
+                'email' => 'admin@viri.com',
+                'password' => \Illuminate\Support\Facades\Hash::make('password'),
+                'role' => 'superadmin',
+                'status' => 'approved',
+            ]);
+        }
     }
 }

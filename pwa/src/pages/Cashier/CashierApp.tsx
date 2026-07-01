@@ -2504,12 +2504,18 @@ function App() {
                                 </span>
                               )}
                             </>
-                          ) : (
-                            <>
-                              <span>Verification Status</span>
-                              <Tooltip text="Verification execution status and headless automation progress." />
-                            </>
-                          )}
+                          ) : (() => {
+                            const lastCreditTx = lastTransactions.find(tx => tx.amount.startsWith('+'));
+                            const lastCreditAmount = lastCreditTx 
+                              ? formatAmount(lastCreditTx.amount).replace('+', '')
+                              : '00.00';
+                            return (
+                              <>
+                                <span>Last Credit: {selectedAccountCurrency} {lastCreditAmount}</span>
+                                <Tooltip text="The most recent credit transaction detected on this account." />
+                              </>
+                            );
+                          })()}
                         </h2>
                         {activeStepIndex === 5 && result ? (() => {
                           const successTx = result.transaction || lastTransactions.find(tx => {
@@ -2534,17 +2540,34 @@ function App() {
                               )}
                             </div>
                           );
-                        })() : (
+                        })() : progress.stage === 'error' ? (
                           <p className="text-xs text-[var(--text-secondary)] mt-1 font-medium leading-relaxed">
-                            {progress.stage === 'error' ? (
-                              error || "An error occurred during verification."
-                            ) : loading ? (
-                              timeLeft !== null ? `Estimated remaining: ~${timeLeft}s` : "Contacting banking server..."
-                            ) : (
-                              "Enter transfer details on the left and click Verify to start."
-                            )}
+                            {error || "An error occurred during verification."}
                           </p>
-                        )}
+                        ) : loading ? (
+                          <p className="text-xs text-[var(--text-secondary)] mt-1 font-medium leading-relaxed">
+                            {timeLeft !== null ? `Estimated remaining: ~${timeLeft}s` : "Contacting banking server..."}
+                          </p>
+                        ) : (() => {
+                          const lastCreditTx = lastTransactions.find(tx => tx.amount.startsWith('+'));
+                          if (lastCreditTx) {
+                            return (
+                              <div className="space-y-1 font-mono text-[11px] mt-1.5 text-zinc-300">
+                                <div className="font-bold flex items-center gap-1.5">
+                                  <span>Date: {lastCreditTx.date}</span>
+                                </div>
+                                <div className="text-zinc-400 whitespace-pre-line leading-relaxed">
+                                  {lastCreditTx.details}
+                                </div>
+                              </div>
+                            );
+                          }
+                          return (
+                            <p className="text-xs text-[var(--text-secondary)] mt-1 font-medium leading-relaxed">
+                              Enter transfer details on the left and click Verify to start.
+                            </p>
+                          );
+                        })()}
                       </div>
 
 
