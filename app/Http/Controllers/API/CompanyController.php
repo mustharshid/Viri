@@ -102,51 +102,62 @@ class CompanyController extends Controller
 
     public function updateTerminal(Request $request, $id)
     {
-        $request->validate([
-            'name' => 'required|string',
-            'permissions' => 'nullable|array',
-            'settings_pin' => 'nullable|string|max:6'
-        ]);
+        try {
+            $request->validate([
+                'name' => 'required|string',
+                'permissions' => 'nullable|array',
+                'settings_pin' => 'nullable|string|max:6'
+            ]);
 
-        $tenant = $request->user()->tenant;
-        $terminal = Terminal::where('tenant_id', $tenant->id)->findOrFail($id);
+            $tenant = $request->user()->tenant;
+            $terminal = Terminal::where('tenant_id', $tenant->id)->findOrFail($id);
 
-        $permissions = $request->input('permissions', []);
-        $tier = $tenant->subscription_tier;
+            $permissions = $request->input('permissions', []);
+            $tier = $tenant->subscription_tier;
 
-        if ($tier === 'free' || $tier === '499') {
-            $permissions = [
-                'verification_enabled' => true,
-                'ledger_enabled' => false,
-                'ledger_show_balance' => false,
-                'ledger_show_debit' => false,
-                'reports_enabled' => false
-            ];
-        } else {
-            $permissions = [
-                'verification_enabled' => true,
-                'ledger_enabled' => filter_var($permissions['ledger_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
-                'ledger_show_balance' => filter_var($permissions['ledger_show_balance'] ?? false, FILTER_VALIDATE_BOOLEAN),
-                'ledger_show_debit' => filter_var($permissions['ledger_show_debit'] ?? false, FILTER_VALIDATE_BOOLEAN),
-                'reports_enabled' => filter_var($permissions['reports_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN)
-            ];
+            if ($tier === 'free' || $tier === '499') {
+                $permissions = [
+                    'verification_enabled' => true,
+                    'ledger_enabled' => false,
+                    'ledger_show_balance' => false,
+                    'ledger_show_debit' => false,
+                    'reports_enabled' => false
+                ];
+            } else {
+                $permissions = [
+                    'verification_enabled' => true,
+                    'ledger_enabled' => filter_var($permissions['ledger_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                    'ledger_show_balance' => filter_var($permissions['ledger_show_balance'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                    'ledger_show_debit' => filter_var($permissions['ledger_show_debit'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                    'reports_enabled' => filter_var($permissions['reports_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN)
+                ];
+            }
+
+            $terminal->update([
+                'terminal_name' => $request->name,
+                'settings_pin' => $request->settings_pin,
+                'permissions' => $permissions
+            ]);
+
+            try {
+                \App\Models\AuditLog::create([
+                    'tenant_id' => $tenant->id,
+                    'event_type' => 'terminal_updated',
+                    'actor' => $request->user()->name,
+                    'ip_address' => $request->ip(),
+                    'metadata' => ['terminal_id' => $terminal->id, 'terminal_name' => $terminal->terminal_name]
+                ]);
+            } catch (\Exception $auditEx) {
+                // Audit log failure should not block terminal update
+            }
+
+            return response()->json(['terminal' => $terminal]);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json(['message' => implode(' ', $e->validator->errors()->all())], 422);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Failed to update terminal: ' . $e->getMessage()], 500);
         }
-
-        $terminal->update([
-            'terminal_name' => $request->name,
-            'settings_pin' => $request->settings_pin,
-            'permissions' => $permissions
-        ]);
-
-        \App\Models\AuditLog::create([
-            'tenant_id' => $tenant->id,
-            'event_type' => 'terminal_updated',
-            'actor' => $request->user()->name,
-            'ip_address' => $request->ip(),
-            'metadata' => ['terminal_id' => $terminal->id, 'terminal_name' => $terminal->terminal_name]
-        ]);
-
-        return response()->json(['terminal' => $terminal]);
     }
 
     public function deleteTerminal(Request $request, $id)

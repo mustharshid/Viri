@@ -25,19 +25,22 @@ class Terminal extends Model
     protected $casts = [
         'pairing_code_expires_at' => 'datetime',
         'allow_debug_until' => 'datetime',
-        'permissions' => 'array',
         'credentials' => 'array'
     ];
 
-    public function getPermissionsAttribute($value)
+    /**
+     * Get permissions merged with defaults.
+     * Handles both raw JSON strings and pre-decoded arrays.
+     */
+    public function getPermissionsAttribute($value): array
     {
         $defaults = [
             'verification_enabled' => true,
-            'ledger_enabled' => true,
-            'ledger_show_balance' => true,
-            'ledger_show_debit' => true,
-            'reports_enabled' => false,
-            'show_vbtl' => false
+            'ledger_enabled'       => true,
+            'ledger_show_balance'  => true,
+            'ledger_show_debit'    => true,
+            'reports_enabled'      => false,
+            'show_vbtl'            => false
         ];
 
         if (!$value) {
@@ -46,6 +49,14 @@ class Terminal extends Model
 
         $decoded = is_array($value) ? $value : json_decode($value, true);
         return array_merge($defaults, $decoded ?: []);
+    }
+
+    /**
+     * Store permissions as a JSON string.
+     */
+    public function setPermissionsAttribute($value): void
+    {
+        $this->attributes['permissions'] = is_array($value) ? json_encode($value) : $value;
     }
 
     public function tenant(): BelongsTo
