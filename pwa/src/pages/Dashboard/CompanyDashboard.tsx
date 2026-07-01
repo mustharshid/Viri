@@ -220,26 +220,31 @@ export default function CompanyDashboard() {
     const url = isEdit ? `/api/company/terminals/${editingTerminal.id}` : '/api/company/terminals';
     const method = isEdit ? 'PUT' : 'POST';
 
-    const response = await fetch(url, {
-      method: method,
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: terminalFormName,
-        settings_pin: String(terminalSettingsPin || '').trim() || null,
-        permissions: permissionsForm
-      })
-    });
+    try {
+      const response = await fetch(url, {
+        method: method,
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: terminalFormName,
+          settings_pin: String(terminalSettingsPin || '').trim() || null,
+          permissions: permissionsForm
+        })
+      });
 
-    if (response.ok) {
-      setIsTerminalModalOpen(false);
-      setNewTerminalName('');
-      setTerminalFormName('');
-      setTerminalSettingsPin('');
-      setEditingTerminal(null);
-      fetchData();
-    } else {
-      const errData = await response.json();
-      alert(errData.message || 'Failed to save terminal');
+      if (response.ok) {
+        setIsTerminalModalOpen(false);
+        setNewTerminalName('');
+        setTerminalFormName('');
+        setTerminalSettingsPin('');
+        setEditingTerminal(null);
+        fetchData();
+      } else {
+        const errData = await response.json().catch(() => ({}));
+        alert(errData.message || 'Failed to save terminal');
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert('An error occurred while saving terminal settings.');
     }
   };
 

@@ -44,7 +44,8 @@ class Terminal extends Model
             return $defaults;
         }
 
-        return array_merge($defaults, json_decode($value, true) ?: []);
+        $decoded = is_array($value) ? $value : json_decode($value, true);
+        return array_merge($defaults, $decoded ?: []);
     }
 
     public function tenant(): BelongsTo
