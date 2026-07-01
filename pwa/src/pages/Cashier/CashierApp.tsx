@@ -913,6 +913,7 @@ function App() {
             setTimeout(() => {
               setLoading(false);
               setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+              setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
               setResult(response.data || null);
               setLastTransactions(response.transactions || []);
               setLastPopulatedTime(new Date().toLocaleTimeString());
@@ -944,6 +945,7 @@ function App() {
     } catch (err: any) {
       setError(`Delegated Fetch Failed: ${err.message}`);
       setLoading(false);
+      setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
       isVerifyingRef.current = false;
       setProgress({ stage: 'error', text: 'Fetch failed', percent: 100, isIndeterminate: false });
     }
@@ -973,6 +975,8 @@ function App() {
     setError(null);
     setResult(null);
     setLastTransactions([]);
+    setSyncTimeElapsed(null);
+    syncStartTimeRef.current = Date.now();
     logsRef.current = [];
     setLogs([]); // Clear previous logs
 
@@ -1224,6 +1228,7 @@ function App() {
       setProgress({ stage: 'error', text: 'Connection lost', percent: 100, isIndeterminate: false });
       setTimeLeft(null);
       setLoading(false);
+      setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
       activePortRef.current = null;
       releaseLock();
       isVerifyingRef.current = false;
@@ -1247,6 +1252,7 @@ function App() {
         setTimeout(async () => {
           setLoading(false);
           setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+          setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
           setResult(response.data || null);
           setLastTransactions(response.transactions || []);
           setLastPopulatedTime(new Date().toLocaleTimeString());
@@ -1311,6 +1317,7 @@ function App() {
         });
         setTimeLeft(null);
         setLoading(false);
+        setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
         setError(response.error || (mode === 'history' ? "Failed to fetch history." : "Verification failed."));
         
         // Track consecutive failures
