@@ -437,6 +437,16 @@ export default function CompanyDashboard() {
                   <span className="font-bold uppercase text-[var(--color-success)]">{user?.tenant?.subscription_tier === 'free' ? 'Free Trial' : `MVR ${user?.tenant?.subscription_tier}`}</span>
                 </div>
                 <div className="flex justify-between">
+                  <span className="text-[var(--text-secondary)]">Status:</span>
+                  <span className={`font-bold uppercase ${user?.tenant?.status === 'active' ? 'text-[var(--color-success)]' : user?.tenant?.status === 'suspended' ? 'text-red-500' : 'text-yellow-500'}`}>
+                    {user?.tenant?.status || 'Unknown'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--text-secondary)]">Plan Expiry Date:</span>
+                  <span className="font-mono">{user?.tenant?.license_expires_at ? new Date(user.tenant.license_expires_at).toLocaleDateString() : 'Never'}</span>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-[var(--text-secondary)]">Verifications Used:</span>
                   <span className="font-mono">{user?.tenant?.verifications_count} / {getVerificationLimit()} this month</span>
                 </div>
