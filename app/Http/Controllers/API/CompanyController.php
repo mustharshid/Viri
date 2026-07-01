@@ -34,7 +34,7 @@ class CompanyController extends Controller
         $request->validate([
             'name' => 'required|string',
             'permissions' => 'nullable|array',
-            'settings_pin' => 'nullable|string|size:6'
+            'settings_pin' => 'nullable|string|max:6'
         ]);
 
         $tenant = $request->user()->tenant;
@@ -105,7 +105,7 @@ class CompanyController extends Controller
         $request->validate([
             'name' => 'required|string',
             'permissions' => 'nullable|array',
-            'settings_pin' => 'nullable|string|size:6'
+            'settings_pin' => 'nullable|string|max:6'
         ]);
 
         $tenant = $request->user()->tenant;

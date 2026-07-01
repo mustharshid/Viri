@@ -225,7 +225,7 @@ export default function CompanyDashboard() {
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: terminalFormName,
-        settings_pin: terminalSettingsPin.trim() || null,
+        settings_pin: String(terminalSettingsPin || '').trim() || null,
         permissions: permissionsForm
       })
     });
@@ -1049,44 +1049,41 @@ export default function CompanyDashboard() {
                     </div>
                   </div>
 
-                  {/* Transaction Ledger Sub-options */}
-                  {(permissionsForm.ledger_enabled || user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499') && (
-                    <div className="pl-8 space-y-3 border-l border-zinc-800 ml-2.5 my-2">
-                      <div className="flex items-start gap-3">
-                        <input 
-                          type="checkbox" 
-                          id="perm-ledger-balance"
-                          checked={permissionsForm.ledger_show_balance} 
-                          disabled={!permissionsForm.ledger_enabled || user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
-                          onChange={e => setPermissionsForm(prev => ({ ...prev, ledger_show_balance: e.target.checked }))}
-                          className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-30"
-                        />
-                        <div>
-                          <label htmlFor="perm-ledger-balance" className={`text-xs font-medium ${(!permissionsForm.ledger_enabled || user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499') ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-300 cursor-pointer'}`}>
-                            Show Account Balance
-                          </label>
-                          <p className="text-[10px] text-[var(--text-secondary)]">Expose real-time balance metrics for connected accounts.</p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-start gap-3">
-                        <input 
-                          type="checkbox" 
-                          id="perm-ledger-debit"
-                          checked={permissionsForm.ledger_show_debit} 
-                          disabled={!permissionsForm.ledger_enabled || user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
-                          onChange={e => setPermissionsForm(prev => ({ ...prev, ledger_show_debit: e.target.checked }))}
-                          className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-30"
-                        />
-                        <div>
-                          <label htmlFor="perm-ledger-debit" className={`text-xs font-medium ${(!permissionsForm.ledger_enabled || user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499') ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-300 cursor-pointer'}`}>
-                            Show Outward Transactions (DEBIT)
-                          </label>
-                          <p className="text-[10px] text-[var(--text-secondary)]">Display outward transfers and charges alongside credits.</p>
-                        </div>
-                      </div>
+                  {/* Show Account Balance */}
+                  <div className="flex items-start gap-3">
+                    <input 
+                      type="checkbox" 
+                      id="perm-ledger-balance"
+                      checked={permissionsForm.ledger_show_balance} 
+                      disabled={user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
+                      onChange={e => setPermissionsForm(prev => ({ ...prev, ledger_show_balance: e.target.checked }))}
+                      className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
+                    />
+                    <div>
+                      <label htmlFor="perm-ledger-balance" className={`text-sm font-medium flex items-center gap-1.5 ${user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499' ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
+                        Show Account Balance
+                      </label>
+                      <p className="text-xs text-[var(--text-secondary)]">Expose real-time balance metrics for connected accounts.</p>
                     </div>
-                  )}
+                  </div>
+
+                  {/* Show Outward Transactions (DEBIT) */}
+                  <div className="flex items-start gap-3">
+                    <input 
+                      type="checkbox" 
+                      id="perm-ledger-debit"
+                      checked={permissionsForm.ledger_show_debit} 
+                      disabled={user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
+                      onChange={e => setPermissionsForm(prev => ({ ...prev, ledger_show_debit: e.target.checked }))}
+                      className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
+                    />
+                    <div>
+                      <label htmlFor="perm-ledger-debit" className={`text-sm font-medium flex items-center gap-1.5 ${user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499' ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
+                        Show Outward Transactions (DEBIT)
+                      </label>
+                      <p className="text-xs text-[var(--text-secondary)]">Display outward transfers and charges alongside credits.</p>
+                    </div>
+                  </div>
 
                   {/* Reports */}
                   <div className="flex items-start gap-3">
