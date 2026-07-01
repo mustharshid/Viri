@@ -1246,6 +1246,7 @@ function App() {
         setTimeLeft(null);
         setTimeout(async () => {
           setLoading(false);
+          setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
           setResult(response.data || null);
           setLastTransactions(response.transactions || []);
           setLastPopulatedTime(new Date().toLocaleTimeString());

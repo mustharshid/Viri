@@ -446,14 +446,7 @@ export default function AdminDashboard() {
                   <input 
                     type="date"
                     className="input-field w-full text-sm font-mono text-white bg-zinc-900 border-zinc-800"
-                    value={(() => {
-                      if (!company.license_expires_at) return '';
-                      try {
-                        return new Date(company.license_expires_at).toISOString().split('T')[0];
-                      } catch (e) {
-                        return '';
-                      }
-                    })()}
+                    value={company.license_expires_at ? String(company.license_expires_at).substring(0, 10) : ''}
                     onChange={(e) => {
                       const val = e.target.value;
                       updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, company.max_terminals, val || null);
