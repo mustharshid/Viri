@@ -19,6 +19,71 @@
   --color-warning: #f59e0b;
 }
 
+/* ─── Light Mode Overrides ─────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-base: #f0f4f8;
+  --bg-surface: rgba(255, 255, 255, 0.85);
+  --bg-canvas: #ffffff;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+
+  --border-color: rgba(0, 0, 0, 0.10);
+  --color-success: #059669;
+  --color-success-glow: rgba(5, 150, 105, 0.35);
+  --color-accent: #2563eb;
+  --color-warning: #d97706;
+}
+
+[data-theme="light"] body {
+  background-image:
+    radial-gradient(circle at 15% 50%, rgba(5, 150, 105, 0.06), transparent 25%),
+    radial-gradient(circle at 85% 30%, rgba(37, 99, 235, 0.06), transparent 25%);
+}
+
+/* Scrollbar in light mode */
+[data-theme="light"] ::-webkit-scrollbar-track { background: #e2e8f0; }
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.18); }
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.30); }
+
+/* Inputs in light mode */
+[data-theme="light"] .input-field {
+  background: rgba(255, 255, 255, 0.9);
+  color: #0f172a;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+[data-theme="light"] .input-field::placeholder { color: #94a3b8; }
+[data-theme="light"] .input-field:focus {
+  border-color: var(--color-success);
+  ring-color: var(--color-success);
+}
+
+/* btn-outline in light mode */
+[data-theme="light"] .btn-outline {
+  border-color: rgba(0, 0, 0, 0.15);
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.7);
+}
+[data-theme="light"] .btn-outline:hover {
+  border-color: var(--color-success);
+  background: rgba(5, 150, 105, 0.08);
+}
+
+/* glass-panel in light mode */
+[data-theme="light"] .glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(0, 0, 0, 0.09);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+}
+
+/* Toggle label in light mode */
+[data-theme="light"] .toggle-label {
+  background-color: #e2e8f0;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+/* ─── End Light Mode ────────────────────────────────────────────────────────── */
+
 body {
   background-color: var(--bg-base);
   color: var(--text-primary);
@@ -30,6 +95,7 @@ body {
     radial-gradient(circle at 15% 50%, rgba(16, 185, 129, 0.05), transparent 25%),
     radial-gradient(circle at 85% 30%, rgba(59, 130, 246, 0.05), transparent 25%);
 }
+
 
 h1, h2, h3, h4, h5, h6, .font-heading {
   font-family: 'Outfit', sans-serif;

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, Terminal, Activity } from 'lucide-react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, Terminal, Activity, Sun, Moon } from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -56,6 +57,7 @@ interface LedgerData {
 }
 
 function App() {
+  const [theme, toggleTheme] = useTheme();
   const [amount, setAmount] = useState('');
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [settingsPin, setSettingsPin] = useState<string | null>(null);
@@ -2306,7 +2308,16 @@ function App() {
                     </p>
                   </div>
                   
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3">
+                    {/* Theme Toggle */}
+                    <button
+                      onClick={toggleTheme}
+                      title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+                      className="w-8 h-8 flex items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--color-success)] transition-all"
+                    >
+                      {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+                    </button>
+
                     {/* Status & Last Fetch */}
                     <div className="text-right hidden sm:block">
                       <div className="flex items-center justify-end gap-1.5 text-xs font-bold text-emerald-400">

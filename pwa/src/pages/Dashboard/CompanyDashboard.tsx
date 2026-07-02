@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings } from 'lucide-react';
+import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon } from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme';
 
 const Tooltip = ({ text, onClick }: { text: string; onClick?: () => void }) => (
   <div 
@@ -22,6 +23,7 @@ const Tooltip = ({ text, onClick }: { text: string; onClick?: () => void }) => (
 );
 
 export default function CompanyDashboard() {
+  const [theme, toggleTheme] = useTheme();
   const [user, setUser] = useState<any>(null);
   const [terminals, setTerminals] = useState<any[]>([]);
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
@@ -430,9 +432,18 @@ export default function CompanyDashboard() {
             <h1 className="text-3xl font-bold capitalize">{activeTab === 'dashboard' ? 'Company Dashboard' : activeTab}</h1>
             <p className="text-[var(--text-secondary)]">Welcome, {user?.name} ({user?.tenant?.name})</p>
           </div>
-          <button onClick={handleLogout} className="btn btn-outline flex items-center gap-2">
-            <LogOut size={16} /> Logout
-          </button>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={toggleTheme}
+              title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+              className="w-10 h-10 flex items-center justify-center rounded-xl border border-[var(--border-color)] bg-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--color-success)] hover:bg-emerald-900/10 transition-all"
+            >
+              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+            <button onClick={handleLogout} className="btn btn-outline flex items-center gap-2">
+              <LogOut size={16} /> Logout
+            </button>
+          </div>
         </header>
 
         {user?.status === 'pending' || user?.tenant?.status === 'pending' ? (
