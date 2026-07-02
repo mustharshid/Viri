@@ -54,13 +54,18 @@ export default function AdminDashboard() {
   }, []);
 
   useEffect(() => {
+    let interval: any;
     if (activeTab === 'logs') {
-      fetchSessionLogs();
+      fetchSessionLogs(true);
+      interval = setInterval(() => fetchSessionLogs(false), 5000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
     }
   }, [activeTab, logsPage, filterEventType, filterCompanyId]);
 
-  const fetchSessionLogs = async () => {
-    setLogsLoading(true);
+  const fetchSessionLogs = async (showLoading: boolean = true) => {
+    if (showLoading) setLogsLoading(true);
     try {
       const token = localStorage.getItem('viri_token');
       const headers = { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' };
@@ -667,7 +672,7 @@ export default function AdminDashboard() {
                               {isExpanded && log.event_detail && (
                                 <tr className="bg-zinc-950/20 border-b border-zinc-900">
                                   <td colSpan={5} className="p-4">
-                                    {log.event_detail.pwa_logs ? (
+                                    {log.event_detail.pwa_logs && log.event_detail.pwa_logs.length > 0 ? (
                                       <div className="flex flex-col gap-4">
                                         {Object.keys(log.event_detail).filter(k => k !== 'pwa_logs').length > 0 && (
                                           <div>
