@@ -2659,14 +2659,16 @@ function App() {
                             <div className="space-y-1 font-mono text-[11px] mt-1.5 text-zinc-300">
                               <div className="font-bold flex items-center gap-1.5">
                                 <span>Date: {successTx?.date || new Date(result.timestamp).toLocaleString()}</span>
-                                <span className="text-zinc-600">|</span>
-                                <span>Ref: {result.reference}</span>
                               </div>
-                              {successTx?.details ? (
-                                <div className="text-zinc-400 whitespace-pre-line leading-relaxed">
-                                  {successTx.details}
-                                </div>
-                              ) : (
+                              {successTx?.details ? (() => {
+                                const detailsSingleLine = String(successTx.details).replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+                                const truncated = detailsSingleLine.length > 30 ? detailsSingleLine.substring(0, 30) + '...' : detailsSingleLine;
+                                return (
+                                  <div className="text-zinc-400 truncate" title={successTx.details}>
+                                    {truncated}
+                                  </div>
+                                );
+                              })() : (
                                 <div className="text-zinc-500 italic">No additional transaction details.</div>
                               )}
                             </div>
@@ -2687,9 +2689,15 @@ function App() {
                                 <div className="font-bold flex items-center gap-1.5">
                                   <span>Date: {lastCreditTx.date}</span>
                                 </div>
-                                <div className="text-zinc-400 whitespace-pre-line leading-relaxed">
-                                  {lastCreditTx.details}
-                                </div>
+                                {(() => {
+                                  const detailsSingleLine = String(lastCreditTx.details).replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+                                  const truncated = detailsSingleLine.length > 30 ? detailsSingleLine.substring(0, 30) + '...' : detailsSingleLine;
+                                  return (
+                                    <div className="text-zinc-400 truncate" title={lastCreditTx.details}>
+                                      {truncated}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             );
                           }
@@ -2943,7 +2951,7 @@ function App() {
                   <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl w-full flex flex-col gap-4">
                     <div className="flex justify-between items-center border-b border-zinc-800/80 pb-3">
                       <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-1.5">
-                        Recent Transactions <Tooltip text="The last few statement entries cached/fetched from the bank's database." />
+                        Recent Transactions {selectedAccount ? `- ${selectedAccount.bank_name} ${selectedAccount.account_number}` : ''} <Tooltip text="The last few statement entries cached/fetched from the bank's database." />
                       </h3>
                     </div>
 
