@@ -137,6 +137,7 @@ Route::post('/verify-terminal', function (Request $request) {
                     'login_credentials_hash' => $account->login_credentials_hash,
                     'session_holder_terminal_id' => $account->session_holder_terminal_id,
                     'session_holder_name' => $account->sessionHolder?->terminal_name,
+                    'session_claimed_at' => $account->session_claimed_at ? $account->session_claimed_at->toIso8601String() : null,
                     'session_last_heartbeat_at' => $account->session_last_heartbeat_at ? $account->session_last_heartbeat_at->toIso8601String() : null,
                 ];
             })

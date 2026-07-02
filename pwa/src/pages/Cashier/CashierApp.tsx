@@ -38,6 +38,7 @@ interface BankAccount {
   login_credentials_hash?: string;
   session_holder_terminal_id?: number | null;
   session_holder_name?: string | null;
+  session_claimed_at?: string | null;
   session_last_heartbeat_at?: string | null;
 }
 
@@ -2727,13 +2728,20 @@ function App() {
                                 let isActive = isOwnSession; // start with local knowledge
                                 let elapsedMs: number | null = null;
                                 let heartbeatTime: number | undefined;
+                                let claimedTime: number | undefined;
+
+                                if (account.session_claimed_at) {
+                                  try {
+                                    claimedTime = new Date(account.session_claimed_at).getTime();
+                                  } catch (e) {}
+                                }
                                 
                                 if (!isOwnSession && account.session_holder_terminal_id && account.session_last_heartbeat_at) {
                                   // For other terminals' sessions, fall back to heartbeat timing
                                   try {
                                     heartbeatTime = new Date(account.session_last_heartbeat_at).getTime();
-                                    elapsedMs = Math.max(0, currentTick - heartbeatTime);
-                                    isActive = elapsedMs <= 90000;
+                                    const idleMs = Math.max(0, currentTick - heartbeatTime);
+                                    isActive = idleMs <= 90000;
                                   } catch (e) {
                                     isActive = false;
                                   }
@@ -2742,11 +2750,25 @@ function App() {
                                   if (account.session_last_heartbeat_at) {
                                     try {
                                       heartbeatTime = new Date(account.session_last_heartbeat_at).getTime();
-                                      elapsedMs = Math.max(0, currentTick - heartbeatTime);
                                     } catch (e) {}
                                   }
-                                  // Even if heartbeat timestamp is stale, we know we're active
-                                  elapsedMs = elapsedMs !== null ? elapsedMs : 0;
+                                }
+                                
+                                // Determine what to show in the timer
+                                if (isActive) {
+                                  // If active, show duration since claimed
+                                  if (claimedTime) {
+                                    elapsedMs = Math.max(0, currentTick - claimedTime);
+                                  } else {
+                                    elapsedMs = 0;
+                                  }
+                                } else {
+                                  // If idle, show time since last heartbeat
+                                  if (heartbeatTime) {
+                                    elapsedMs = Math.max(0, currentTick - heartbeatTime);
+                                  } else {
+                                    elapsedMs = null;
+                                  }
                                 }
                                 
                                 const accountLabel = `${account.bank_name} (${account.account_number.slice(-4)})`;
@@ -2754,12 +2776,7 @@ function App() {
                                 // Format elapsed time
                                 let timeStr = '';
                                 if (elapsedMs !== null && elapsedMs >= 0) {
-                                  let displayMs = isActive ? elapsedMs : elapsedMs;
-                                  if (!isActive && lastPopulatedTimestamp && heartbeatTime !== undefined) {
-                                    displayMs = Math.max(0, lastPopulatedTimestamp - heartbeatTime);
-                                  }
-                                  
-                                  const totalSeconds = Math.floor(displayMs / 1000);
+                                  const totalSeconds = Math.floor(elapsedMs / 1000);
                                   const m = Math.floor(totalSeconds / 60);
                                   const s = totalSeconds % 60;
                                   timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}s`;
