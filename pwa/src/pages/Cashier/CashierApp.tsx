@@ -84,6 +84,7 @@ function App() {
     amount: string;
     runningBalance?: string;
   }[]>([]);
+  const [lastTransactionsLabel, setLastTransactionsLabel] = useState<string>('');
   const [lastPopulatedTime, setLastPopulatedTime] = useState<string>('');
   const [lastPopulatedTimestamp, setLastPopulatedTimestamp] = useState<number | null>(null);
   const [syncTimeElapsed, setSyncTimeElapsed] = useState<number | null>(null);
@@ -979,6 +980,8 @@ function App() {
               setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
               setResult(response.data || null);
               setLastTransactions(response.transactions || []);
+              const acc3 = bankAccounts.find(a => a.id.toString() === accountId);
+              setLastTransactionsLabel(acc3 ? `${acc3.bank_name} ${acc3.account_number}` : '');
               setLastPopulatedTime(new Date().toLocaleTimeString());
               setLastPopulatedTimestamp(Date.now());
 
@@ -1040,6 +1043,7 @@ function App() {
     setError(null);
     setResult(null);
     setLastTransactions([]);
+    setLastTransactionsLabel('');
     setSyncTimeElapsed(null);
     syncStartTimeRef.current = Date.now();
     logsRef.current = [];
@@ -1325,6 +1329,8 @@ function App() {
           setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
           setResult(response.data || null);
           setLastTransactions(response.transactions || []);
+          const acc1 = bankAccounts.find(a => a.id.toString() === selectedAccountId);
+          setLastTransactionsLabel(acc1 ? `${acc1.bank_name} ${acc1.account_number}` : '');
           setLastPopulatedTime(new Date().toLocaleTimeString());
           setLastPopulatedTimestamp(Date.now());
 
@@ -1424,6 +1430,8 @@ function App() {
           }).catch(e => console.error("Failed to log session error:", e));
         }
         setLastTransactions(response.transactions || []);
+        const acc2 = bankAccounts.find(a => a.id.toString() === selectedAccountId);
+        setLastTransactionsLabel(acc2 ? `${acc2.bank_name} ${acc2.account_number}` : '');
         setLastPopulatedTime(new Date().toLocaleTimeString());
         setLastPopulatedTimestamp(Date.now());
         port.disconnect();
@@ -2951,7 +2959,7 @@ function App() {
                   <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl w-full flex flex-col gap-4">
                     <div className="flex justify-between items-center border-b border-zinc-800/80 pb-3">
                       <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-1.5">
-                        Recent Transactions {selectedAccount ? `- ${selectedAccount.bank_name} ${selectedAccount.account_number}` : ''} <Tooltip text="The last few statement entries cached/fetched from the bank's database." />
+                        Recent Transactions {lastTransactionsLabel ? `- ${lastTransactionsLabel}` : ''} <Tooltip text="The last few statement entries cached/fetched from the bank's database." />
                       </h3>
                     </div>
 
