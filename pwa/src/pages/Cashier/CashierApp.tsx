@@ -93,6 +93,25 @@ function App() {
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const LATEST_EXTENSION_VERSION = "v1.002";
 
+  const setErrorAndLog = (errorMsg: string, accountId?: string) => {
+    setError(errorMsg);
+    const bUrl = backendUrl || localStorage.getItem('viri_backend_url') || (typeof window !== 'undefined' ? `${window.location.origin}/api` : '');
+    const accId = parseInt(accountId || selectedAccountId || '0');
+    if (!isNaN(accId) && accId > 0 && bUrl) {
+      fetch(`${bUrl}/terminal/session/log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hardware_id: hardwareId || localStorage.getItem('viri_hardware_id'),
+          event_type: 'session_login_failed',
+          bank_account_id: accId,
+          event_summary: errorMsg,
+          pwa_logs: logsRef.current || []
+        })
+      }).catch(e => console.error("Failed to log system error:", e));
+    }
+  };
+
   const formatAmount = (val: any): string => {
     if (val === undefined || val === null || val === '') return '0.00';
     const str = String(val).trim();
@@ -1135,7 +1154,7 @@ function App() {
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        setError(`License check failed: ${errData.error || response.statusText} (${response.status})`);
+        setErrorAndLog(`License check failed: ${errData.error || response.statusText} (${response.status})`);
         
         if (response.status === 403 || response.status === 404) {
           clearTerminalData();
@@ -1151,7 +1170,7 @@ function App() {
       const data = await response.json().catch(() => ({}));
       if (data.subscription_expired) {
         setSubscriptionExpired(true);
-        setError("Subscription Expired - contact your admin!");
+        setErrorAndLog("Subscription Expired - contact your admin!");
         setLoading(false);
         isVerifyingRef.current = false;
         setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
@@ -1162,7 +1181,7 @@ function App() {
         setShouldUploadLogs(!!data.should_upload_logs);
       }
     } catch (err: any) {
-      setError(`Backend Connection Failed: Could not connect to licensing server at ${backendUrl}. Check your network or settings.`);
+      setErrorAndLog(`Backend Connection Failed: Could not connect to licensing server at ${backendUrl}. Check your network or settings.`);
       setLoading(false);
       isVerifyingRef.current = false;
       setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
@@ -1259,7 +1278,7 @@ function App() {
     }
 
     if (!lockAcquired) {
-      setError("Bank session busy: Held by another terminal. Please try again later.");
+      setErrorAndLog("Bank session busy: Held by another terminal. Please try again later.");
       addLog("> [Lock] Timeout: Could not acquire bank session lock.");
       setLoading(false);
       lockedAccountIdRef.current = null;
@@ -1292,7 +1311,7 @@ function App() {
 
     // Step 3: Send message to the local extension using a persistent port
     if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
-      setError("Browser extension API not detected. Make sure you are using Chrome and the extension is loaded.");
+      setErrorAndLog("Browser extension API not detected. Make sure you are using Chrome and the extension is loaded.");
       setLoading(false);
       releaseLock();
       isVerifyingRef.current = false;
@@ -1305,7 +1324,7 @@ function App() {
     try {
       port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
     } catch (e: any) {
-      setError(`Extension connection failed: ${e.message}. Is the Extension ID correct?`);
+      setErrorAndLog(`Extension connection failed: ${e.message}. Is the Extension ID correct?`);
       setLoading(false);
       releaseLock();
       isVerifyingRef.current = false;
@@ -1321,9 +1340,9 @@ function App() {
       if (!isVerifyingRef.current) return; // We manually disconnected it, or kill switch was used
 
       if (chrome.runtime.lastError) {
-        setError(`Extension connection failed: ${chrome.runtime.lastError.message}`);
+        setErrorAndLog(`Extension connection failed: ${chrome.runtime.lastError.message}`);
       } else {
-        setError("Connection to background robot lost unexpectedly. Is the extension installed and enabled?");
+        setErrorAndLog("Connection to background robot lost unexpectedly. Is the extension installed and enabled?");
       }
       setProgress({ stage: 'error', text: 'Connection lost', percent: 100, isIndeterminate: false });
       setTimeLeft(null);
@@ -1616,7 +1635,7 @@ function App() {
       }
       addLog("> [System] License valid.");
     } catch (err: any) {
-      setError(`Backend Connection Failed: ${err.message}`);
+      setErrorAndLog(`Backend Connection Failed: ${err.message}`, targetAccountId);
       addLog(`> [System] License validation FAILED: ${err.message}`);
       setLoading(false);
       isVerifyingRef.current = false;
@@ -1625,7 +1644,7 @@ function App() {
     }
 
     if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
-      setError("Browser extension API not detected.");
+      setErrorAndLog("Browser extension API not detected.", targetAccountId);
       addLog("> [System] Chrome extension API not found.");
       setLoading(false);
       isVerifyingRef.current = false;
@@ -1637,7 +1656,7 @@ function App() {
     try {
       port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
     } catch (e: any) {
-      setError(`Extension connection failed: ${e.message}`);
+      setErrorAndLog(`Extension connection failed: ${e.message}`, targetAccountId);
       addLog(`> [System] Extension connection FAILED: ${e.message}`);
       setLoading(false);
       isVerifyingRef.current = false;
