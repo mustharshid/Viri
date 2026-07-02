@@ -2789,9 +2789,9 @@ function App() {
                                     elapsedMs = 0;
                                   }
                                 } else {
-                                  // If idle, show time since last heartbeat
-                                  if (heartbeatTime) {
-                                    elapsedMs = Math.max(0, currentTick - heartbeatTime);
+                                  // If idle, show total active duration (time from claimed until last heartbeat)
+                                  if (heartbeatTime && claimedTime && heartbeatTime >= claimedTime) {
+                                    elapsedMs = Math.max(0, heartbeatTime - claimedTime);
                                   } else {
                                     elapsedMs = null;
                                   }
