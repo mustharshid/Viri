@@ -501,6 +501,11 @@ class SessionController extends Controller
         $summary = $request->event_summary
             ?? SessionActivityLog::eventLabel($request->event_type) . " on terminal \"{$terminal->terminal_name}\"";
 
+        $eventDetail = $request->event_detail ?? [];
+        if ($request->has('pwa_logs')) {
+            $eventDetail['pwa_logs'] = $request->pwa_logs;
+        }
+
         SessionActivityLog::create([
             'tenant_id'               => $terminal->tenant_id,
             'terminal_id'             => $terminal->id,
@@ -510,7 +515,7 @@ class SessionController extends Controller
             'account_number_masked'   => $account ? $this->maskAccountNumber($account->account_number) : null,
             'event_type'              => $request->event_type,
             'event_summary'           => $summary,
-            'event_detail'            => $request->event_detail,
+            'event_detail'            => empty($eventDetail) ? null : $eventDetail,
             'masked_username'         => $request->masked_username,
             'ip_address'              => $request->ip(),
             'session_holder_snapshot' => $holderName,

@@ -126,7 +126,7 @@ chrome.storage.local.get(['viri_held_session'], (result) => {
   }
 });
 
-async function logSessionEvent(event_type, detail = {}) {
+async function logSessionEvent(event_type, detail = {}, pwa_logs = []) {
   if (!heldSession || !heldSession.backendUrl) return;
   await fetch(`${heldSession.backendUrl}/terminal/session/log`, {
     method: 'POST',
@@ -134,7 +134,8 @@ async function logSessionEvent(event_type, detail = {}) {
     body: JSON.stringify({
       hardware_id: heldSession.hardwareId,
       event_type,
-      ...detail
+      ...detail,
+      pwa_logs
     })
   }).catch(() => {});
 }
@@ -201,11 +202,18 @@ function stopRequestPolling() {
 async function fulfillPendingRequest(req) {
   if (!heldSession) return;
   emitLog(activePort, `> [Session] Fulfilling pending request ID ${req.id} (${req.request_type})...`);
+  
+  const collectedLogs = [];
+  collectedLogs.push(`> [Session] Fulfilling pending request ID ${req.id} (${req.request_type})...`);
+
   try {
     const fakePort = {
       postMessage: (msg) => {
-        if (msg.type === 'log' && activePort) {
-          activePort.postMessage(msg);
+        if (msg.type === 'log') {
+          collectedLogs.push(msg.message);
+          if (activePort) {
+            activePort.postMessage(msg);
+          }
         }
       }
     };
@@ -232,7 +240,7 @@ async function fulfillPendingRequest(req) {
       bank_name: heldSession.bankName,
       account_number_masked: maskString(heldSession.accountId),
       event_summary: `Fulfilled request ID ${req.id} (${req.request_type})`
-    });
+    }, collectedLogs);
   } catch (err) {
     console.error("Failed to fulfill request:", err);
     await fetch(`${heldSession.backendUrl}/terminal/session/fulfill`, {
@@ -250,7 +258,7 @@ async function fulfillPendingRequest(req) {
       bank_name: heldSession.bankName,
       account_number_masked: maskString(heldSession.accountId),
       event_summary: `Failed request ID ${req.id}: ${err.message}`
-    });
+    }, collectedLogs);
   }
 }
 
