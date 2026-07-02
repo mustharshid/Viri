@@ -667,9 +667,32 @@ export default function AdminDashboard() {
                               {isExpanded && log.event_detail && (
                                 <tr className="bg-zinc-950/20 border-b border-zinc-900">
                                   <td colSpan={5} className="p-4">
-                                    <pre className="text-[10px] font-mono text-zinc-400 bg-zinc-950/80 p-3 rounded-lg border border-zinc-800/80 overflow-x-auto max-w-full scrollbar-thin">
-                                      {JSON.stringify(log.event_detail, null, 2)}
-                                    </pre>
+                                    {log.event_detail.pwa_logs ? (
+                                      <div className="flex flex-col gap-4">
+                                        {Object.keys(log.event_detail).filter(k => k !== 'pwa_logs').length > 0 && (
+                                          <div>
+                                            <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1 px-1">Event Details</div>
+                                            <pre className="text-[10px] font-mono text-zinc-400 bg-zinc-950/80 p-3 rounded-lg border border-zinc-800/80 overflow-x-auto max-w-full scrollbar-thin">
+                                              {JSON.stringify(Object.fromEntries(Object.entries(log.event_detail).filter(([k]) => k !== 'pwa_logs')), null, 2)}
+                                            </pre>
+                                          </div>
+                                        )}
+                                        <div>
+                                          <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1 px-1">Terminal Session Logs</div>
+                                          <div className="bg-[#0D0D0D] rounded-lg p-3.5 border border-zinc-800/80 font-mono text-[11px] text-[#4AF626] overflow-y-auto scrollbar-thin max-h-96 shadow-inner">
+                                            {Array.isArray(log.event_detail.pwa_logs) 
+                                              ? log.event_detail.pwa_logs.map((line: string, i: number) => (
+                                                  <div key={i} className="whitespace-pre leading-relaxed">{line}</div>
+                                                ))
+                                              : <div className="whitespace-pre leading-relaxed">{JSON.stringify(log.event_detail.pwa_logs, null, 2)}</div>}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <pre className="text-[10px] font-mono text-zinc-400 bg-zinc-950/80 p-3 rounded-lg border border-zinc-800/80 overflow-x-auto max-w-full scrollbar-thin">
+                                        {JSON.stringify(log.event_detail, null, 2)}
+                                      </pre>
+                                    )}
                                   </td>
                                 </tr>
                               )}

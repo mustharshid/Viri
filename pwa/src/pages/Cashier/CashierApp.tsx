@@ -1370,7 +1370,7 @@ function App() {
              await fetch(`${backendUrl}/terminal/bank-accounts/reset-failures`, {
                method: 'POST',
                headers: { 'Content-Type': 'application/json' },
-               body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(selectedAccountId), credentials_hash: hash })
+               body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(selectedAccountId), credentials_hash: hash, pwa_logs: logsRef.current })
              });
              fetchAccounts();
            } catch (e) {
@@ -1401,7 +1401,7 @@ function App() {
               await fetch(`${backendUrl}/terminal/bank-accounts/increment-failures`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(selectedAccountId), credentials_hash: hash })
+                body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(selectedAccountId), credentials_hash: hash, pwa_logs: logsRef.current })
               });
               fetchAccounts();
             } catch (e) {
@@ -1645,7 +1645,7 @@ function App() {
             await fetch(`${backendUrl}/terminal/bank-accounts/reset-failures`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(targetAccountId), credentials_hash: hash })
+              body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(targetAccountId), credentials_hash: hash, pwa_logs: logsRef.current })
             });
             if (sessionStatus === 'claiming' || claimSuccess) {
               port.postMessage({
@@ -1689,7 +1689,7 @@ function App() {
               await fetch(`${backendUrl}/terminal/bank-accounts/increment-failures`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(targetAccountId), credentials_hash: hash })
+                body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(targetAccountId), credentials_hash: hash, pwa_logs: logsRef.current })
               });
               fetchAccounts();
             } catch (e) {
