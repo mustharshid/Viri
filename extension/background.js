@@ -1,6 +1,7 @@
 const BASE_URL = "https://www.bankofmaldives.com.mv/internetbanking";
 const MIB_BASE_URL = "https://faisanet.mib.com.mv";
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
+const EXTENSION_VERSION = "v1.002";
 
 let globalInertiaVersion = "";
 
@@ -263,6 +264,11 @@ async function fulfillPendingRequest(req) {
 }
 
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
+  if (msg.action === 'GET_VERSION') {
+    sendResponse({ version: EXTENSION_VERSION });
+    return true;
+  }
+
   if (msg.action === 'PING_BANK') {
     const doPing = (session) => {
       if (session) {

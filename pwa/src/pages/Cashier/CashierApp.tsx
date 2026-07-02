@@ -90,6 +90,8 @@ function App() {
   const [syncTimeElapsed, setSyncTimeElapsed] = useState<number | null>(null);
   const syncStartTimeRef = useRef<number | null>(null);
   const [currentTick, setCurrentTick] = useState(Date.now());
+  const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
+  const LATEST_EXTENSION_VERSION = "v1.002";
 
   const formatAmount = (val: any): string => {
     if (val === undefined || val === null || val === '') return '0.00';
@@ -128,6 +130,8 @@ function App() {
   }, []);
 
 
+
+
   // Hardware bound Terminal ID
   const [hardwareId, setHardwareId] = useState(() => {
     return localStorage.getItem('viri_hardware_id') || '';
@@ -143,6 +147,7 @@ function App() {
   const [pairingCodeInput, setPairingCodeInput] = useState('');
   const [setupError, setSetupError] = useState<string | null>(null);
 
+
   // Settings
   const [extensionId, setExtensionId] = useState(localStorage.getItem('viri_extension_id') || '');
   const [backendUrl] = useState(() => {
@@ -152,6 +157,29 @@ function App() {
       : `${window.location.origin}/api`;  // production: viri.thinksafe.mv/api
     return localStorage.getItem('viri_backend_url') || defaultUrl;
   });
+
+  useEffect(() => {
+    if (!extensionId || typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
+    
+    const checkVersion = () => {
+      try {
+        chrome.runtime.sendMessage(extensionId, { action: 'GET_VERSION' }, (response) => {
+          if (!chrome.runtime.lastError && response && response.version) {
+            setExtensionVersion(response.version);
+          } else {
+            setExtensionVersion(null);
+          }
+        });
+      } catch (e) {
+        setExtensionVersion(null);
+      }
+    };
+    
+    checkVersion();
+    const interval = setInterval(checkVersion, 5000);
+    return () => clearInterval(interval);
+  }, [extensionId]);
+
   const [showSettings, setShowSettings] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     return localStorage.getItem('viri_sidebar_collapsed') === 'true';
@@ -2019,8 +2047,14 @@ function App() {
 
       {/* Bottom section: Settings & Locking */}
       <div className={`w-full px-2 space-y-2 flex flex-col items-center transition-all ${isSidebarCollapsed ? 'md:items-center' : 'md:items-stretch'}`}>
+        <div className={`mt-auto mb-2 transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:block'}`}>
+          <a href="/viri/viri-bridge.zip" download className="text-[10px] font-bold text-blue-400 hover:text-blue-300 underline flex items-center justify-center w-full">
+            Download latest browser extension {LATEST_EXTENSION_VERSION}
+          </a>
+        </div>
+        
         {/* Keyboard Shortcuts Info */}
-        <div className={`mt-auto mb-2 border border-zinc-800/60 bg-zinc-900/30 rounded-lg p-3 transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:block'}`}>
+        <div className={`mb-2 border border-zinc-800/60 bg-zinc-900/30 rounded-lg p-3 transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:block'}`}>
           <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><Terminal size={10} /> Keyboard Shortcuts</h4>
           <div className="flex flex-col gap-1.5">
             <div className="flex justify-between items-center text-[10px]">
@@ -2730,9 +2764,11 @@ function App() {
                         </h4>
                         <div className="flex flex-col gap-2.5 font-mono text-[11px] mt-1">
                           <div className="flex justify-between items-center">
-                            <span className="text-zinc-400">Bridge Extension</span>
-                            {extensionId ? (
-                              <span className="text-emerald-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" /> Connected</span>
+                            <span className="text-zinc-400">Bridge Extension <span className="text-zinc-600 text-[9px] ml-1">[latest {LATEST_EXTENSION_VERSION}]</span></span>
+                            {extensionVersion ? (
+                              <span className="text-emerald-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" /> Connected &rarr; {extensionVersion}</span>
+                            ) : extensionId ? (
+                              <span className="text-amber-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse-glow" /> Disconnected</span>
                             ) : (
                               <span className="text-red-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-red-400" /> Missing ID</span>
                             )}
