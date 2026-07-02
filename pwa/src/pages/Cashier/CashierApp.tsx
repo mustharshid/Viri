@@ -1409,6 +1409,19 @@ function App() {
               console.error("Failed to increment failures:", e);
             }
           });
+        } else {
+          // Log non-auth errors (HTTP failures, timeouts, etc.) to session activity
+          fetch(`${backendUrl}/terminal/session/log`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              hardware_id: hardwareId,
+              event_type: 'session_login_failed',
+              bank_account_id: parseInt(selectedAccountId),
+              event_summary: `${response.error || 'Unknown error'}`,
+              pwa_logs: logsRef.current
+            })
+          }).catch(e => console.error("Failed to log session error:", e));
         }
         setLastTransactions(response.transactions || []);
         setLastPopulatedTime(new Date().toLocaleTimeString());
@@ -1697,6 +1710,19 @@ function App() {
               console.error("Failed to increment failures:", e);
             }
           });
+        } else {
+          // Log non-auth errors (HTTP failures, timeouts, etc.) to session activity
+          fetch(`${backendUrl}/terminal/session/log`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              hardware_id: hardwareId,
+              event_type: 'session_login_failed',
+              bank_account_id: parseInt(targetAccountId),
+              event_summary: `${response.error || 'Unknown error'}`,
+              pwa_logs: logsRef.current
+            })
+          }).catch(e => console.error("Failed to log session error:", e));
         }
         setTimeout(() => {
           setLoading(false);

@@ -488,6 +488,12 @@ class SessionController extends Controller
 
         if (!$terminal) return response()->json(['error' => 'Terminal unauthorized'], 403);
 
+        // Respect the share_pwa_logs setting
+        $shareLogs = $terminal->permissions['share_pwa_logs'] ?? true;
+        if (!$shareLogs) {
+            return response()->json(['status' => 'skipped']);
+        }
+
         $account = null;
         if ($request->bank_account_id) {
             $account = BankAccount::where('id', $request->bank_account_id)
