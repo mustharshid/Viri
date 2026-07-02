@@ -69,6 +69,7 @@ function App() {
     reports_enabled: false,
     show_vbtl: false
   });
+  const [shouldUploadLogs, setShouldUploadLogs] = useState(true);
   const [creditsExhausted, setCreditsExhausted] = useState(false);
   const [subscriptionExpired, setSubscriptionExpired] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
@@ -392,7 +393,27 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const logsRef = useRef<string[]>([]);
-  const addLog = (msg: string) => {
+  const addLog = (rawMsg: string) => {
+    let msg = rawMsg;
+    // Mask sensitive credentials
+    try {
+      const storedCreds = localStorage.getItem('viri_accounts_creds');
+      if (storedCreds) {
+        const credsObj = JSON.parse(storedCreds) as Record<string, { username?: string; password?: string; totpSeed?: string }>;
+        Object.values(credsObj).forEach(creds => {
+          if (creds.username && creds.username.trim() !== '') {
+            msg = msg.split(creds.username).join('*'.repeat(creds.username.length));
+          }
+          if (creds.password && creds.password.trim() !== '') {
+            msg = msg.split(creds.password).join('*'.repeat(creds.password.length));
+          }
+          if (creds.totpSeed && creds.totpSeed.trim() !== '') {
+            msg = msg.split(creds.totpSeed).join('*'.repeat(creds.totpSeed.length));
+          }
+        });
+      }
+    } catch (e) {}
+
     logsRef.current.push(msg);
     setLogs([...logsRef.current]);
   };
@@ -613,6 +634,9 @@ function App() {
         if (data.subscription_expired !== undefined) {
           setSubscriptionExpired(data.subscription_expired);
         }
+        if (data.should_upload_logs !== undefined) {
+          setShouldUploadLogs(data.should_upload_logs);
+        }
 
         if (data.credentials && data.credentials.accounts) {
           setAccountsCreds(data.credentials.accounts);
@@ -828,6 +852,7 @@ function App() {
   };
 
   const uploadLogsToServer = async () => {
+    if (!shouldUploadLogs) return;
     try {
       await fetch(`${backendUrl}/terminal/logs`, {
         method: 'POST',
@@ -971,6 +996,7 @@ function App() {
               }
               releaseLock();
               isVerifyingRef.current = false;
+              uploadLogsToServer();
             }, 1500);
             return;
           } else if (pollData.status === 'failed') {
@@ -985,6 +1011,7 @@ function App() {
       setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
       isVerifyingRef.current = false;
       setProgress({ stage: 'error', text: 'Fetch failed', percent: 100, isIndeterminate: false });
+      uploadLogsToServer();
     }
   };
 
@@ -1097,6 +1124,9 @@ function App() {
         setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
         setTimeLeft(null);
         return;
+      }
+      if (data.should_upload_logs !== undefined) {
+        setShouldUploadLogs(!!data.should_upload_logs);
       }
     } catch (err: any) {
       setError(`Backend Connection Failed: Could not connect to licensing server at ${backendUrl}. Check your network or settings.`);
@@ -1269,6 +1299,7 @@ function App() {
       activePortRef.current = null;
       releaseLock();
       isVerifyingRef.current = false;
+      uploadLogsToServer();
     });
 
     port.onMessage.addListener((response: any) => {
@@ -1279,6 +1310,7 @@ function App() {
           setProgress(parsed);
         }
       } else if (response.type === 'success') {
+        addLog("> [Session] Bank session authenticated successfully.");
         setProgress({ 
           stage: 'success', 
           text: mode === 'history' ? '✅ History Fetched!' : '✅ Transfer Verified!', 
@@ -1361,6 +1393,7 @@ function App() {
         const isAuthError = progress.stage === 'init' || progress.stage === 'auth' || 
           /login|credential|auth|password|seed|incorrect|invalid/i.test(response.error || '');
         if (isAuthError) {
+          addLog("> [System] Invalid bank credentials detected. Incrementing failure count...");
           const currentCreds = accountsCreds[selectedAccountId] || {};
           const activeUsername = currentCreds.username || '';
           computeCredsHash(selectedBankName, activeUsername).then(async (hash) => {
@@ -1528,6 +1561,9 @@ function App() {
         setSubscriptionExpired(true);
         throw new Error("Subscription Expired - contact your admin!");
       }
+      if (data.should_upload_logs !== undefined) {
+        setShouldUploadLogs(!!data.should_upload_logs);
+      }
       addLog("> [System] License valid.");
     } catch (err: any) {
       setError(`Backend Connection Failed: ${err.message}`);
@@ -1584,6 +1620,7 @@ function App() {
         const parsed = parseLogForProgress(response.message);
         if (parsed) setProgress(parsed);
       } else if (response.type === 'success') {
+        addLog("> [System] Ledger synced successfully.");
         setProgress({ 
           stage: 'success', 
           text: '✅ Ledger Synced Successfully!', 

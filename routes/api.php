@@ -144,14 +144,18 @@ Route::post('/verify-terminal', function (Request $request) {
         'terminal_name' => $terminal->terminal_name,
         'settings_pin' => $terminal->settings_pin,
         'credentials' => $terminal->credentials,
+        'should_upload_logs' => (isset($terminal->permissions['share_pwa_logs']) ? $terminal->permissions['share_pwa_logs'] : true) || ($terminal->allow_debug_until && now()->lessThan($terminal->allow_debug_until)),
         'permissions' => ($tier === 'free' || $tier === '499') ? [
             'verification_enabled' => true,
             'ledger_enabled' => false,
             'ledger_show_balance' => false,
             'ledger_show_debit' => false,
             'reports_enabled' => false,
+            'share_pwa_logs' => $terminal->permissions['share_pwa_logs'] ?? true,
             'show_vbtl' => $terminal->permissions['show_vbtl'] ?? false
-        ] : $terminal->permissions
+        ] : array_merge($terminal->permissions ?? [], [
+            'share_pwa_logs' => $terminal->permissions['share_pwa_logs'] ?? true
+        ])
     ]);
 });
 

@@ -58,7 +58,9 @@ export default function CompanyDashboard() {
     ledger_enabled: false,
     ledger_show_balance: false,
     ledger_show_debit: false,
-    reports_enabled: false
+    reports_enabled: false,
+    show_vbtl: false,
+    share_pwa_logs: true
   });
   const [accountName, setAccountName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
@@ -197,7 +199,9 @@ export default function CompanyDashboard() {
             ledger_enabled: false,
             ledger_show_balance: false,
             ledger_show_debit: false,
-            reports_enabled: false
+            reports_enabled: false,
+            show_vbtl: false,
+            share_pwa_logs: true
           }
         })
       });
@@ -216,7 +220,9 @@ export default function CompanyDashboard() {
         ledger_enabled: false,
         ledger_show_balance: false,
         ledger_show_debit: false,
-        reports_enabled: false
+        reports_enabled: false,
+        show_vbtl: false,
+        share_pwa_logs: true
       });
       setIsTerminalModalOpen(true);
     }
@@ -231,7 +237,9 @@ export default function CompanyDashboard() {
       ledger_enabled: term.permissions?.ledger_enabled ?? false,
       ledger_show_balance: term.permissions?.ledger_show_balance ?? false,
       ledger_show_debit: term.permissions?.ledger_show_debit ?? false,
-      reports_enabled: term.permissions?.reports_enabled ?? false
+      reports_enabled: term.permissions?.reports_enabled ?? false,
+      show_vbtl: term.permissions?.show_vbtl ?? false,
+      share_pwa_logs: term.permissions?.share_pwa_logs ?? true
     });
     setIsTerminalModalOpen(true);
   };
@@ -1328,10 +1336,30 @@ export default function CompanyDashboard() {
                       className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-30"
                     />
                     <div>
-                      <label htmlFor="perm-reports" className="text-sm font-medium text-zinc-500 cursor-not-allowed flex items-center gap-1.5">
-                        Reports <span className="text-[10px] text-zinc-400 font-mono italic">(Coming soon)</span>
+                      <label htmlFor="perm-reports" className="text-sm font-medium flex items-center gap-1.5 text-zinc-500 cursor-not-allowed">
+                        View Analytics & Reports
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-zinc-800 text-zinc-400 border border-zinc-700 uppercase tracking-wider">Coming Soon</span>
                       </label>
-                      <p className="text-xs text-[var(--text-secondary)]">Allows viewing analytics reports on the terminal screen.</p>
+                      <p className="text-xs text-[var(--text-secondary)]">Allow access to historical charts and performance reports.</p>
+                    </div>
+                  </div>
+
+                  {/* Share PWA Logs */}
+                  <div className="flex items-start gap-3 mt-4 pt-4 border-t border-zinc-800">
+                    <input 
+                      type="checkbox" 
+                      id="perm-share-logs"
+                      checked={permissionsForm.share_pwa_logs} 
+                      onChange={e => setPermissionsForm(prev => ({ ...prev, share_pwa_logs: e.target.checked }))}
+                      className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0"
+                    />
+                    <div>
+                      <label htmlFor="perm-share-logs" className="text-sm font-medium flex items-center gap-1.5 text-white cursor-pointer">
+                        Share PWA Logs to Viri for Debug & Software Improvements
+                      </label>
+                      <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                        Automatically send terminal execution logs to the superadmin log. Sensitive info (passwords, authenticator seeds) is masked. If disabled, superadmin cannot debug unless temporarily granted access via the Terminals tab.
+                      </p>
                     </div>
                   </div>
                 </div>
