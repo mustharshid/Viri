@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use App\Models\Terminal;
 use App\Models\BankAccount;
 use App\Models\BankAccountLock;
+use App\Models\SessionActivityLog;
 use Illuminate\Support\Facades\DB;
 
 class BankAccountLockController extends Controller
@@ -149,6 +150,7 @@ class BankAccountLockController extends Controller
         }
 
         $bankAccount = $validation['bank_account'];
+        $terminal = $validation['terminal'];
         $hash = $request->input('credentials_hash');
 
         if ($hash) {
@@ -159,6 +161,26 @@ class BankAccountLockController extends Controller
                 ->increment('login_failures');
         } else {
             $bankAccount->increment('login_failures');
+        }
+
+        // Log login failure to session activity if share_pwa_logs is enabled
+        $shareLogs = $terminal->permissions['share_pwa_logs'] ?? true;
+        if ($shareLogs) {
+            $acctNum = preg_replace('/\s+/', '', $bankAccount->account_number);
+            $masked = strlen($acctNum) <= 4 ? str_repeat('*', strlen($acctNum)) : substr($acctNum, 0, 4) . str_repeat('*', max(0, strlen($acctNum) - 8)) . substr($acctNum, -4);
+            SessionActivityLog::create([
+                'tenant_id'             => $terminal->tenant_id,
+                'terminal_id'           => $terminal->id,
+                'terminal_name'         => $terminal->terminal_name,
+                'bank_account_id'       => $bankAccount->id,
+                'bank_name'             => $bankAccount->bank_name,
+                'account_number_masked' => $masked,
+                'event_type'            => 'session_login_failed',
+                'event_summary'         => 'Bank login failed on terminal ' . $terminal->terminal_name,
+                'event_detail'          => ['login_failures' => $bankAccount->fresh()->login_failures],
+                'ip_address'            => $request->ip(),
+                'created_at'            => now(),
+            ]);
         }
 
         return response()->json(['status' => 'success', 'login_failures' => $bankAccount->fresh()->login_failures]);
@@ -172,6 +194,7 @@ class BankAccountLockController extends Controller
         }
 
         $bankAccount = $validation['bank_account'];
+        $terminal = $validation['terminal'];
         $hash = $request->input('credentials_hash');
 
         if ($hash) {
@@ -182,6 +205,26 @@ class BankAccountLockController extends Controller
                 ->update(['login_failures' => 0]);
         } else {
             $bankAccount->update(['login_failures' => 0]);
+        }
+
+        // Log login success to session activity if share_pwa_logs is enabled
+        $shareLogs = $terminal->permissions['share_pwa_logs'] ?? true;
+        if ($shareLogs) {
+            $acctNum = preg_replace('/\s+/', '', $bankAccount->account_number);
+            $masked = strlen($acctNum) <= 4 ? str_repeat('*', strlen($acctNum)) : substr($acctNum, 0, 4) . str_repeat('*', max(0, strlen($acctNum) - 8)) . substr($acctNum, -4);
+            SessionActivityLog::create([
+                'tenant_id'             => $terminal->tenant_id,
+                'terminal_id'           => $terminal->id,
+                'terminal_name'         => $terminal->terminal_name,
+                'bank_account_id'       => $bankAccount->id,
+                'bank_name'             => $bankAccount->bank_name,
+                'account_number_masked' => $masked,
+                'event_type'            => 'session_login_success',
+                'event_summary'         => 'Bank login succeeded on terminal ' . $terminal->terminal_name,
+                'event_detail'          => null,
+                'ip_address'            => $request->ip(),
+                'created_at'            => now(),
+            ]);
         }
 
         return response()->json(['status' => 'success', 'login_failures' => 0]);
