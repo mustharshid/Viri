@@ -41,6 +41,23 @@
     radial-gradient(circle at 85% 30%, rgba(37, 99, 235, 0.06), transparent 25%);
 }
 
+/* Light Mode specific Tailwind color overrides */
+[data-theme="light"] .text-white { color: var(--text-primary) !important; }
+[data-theme="light"] .text-zinc-200,
+[data-theme="light"] .text-zinc-300,
+[data-theme="light"] .text-zinc-400,
+[data-theme="light"] .text-zinc-500,
+[data-theme="light"] .text-zinc-600 { color: var(--text-secondary) !important; }
+
+[data-theme="light"] [class*="bg-zinc-"],
+[data-theme="light"] [class*="bg-black"] {
+  background-color: rgba(255, 255, 255, 0.7) !important;
+}
+
+[data-theme="light"] [class*="border-zinc-"] {
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
 /* Scrollbar in light mode */
 [data-theme="light"] ::-webkit-scrollbar-track { background: #e2e8f0; }
 [data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.18); }
