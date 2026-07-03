@@ -322,7 +322,7 @@ function App() {
     }
   }, [loading]);
 
-  const [activeTab, setActiveTab] = useState<'verify' | 'ledger' | 'reports' | 'help'>('verify');
+  const [activeTab, setActiveTab] = useState<'verify' | 'ledger' | 'reports' | 'checklist' | 'help'>('verify');
   const [helpSearchQuery, setHelpSearchQuery] = useState('');
   const helpContentRef = useRef<HTMLDivElement>(null);
 
@@ -2064,6 +2064,21 @@ function App() {
 
 
         <button
+          onClick={() => { setShowSettings(false); setActiveTab('checklist'); }}
+          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${
+            isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+          } ${
+            activeTab === 'checklist' && !showSettings
+              ? 'bg-amber-500/20 text-amber-300 font-bold ring-1 ring-amber-500/40'
+              : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
+          }`}
+          title="Setup Checklist"
+        >
+          <ChevronRight size={16} className="shrink-0" />
+          <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Checklist</span>
+        </button>
+
+        <button
           onClick={() => { setShowSettings(false); setActiveTab('help'); }}
           className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${
             isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
@@ -3497,6 +3512,142 @@ function App() {
                 </div>
               );
             })()}
+
+            {activeTab === 'checklist' && (
+              <div className="flex-1 w-full max-w-3xl mx-auto flex flex-col items-start justify-start p-4 md:p-8 animate-fade-in overflow-y-auto space-y-8">
+
+                {/* Page Header */}
+                <div className="w-full">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-amber-500/10">
+                      <ChevronRight size={20} className="text-amber-400" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold text-white tracking-tight">Getting Started</h2>
+                      <p className="text-sm text-[var(--text-secondary)] mt-0.5">Complete these steps before using the Cashier Terminal.</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 w-full h-px bg-zinc-800" />
+                </div>
+
+                {/* Step 1: Download & Install Extension */}
+                <div className="w-full space-y-4">
+                  <div className="flex items-start gap-4">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-sm">1</div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-bold text-white mb-1">Download &amp; Install the Browser Extension</h3>
+                      <p className="text-sm text-[var(--text-secondary)] leading-relaxed mb-5">
+                        The <strong className="text-white">Viri Bridge</strong> browser extension is required. It acts as a secure local bridge between the Cashier Terminal and your bank's portal — without exposing your credentials to any server.
+                      </p>
+
+                      {/* Download Button */}
+                      <a
+                        href="/viri/viri-bridge.zip"
+                        download
+                        className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-lg transition-colors mb-6 shadow-lg shadow-emerald-900/30"
+                      >
+                        <MonitorSmartphone size={16} />
+                        Download Viri Bridge Extension (.zip)
+                      </a>
+
+                      {/* Desktop steps */}
+                      <div className="space-y-5">
+                        <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-5">
+                          <h4 className="font-bold text-white mb-3 flex items-center gap-2 text-sm">
+                            <span className="text-base">🖥️</span> Installing on Desktop (Chrome / Brave)
+                          </h4>
+                          <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-emerald-400">
+                            <li>Download the <strong className="text-zinc-300">.zip</strong> file using the button above.</li>
+                            <li>Extract / unzip it into a permanent folder on your computer.</li>
+                            <li>Open your browser and go to <code className="bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded text-xs">chrome://extensions</code>.</li>
+                            <li>Enable <strong className="text-zinc-300">Developer mode</strong> using the toggle in the top-right corner.</li>
+                            <li>Click <strong className="text-zinc-300">Load unpacked</strong> and select the folder you just extracted.</li>
+                            <li>The extension icon should now appear in your browser toolbar. You're done!</li>
+                          </ol>
+                        </div>
+
+                        {/* Mobile steps */}
+                        <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-5">
+                          <h4 className="font-bold text-white mb-1 flex items-center gap-2 text-sm">
+                            <span className="text-base">📱</span> Installing on Android (Kiwi Browser)
+                          </h4>
+                          <p className="text-xs text-yellow-500 mb-3">Standard Chrome for Android does not support extensions. Use Kiwi Browser instead.</p>
+                          <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-yellow-400">
+                            <li>Install <strong className="text-zinc-300">Kiwi Browser</strong> from the Google Play Store.</li>
+                            <li>Open this Cashier Terminal page inside Kiwi Browser.</li>
+                            <li>Download the <strong className="text-zinc-300">.zip</strong> file using the button above.</li>
+                            <li>In Kiwi, tap the <strong className="text-zinc-300">⋮ menu → Extensions</strong> and enable Developer mode.</li>
+                            <li>Tap <strong className="text-zinc-300">+ (from .zip / .crx)</strong> and select the downloaded file.</li>
+                          </ol>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="w-full h-px bg-zinc-800" />
+
+                {/* Step 2: Bank Credentials */}
+                <div className="w-full space-y-4">
+                  <div className="flex items-start gap-4">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400 font-bold text-sm">2</div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-bold text-white mb-1">Enter Your Bank Login Credentials</h3>
+                      <p className="text-sm text-[var(--text-secondary)] leading-relaxed mb-5">
+                        The terminal needs your online banking username, password, and TOTP seed (if applicable) to authenticate with your bank and verify transfers on your behalf.
+                      </p>
+
+                      {/* Where to find */}
+                      <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-5 mb-4">
+                        <h4 className="font-bold text-white mb-3 text-sm flex items-center gap-2">
+                          <span className="text-base">📍</span> Where to enter credentials
+                        </h4>
+                        <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-blue-400">
+                          <li>Go to the <strong className="text-zinc-300">Verification</strong> tab (the first tab in the left sidebar).</li>
+                          <li>At the top of the page, select your bank account from the dropdown.</li>
+                          <li>Look for the <strong className="text-zinc-300">credential input panel</strong> — it appears below the account selector. Enter your internet banking username, password, and TOTP seed.</li>
+                          <li>Click <strong className="text-zinc-300">Save Credentials</strong>. That's it — you only need to do this once per account.</li>
+                        </ol>
+                      </div>
+
+                      {/* Security callout */}
+                      <div className="bg-blue-950/40 border border-blue-700/40 rounded-xl p-5">
+                        <div className="flex gap-3">
+                          <div className="flex-shrink-0 mt-0.5">
+                            <Lock size={18} className="text-blue-400" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-blue-300 mb-2 text-sm">Your credentials are completely private</h4>
+                            <ul className="text-sm text-blue-200/70 space-y-2 leading-relaxed">
+                              <li>🔒 <strong className="text-blue-200">Stored only on your device</strong> — credentials are saved inside an encrypted browser storage container that lives exclusively on this computer.</li>
+                              <li>🚫 <strong className="text-blue-200">Never sent to Viri</strong> — at no point are your credentials transmitted to Viri's servers or any third party. Viri has zero access to your banking passwords.</li>
+                              <li>👁️ <strong className="text-blue-200">Not visible to other terminal users</strong> — even if another user opens the Cashier Terminal on a different device, they cannot see or access credentials saved here.</li>
+                              <li>🛡️ <strong className="text-blue-200">Isolated by browser profile</strong> — the data is scoped to your browser profile. Switching profiles or browsers means starting fresh.</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="w-full h-px bg-zinc-800" />
+
+                {/* Done callout */}
+                <div className="w-full bg-emerald-950/30 border border-emerald-700/30 rounded-xl p-5 flex items-start gap-4">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                    <span className="text-lg">✅</span>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-emerald-300 mb-1 text-sm">You're all set!</h4>
+                    <p className="text-sm text-emerald-200/70 leading-relaxed">
+                      Once the extension is installed and credentials are saved, head to the <strong className="text-emerald-200">Verification</strong> tab to start verifying customer transfers in real-time.
+                    </p>
+                  </div>
+                </div>
+
+              </div>
+            )}
 
             {activeTab === 'help' && (
               <div ref={helpContentRef} className="flex-1 w-full max-w-4xl mx-auto flex flex-col items-center justify-start p-4 md:p-8 animate-fade-in overflow-y-auto space-y-6">
