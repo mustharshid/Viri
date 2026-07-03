@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, Terminal, Activity, Sun, Moon, CheckCircle2, Circle, ExternalLink } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, Terminal, Activity, Sun, Moon, ExternalLink } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 
 const Tooltip = ({ text, helpSectionId, onHelpNavigate }: { text: string; helpSectionId?: string; onHelpNavigate?: (sectionId: string) => void }) => (
@@ -325,21 +325,6 @@ function App() {
   const [activeTab, setActiveTab] = useState<'verify' | 'ledger' | 'reports' | 'help'>('verify');
   const [helpSearchQuery, setHelpSearchQuery] = useState('');
   const helpContentRef = useRef<HTMLDivElement>(null);
-
-  const handleHelpNavigate = useCallback((sectionId: string) => {
-    setShowSettings(false);
-    setActiveTab('help');
-    setHelpSearchQuery('');
-    // Scroll after a tick so the help tab is rendered
-    setTimeout(() => {
-      const el = document.getElementById(sectionId);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        el.classList.add('ring-2', 'ring-blue-400/60', 'ring-offset-2', 'ring-offset-zinc-950');
-        setTimeout(() => el.classList.remove('ring-2', 'ring-blue-400/60', 'ring-offset-2', 'ring-offset-zinc-950'), 2000);
-      }
-    }, 80);
-  }, []);
 
   const [ledgerCache, setLedgerCache] = useState<Record<string, LedgerData>>(() => {
     const saved = localStorage.getItem('viri_ledger_cache');
@@ -2077,53 +2062,6 @@ function App() {
           </button>
         )}
 
-
-        {/* Setup Checklist - only visible when sidebar is expanded, on desktop */}
-        {!isSidebarCollapsed && (() => {
-          const hasExtension = !!extensionId;
-          const hasAnyCreds = bankAccounts.length > 0 && bankAccounts.some(acc => !!(accountsCreds[acc.id.toString()]?.username));
-          const allDone = hasExtension && hasAnyCreds;
-          return (
-            <div className="hidden md:block border border-zinc-800/60 bg-zinc-900/30 rounded-lg p-3 transition-all">
-              <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2.5 flex items-center gap-1.5">
-                <CheckCircle2 size={10} className={allDone ? 'text-emerald-400' : 'text-zinc-600'} />
-                Setup Checklist
-              </h4>
-              <div className="flex flex-col gap-2">
-                {/* Item 1: Browser Extension */}
-                <button
-                  onClick={() => handleHelpNavigate('help-extension-installation')}
-                  className="flex items-center gap-2 text-left group w-full"
-                >
-                  {hasExtension
-                    ? <CheckCircle2 size={13} className="shrink-0 text-emerald-400" />
-                    : <Circle size={13} className="shrink-0 text-zinc-600" />}
-                  <span className={`text-[11px] leading-snug group-hover:text-white transition-colors ${
-                    hasExtension ? 'text-zinc-500 line-through' : 'text-zinc-400'
-                  }`}>Install browser extension</span>
-                  {!hasExtension && <ExternalLink size={10} className="shrink-0 text-zinc-600 group-hover:text-blue-400 transition-colors ml-auto" />}
-                </button>
-
-                {/* Item 2: Bank Account Credentials */}
-                <button
-                  onClick={() => handleHelpNavigate('help-credentials-setup')}
-                  className="flex items-center gap-2 text-left group w-full"
-                >
-                  {hasAnyCreds
-                    ? <CheckCircle2 size={13} className="shrink-0 text-emerald-400" />
-                    : <Circle size={13} className="shrink-0 text-zinc-600" />}
-                  <span className={`text-[11px] leading-snug group-hover:text-white transition-colors ${
-                    hasAnyCreds ? 'text-zinc-500 line-through' : 'text-zinc-400'
-                  }`}>Complete bank credentials</span>
-                  {!hasAnyCreds && <ExternalLink size={10} className="shrink-0 text-zinc-600 group-hover:text-blue-400 transition-colors ml-auto" />}
-                </button>
-              </div>
-              <p className="mt-2.5 text-[9.5px] text-zinc-600 leading-relaxed">
-                Credentials stay in a secure container in your browser and are never shared with Viri servers.
-              </p>
-            </div>
-          );
-        })()}
 
         <button
           onClick={() => { setShowSettings(false); setActiveTab('help'); }}
