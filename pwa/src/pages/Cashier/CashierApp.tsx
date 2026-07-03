@@ -102,7 +102,7 @@ function App() {
   const syncStartTimeRef = useRef<number | null>(null);
   const [currentTick, setCurrentTick] = useState(Date.now());
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.0.4";
+  const LATEST_EXTENSION_VERSION = "1.0.5";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -129,7 +129,7 @@ function App() {
     if (str === 'Not synced' || str === 'Not found' || str === 'Never' || str === 'Never synced') {
       return str;
     }
-    
+
     // Extract optional sign (+/-)
     let sign = '';
     let rest = str;
@@ -140,12 +140,12 @@ function App() {
       sign = '-';
       rest = str.substring(1);
     }
-    
+
     // Clean rest from commas if any exist
     const cleanRest = rest.replace(/,/g, '');
     const num = parseFloat(cleanRest);
     if (isNaN(num)) return str; // return original if not a number
-    
+
     // Format with thousandth commas and 2 decimal places
     const formatted = num.toLocaleString('en-US', {
       minimumFractionDigits: 2,
@@ -190,7 +190,7 @@ function App() {
 
   useEffect(() => {
     if (!extensionId || typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
-    
+
     const checkVersion = () => {
       try {
         chrome.runtime.sendMessage(extensionId, { action: 'GET_VERSION' }, (response) => {
@@ -204,7 +204,7 @@ function App() {
         setExtensionVersion(null);
       }
     };
-    
+
     checkVersion();
     const interval = setInterval(checkVersion, 5000);
     return () => clearInterval(interval);
@@ -366,7 +366,7 @@ function App() {
         setAccountsCreds(migrated);
         localStorage.setItem('viri_accounts_creds', JSON.stringify(migrated));
         syncCredentialsToServer(migrated);
-        
+
         // Clean up old storage keys to avoid re-run
         localStorage.removeItem('viri_bml_username');
         localStorage.removeItem('viri_bml_password');
@@ -382,7 +382,7 @@ function App() {
   // Poll bank accounts session state from server every 6 seconds (runs even when locked to receive PIN reset signals)
   useEffect(() => {
     if (!hardwareId || !backendUrl || isSetupMode) return;
-    
+
     const poll = async () => {
       try {
         const response = await fetch(`${backendUrl}/verify-terminal`, {
@@ -394,7 +394,7 @@ function App() {
           const data = await response.json();
           const accounts = data.tenant?.bank_accounts || [];
           setBankAccounts(accounts);
-          
+
           if (data.credits_exhausted !== undefined) {
             setCreditsExhausted(data.credits_exhausted);
           }
@@ -422,7 +422,7 @@ function App() {
         console.error("Session status poll failed:", e);
       }
     };
-    
+
     const interval = setInterval(poll, 6000);
     return () => clearInterval(interval);
   }, [hardwareId, backendUrl, isSetupMode]);
@@ -492,7 +492,7 @@ function App() {
           }
         });
       }
-    } catch (e) {}
+    } catch (e) { }
 
     logsRef.current.push(msg);
     setLogs([...logsRef.current]);
@@ -542,15 +542,15 @@ function App() {
   const setProgress = (nextVal: ProgressState | ((prev: ProgressState) => ProgressState)) => {
     rawSetProgress(prev => {
       const next = typeof nextVal === 'function' ? nextVal(prev) : nextVal;
-      
+
       // Allow reset to idle or initial connection state (Step 1)
       if (next.stage === 'idle' || (next.stage === 'init' && next.percent <= 10)) {
         return next;
       }
-      
+
       const currentIdx = getStepIndexForStage(prev.stage, prev.percent);
       const nextIdx = getStepIndexForStage(next.stage, next.percent);
-      
+
       // Prevent backward progress in terms of stage step index
       if (nextIdx < currentIdx) {
         return {
@@ -558,7 +558,7 @@ function App() {
           text: next.text || prev.text
         };
       }
-      
+
       // Prevent backward progress in terms of percentage (even if stage index is equal or greater)
       if (next.percent < prev.percent) {
         return {
@@ -566,11 +566,11 @@ function App() {
           percent: prev.percent
         };
       }
-      
+
       return next;
     });
   };
-  
+
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
 
   useEffect(() => {
@@ -744,14 +744,14 @@ function App() {
           const defaultAcc = (savedDefaultId && accounts.find((a: BankAccount) => a.id.toString() === savedDefaultId))
             || accounts.find((a: BankAccount) => a.is_default)
             || accounts[0];
-          
+
           setSelectedAccountId(prev => {
             if (prev && accounts.some((a: BankAccount) => a.id.toString() === prev)) {
               return prev;
             }
             return defaultAcc.id.toString();
           });
-          
+
           setSelectedLedgerAccountId(prev => {
             if (prev && accounts.some((a: BankAccount) => a.id.toString() === prev)) {
               return prev;
@@ -813,13 +813,13 @@ function App() {
         setAccountsCreds(data.credentials.accounts);
         localStorage.setItem('viri_accounts_creds', JSON.stringify(data.credentials.accounts));
       }
-      
+
       // Clear legacy PIN when a new terminal is paired
       localStorage.removeItem('viri_terminal_pin');
       setPin('');
       setIsLocked(false);
       setEnteredPin('');
-      
+
       setIsSetupMode(false);
     } catch (err) {
       setSetupError("Network error. Could not connect to backend.");
@@ -828,7 +828,7 @@ function App() {
 
   const parseLogForProgress = (logLine: string): { stage: 'idle' | 'init' | 'auth' | 'lock' | 'fetch' | 'match' | 'success' | 'error'; text: string; percent: number; isIndeterminate: boolean } | null => {
     const lower = logLine.toLowerCase();
-    
+
     // Slow response / internet connection unstable triggers (psychological messaging overrides)
     if (lower.includes('slow') || lower.includes('still processing') || lower.includes('processing your request') || lower.includes('taking longer')) {
       return {
@@ -987,7 +987,7 @@ function App() {
 
           // Wake up the extension to ping the bank and keep the bank's own idle timer alive
           if (typeof chrome !== 'undefined' && chrome.runtime && extensionId) {
-            chrome.runtime.sendMessage(extensionId, { action: 'PING_BANK' }).catch(() => {});
+            chrome.runtime.sendMessage(extensionId, { action: 'PING_BANK' }).catch(() => { });
           }
         } catch (e) {
           console.error("PWA Heartbeat failed:", e);
@@ -1029,7 +1029,7 @@ function App() {
         percent: 30,
         isIndeterminate: true
       });
-      
+
       const reqRes = await fetch(`${backendUrl}/terminal/session/request`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1047,7 +1047,7 @@ function App() {
 
       const { request_id } = await reqRes.json();
       addLog(`> [Session] Request queued (ID: ${request_id}). Waiting for active session holder...`);
-      
+
       const maxPollAttempts = 15;
       for (let attempt = 0; attempt < maxPollAttempts; attempt++) {
         if (!isVerifyingRef.current) {
@@ -1062,11 +1062,11 @@ function App() {
           const pollData = await pollRes.json();
           if (pollData.status === 'fulfilled') {
             const response = pollData.result_json;
-            setProgress({ 
-              stage: 'success', 
-              text: requestType === 'ledger' ? '✅ Ledger Synced!' : '✅ Transfer Verified!', 
-              percent: 100, 
-              isIndeterminate: false 
+            setProgress({
+              stage: 'success',
+              text: requestType === 'ledger' ? '✅ Ledger Synced!' : '✅ Transfer Verified!',
+              percent: 100,
+              isIndeterminate: false
             });
             setTimeout(() => {
               setLoading(false);
@@ -1202,11 +1202,11 @@ function App() {
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         setErrorAndLog(`License check failed: ${errData.error || response.statusText} (${response.status})`);
-        
+
         if (response.status === 403 || response.status === 404) {
           clearTerminalData();
         }
-        
+
         setLoading(false);
         isVerifyingRef.current = false;
         setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
@@ -1247,7 +1247,7 @@ function App() {
       isIndeterminate: true
     });
     addLog("> [Lock] Requesting session lock for bank account...");
-    
+
     let lockAcquired = false;
     const startTime = Date.now();
     const pollInterval = 2500; // poll every 2.5 seconds
@@ -1291,7 +1291,7 @@ function App() {
           const lockData = await lockRes.json().catch(() => ({}));
           const heldBy = lockData.held_by ? `terminal ${lockData.held_by.substring(0, 8)}...` : "another terminal";
           const expiresSeconds = lockData.expires_in ?? "?";
-          
+
           attempts++;
           if (attempts > 2) {
             setProgress({
@@ -1410,11 +1410,11 @@ function App() {
         }
       } else if (response.type === 'success') {
         addLog("> [Session] Bank session authenticated successfully.");
-        setProgress({ 
-          stage: 'success', 
-          text: mode === 'history' ? '✅ History Fetched!' : '✅ Transfer Verified!', 
-          percent: 100, 
-          isIndeterminate: false 
+        setProgress({
+          stage: 'success',
+          text: mode === 'history' ? '✅ History Fetched!' : '✅ Transfer Verified!',
+          percent: 100,
+          isIndeterminate: false
         });
         setTimeLeft(null);
         setTimeout(async () => {
@@ -1463,35 +1463,35 @@ function App() {
           isVerifyingRef.current = false;
           uploadLogsToServer();
 
-           // Reset failures on server
-           const currentCreds = accountsCreds[selectedAccountId] || {};
-           const activeUsername = currentCreds.username || '';
-           const hash = await computeCredsHash(selectedBankName, activeUsername);
-           try {
-             await fetch(`${backendUrl}/terminal/bank-accounts/reset-failures`, {
-               method: 'POST',
-               headers: { 'Content-Type': 'application/json' },
-               body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(selectedAccountId), credentials_hash: hash, pwa_logs: logsRef.current })
-             });
-             fetchAccounts();
-           } catch (e) {
-             console.error("Failed to reset failures:", e);
-           }
+          // Reset failures on server
+          const currentCreds = accountsCreds[selectedAccountId] || {};
+          const activeUsername = currentCreds.username || '';
+          const hash = await computeCredsHash(selectedBankName, activeUsername);
+          try {
+            await fetch(`${backendUrl}/terminal/bank-accounts/reset-failures`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(selectedAccountId), credentials_hash: hash, pwa_logs: logsRef.current })
+            });
+            fetchAccounts();
+          } catch (e) {
+            console.error("Failed to reset failures:", e);
+          }
         }, 1500); // 1.5s reinforcement checkmark flash
       } else if (response.type === 'error') {
-        setProgress({ 
-          stage: 'error', 
-          text: mode === 'history' ? 'Fetch failed' : 'Verification failed', 
-          percent: 100, 
-          isIndeterminate: false 
+        setProgress({
+          stage: 'error',
+          text: mode === 'history' ? 'Fetch failed' : 'Verification failed',
+          percent: 100,
+          isIndeterminate: false
         });
         setTimeLeft(null);
         setLoading(false);
         setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
         setError(response.error || (mode === 'history' ? "Failed to fetch history." : "Verification failed."));
-        
+
         // Track consecutive failures
-        const isAuthError = progress.stage === 'init' || progress.stage === 'auth' || 
+        const isAuthError = progress.stage === 'init' || progress.stage === 'auth' ||
           /login|credential|auth|password|seed|incorrect|invalid/i.test(response.error || '');
         if (isAuthError) {
           addLog("> [System] Invalid bank credentials detected. Incrementing failure count...");
@@ -1737,11 +1737,11 @@ function App() {
         if (parsed) setProgress(parsed);
       } else if (response.type === 'success') {
         addLog("> [System] Ledger synced successfully.");
-        setProgress({ 
-          stage: 'success', 
-          text: '✅ Ledger Synced Successfully!', 
-          percent: 100, 
-          isIndeterminate: false 
+        setProgress({
+          stage: 'success',
+          text: '✅ Ledger Synced Successfully!',
+          percent: 100,
+          isIndeterminate: false
         });
         setTimeout(async () => {
           setLoading(false);
@@ -1795,7 +1795,7 @@ function App() {
         }));
 
         // Track consecutive failures
-        const isAuthError = progress.stage === 'init' || progress.stage === 'auth' || 
+        const isAuthError = progress.stage === 'init' || progress.stage === 'auth' ||
           /login|credential|auth|password|seed|incorrect|invalid/i.test(response.error || '');
         if (isAuthError) {
           const currentCreds = accountsCreds[targetAccountId] || {};
@@ -1871,14 +1871,14 @@ function App() {
   const selectedAccountCurrency = selectedAccount ? (selectedAccount.currency || 'MVR') : 'MVR';
 
   const selectedAccountCreds = selectedAccountId ? (accountsCreds[selectedAccountId] || {}) : {};
-  const isCredentialsComplete = !!selectedAccountCreds.username?.trim() && 
-                                !!selectedAccountCreds.password?.trim() && 
-                                !!selectedAccountCreds.totpSeed?.trim();
+  const isCredentialsComplete = !!selectedAccountCreds.username?.trim() &&
+    !!selectedAccountCreds.password?.trim() &&
+    !!selectedAccountCreds.totpSeed?.trim();
 
   const isSelectedAccountLocked = selectedAccount ? (selectedAccount.login_failures || 0) >= 2 : false;
-  
-  const activeLedgerAcc = selectedLedgerAccountId 
-    ? bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId) 
+
+  const activeLedgerAcc = selectedLedgerAccountId
+    ? bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId)
     : bankAccounts[0];
   const isLockedByVerify = loading && loadingMode !== 'ledger';
   const isLedgerSyncing = loading && loadingMode === 'ledger';
@@ -1889,17 +1889,17 @@ function App() {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
-      
+
       if (e.key.toLowerCase() === 's') {
         e.preventDefault();
-        
+
         if (activeTab === 'verify') {
           if (!loading && isCredentialsComplete && !creditsExhausted && !isSelectedAccountLocked) {
-             handleVerify('history');
+            handleVerify('history');
           }
         } else if (activeTab === 'ledger') {
           if (activeLedgerAcc && !isLedgerSyncing && !isLockedByVerify) {
-             syncLedger(activeLedgerAcc.id.toString());
+            syncLedger(activeLedgerAcc.id.toString());
           }
         }
       } else if (e.key.toLowerCase() === 'v') {
@@ -1922,7 +1922,7 @@ function App() {
         }
       }
     };
-    
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeTab, loading, isCredentialsComplete, creditsExhausted, isSelectedAccountLocked, activeLedgerAcc, isLedgerSyncing, isLockedByVerify, bankAccounts, selectedAccountId, selectedLedgerAccountId]);
@@ -1997,21 +1997,20 @@ function App() {
     );
   }
 
-  const activeStepIndex = (loading || progress.stage === 'success' || progress.stage === 'error') 
-    ? (progress.stage === 'init' ? 1 
-      : (progress.stage === 'lock' || progress.stage === 'auth' ? 2 
-        : (progress.stage === 'fetch' ? 3 
-          : (progress.stage === 'match' ? 4 
-            : (progress.stage === 'success' ? 5 
-              : (progress.percent >= 95 ? 4 
-                : (progress.percent >= 75 ? 3 
+  const activeStepIndex = (loading || progress.stage === 'success' || progress.stage === 'error')
+    ? (progress.stage === 'init' ? 1
+      : (progress.stage === 'lock' || progress.stage === 'auth' ? 2
+        : (progress.stage === 'fetch' ? 3
+          : (progress.stage === 'match' ? 4
+            : (progress.stage === 'success' ? 5
+              : (progress.percent >= 95 ? 4
+                : (progress.percent >= 75 ? 3
                   : (progress.percent >= 45 ? 2 : 1))))))))
     : (result ? 5 : 0);
 
   const Sidebar = () => (
-    <aside className={`border-r border-[var(--border-color)] bg-[var(--bg-surface)] flex flex-col items-center justify-between py-6 shrink-0 transition-all duration-300 relative ${
-      isSidebarCollapsed ? 'w-16' : 'w-16 md:w-64'
-    }`}>
+    <aside className={`border-r border-[var(--border-color)] bg-[var(--bg-surface)] flex flex-col items-center justify-between py-6 shrink-0 transition-all duration-300 relative ${isSidebarCollapsed ? 'w-16' : 'w-16 md:w-64'
+      }`}>
       {/* Collapse / Expand Toggle Button */}
       <button
         onClick={() => {
@@ -2032,16 +2031,16 @@ function App() {
           <img src="/logo_en.png" alt="Viri Logo" className={`w-auto object-contain transition-all ${isSidebarCollapsed ? 'h-10 mx-auto' : 'h-10'}`} />
           {!isSidebarCollapsed && (
             <span className="text-[9px] text-zinc-400 font-mono tracking-tight uppercase whitespace-nowrap leading-tight text-left">
-              Zero-Knowledge<br/>Architecture
+              Zero-Knowledge<br />Architecture
             </span>
           )}
         </div>
-        
+
         {/* Company Name */}
         <span className={`font-bold text-sm text-white truncate max-w-full tracking-tight transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:block'}`}>
           {companyName}
         </span>
-        
+
         {/* Terminal PWA Subtitle */}
         <span className={`text-[10px] text-emerald-500/80 font-mono font-bold tracking-widest mt-0.5 uppercase transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:block'}`}>
           Terminal PWA
@@ -2052,13 +2051,11 @@ function App() {
       <nav className={`flex-1 w-full px-2 space-y-1.5 flex flex-col items-center transition-all ${isSidebarCollapsed ? 'md:items-center' : 'md:items-stretch'}`}>
         <button
           onClick={() => { setShowSettings(false); setActiveTab('verify'); }}
-          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${
-            isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
-          } ${
-            activeTab === 'verify' && !showSettings
+          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+            } ${activeTab === 'verify' && !showSettings
               ? 'bg-[var(--color-success)] text-black font-bold'
               : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
-          }`}
+            }`}
           title="Verification"
         >
           <MonitorSmartphone size={16} className="shrink-0" />
@@ -2068,13 +2065,11 @@ function App() {
         {permissions.ledger_enabled && (
           <button
             onClick={() => { setShowSettings(false); setActiveTab('ledger'); }}
-            className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${
-              isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
-            } ${
-              activeTab === 'ledger' && !showSettings
+            className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+              } ${activeTab === 'ledger' && !showSettings
                 ? 'bg-[var(--color-success)] text-black font-bold'
                 : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
-            }`}
+              }`}
             title="Transaction Ledger"
           >
             <BookOpen size={16} className="shrink-0" />
@@ -2085,9 +2080,8 @@ function App() {
         {permissions.reports_enabled && (
           <button
             disabled
-            className={`w-10 h-10 flex items-center justify-center rounded-lg text-xs font-semibold text-zinc-600 cursor-not-allowed ${
-              isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
-            }`}
+            className={`w-10 h-10 flex items-center justify-center rounded-lg text-xs font-semibold text-zinc-600 cursor-not-allowed ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+              }`}
             title="Reports (Coming soon)"
           >
             <BarChart3 size={16} className="shrink-0" />
@@ -2098,13 +2092,11 @@ function App() {
 
         <button
           onClick={() => { setShowSettings(false); setActiveTab('checklist'); }}
-          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${
-            isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
-          } ${
-            activeTab === 'checklist' && !showSettings
+          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+            } ${activeTab === 'checklist' && !showSettings
               ? 'bg-amber-500/20 text-amber-300 font-bold ring-1 ring-amber-500/40'
               : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
-          }`}
+            }`}
           title="Setup Checklist"
         >
           <ChevronRight size={16} className="shrink-0" />
@@ -2113,13 +2105,11 @@ function App() {
 
         <button
           onClick={() => { setShowSettings(false); setActiveTab('help'); }}
-          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${
-            isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
-          } ${
-            activeTab === 'help' && !showSettings
+          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+            } ${activeTab === 'help' && !showSettings
               ? 'bg-[var(--color-success)] text-black font-bold'
               : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
-          }`}
+            }`}
           title="Help & Support"
         >
           <HelpCircle size={16} className="shrink-0" />
@@ -2134,7 +2124,7 @@ function App() {
             Download latest browser extension {LATEST_EXTENSION_VERSION}
           </a>
         </div>
-        
+
         {/* Keyboard Shortcuts Info */}
         <div className={`mb-2 border border-zinc-800/60 bg-zinc-900/30 rounded-lg p-3 transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:block'}`}>
           <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><Terminal size={10} /> Keyboard Shortcuts</h4>
@@ -2160,9 +2150,8 @@ function App() {
         {pin && (
           <button
             onClick={() => setIsLocked(true)}
-            className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold hover:bg-red-955/20 text-red-400 hover:text-red-300 border border-transparent hover:border-red-900/30 ${
-              isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
-            }`}
+            className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold hover:bg-red-955/20 text-red-400 hover:text-red-300 border border-transparent hover:border-red-900/30 ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+              }`}
             title="Lock Terminal"
           >
             <Lock size={16} className="shrink-0" />
@@ -2186,13 +2175,11 @@ function App() {
               setShowSettings(true);
             }
           }}
-          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold border ${
-            isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
-          } ${
-            showSettings
+          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold border ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+            } ${showSettings
               ? 'bg-zinc-800 text-[var(--color-success)] border-[var(--color-success)]'
               : 'hover:bg-white/5 text-[var(--text-secondary)] border-transparent hover:text-white'
-          }`}
+            }`}
           title="Settings"
         >
           <Settings size={16} className="shrink-0" />
@@ -2204,7 +2191,7 @@ function App() {
 
   return (
     <div className="min-h-screen flex bg-[var(--bg-base)] text-[var(--text-primary)] w-screen overflow-hidden">
-      
+
       {/* Sidebar Navigation */}
       <Sidebar />
 
@@ -2258,7 +2245,7 @@ function App() {
 
                 <div className="p-4 bg-zinc-950/40 border border-zinc-850 rounded-xl space-y-4">
                   <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Security & API</h4>
-                  
+
                   <div className="input-group">
                     <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">Terminal Lock PIN (Optional) <Tooltip text="A local cashier PIN to lock/unlock this terminal." helpSectionId="admin-panel" /></label>
                     <input
@@ -2383,21 +2370,19 @@ function App() {
                           </div>
 
                           <div className="flex items-center gap-3">
-                            <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider ${
-                              hasCreds 
-                                ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-500/10' 
+                            <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider ${hasCreds
+                                ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-500/10'
                                 : 'bg-zinc-800 text-zinc-400'
-                            }`}>
+                              }`}>
                               {hasCreds ? 'Credentials Configured' : 'No Credentials'}
                             </span>
                             {!isExpanded && (
                               <div className="flex items-center gap-2">
-                                <button 
-                                  className={`btn text-xs py-1.5 px-3 font-semibold ${
-                                    hasCreds 
-                                      ? 'border border-zinc-800 hover:bg-zinc-800 text-zinc-300' 
+                                <button
+                                  className={`btn text-xs py-1.5 px-3 font-semibold ${hasCreds
+                                      ? 'border border-zinc-800 hover:bg-zinc-800 text-zinc-300'
                                       : 'btn-success text-black'
-                                  }`}
+                                    }`}
                                   onClick={() => {
                                     const creds = accountsCreds[acc.id.toString()] || {};
                                     setTempUsername(creds.username || '');
@@ -2409,7 +2394,7 @@ function App() {
                                   {hasCreds ? 'Edit' : 'Configure'}
                                 </button>
                                 {hasCreds && (
-                                  <button 
+                                  <button
                                     className="text-xs text-red-400 hover:text-red-300 underline font-semibold px-2 py-1"
                                     onClick={() => {
                                       if (confirm(`Are you sure you want to clear credentials for account ${acc.account_name}?`)) {
@@ -2430,46 +2415,46 @@ function App() {
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                               <div className="input-group">
                                 <label className="input-label text-[10px]">Username</label>
-                                <input 
-                                  type="text" 
-                                  className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5" 
-                                  placeholder="Bank portal username" 
-                                  value={tempUsername} 
-                                  onChange={e => setTempUsername(e.target.value)} 
+                                <input
+                                  type="text"
+                                  className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5"
+                                  placeholder="Bank portal username"
+                                  value={tempUsername}
+                                  onChange={e => setTempUsername(e.target.value)}
                                 />
                               </div>
                               <div className="input-group">
                                 <label className="input-label text-[10px]">Password</label>
-                                <input 
-                                  type="password" 
-                                  className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5" 
-                                  placeholder="Bank portal password" 
-                                  value={tempPassword} 
-                                  onChange={e => setTempPassword(e.target.value)} 
+                                <input
+                                  type="password"
+                                  className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5"
+                                  placeholder="Bank portal password"
+                                  value={tempPassword}
+                                  onChange={e => setTempPassword(e.target.value)}
                                 />
                               </div>
                               <div className="input-group">
                                 <label className="input-label text-[10px]">Authenticator Seed (TOTP)</label>
-                                <input 
-                                  type="password" 
-                                  className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5 font-mono" 
-                                  placeholder="2FA authenticator secret key" 
-                                  value={tempTotpSeed} 
-                                  onChange={e => setTempTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())} 
+                                <input
+                                  type="password"
+                                  className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5 font-mono"
+                                  placeholder="2FA authenticator secret key"
+                                  value={tempTotpSeed}
+                                  onChange={e => setTempTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())}
                                 />
                               </div>
                             </div>
                             <div className="flex justify-end gap-2 text-xs">
-                              <button 
-                                type="button" 
-                                className="btn border border-zinc-800 hover:bg-zinc-800 text-zinc-300 py-1.5 px-3 font-semibold" 
+                              <button
+                                type="button"
+                                className="btn border border-zinc-800 hover:bg-zinc-800 text-zinc-300 py-1.5 px-3 font-semibold"
                                 onClick={() => setExpandedCredsAccountId(null)}
                               >
                                 Cancel
                               </button>
-                              <button 
-                                type="button" 
-                                className="btn btn-success py-1.5 px-5 font-bold" 
+                              <button
+                                type="button"
+                                className="btn btn-success py-1.5 px-5 font-bold"
                                 onClick={() => {
                                   if (!tempUsername.trim() || !tempPassword.trim()) {
                                     alert("Username and Password are required.");
@@ -2504,7 +2489,7 @@ function App() {
                       Powered by Viri {planName && <span>• {planName.toUpperCase()} PLAN</span>}
                     </p>
                   </div>
-                  
+
                   <div className="flex items-center gap-3">
                     {/* Theme Toggle */}
                     <button
@@ -2530,7 +2515,7 @@ function App() {
 
                     {/* Zero-Knowledge Security Badge & Subtitle */}
                     <div className="flex flex-col items-end gap-1 text-right max-w-[280px]">
-                      <div 
+                      <div
                         className="flex items-center gap-1.5 px-3 py-1 bg-emerald-950/30 border border-emerald-500/20 rounded-full text-[11px] font-semibold text-emerald-400 cursor-help"
                         title="Viri Zero-Knowledge Architecture: Financial passwords are fully encrypted and stored strictly on this local terminal machine."
                       >
@@ -2594,22 +2579,20 @@ function App() {
                                 type="button"
                                 disabled={loading}
                                 onClick={() => setSelectedAccountId(acc.id.toString())}
-                                className={`w-full px-4 py-3 rounded-xl border text-left flex items-center gap-3 transition-all ${
-                                  isSelected
+                                className={`w-full px-4 py-3 rounded-xl border text-left flex items-center gap-3 transition-all ${isSelected
                                     ? isBml
                                       ? 'bg-red-955/20 border-red-500/80 shadow-[0_0_12px_rgba(239,68,68,0.15)]'
                                       : 'bg-emerald-955/20 border-emerald-500/80 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
                                     : 'bg-zinc-950/40 border-zinc-800/80 hover:border-zinc-700'
-                                }`}
+                                  }`}
                               >
                                 <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800/80 p-1 flex items-center justify-center shrink-0">
                                   <img src={isBml ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt="" />
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className={`text-[10px] uppercase font-bold tracking-wider ${
-                                      isBml ? 'text-red-400' : 'text-emerald-400'
-                                    }`}>
+                                    <span className={`text-[10px] uppercase font-bold tracking-wider ${isBml ? 'text-red-400' : 'text-emerald-400'
+                                      }`}>
                                       {acc.bank_name}
                                     </span>
                                     {acc.label && (
@@ -2659,9 +2642,8 @@ function App() {
                             <button
                               onClick={() => handleVerify('search')}
                               disabled={loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 || creditsExhausted || isSelectedAccountLocked || subscriptionExpired}
-                              className={`w-full btn btn-success py-3.5 text-base justify-center gap-2 font-bold rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.2)] transition-all ${
-                                loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 || creditsExhausted || isSelectedAccountLocked || subscriptionExpired ? 'opacity-50 cursor-not-allowed' : ''
-                              }`}
+                              className={`w-full btn btn-success py-3.5 text-base justify-center gap-2 font-bold rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.2)] transition-all ${loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 || creditsExhausted || isSelectedAccountLocked || subscriptionExpired ? 'opacity-50 cursor-not-allowed' : ''
+                                }`}
                             >
                               {loading && loadingMode === 'search' ? (
                                 <>
@@ -2682,9 +2664,8 @@ function App() {
                             <button
                               onClick={() => handleVerify('history')}
                               disabled={loading || !isCredentialsComplete || creditsExhausted || isSelectedAccountLocked || subscriptionExpired}
-                              className={`w-full btn btn-outline py-3 text-sm justify-center gap-2 font-semibold rounded-xl transition-all border border-zinc-800 hover:border-zinc-700 bg-transparent text-zinc-300 hover:text-white ${
-                                loading || !isCredentialsComplete || creditsExhausted || isSelectedAccountLocked || subscriptionExpired ? 'opacity-50 cursor-not-allowed' : ''
-                              }`}
+                              className={`w-full btn btn-outline py-3 text-sm justify-center gap-2 font-semibold rounded-xl transition-all border border-zinc-800 hover:border-zinc-700 bg-transparent text-zinc-300 hover:text-white ${loading || !isCredentialsComplete || creditsExhausted || isSelectedAccountLocked || subscriptionExpired ? 'opacity-50 cursor-not-allowed' : ''
+                                }`}
                             >
                               {loading && loadingMode === 'history' ? (
                                 <>
@@ -2770,7 +2751,7 @@ function App() {
                             </>
                           ) : (() => {
                             const lastCreditTx = lastTransactions.find(tx => tx.amount.startsWith('+'));
-                            const lastCreditAmount = lastCreditTx 
+                            const lastCreditAmount = lastCreditTx
                               ? formatAmount(lastCreditTx.amount).replace('+', '')
                               : '00.00';
                             return (
@@ -2847,7 +2828,7 @@ function App() {
 
                     {/* Status & Account Dashboard (Replaces Stepper) */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 mb-2">
-                      
+
                       {/* Terminal Health & Connection Status */}
                       <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-xl p-4 flex flex-col gap-3 shadow-sm">
                         <h4 className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest flex items-center gap-1.5">
@@ -2862,7 +2843,7 @@ function App() {
                                 const normLatest = LATEST_EXTENSION_VERSION.replace(/^v/, '');
                                 const isOutdated = normExt !== normLatest;
                                 return (
-                                  <span 
+                                  <span
                                     className={`${isOutdated ? 'text-red-400 animate-pulse' : 'text-emerald-400'} flex items-center gap-1.5 font-bold`}
                                     title={isOutdated ? `Extension update available (latest is ${LATEST_EXTENSION_VERSION})` : undefined}
                                   >
@@ -2896,17 +2877,17 @@ function App() {
                               <span className="text-zinc-500 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-zinc-600" /> Idle</span>
                             )}
                           </div>
-                          
+
                           <div className="border-t border-zinc-800/60 mt-1 pt-2 flex flex-col gap-1.5">
                             <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">All Bank Sessions</span>
                             <div className={`grid gap-x-4 gap-y-1.5 ${bankAccounts.length > 3 ? 'grid-cols-2' : 'grid-cols-1'}`}>
                               {bankAccounts.map((account) => {
                                 const accountIdStr = account.id.toString();
-                                
+
                                 // This terminal's own actively-held account is the ground truth.
                                 // We know exactly which account we synced, so override server heartbeat data.
                                 const isOwnSession = sessionStatus === 'holder' && sessionHolderAccountId === accountIdStr;
-                                
+
                                 let isActive = isOwnSession; // start with local knowledge
                                 let elapsedMs: number | null = null;
                                 let heartbeatTime: number | undefined;
@@ -2915,9 +2896,9 @@ function App() {
                                 if (account.session_claimed_at) {
                                   try {
                                     claimedTime = new Date(account.session_claimed_at).getTime();
-                                  } catch (e) {}
+                                  } catch (e) { }
                                 }
-                                
+
                                 if (!isOwnSession && account.session_holder_terminal_id && account.session_last_heartbeat_at) {
                                   // For other terminals' sessions, fall back to heartbeat timing
                                   try {
@@ -2932,10 +2913,10 @@ function App() {
                                   if (account.session_last_heartbeat_at) {
                                     try {
                                       heartbeatTime = new Date(account.session_last_heartbeat_at).getTime();
-                                    } catch (e) {}
+                                    } catch (e) { }
                                   }
                                 }
-                                
+
                                 // Determine what to show in the timer
                                 if (isActive) {
                                   // If active, show duration since claimed
@@ -2952,9 +2933,9 @@ function App() {
                                     elapsedMs = null;
                                   }
                                 }
-                                
+
                                 const accountLabel = `${account.bank_name} (${account.account_number.slice(-4)})`;
-                                
+
                                 // Format elapsed time
                                 let timeStr = '';
                                 if (elapsedMs !== null && elapsedMs >= 0) {
@@ -2971,12 +2952,12 @@ function App() {
                                     </span>
                                     {isActive ? (
                                       <span className="text-emerald-400 flex items-center gap-1 font-bold text-[10px] shrink-0 ml-1" title={isOwnSession ? 'This terminal' : (account.session_holder_name || undefined)}>
-                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" /> 
+                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" />
                                         Active {timeStr}
                                       </span>
                                     ) : (
                                       <span className="text-zinc-500 flex items-center gap-1 font-bold text-[10px] shrink-0 ml-1">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-zinc-600" /> 
+                                        <div className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
                                         Idle {timeStr}
                                       </span>
                                     )}
@@ -2985,7 +2966,7 @@ function App() {
                               })}
                             </div>
                           </div>
-                          
+
                           <div className="flex justify-between items-center mt-1 pt-2 border-t border-zinc-800/60">
                             <span className="text-zinc-500">Last Fetch</span>
                             <span className="text-zinc-400 font-bold">{lastPopulatedTime || 'Never'}</span>
@@ -2997,11 +2978,11 @@ function App() {
                       <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-xl p-4 flex flex-col gap-3 relative overflow-hidden group shadow-sm">
                         {/* Subtle background glow */}
                         <div className="absolute -top-10 -right-10 w-32 h-32 bg-blue-500/5 rounded-full blur-2xl group-hover:bg-blue-500/10 transition-colors" />
-                        
+
                         <h4 className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest flex items-center gap-1.5 z-10">
                           <BookOpen size={12} className="text-zinc-400" /> Active Account
                         </h4>
-                        
+
                         <div className="flex items-center gap-3 z-10 mt-1">
                           {selectedAccount ? (
                             <>
@@ -3010,9 +2991,8 @@ function App() {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className={`text-[10px] uppercase font-bold tracking-wider ${
-                                    selectedAccount.bank_name === 'BML' ? 'text-red-400' : 'text-emerald-400'
-                                  }`}>
+                                  <span className={`text-[10px] uppercase font-bold tracking-wider ${selectedAccount.bank_name === 'BML' ? 'text-red-400' : 'text-emerald-400'
+                                    }`}>
                                     {selectedAccount.bank_name}
                                   </span>
                                   {selectedAccount.label && (
@@ -3109,13 +3089,12 @@ function App() {
                         <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold font-sans whitespace-nowrap shrink-0">Sync Progress</span>
                         <div className="w-24 sm:w-40 bg-zinc-800 h-3 rounded-full overflow-hidden relative shadow-inner shrink-0">
                           <div
-                            className={`h-full transition-all duration-300 rounded-full ${
-                              progress.stage === 'error' 
-                                ? 'bg-red-500' 
-                                : ((loading && loadingMode === 'history') 
-                                    ? 'bg-gradient-to-r from-emerald-400 to-cyan-500' 
-                                    : 'bg-emerald-400')
-                            }`}
+                            className={`h-full transition-all duration-300 rounded-full ${progress.stage === 'error'
+                                ? 'bg-red-500'
+                                : ((loading && loadingMode === 'history')
+                                  ? 'bg-gradient-to-r from-emerald-400 to-cyan-500'
+                                  : 'bg-emerald-400')
+                              }`}
                             style={{ width: `${(loading && loadingMode === 'history') ? progress.percent : 100}%` }}
                           />
                         </div>
@@ -3130,8 +3109,8 @@ function App() {
                       {/* Sync Info / Metadata */}
                       <div className="flex flex-wrap items-center justify-end gap-3 font-mono text-[11px] min-w-0">
                         <span className={`${(loading && loadingMode === 'history') ? 'text-zinc-300' : 'text-zinc-500'}`}>
-                          {(loading && loadingMode === 'history') && syncStartTimeRef.current 
-                            ? `${((currentTick - syncStartTimeRef.current) / 1000).toFixed(1)}s` 
+                          {(loading && loadingMode === 'history') && syncStartTimeRef.current
+                            ? `${((currentTick - syncStartTimeRef.current) / 1000).toFixed(1)}s`
                             : (syncTimeElapsed !== null ? `${(syncTimeElapsed / 1000).toFixed(1)}s` : '0.0s')}
                         </span>
                         <span className="text-zinc-700 hidden xl:inline">|</span>
@@ -3148,7 +3127,7 @@ function App() {
                         <span className="text-zinc-500 truncate">{lastPopulatedTime ? lastPopulatedTime : 'Never fetched'}</span>
                       </div>
                     </div>
-                    
+
                     <div className="overflow-x-auto bg-transparent">
                       {lastTransactions && lastTransactions.length > 0 ? (
                         <table className="w-full text-left text-xs border-collapse">
@@ -3162,7 +3141,7 @@ function App() {
                           </thead>
                           <tbody className="divide-y divide-[var(--border-color)] text-xs text-[var(--text-secondary)]">
                             {lastTransactions.map((tx, idx) => {
-                              const rowKey = `${tx.date}-${tx.amount}-${tx.details.substring(0,30)}-${tx.runningBalance || idx}`;
+                              const rowKey = `${tx.date}-${tx.amount}-${tx.details.substring(0, 30)}-${tx.runningBalance || idx}`;
                               const isCredit = tx.amount.startsWith('+');
                               const detailsParts = tx.details.split('\n');
                               const description = (detailsParts[0] || '').trim();
@@ -3180,9 +3159,8 @@ function App() {
                                     {details || <span className="text-zinc-600 italic">-</span>}
                                   </td>
                                   <td className="px-4 py-3.5 text-right align-top whitespace-nowrap">
-                                    <div className={`font-mono font-bold text-sm leading-none ${
-                                      isCredit ? 'text-[var(--color-success)]' : 'text-red-400'
-                                    }`}>
+                                    <div className={`font-mono font-bold text-sm leading-none ${isCredit ? 'text-[var(--color-success)]' : 'text-red-400'
+                                      }`}>
                                       {formatAmount(tx.amount)}
                                     </div>
                                     {tx.runningBalance && (
@@ -3208,12 +3186,11 @@ function App() {
                         const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
                         const isLocked = selectedAccount && (selectedAccount.login_failures || 0) >= 2;
                         return (
-                          <button 
+                          <button
                             onClick={() => handleVerify('history')}
                             disabled={loading || isLocked || subscriptionExpired}
-                            className={`text-[10px] uppercase font-bold text-zinc-400 hover:text-white transition-colors py-2 px-4 hover:bg-white/5 rounded-lg border border-zinc-800 ${
-                              loading || isLocked || subscriptionExpired ? 'opacity-45 cursor-not-allowed' : ''
-                            }`}
+                            className={`text-[10px] uppercase font-bold text-zinc-400 hover:text-white transition-colors py-2 px-4 hover:bg-white/5 rounded-lg border border-zinc-800 ${loading || isLocked || subscriptionExpired ? 'opacity-45 cursor-not-allowed' : ''
+                              }`}
                           >
                             {loading && loadingMode === 'history' ? 'Loading...' : isLocked ? 'Blocked: Account Locked' : 'Load More Transactions'}
                           </button>
@@ -3239,7 +3216,7 @@ function App() {
               const rawTransactions = cache.transactions || [];
               const filteredTransactions = rawTransactions.filter(tx => {
                 const isCredit = tx.amount.startsWith('+');
-                
+
                 // 0. Permission Filter (Hide Outward / Debit)
                 if (!permissions.ledger_show_debit && !isCredit) return false;
 
@@ -3329,11 +3306,10 @@ function App() {
                             setSelectedLedgerAccountId(acc.id.toString());
                             setLedgerPage(1);
                           }}
-                          className={`p-4 rounded-xl border text-left flex items-center gap-3.5 transition-all shadow-lg ${
-                            isSelected
+                          className={`p-4 rounded-xl border text-left flex items-center gap-3.5 transition-all shadow-lg ${isSelected
                               ? 'bg-zinc-900 border-emerald-500/60 ring-1 ring-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.08)]'
                               : 'bg-zinc-950/60 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/30'
-                          }`}
+                            }`}
                         >
                           <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800 p-1 flex items-center justify-center shrink-0">
                             <img src={isBml ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt={acc.bank_name} />
@@ -3365,7 +3341,7 @@ function App() {
                   {/* Main Table Container */}
                   {activeLedgerAcc && (
                     <div className="glass-panel p-5 w-full bg-zinc-950/40 border border-zinc-800 rounded-2xl flex flex-col gap-5">
-                      
+
                       {/* Filter & Toolbar Area */}
                       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                         <div className="flex items-center gap-2">
@@ -3378,25 +3354,22 @@ function App() {
                           <div className="bg-zinc-900/80 p-0.5 rounded-lg border border-zinc-800 flex items-center gap-1">
                             <button
                               onClick={() => { setLedgerFilter('all'); setLedgerPage(1); }}
-                              className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${
-                                ledgerFilter === 'all' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
-                              }`}
+                              className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${ledgerFilter === 'all' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
+                                }`}
                             >
                               All
                             </button>
                             <button
                               onClick={() => { setLedgerFilter('in'); setLedgerPage(1); }}
-                              className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${
-                                ledgerFilter === 'in' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
-                              }`}
+                              className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${ledgerFilter === 'in' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
+                                }`}
                             >
                               Inwards
                             </button>
                             <button
                               onClick={() => { setLedgerFilter('out'); setLedgerPage(1); }}
-                              className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${
-                                ledgerFilter === 'out' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
-                              }`}
+                              className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${ledgerFilter === 'out' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
+                                }`}
                             >
                               Outwards
                             </button>
@@ -3407,7 +3380,7 @@ function App() {
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={14} />
                             <input
                               type="text"
-                          value={ledgerSearch}
+                              value={ledgerSearch}
                               onChange={(e) => { setLedgerSearch(e.target.value); setLedgerPage(1); }}
                               placeholder="Search..."
                               className="pl-9 pr-4 py-1.5 bg-zinc-900/60 border border-zinc-800 focus:border-zinc-700 text-xs text-white rounded-lg w-48 font-medium focus:outline-none transition-colors"
@@ -3433,13 +3406,12 @@ function App() {
                           <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold font-sans whitespace-nowrap shrink-0">Sync Progress</span>
                           <div className="w-24 sm:w-40 bg-zinc-800 h-3 rounded-full overflow-hidden relative shadow-inner shrink-0">
                             <div
-                              className={`h-full transition-all duration-300 rounded-full ${
-                                progress.stage === 'error' 
-                                  ? 'bg-red-500' 
-                                  : (isSyncing 
-                                      ? 'bg-gradient-to-r from-emerald-400 to-cyan-500' 
-                                      : 'bg-emerald-400')
-                              }`}
+                              className={`h-full transition-all duration-300 rounded-full ${progress.stage === 'error'
+                                  ? 'bg-red-500'
+                                  : (isSyncing
+                                    ? 'bg-gradient-to-r from-emerald-400 to-cyan-500'
+                                    : 'bg-emerald-400')
+                                }`}
                               style={{ width: `${isSyncing ? progress.percent : 100}%` }}
                             />
                           </div>
@@ -3454,8 +3426,8 @@ function App() {
                         {/* Sync Info / Metadata */}
                         <div className="flex flex-wrap items-center gap-3 font-mono text-[11px]">
                           <span className={`${isSyncing ? 'text-zinc-300' : 'text-zinc-500'}`}>
-                            {isSyncing && syncStartTimeRef.current 
-                              ? `${((currentTick - syncStartTimeRef.current) / 1000).toFixed(1)}s` 
+                            {isSyncing && syncStartTimeRef.current
+                              ? `${((currentTick - syncStartTimeRef.current) / 1000).toFixed(1)}s`
                               : (syncTimeElapsed !== null ? `${(syncTimeElapsed / 1000).toFixed(1)}s` : '0.0s')}
                           </span>
                           <span className="text-zinc-700">|</span>
@@ -3498,7 +3470,7 @@ function App() {
                                 </thead>
                                 <tbody className="divide-y divide-zinc-900/60">
                                   {paginatedTransactions.map((tx, idx) => {
-                                    const rowKey = `${tx.date}-${tx.amount}-${tx.details.substring(0,30)}-${tx.runningBalance || idx}`;
+                                    const rowKey = `${tx.date}-${tx.amount}-${tx.details.substring(0, 30)}-${tx.runningBalance || idx}`;
                                     const isCredit = tx.amount.startsWith('+');
                                     const detailsParts = tx.details.split('\n');
                                     const description = (detailsParts[0] || '').trim();
@@ -3519,9 +3491,8 @@ function App() {
                                           {details || <span className="text-zinc-600 italic">-</span>}
                                         </td>
                                         <td className="py-4 px-5 text-right align-middle whitespace-nowrap">
-                                          <div className={`font-mono font-extrabold text-base ${
-                                            isCredit ? 'text-emerald-400' : 'text-red-400'
-                                          }`}>
+                                          <div className={`font-mono font-extrabold text-base ${isCredit ? 'text-emerald-400' : 'text-red-400'
+                                            }`}>
                                             {formatAmount(tx.amount)}
                                           </div>
                                           {permissions.ledger_show_balance && tx.runningBalance && (
