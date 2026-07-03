@@ -1,12 +1,21 @@
-import { useState, useEffect, useRef } from 'react';
-import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, Terminal, Activity, Sun, Moon } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, Terminal, Activity, Sun, Moon, CheckCircle2, Circle, ExternalLink } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 
-const Tooltip = ({ text }: { text: string }) => (
+const Tooltip = ({ text, helpSectionId, onHelpNavigate }: { text: string; helpSectionId?: string; onHelpNavigate?: (sectionId: string) => void }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
     <Info size={13} className="text-zinc-500 hover:text-zinc-300 transition-colors" />
-    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-3 bg-zinc-900 border border-zinc-700 text-white text-[11px] leading-relaxed rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 font-normal normal-case">
+    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 p-3 bg-zinc-900 border border-zinc-700 text-white text-[11px] leading-relaxed rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 font-normal normal-case" style={{ pointerEvents: 'none' }}>
       {text}
+      {helpSectionId && onHelpNavigate && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onHelpNavigate(helpSectionId); }}
+          className="mt-2 flex items-center gap-1 text-blue-400 hover:text-blue-300 transition-colors text-[10px] font-semibold"
+          style={{ pointerEvents: 'auto' }}
+        >
+          <ExternalLink size={10} /> Learn more in Help
+        </button>
+      )}
       <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-zinc-700"></div>
     </div>
   </div>
@@ -59,6 +68,8 @@ interface LedgerData {
 
 function App() {
   const [theme, toggleTheme] = useTheme();
+
+
   const [amount, setAmount] = useState('');
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [settingsPin, setSettingsPin] = useState<string | null>(null);
@@ -312,6 +323,24 @@ function App() {
   }, [loading]);
 
   const [activeTab, setActiveTab] = useState<'verify' | 'ledger' | 'reports' | 'help'>('verify');
+  const [helpSearchQuery, setHelpSearchQuery] = useState('');
+  const helpContentRef = useRef<HTMLDivElement>(null);
+
+  const handleHelpNavigate = useCallback((sectionId: string) => {
+    setShowSettings(false);
+    setActiveTab('help');
+    setHelpSearchQuery('');
+    // Scroll after a tick so the help tab is rendered
+    setTimeout(() => {
+      const el = document.getElementById(sectionId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        el.classList.add('ring-2', 'ring-blue-400/60', 'ring-offset-2', 'ring-offset-zinc-950');
+        setTimeout(() => el.classList.remove('ring-2', 'ring-blue-400/60', 'ring-offset-2', 'ring-offset-zinc-950'), 2000);
+      }
+    }, 80);
+  }, []);
+
   const [ledgerCache, setLedgerCache] = useState<Record<string, LedgerData>>(() => {
     const saved = localStorage.getItem('viri_ledger_cache');
     return saved ? JSON.parse(saved) : {};
@@ -2048,6 +2077,54 @@ function App() {
           </button>
         )}
 
+
+        {/* Setup Checklist - only visible when sidebar is expanded, on desktop */}
+        {!isSidebarCollapsed && (() => {
+          const hasExtension = !!extensionId;
+          const hasAnyCreds = bankAccounts.length > 0 && bankAccounts.some(acc => !!(accountsCreds[acc.id.toString()]?.username));
+          const allDone = hasExtension && hasAnyCreds;
+          return (
+            <div className="hidden md:block border border-zinc-800/60 bg-zinc-900/30 rounded-lg p-3 transition-all">
+              <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2.5 flex items-center gap-1.5">
+                <CheckCircle2 size={10} className={allDone ? 'text-emerald-400' : 'text-zinc-600'} />
+                Setup Checklist
+              </h4>
+              <div className="flex flex-col gap-2">
+                {/* Item 1: Browser Extension */}
+                <button
+                  onClick={() => handleHelpNavigate('help-extension-installation')}
+                  className="flex items-center gap-2 text-left group w-full"
+                >
+                  {hasExtension
+                    ? <CheckCircle2 size={13} className="shrink-0 text-emerald-400" />
+                    : <Circle size={13} className="shrink-0 text-zinc-600" />}
+                  <span className={`text-[11px] leading-snug group-hover:text-white transition-colors ${
+                    hasExtension ? 'text-zinc-500 line-through' : 'text-zinc-400'
+                  }`}>Install browser extension</span>
+                  {!hasExtension && <ExternalLink size={10} className="shrink-0 text-zinc-600 group-hover:text-blue-400 transition-colors ml-auto" />}
+                </button>
+
+                {/* Item 2: Bank Account Credentials */}
+                <button
+                  onClick={() => handleHelpNavigate('help-credentials-setup')}
+                  className="flex items-center gap-2 text-left group w-full"
+                >
+                  {hasAnyCreds
+                    ? <CheckCircle2 size={13} className="shrink-0 text-emerald-400" />
+                    : <Circle size={13} className="shrink-0 text-zinc-600" />}
+                  <span className={`text-[11px] leading-snug group-hover:text-white transition-colors ${
+                    hasAnyCreds ? 'text-zinc-500 line-through' : 'text-zinc-400'
+                  }`}>Complete bank credentials</span>
+                  {!hasAnyCreds && <ExternalLink size={10} className="shrink-0 text-zinc-600 group-hover:text-blue-400 transition-colors ml-auto" />}
+                </button>
+              </div>
+              <p className="mt-2.5 text-[9.5px] text-zinc-600 leading-relaxed">
+                Credentials stay in a secure container in your browser and are never shared with Viri servers.
+              </p>
+            </div>
+          );
+        })()}
+
         <button
           onClick={() => { setShowSettings(false); setActiveTab('help'); }}
           className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${
@@ -2166,7 +2243,7 @@ function App() {
             {/* Header */}
             <div className="border-b border-[var(--border-color)] pb-4 mb-6">
               <h3 className="text-xl font-bold flex items-center gap-2 text-white">
-                <Settings size={22} className="text-zinc-400" /> Viri Admin Panel <Tooltip text="System settings, terminal registration, lock PIN, and bank credentials." />
+                <Settings size={22} className="text-zinc-400" /> Viri Admin Panel <Tooltip text="System settings, terminal registration, lock PIN, and bank credentials." helpSectionId="admin-panel" />
               </h3>
               <p className="text-xs text-[var(--text-secondary)] mt-1">
                 System configuration, lock PIN security, and local bank account credentials.
@@ -2177,7 +2254,7 @@ function App() {
               {/* Left Column: System & Security Settings (5 cols) */}
               <div className="lg:col-span-5 space-y-5">
                 <div className="p-4 bg-zinc-950/40 border border-zinc-850 rounded-xl">
-                  <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">Terminal Status <Tooltip text="Shows pairing state and company connection details." /></h4>
+                  <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">Terminal Status <Tooltip text="Shows pairing state and company connection details." helpSectionId="terminal-pairing" /></h4>
                   <div className="p-3 bg-black/30 border border-zinc-850 rounded-lg text-sm text-[var(--color-success)] font-mono flex items-center justify-between">
                     <span className="truncate pr-2">Connected to {companyName}</span>
                     <button
@@ -2197,7 +2274,7 @@ function App() {
                   <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Security & API</h4>
                   
                   <div className="input-group">
-                    <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">Terminal Lock PIN (Optional) <Tooltip text="A local cashier PIN to lock/unlock this terminal." /></label>
+                    <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">Terminal Lock PIN (Optional) <Tooltip text="A local cashier PIN to lock/unlock this terminal." helpSectionId="admin-panel" /></label>
                     <input
                       type="password"
                       className="input-field text-transparent bg-zinc-950/50 border-zinc-800 focus:border-[var(--color-success)] rounded-lg text-sm px-3 py-2"
@@ -2217,7 +2294,7 @@ function App() {
                   </div>
 
                   <div className="input-group">
-                    <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">Viri Bridge Extension ID (System) <Tooltip text="Unique ID of the local companion browser extension helper." /></label>
+                    <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">Viri Bridge Extension ID (System) <Tooltip text="Unique ID of the local companion browser extension helper." helpSectionId="extension-installation" /></label>
                     <input
                       type="text"
                       className="input-field opacity-60 cursor-not-allowed bg-zinc-950/50 border-zinc-800 text-xs px-3 py-2"
@@ -2227,7 +2304,7 @@ function App() {
                   </div>
 
                   <div className="input-group">
-                    <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">Viri Backend API Endpoint (System) <Tooltip text="Server URL for syncing metadata and statuses." /></label>
+                    <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">Viri Backend API Endpoint (System) <Tooltip text="Server URL for syncing metadata and statuses." helpSectionId="admin-panel" /></label>
                     <input
                       type="text"
                       className="input-field opacity-60 cursor-not-allowed bg-zinc-950/50 border-zinc-800 text-xs px-3 py-2"
@@ -2244,7 +2321,7 @@ function App() {
                   <div>
                     <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
                       <Shield size={14} className="text-[var(--color-warning)]" />
-                      Local Bank Credentials <Tooltip text="Local bank login credentials used strictly by the browser extension." />
+                      Local Bank Credentials <Tooltip text="Local bank login credentials used strictly by the browser extension." helpSectionId="bank-credentials" />
                     </h4>
                     <p className="text-xs text-[var(--text-secondary)] mb-4">
                       Configure individual login credentials for each bank account paired with this terminal.
@@ -2264,7 +2341,7 @@ function App() {
 
             {/* Bank Accounts Manager */}
             <div className="mt-6 pt-6 border-t border-[var(--border-color)]">
-              <h4 className="text-sm font-semibold mb-3 flex items-center gap-1.5">Managed Bank Accounts & Login Safety Status <Tooltip text="Lock status of bank accounts under this terminal. If failures >= 2, functions are disabled." /></h4>
+              <h4 className="text-sm font-semibold mb-3 flex items-center gap-1.5">Managed Bank Accounts & Login Safety Status <Tooltip text="Lock status of bank accounts under this terminal. If failures >= 2, functions are disabled." helpSectionId="bank-credentials" /></h4>
               <p className="text-xs text-[var(--text-secondary)] mb-4">Accounts are synced from company dashboard. Reset failed logins in the Company Admin Panel to unlock terminal operations.</p>
 
               <div className="space-y-3 mb-4">
@@ -2476,7 +2553,7 @@ function App() {
                 <div className="lg:col-span-4 w-full">
                   <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col gap-5">
                     <div className="flex items-center justify-between">
-                      <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-1.5">Verify Transfer <Tooltip text="Input details from the customer's transfer receipt to programmatically confirm funds arrival." /></h2>
+                      <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-1.5">Verify Transfer <Tooltip text="Input details from the customer's transfer receipt to programmatically confirm funds arrival." helpSectionId="transfer-verification" /></h2>
                       <div className="flex items-center gap-2">
                         {initLoading && <Loader2 size={12} className="animate-spin text-zinc-400" />}
                         <span className="px-2 py-0.5 bg-zinc-800/80 border border-zinc-700/50 text-zinc-400 text-[9px] font-bold uppercase tracking-wider rounded font-mono">
@@ -2494,7 +2571,7 @@ function App() {
                     )}
 
                     <div className="input-group mb-0">
-                      <label className="input-label text-[10px] uppercase tracking-wider font-bold text-zinc-400 flex items-center gap-1.5">Target Amount ({selectedAccountCurrency}) <Tooltip text="The exact transfer amount shown on the customer's receipt." /></label>
+                      <label className="input-label text-[10px] uppercase tracking-wider font-bold text-zinc-400 flex items-center gap-1.5">Target Amount ({selectedAccountCurrency}) <Tooltip text="The exact transfer amount shown on the customer's receipt." helpSectionId="transfer-verification" /></label>
                       <input
                         type="number"
                         className="input-field text-2xl font-bold tracking-tight text-white py-3.5 bg-black/40 border border-zinc-800/80 rounded-xl focus:border-emerald-500"
@@ -2506,7 +2583,7 @@ function App() {
                     </div>
 
                     <div className="input-group mb-0">
-                      <label className="input-label text-[10px] uppercase tracking-wider font-bold text-zinc-400 flex items-center gap-1.5">Receiving Account <Tooltip text="The company's bank account the customer claims to have sent funds to." /></label>
+                      <label className="input-label text-[10px] uppercase tracking-wider font-bold text-zinc-400 flex items-center gap-1.5">Receiving Account <Tooltip text="The company's bank account the customer claims to have sent funds to." helpSectionId="transfer-verification" /></label>
                       {bankAccounts.length === 0 ? (
                         <div className="p-3 bg-zinc-900/30 border border-zinc-800 rounded-lg text-center text-zinc-500 italic text-sm">
                           No accounts configured
@@ -2673,7 +2750,7 @@ function App() {
                           {activeStepIndex === 5 ? (
                             <>
                               <span>Last Credit: {selectedAccountCurrency} {formatAmount(result?.amount)}</span>
-                              <Tooltip text="The payment has been confirmed as received on your bank account." />
+                              <Tooltip text="The payment has been confirmed as received on your bank account." helpSectionId="transfer-verification" />
                               <span className="px-2 py-0.5 bg-emerald-955/50 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold tracking-wider rounded uppercase">
                                 Success
                               </span>
@@ -2681,7 +2758,7 @@ function App() {
                           ) : progress.stage === 'error' ? (
                             <>
                               <span>Verification Failed</span>
-                              <Tooltip text="The program failed to verify this transfer. Please review logs or try again." />
+                              <Tooltip text="The program failed to verify this transfer. Please review logs or try again." helpSectionId="transfer-verification" />
                               <span className="px-2 py-0.5 bg-red-955/50 border border-red-500/20 text-red-400 text-[10px] font-bold tracking-wider rounded uppercase">
                                 Failed
                               </span>
@@ -2689,7 +2766,7 @@ function App() {
                           ) : loading ? (
                             <>
                               <span>{progress.text || "Verifying Transfer..."}</span>
-                              <Tooltip text="Active scraping session running in companion browser extension." />
+                              <Tooltip text="Active scraping session running in companion browser extension." helpSectionId="extension-installation" />
                               {progress.stage === 'lock' && (
                                 <span className="px-2 py-0.5 bg-amber-955/50 border border-amber-500/20 text-amber-400 text-[10px] font-bold tracking-wider rounded uppercase animate-pulse">
                                   Locking
@@ -2704,7 +2781,7 @@ function App() {
                             return (
                               <>
                                 <span>Last Credit: {selectedAccountCurrency} {lastCreditAmount}</span>
-                                <Tooltip text="The most recent credit transaction detected on this account." />
+                                <Tooltip text="The most recent credit transaction detected on this account." helpSectionId="transfer-verification" />
                               </>
                             );
                           })()}
@@ -2973,7 +3050,7 @@ function App() {
                         <div className="w-3 h-3 rounded-full bg-red-500"></div>
                         <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
                         <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                        <span className="text-xs text-zinc-400 ml-2 font-mono flex items-center gap-1">Viri Bridge Terminal Logs <Tooltip text="Real-time network crawler debugging logs execution stream." /></span>
+                        <span className="text-xs text-zinc-400 ml-2 font-mono flex items-center gap-1">Viri Bridge Terminal Logs <Tooltip text="Real-time network crawler debugging logs execution stream." helpSectionId="extension-installation" /></span>
                         {loading && <Loader2 size={12} className="text-[var(--color-success)] animate-spin ml-2" />}
 
                         <div className="ml-auto flex items-center gap-2">
@@ -3014,7 +3091,7 @@ function App() {
                   <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl w-full flex flex-col gap-4">
                     <div className="flex justify-between items-center border-b border-zinc-800/80 pb-3">
                       <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-1.5">
-                        Recent Transactions {lastTransactionsLabel ? `- ${lastTransactionsLabel}` : ''} <Tooltip text="The last few statement entries cached/fetched from the bank's database." />
+                        Recent Transactions {lastTransactionsLabel ? `- ${lastTransactionsLabel}` : ''} <Tooltip text="The last few statement entries cached/fetched from the bank's database." helpSectionId="transaction-ledger" />
                       </h3>
                     </div>
 
@@ -3069,10 +3146,10 @@ function App() {
                         <table className="w-full text-left text-xs border-collapse">
                           <thead>
                             <tr className="border-b border-zinc-800 bg-zinc-900/10 text-zinc-400 uppercase tracking-wider font-semibold text-[10px]">
-                              <th className="px-4 py-2 font-medium">Date & Time <Tooltip text="The transaction posting date." /></th>
-                              <th className="px-4 py-2 font-medium">Description <Tooltip text="Primary transaction description/type." /></th>
-                              <th className="px-4 py-2 font-medium">Details <Tooltip text="Additional transaction info (refs, IDs, card details, sender info)." /></th>
-                              <th className="px-4 py-2 font-medium text-right">Amount / Balance <Tooltip text="Green indicates credits (+), red indicates debits (-)." /></th>
+                              <th className="px-4 py-2 font-medium">Date & Time <Tooltip text="The transaction posting date." helpSectionId="transaction-ledger" /></th>
+                              <th className="px-4 py-2 font-medium">Description <Tooltip text="Primary transaction description/type." helpSectionId="transaction-ledger" /></th>
+                              <th className="px-4 py-2 font-medium">Details <Tooltip text="Additional transaction info (refs, IDs, card details, sender info)." helpSectionId="transaction-ledger" /></th>
+                              <th className="px-4 py-2 font-medium text-right">Amount / Balance <Tooltip text="Green indicates credits (+), red indicates debits (-)." helpSectionId="transaction-ledger" /></th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-[var(--border-color)] text-xs text-[var(--text-secondary)]">
@@ -3482,10 +3559,10 @@ function App() {
                 </div>
               );
             })()}
-            
+
             {activeTab === 'help' && (
-              <div className="flex-1 w-full max-w-4xl mx-auto flex flex-col items-center justify-start p-4 md:p-8 animate-fade-in overflow-y-auto space-y-8">
-                <div className="w-full text-center space-y-2 mb-4">
+              <div ref={helpContentRef} className="flex-1 w-full max-w-4xl mx-auto flex flex-col items-center justify-start p-4 md:p-8 animate-fade-in overflow-y-auto space-y-6">
+                <div className="w-full text-center space-y-2 mb-2">
                   <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-500/10 mb-4">
                     <HelpCircle size={32} className="text-blue-400" />
                   </div>
@@ -3493,104 +3570,153 @@ function App() {
                   <p className="text-[var(--text-secondary)]">Learn how to install the extension and use the Terminal PWA.</p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
-                  {/* Extension Installation Card */}
-                  <div className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl p-6 shadow-xl">
-                    <h3 className="text-xl font-bold mb-4 flex items-center gap-3 text-white">
-                      <MonitorSmartphone className="text-[var(--color-success)]" />
-                      1. Extension Installation
-                    </h3>
-                    <p className="text-sm text-[var(--text-secondary)] mb-6 leading-relaxed">
-                      The Viri Bridge extension is required to establish a secure local connection between your device and the bank’s servers.
-                    </p>
-                    <div className="mb-6 flex justify-start">
-                      <a href="/extention/viri-connect.zip" download className="btn btn-success flex items-center gap-2">
-                        <MonitorSmartphone size={18} /> Download Viri Extension (.zip)
-                      </a>
-                    </div>
-                    <div className="space-y-6 text-left">
-                      <div>
-                        <h4 className="font-bold text-white mb-2 border-b border-zinc-800 pb-1">🖥️ Desktop (PC / Mac)</h4>
-                        <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-[var(--color-success)]">
-                          <li>Download the extension <strong>.zip</strong> file above.</li>
-                          <li>Extract/unzip the file into a folder on your computer.</li>
-                          <li>Open Chrome and navigate to <strong>chrome://extensions</strong>.</li>
-                          <li>Turn on <strong>Developer mode</strong> (top right corner).</li>
-                          <li>Click <strong>Load unpacked</strong> and select the extracted folder.</li>
-                        </ol>
-                      </div>
-                      <div>
-                        <h4 className="font-bold text-white mb-2 border-b border-zinc-800 pb-1">📱 Android Mobile/Tablet</h4>
-                        <p className="text-xs text-yellow-500 mb-2">Note: Standard Google Chrome for Android does not support extensions.</p>
-                        <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-[var(--color-success)]">
-                          <li>Download <strong>Kiwi Browser</strong> from the Google Play Store.</li>
-                          <li>Open the Cashier Terminal inside Kiwi Browser.</li>
-                          <li>Download the extension <strong>.zip</strong> file above.</li>
-                          <li>In Kiwi Browser, tap the 3-dot menu and select <strong>Extensions</strong>.</li>
-                          <li>Turn on <strong>Developer mode</strong>.</li>
-                          <li>Tap <strong>+ (from .zip/.crx/.user.js)</strong> and select the downloaded file.</li>
-                        </ol>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Terminal Pairing Card */}
-                  <div className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl p-6 shadow-xl">
-                    <h3 className="text-xl font-bold mb-4 flex items-center gap-3 text-white">
-                      <Lock className="text-blue-400" />
-                      2. Terminal Pairing
-                    </h3>
-                    <p className="text-sm text-[var(--text-secondary)] mb-6 leading-relaxed">
-                      Link this browser to your company's Viri account by pairing the terminal.
-                    </p>
-                    <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-4 marker:text-blue-400">
-                      <li>Set up the terminal from the <strong>Company Admin Panel</strong>.</li>
-                      <li>Get the generated <strong>6-digit Pairing Code</strong>.</li>
-                      <li>Go to <strong>https://viri.thinksafe.mv/cashier</strong> on the target device.</li>
-                      <li>Enter the pairing code to securely link the terminal.</li>
-                    </ol>
-                  </div>
-
-                  {/* Verification Workflow Card */}
-                  <div className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl p-6 shadow-xl">
-                    <h3 className="text-xl font-bold mb-4 flex items-center gap-3 text-white">
-                      <Search className="text-purple-400" />
-                      3. Transfer Verification & Ledger
-                    </h3>
-                    <p className="text-sm text-[var(--text-secondary)] mb-4 leading-relaxed">
-                      Verify incoming customer transfers instantly without relying on SMS or full bank logins.
-                    </p>
-                    <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-3 marker:text-purple-400 mb-6">
-                      <li>Select the target bank account from the top dropdown.</li>
-                      <li>Select the verification mode (e.g. <strong>BML Receipt Match</strong> or <strong>MIB Transfer</strong>).</li>
-                      <li>Enter the exact amount shown on the customer's transfer receipt.</li>
-                      <li>Click <strong>Verify Transfer</strong>. The system will securely wake up the extension and ping the bank for an exact match.</li>
-                    </ol>
-                    <div className="p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg flex gap-3 text-xs text-zinc-400">
-                      <div className="mt-0.5">💡</div>
-                      <div>
-                        <strong>Pro Tip:</strong> Use the <kbd className="bg-zinc-800 border border-zinc-700 px-1.5 rounded font-mono text-white mx-1">S</kbd> key as a global shortcut to quickly <strong>View History</strong> or <strong>Sync Ledger</strong> from anywhere without reaching for your mouse!
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Ledger & Syncing Card */}
-                  <div className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl p-6 shadow-xl">
-                    <h3 className="text-xl font-bold mb-4 flex items-center gap-3 text-white">
-                      <BookOpen className="text-amber-400" />
-                      4. Transaction Ledger
-                    </h3>
-                    <p className="text-sm text-[var(--text-secondary)] mb-4 leading-relaxed">
-                      View recent transaction history natively within the PWA.
-                    </p>
-                    <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-3 marker:text-amber-400">
-                      <li>Navigate to the <strong>Transaction Ledger</strong> tab using the left sidebar.</li>
-                      <li>Select an account and click <strong>Sync Ledger</strong>.</li>
-                      <li>The extension will pull the 10 most recent transactions securely from your bank.</li>
-                      <li>Credit (incoming) transactions are highlighted in green, while Debit (outgoing) are red.</li>
-                    </ol>
-                  </div>
+                {/* Search Bar */}
+                <div className="w-full relative">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Search help topics..."
+                    value={helpSearchQuery}
+                    onChange={e => setHelpSearchQuery(e.target.value)}
+                    className="w-full bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-lg pl-9 pr-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
+                  />
+                  {helpSearchQuery && (
+                    <button onClick={() => setHelpSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors">
+                      <XCircle size={15} />
+                    </button>
+                  )}
                 </div>
+
+                {(() => {
+                  const q = helpSearchQuery.toLowerCase().trim();
+                  const sections = [
+                    {
+                      id: 'extension-installation',
+                      title: '1. Extension Installation',
+                      icon: <MonitorSmartphone className="text-[var(--color-success)]" />,
+                      tags: 'extension install zip chrome kiwi android desktop download browser',
+                      body: (
+                        <>
+                          <p className="text-sm text-[var(--text-secondary)] mb-6 leading-relaxed">
+                            The Viri Bridge extension is required to establish a secure local connection between your device and the bank's servers.
+                          </p>
+                          <div className="mb-6 flex justify-start">
+                            <a href="/viri/viri-bridge.zip" download className="btn btn-success flex items-center gap-2">
+                              <MonitorSmartphone size={18} /> Download Viri Extension (.zip)
+                            </a>
+                          </div>
+                          <div className="space-y-6 text-left">
+                            <div>
+                              <h4 className="font-bold text-white mb-2 border-b border-zinc-800 pb-1">🖥️ Desktop (PC / Mac)</h4>
+                              <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-[var(--color-success)]">
+                                <li>Download the extension <strong>.zip</strong> file above.</li>
+                                <li>Extract/unzip the file into a folder on your computer.</li>
+                                <li>Open Chrome and navigate to <strong>chrome://extensions</strong>.</li>
+                                <li>Turn on <strong>Developer mode</strong> (top right corner).</li>
+                                <li>Click <strong>Load unpacked</strong> and select the extracted folder.</li>
+                              </ol>
+                            </div>
+                            <div>
+                              <h4 className="font-bold text-white mb-2 border-b border-zinc-800 pb-1">📱 Android Mobile/Tablet</h4>
+                              <p className="text-xs text-yellow-500 mb-2">Note: Standard Google Chrome for Android does not support extensions.</p>
+                              <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-[var(--color-success)]">
+                                <li>Download <strong>Kiwi Browser</strong> from the Google Play Store.</li>
+                                <li>Open the Cashier Terminal inside Kiwi Browser.</li>
+                                <li>Download the extension <strong>.zip</strong> file above.</li>
+                                <li>In Kiwi Browser, tap the 3-dot menu and select <strong>Extensions</strong>.</li>
+                                <li>Turn on <strong>Developer mode</strong>.</li>
+                                <li>Tap <strong>+ (from .zip/.crx/.user.js)</strong> and select the downloaded file.</li>
+                              </ol>
+                            </div>
+                          </div>
+                        </>
+                      )
+                    },
+                    {
+                      id: 'terminal-pairing',
+                      title: '2. Terminal Pairing',
+                      icon: <Lock className="text-blue-400" />,
+                      tags: 'pairing code link terminal company admin',
+                      body: (
+                        <>
+                          <p className="text-sm text-[var(--text-secondary)] mb-6 leading-relaxed">
+                            Link this browser to your company's Viri account by pairing the terminal.
+                          </p>
+                          <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-4 marker:text-blue-400">
+                            <li>Set up the terminal from the <strong>Company Admin Panel</strong>.</li>
+                            <li>Get the generated <strong>6-digit Pairing Code</strong>.</li>
+                            <li>Go to <strong>https://viri.thinksafe.mv/cashier</strong> on the target device.</li>
+                            <li>Enter the pairing code to securely link the terminal.</li>
+                          </ol>
+                        </>
+                      )
+                    },
+                    {
+                      id: 'transfer-verification',
+                      title: '3. Transfer Verification',
+                      icon: <Search className="text-purple-400" />,
+                      tags: 'verify transfer amount receipt bml mib bank account',
+                      body: (
+                        <>
+                          <p className="text-sm text-[var(--text-secondary)] mb-4 leading-relaxed">
+                            Verify incoming customer transfers instantly without relying on SMS or full bank logins.
+                          </p>
+                          <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-3 marker:text-purple-400 mb-6">
+                            <li>Select the target bank account from the top dropdown.</li>
+                            <li>Select the verification mode (e.g. <strong>BML Receipt Match</strong> or <strong>MIB Transfer</strong>).</li>
+                            <li>Enter the exact amount shown on the customer's transfer receipt.</li>
+                            <li>Click <strong>Verify Transfer</strong>. The system will securely wake up the extension and ping the bank for an exact match.</li>
+                          </ol>
+                          <div className="p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg flex gap-3 text-xs text-zinc-400">
+                            <div className="mt-0.5">💡</div>
+                            <div><strong>Pro Tip:</strong> Use the <kbd className="bg-zinc-800 border border-zinc-700 px-1.5 rounded font-mono text-white mx-1">S</kbd> key to quickly <strong>View History</strong> or <strong>Sync Ledger</strong> from anywhere!</div>
+                          </div>
+                        </>
+                      )
+                    },
+                    {
+                      id: 'transaction-ledger',
+                      title: '4. Transaction Ledger',
+                      icon: <BookOpen className="text-amber-400" />,
+                      tags: 'ledger transaction history sync credit debit balance',
+                      body: (
+                        <>
+                          <p className="text-sm text-[var(--text-secondary)] mb-4 leading-relaxed">View recent transaction history natively within the PWA.</p>
+                          <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-3 marker:text-amber-400">
+                            <li>Navigate to the <strong>Transaction Ledger</strong> tab using the left sidebar.</li>
+                            <li>Select an account and click <strong>Sync Ledger</strong>.</li>
+                            <li>The extension will pull the 10 most recent transactions securely from your bank.</li>
+                            <li>Credit (incoming) transactions are highlighted in green, while Debit (outgoing) are red.</li>
+                          </ol>
+                        </>
+                      )
+                    },
+                  ];
+
+                  const filtered = q
+                    ? sections.filter(s => s.tags.includes(q) || s.title.toLowerCase().includes(q))
+                    : sections;
+
+                  return filtered.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+                      {filtered.map(s => (
+                        <div key={s.id} id={s.id} className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl p-6 shadow-xl transition-all duration-300">
+                          <h3 className="text-xl font-bold mb-4 flex items-center gap-3 text-white">
+                            {s.icon}
+                            {s.title}
+                          </h3>
+                          {s.body}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="w-full text-center py-16 text-zinc-500">
+                      <Search size={32} className="mx-auto mb-3 opacity-30" />
+                      <p className="text-sm">No help topics matched <strong className="text-zinc-400">&ldquo;{helpSearchQuery}&rdquo;</strong>.</p>
+                      <button onClick={() => setHelpSearchQuery('')} className="mt-3 text-xs text-blue-400 hover:text-blue-300 underline">Clear search</button>
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </>
