@@ -1,7 +1,7 @@
 const BASE_URL = "https://www.bankofmaldives.com.mv/internetbanking";
 const MIB_BASE_URL = "https://faisanet.mib.com.mv";
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
-const EXTENSION_VERSION = "v1.002";
+const EXTENSION_VERSION = "1.0.3";
 
 let globalInertiaVersion = "";
 
@@ -1077,7 +1077,15 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
     // STEP 5: Navigate to accounts overview  
     // ═══════════════════════════════════════════════════════════════
     emitLog(port, `> [BML] Step 5: Loading Accounts Overview...`);
+    const preOverviewVersion = globalInertiaVersion;
     await getFreshXsrfToken('/vf/accounts/overview');
+
+    // Detect session expiry in fetch_only mode: if the Inertia version is still blank after
+    // the token refresh, BML served an HTML login redirect (200 + <!doctype>) instead of JSON.
+    if (sessionMode === 'fetch_only' && !globalInertiaVersion && !preOverviewVersion) {
+      emitLog(port, `> [BML] ⚠ Session appears expired (no Inertia version after overview refresh in fetch_only mode). Falling back to fresh_login...`);
+      return await runBmlFlow(credentials, targetAccount, port, targetAmount, mode, 'fresh_login');
+    }
 
     const accountsOverviewRes = await loggedFetch(`${BASE_URL}/vf/accounts/overview`, {
       headers: {
@@ -1112,6 +1120,12 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
 
     const dashText = await dashboardRes.text();
     if (!dashboardRes.ok) {
+      // In fetch_only mode a 401 means the bank session expired — fall back to a fresh login
+      // rather than reporting failure, so the user's request still succeeds.
+      if (sessionMode === 'fetch_only') {
+        emitLog(port, `> [BML] ⚠ Dashboard returned HTTP ${dashboardRes.status} in fetch_only mode. Session expired — falling back to fresh_login...`);
+        return await runBmlFlow(credentials, targetAccount, port, targetAmount, mode, 'fresh_login');
+      }
       throw new Error(`Dashboard retrieval failed: HTTP ${dashboardRes.status}`);
     }
 
