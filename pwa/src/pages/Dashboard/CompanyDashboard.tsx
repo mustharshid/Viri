@@ -53,6 +53,7 @@ export default function CompanyDashboard() {
   const [editingTerminal, setEditingTerminal] = useState<any>(null);
   const [terminalFormName, setTerminalFormName] = useState('');
   const [terminalSettingsPin, setTerminalSettingsPin] = useState('');
+  const [terminalLockPin, setTerminalLockPin] = useState('');
   const [permissionsForm, setPermissionsForm] = useState({
     verification_enabled: true,
     ledger_enabled: false,
@@ -232,6 +233,7 @@ export default function CompanyDashboard() {
     setEditingTerminal(term);
     setTerminalFormName(term.terminal_name);
     setTerminalSettingsPin(term.settings_pin || '');
+    setTerminalLockPin(term.permissions?.terminal_pin || '');
     setPermissionsForm({
       verification_enabled: term.permissions?.verification_enabled ?? true,
       ledger_enabled: term.permissions?.ledger_enabled ?? false,
@@ -260,7 +262,10 @@ export default function CompanyDashboard() {
         body: JSON.stringify({
           name: terminalFormName,
           settings_pin: String(terminalSettingsPin || '').trim() || null,
-          permissions: permissionsForm
+          permissions: {
+            ...permissionsForm,
+            terminal_pin: terminalLockPin ? String(terminalLockPin).trim() : null
+          }
         })
       });
 
@@ -269,6 +274,7 @@ export default function CompanyDashboard() {
         setNewTerminalName('');
         setTerminalFormName('');
         setTerminalSettingsPin('');
+        setTerminalLockPin('');
         setEditingTerminal(null);
         fetchData();
       } else {
@@ -1242,6 +1248,42 @@ export default function CompanyDashboard() {
                     setTerminalSettingsPin(val);
                   }} 
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2 flex items-center gap-2">
+                  PWA Lockout PIN / Password (Optional)
+                  <Tooltip text="A 4-digit PIN to lock/unlock the cashier terminal screen. Leave blank to disable or clear/unlock." />
+                </label>
+                <div className="flex gap-2">
+                  <input 
+                    type="password" 
+                    maxLength={4}
+                    pattern="\d{0,4}"
+                    placeholder={editingTerminal?.permissions?.terminal_pin ? "PIN Set (Hidden)" : "e.g. 1234"} 
+                    className="input-field flex-1 font-mono" 
+                    value={terminalLockPin} 
+                    onChange={e => {
+                      const val = e.target.value.replace(/\D/g, '');
+                      setTerminalLockPin(val);
+                    }} 
+                  />
+                  {(editingTerminal?.permissions?.terminal_pin || terminalLockPin) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTerminalLockPin('');
+                        if (editingTerminal && editingTerminal.permissions) {
+                          editingTerminal.permissions.terminal_pin = null;
+                        }
+                        alert("Lockout PIN reset/cleared. Click 'Save' to apply changes.");
+                      }}
+                      className="btn btn-outline border-red-500 text-red-500 hover:bg-red-500 hover:text-white px-3 py-2 text-xs transition-colors shrink-0"
+                    >
+                      Reset PIN
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div>

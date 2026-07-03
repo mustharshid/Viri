@@ -66,7 +66,8 @@ class CompanyController extends Controller
                 'ledger_show_debit' => false,
                 'reports_enabled' => false,
                 'show_vbtl' => filter_var($permissions['show_vbtl'] ?? false, FILTER_VALIDATE_BOOLEAN),
-                'share_pwa_logs' => filter_var($permissions['share_pwa_logs'] ?? true, FILTER_VALIDATE_BOOLEAN)
+                'share_pwa_logs' => filter_var($permissions['share_pwa_logs'] ?? true, FILTER_VALIDATE_BOOLEAN),
+                'terminal_pin' => isset($permissions['terminal_pin']) && $permissions['terminal_pin'] !== '' ? (string)$permissions['terminal_pin'] : null
             ];
         } else {
             $permissions = [
@@ -76,7 +77,8 @@ class CompanyController extends Controller
                 'ledger_show_debit' => filter_var($permissions['ledger_show_debit'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'reports_enabled' => filter_var($permissions['reports_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'show_vbtl' => filter_var($permissions['show_vbtl'] ?? false, FILTER_VALIDATE_BOOLEAN),
-                'share_pwa_logs' => filter_var($permissions['share_pwa_logs'] ?? true, FILTER_VALIDATE_BOOLEAN)
+                'share_pwa_logs' => filter_var($permissions['share_pwa_logs'] ?? true, FILTER_VALIDATE_BOOLEAN),
+                'terminal_pin' => isset($permissions['terminal_pin']) && $permissions['terminal_pin'] !== '' ? (string)$permissions['terminal_pin'] : null
             ];
         }
 
@@ -125,7 +127,8 @@ class CompanyController extends Controller
                     'ledger_show_debit' => false,
                     'reports_enabled' => false,
                     'show_vbtl' => filter_var($permissions['show_vbtl'] ?? false, FILTER_VALIDATE_BOOLEAN),
-                    'share_pwa_logs' => filter_var($permissions['share_pwa_logs'] ?? true, FILTER_VALIDATE_BOOLEAN)
+                    'share_pwa_logs' => filter_var($permissions['share_pwa_logs'] ?? true, FILTER_VALIDATE_BOOLEAN),
+                    'terminal_pin' => isset($permissions['terminal_pin']) && $permissions['terminal_pin'] !== '' ? (string)$permissions['terminal_pin'] : null
                 ];
             } else {
                 $permissions = [
@@ -135,7 +138,8 @@ class CompanyController extends Controller
                     'ledger_show_debit' => filter_var($permissions['ledger_show_debit'] ?? false, FILTER_VALIDATE_BOOLEAN),
                     'reports_enabled' => filter_var($permissions['reports_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
                     'show_vbtl' => filter_var($permissions['show_vbtl'] ?? false, FILTER_VALIDATE_BOOLEAN),
-                    'share_pwa_logs' => filter_var($permissions['share_pwa_logs'] ?? true, FILTER_VALIDATE_BOOLEAN)
+                    'share_pwa_logs' => filter_var($permissions['share_pwa_logs'] ?? true, FILTER_VALIDATE_BOOLEAN),
+                    'terminal_pin' => isset($permissions['terminal_pin']) && $permissions['terminal_pin'] !== '' ? (string)$permissions['terminal_pin'] : null
                 ];
             }
 

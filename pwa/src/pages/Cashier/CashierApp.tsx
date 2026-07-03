@@ -379,8 +379,9 @@ function App() {
   }, [bankAccounts]);
 
   // Poll bank accounts session state from server every 6 seconds
+  // Poll bank accounts session state from server every 6 seconds (runs even when locked to receive PIN reset signals)
   useEffect(() => {
-    if (!hardwareId || !backendUrl || isSetupMode || isLocked) return;
+    if (!hardwareId || !backendUrl || isSetupMode) return;
     
     const poll = async () => {
       try {
@@ -400,6 +401,22 @@ function App() {
           if (data.subscription_expired !== undefined) {
             setSubscriptionExpired(data.subscription_expired);
           }
+
+          // Sync local PIN with server-set/reset lock PIN
+          if (data.terminal_pin !== undefined) {
+            const serverPin = data.terminal_pin ? String(data.terminal_pin).trim() : '';
+            const localPin = localStorage.getItem('viri_terminal_pin') || '';
+            if (serverPin !== localPin) {
+              if (serverPin) {
+                setPin(serverPin);
+                localStorage.setItem('viri_terminal_pin', serverPin);
+              } else {
+                setPin('');
+                localStorage.removeItem('viri_terminal_pin');
+                setIsLocked(false);
+              }
+            }
+          }
         }
       } catch (e) {
         console.error("Session status poll failed:", e);
@@ -408,7 +425,7 @@ function App() {
     
     const interval = setInterval(poll, 6000);
     return () => clearInterval(interval);
-  }, [hardwareId, backendUrl, isSetupMode, isLocked]);
+  }, [hardwareId, backendUrl, isSetupMode]);
 
   const syncCredentialsMapping = async (accountsList: BankAccount[]) => {
     if (!hardwareId || !backendUrl || accountsList.length === 0) return;
@@ -681,6 +698,22 @@ function App() {
         if (data.tenant?.extension_id) setExtensionId(data.tenant.extension_id);
         if (data.terminal_name) setTerminalName(data.terminal_name);
         setSettingsPin(data.settings_pin || null);
+
+        // Sync local PIN with server-set/reset lock PIN
+        if (data.terminal_pin !== undefined) {
+          const serverPin = data.terminal_pin ? String(data.terminal_pin).trim() : '';
+          const localPin = localStorage.getItem('viri_terminal_pin') || '';
+          if (serverPin !== localPin) {
+            if (serverPin) {
+              setPin(serverPin);
+              localStorage.setItem('viri_terminal_pin', serverPin);
+            } else {
+              setPin('');
+              localStorage.removeItem('viri_terminal_pin');
+              setIsLocked(false);
+            }
+          }
+        }
         if (data.permissions) {
           setPermissions({
             verification_enabled: data.permissions.verification_enabled ?? true,
@@ -2235,10 +2268,19 @@ function App() {
                       placeholder={pin ? "PIN Set (Hidden)" : "Not Set"}
                       maxLength={4}
                       value=""
-                      onChange={(e) => {
+                      onChange={async (e) => {
                         const val = e.target.value.replace(/\D/g, '');
                         setPin(val);
                         localStorage.setItem('viri_terminal_pin', val);
+                        try {
+                          await fetch(`${backendUrl}/terminal/update-pin`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ hardware_id: hardwareId, terminal_pin: val || null })
+                          });
+                        } catch (err) {
+                          console.error("Failed to sync PIN to server:", err);
+                        }
                       }}
                     />
                     <span className="text-[10px] text-[var(--text-secondary)] block mt-1">

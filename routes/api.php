@@ -144,6 +144,7 @@ Route::post('/verify-terminal', function (Request $request) {
         ],
         'terminal_name' => $terminal->terminal_name,
         'settings_pin' => $terminal->settings_pin,
+        'terminal_pin' => $terminal->permissions['terminal_pin'] ?? null,
         'credentials' => $terminal->credentials,
         'should_upload_logs' => (isset($terminal->permissions['share_pwa_logs']) ? $terminal->permissions['share_pwa_logs'] : true) || ($terminal->allow_debug_until && now()->lessThan($terminal->allow_debug_until)),
         'permissions' => ($tier === 'free' || $tier === '499') ? [
@@ -169,3 +170,19 @@ Route::post('/terminal/credentials', [TerminalPairingController::class, 'saveCre
 Route::post('/terminal/bank-accounts/increment-failures', [BankAccountLockController::class, 'incrementFailures']);
 Route::post('/terminal/bank-accounts/reset-failures', [BankAccountLockController::class, 'resetFailures']);
 Route::post('/terminal/bank-accounts/map-credentials', [BankAccountLockController::class, 'mapCredentials']);
+
+Route::post('/terminal/update-pin', function (Request $request) {
+    $request->validate([
+        'hardware_id' => 'required|string',
+        'terminal_pin' => 'nullable|string|max:4'
+    ]);
+    $terminal = \App\Models\Terminal::where('hardware_id', $request->hardware_id)->first();
+    if ($terminal) {
+        $permissions = $terminal->permissions;
+        $permissions['terminal_pin'] = $request->terminal_pin ? (string)$request->terminal_pin : null;
+        $terminal->permissions = $permissions;
+        $terminal->save();
+        return response()->json(['status' => 'success']);
+    }
+    return response()->json(['error' => 'Terminal not found'], 404);
+});
