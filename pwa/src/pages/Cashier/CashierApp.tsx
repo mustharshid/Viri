@@ -2815,7 +2815,20 @@ function App() {
                           <div className="flex justify-between items-center">
                             <span className="text-zinc-400">Bridge Extension <span className="text-zinc-600 text-[9px] ml-1">[latest {LATEST_EXTENSION_VERSION}]</span></span>
                             {extensionVersion ? (
-                              <span className="text-emerald-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" /> Connected &rarr; {extensionVersion}</span>
+                              (() => {
+                                const normExt = extensionVersion.replace(/^v/, '');
+                                const normLatest = LATEST_EXTENSION_VERSION.replace(/^v/, '');
+                                const isOutdated = normExt !== normLatest;
+                                return (
+                                  <span 
+                                    className={`${isOutdated ? 'text-red-400 animate-pulse' : 'text-emerald-400'} flex items-center gap-1.5 font-bold`}
+                                    title={isOutdated ? `Extension update available (latest is ${LATEST_EXTENSION_VERSION})` : undefined}
+                                  >
+                                    <div className={`w-1.5 h-1.5 rounded-full ${isOutdated ? 'bg-red-400' : 'bg-emerald-400'} animate-pulse-glow`} />
+                                    Connected &rarr; {extensionVersion}
+                                  </span>
+                                );
+                              })()
                             ) : extensionId ? (
                               <span className="text-amber-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse-glow" /> Disconnected</span>
                             ) : (
