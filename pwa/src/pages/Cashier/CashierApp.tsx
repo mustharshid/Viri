@@ -89,15 +89,32 @@ function App() {
   const [defaultAccountId, setDefaultAccountId] = useState<string>(() => {
     return localStorage.getItem('viri_default_account_id') || '';
   });
-  const [lastTransactions, setLastTransactions] = useState<{
-    date: string;
-    details: string;
-    amount: string;
-    runningBalance?: string;
-  }[]>([]);
-  const [lastTransactionsLabel, setLastTransactionsLabel] = useState<string>('');
-  const [lastPopulatedTime, setLastPopulatedTime] = useState<string>('');
-  const [lastPopulatedTimestamp, setLastPopulatedTimestamp] = useState<number | null>(null);
+  const [recentTxCache, setRecentTxCache] = useState<Record<string, {
+    transactions: {
+      date: string;
+      details: string;
+      amount: string;
+      runningBalance?: string;
+    }[];
+    label: string;
+    lastUpdated: string;
+    timestamp: number | null;
+  }>>(() => {
+    const saved = localStorage.getItem('viri_recent_tx_cache');
+    return saved ? JSON.parse(saved) : {};
+  });
+
+  useEffect(() => {
+    localStorage.setItem('viri_recent_tx_cache', JSON.stringify(recentTxCache));
+  }, [recentTxCache]);
+
+  const [newTransactionKeys, setNewTransactionKeys] = useState<Set<string>>(new Set());
+
+  // Derived state for the selected account's recent transactions
+  const lastTransactions = selectedAccountId ? (recentTxCache[selectedAccountId]?.transactions || []) : [];
+  const lastTransactionsLabel = selectedAccountId ? (recentTxCache[selectedAccountId]?.label || '') : '';
+  const lastPopulatedTime = selectedAccountId ? (recentTxCache[selectedAccountId]?.lastUpdated || '') : '';
+  const lastPopulatedTimestamp = selectedAccountId ? (recentTxCache[selectedAccountId]?.timestamp || null) : null;
   const [syncTimeElapsed, setSyncTimeElapsed] = useState<number | null>(null);
   const syncStartTimeRef = useRef<number | null>(null);
   const [currentTick, setCurrentTick] = useState(Date.now());
@@ -1073,21 +1090,58 @@ function App() {
               setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
               setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
               setResult(response.data || null);
-              setLastTransactions(response.transactions || []);
               const acc3 = bankAccounts.find(a => a.id.toString() === accountId);
-              setLastTransactionsLabel(acc3 ? `${acc3.bank_name} ${acc3.account_number}` : '');
-              setLastPopulatedTime(new Date().toLocaleTimeString());
-              setLastPopulatedTimestamp(Date.now());
+              const labelVal = acc3 ? `${acc3.bank_name} ${acc3.account_number}` : '';
+              
+              const getTxKey = (tx: any, index: number) => {
+                return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || index}`;
+              };
 
+              const newTxs = response.transactions || [];
+              const currentKeys = new Set(
+                (requestType === 'ledger'
+                  ? ledgerCache[accountId]?.transactions
+                  : recentTxCache[accountId]?.transactions
+                )?.map((tx, idx) => getTxKey(tx, idx)) || []
+              );
+              
+              const incomingKeys = newTxs.map((tx: any, idx: number) => getTxKey(tx, idx));
+              const newlyAddedKeys = incomingKeys.filter((k: string) => !currentKeys.has(k));
+              
+              if (newlyAddedKeys.length > 0) {
+                setNewTransactionKeys(prev => {
+                  const next = new Set(prev);
+                  newlyAddedKeys.forEach((k: string) => next.add(k));
+                  return next;
+                });
+              }
+
+              // Update recent transactions cache
+              setRecentTxCache(prev => ({
+                ...prev,
+                [accountId]: {
+                  transactions: newTxs,
+                  label: labelVal,
+                  lastUpdated: new Date().toLocaleTimeString(),
+                  timestamp: Date.now()
+                }
+              }));
+
+              // Update ledger cache
               if (response.balance) {
-                setLedgerCache(prev => ({
-                  ...prev,
-                  [accountId]: {
-                    balance: response.balance,
-                    lastUpdated: new Date().toLocaleTimeString(),
-                    transactions: response.transactions || []
-                  }
-                }));
+                setLedgerCache(prev => {
+                  const prevAcc = prev[accountId] || {};
+                  return {
+                    ...prev,
+                    [accountId]: {
+                      ...prevAcc,
+                      balance: response.balance,
+                      lastUpdated: new Date().toLocaleTimeString(),
+                      lastUpdatedTimestamp: Date.now(),
+                      transactions: requestType === 'ledger' ? newTxs : (prevAcc.transactions || [])
+                    }
+                  };
+                });
               }
               if (requestType === 'search' && response.data) {
                 setAmount('');
@@ -1136,8 +1190,6 @@ function App() {
     setLoadingMode(mode);
     setError(null);
     setResult(null);
-    setLastTransactions([]);
-    setLastTransactionsLabel('');
     setSyncTimeElapsed(null);
     syncStartTimeRef.current = Date.now();
     logsRef.current = [];
@@ -1422,21 +1474,54 @@ function App() {
           setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
           setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
           setResult(response.data || null);
-          setLastTransactions(response.transactions || []);
           const acc1 = bankAccounts.find(a => a.id.toString() === selectedAccountId);
-          setLastTransactionsLabel(acc1 ? `${acc1.bank_name} ${acc1.account_number}` : '');
-          setLastPopulatedTime(new Date().toLocaleTimeString());
-          setLastPopulatedTimestamp(Date.now());
+          const labelVal = acc1 ? `${acc1.bank_name} ${acc1.account_number}` : '';
+          
+          const getTxKey = (tx: any, index: number) => {
+            return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || index}`;
+          };
 
+          const newTxs = response.transactions || [];
+          const currentKeys = new Set(
+            recentTxCache[selectedAccountId]?.transactions?.map((tx, idx) => getTxKey(tx, idx)) || []
+          );
+          const incomingKeys = newTxs.map((tx: any, idx: number) => getTxKey(tx, idx));
+          const newlyAddedKeys = incomingKeys.filter((k: string) => !currentKeys.has(k));
+
+          if (newlyAddedKeys.length > 0) {
+            setNewTransactionKeys(prev => {
+              const next = new Set(prev);
+              newlyAddedKeys.forEach((k: string) => next.add(k));
+              return next;
+            });
+          }
+
+          // Update recent transactions cache
+          setRecentTxCache(prev => ({
+            ...prev,
+            [selectedAccountId]: {
+              transactions: newTxs,
+              label: labelVal,
+              lastUpdated: new Date().toLocaleTimeString(),
+              timestamp: Date.now()
+            }
+          }));
+
+          // Update ledger cache (preserving existing ledger transactions!)
           if (response.balance) {
-            setLedgerCache(prev => ({
-              ...prev,
-              [selectedAccountId]: {
-                balance: response.balance,
-                lastUpdated: new Date().toLocaleTimeString(),
-                transactions: response.transactions || []
-              }
-            }));
+            setLedgerCache(prev => {
+              const prevAcc = prev[selectedAccountId] || {};
+              return {
+                ...prev,
+                [selectedAccountId]: {
+                  ...prevAcc,
+                  balance: response.balance,
+                  lastUpdated: new Date().toLocaleTimeString(),
+                  lastUpdatedTimestamp: Date.now(),
+                  transactions: prevAcc.transactions || []
+                }
+              };
+            });
           }
 
           if (mode === 'search' && response.data) {
@@ -1523,11 +1608,17 @@ function App() {
             })
           }).catch(e => console.error("Failed to log session error:", e));
         }
-        setLastTransactions(response.transactions || []);
         const acc2 = bankAccounts.find(a => a.id.toString() === selectedAccountId);
-        setLastTransactionsLabel(acc2 ? `${acc2.bank_name} ${acc2.account_number}` : '');
-        setLastPopulatedTime(new Date().toLocaleTimeString());
-        setLastPopulatedTimestamp(Date.now());
+        const labelVal = acc2 ? `${acc2.bank_name} ${acc2.account_number}` : '';
+        setRecentTxCache(prev => ({
+          ...prev,
+          [selectedAccountId]: {
+            transactions: response.transactions || [],
+            label: labelVal,
+            lastUpdated: new Date().toLocaleTimeString(),
+            timestamp: Date.now()
+          }
+        }));
         port.disconnect();
         activePortRef.current = null;
         releaseLock();
@@ -1747,13 +1838,32 @@ function App() {
           setLoading(false);
           setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
           setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+          const getTxKey = (tx: any, index: number) => {
+            return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || index}`;
+          };
+
+          const newTxs = response.transactions || [];
+          const currentKeys = new Set(
+            ledgerCache[targetAccountId]?.transactions?.map((tx, idx) => getTxKey(tx, idx)) || []
+          );
+          const incomingKeys = newTxs.map((tx: any, idx: number) => getTxKey(tx, idx));
+          const newlyAddedKeys = incomingKeys.filter((k: string) => !currentKeys.has(k));
+
+          if (newlyAddedKeys.length > 0) {
+            setNewTransactionKeys(prev => {
+              const next = new Set(prev);
+              newlyAddedKeys.forEach((k: string) => next.add(k));
+              return next;
+            });
+          }
+
           setLedgerCache(prev => ({
             ...prev,
             [targetAccountId]: {
               balance: response.balance || 'Not found',
               lastUpdated: new Date().toLocaleTimeString(),
               lastUpdatedTimestamp: Date.now(),
-              transactions: response.transactions || []
+              transactions: newTxs
             }
           }));
           try {
@@ -3142,13 +3252,18 @@ function App() {
                           <tbody className="divide-y divide-[var(--border-color)] text-xs text-[var(--text-secondary)]">
                             {lastTransactions.map((tx, idx) => {
                               const rowKey = `${tx.date}-${tx.amount}-${tx.details.substring(0, 30)}-${tx.runningBalance || idx}`;
+                              const getTxKey = (t: typeof tx, i: number) => {
+                                return `${t.date}-${t.amount}-${t.details}-${t.runningBalance || i}`;
+                              };
+                              const txKey = getTxKey(tx, idx);
+                              const isNew = newTransactionKeys.has(txKey);
                               const isCredit = tx.amount.startsWith('+');
                               const detailsParts = tx.details.split('\n');
                               const description = (detailsParts[0] || '').trim();
                               const details = detailsParts.slice(1).join('\n').trim();
 
                               return (
-                                <tr key={rowKey} className="hover:bg-zinc-800/50 transition-colors group">
+                                <tr key={rowKey} className={`hover:bg-zinc-800/50 transition-colors group ${isNew ? 'animate-new-transaction' : ''}`}>
                                   <td className="px-4 py-3.5 text-xs font-mono text-zinc-400 whitespace-nowrap align-top">
                                     {tx.date}
                                   </td>
@@ -3471,13 +3586,18 @@ function App() {
                                 <tbody className="divide-y divide-zinc-900/60">
                                   {paginatedTransactions.map((tx, idx) => {
                                     const rowKey = `${tx.date}-${tx.amount}-${tx.details.substring(0, 30)}-${tx.runningBalance || idx}`;
+                                    const getTxKey = (t: typeof tx, i: number) => {
+                                      return `${t.date}-${t.amount}-${t.details}-${t.runningBalance || i}`;
+                                    };
+                                    const txKey = getTxKey(tx, idx);
+                                    const isNew = newTransactionKeys.has(txKey);
                                     const isCredit = tx.amount.startsWith('+');
                                     const detailsParts = tx.details.split('\n');
                                     const description = (detailsParts[0] || '').trim();
                                     const details = detailsParts.slice(1).join('\n').trim();
 
                                     return (
-                                      <tr key={rowKey} className="hover:bg-white/[0.01] transition-colors group">
+                                      <tr key={rowKey} className={`hover:bg-white/[0.01] transition-colors group ${isNew ? 'animate-new-transaction' : ''}`}>
                                         <td className="py-4 px-5 text-xs font-mono text-zinc-400 whitespace-nowrap align-middle">
                                           {tx.date}
                                         </td>

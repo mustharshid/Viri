@@ -72,7 +72,7 @@
 [data-theme="light"] .input-field::placeholder { color: #94a3b8; }
 [data-theme="light"] .input-field:focus {
   border-color: var(--color-success);
-  ring-color: var(--color-success);
+  --tw-ring-color: var(--color-success);
 }
 
 /* btn-outline in light mode */
@@ -257,4 +257,24 @@ h1, h2, h3, h4, h5, h6, .font-heading {
 
 .animate-scale-checkmark {
   animation: scale-checkmark 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes slide-in-new-tx {
+  0% {
+    opacity: 0;
+    transform: translateY(-12px);
+    background-color: rgba(16, 185, 129, 0.22);
+  }
+  30% {
+    background-color: rgba(16, 185, 129, 0.22);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    background-color: transparent;
+  }
+}
+
+.animate-new-transaction {
+  animation: slide-in-new-tx 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
