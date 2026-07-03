@@ -3603,10 +3603,10 @@ function App() {
                           <span className="text-base">📍</span> Where to enter credentials
                         </h4>
                         <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-blue-400">
-                          <li>Go to the <strong className="text-zinc-300">Verification</strong> tab (the first tab in the left sidebar).</li>
-                          <li>At the top of the page, select your bank account from the dropdown.</li>
-                          <li>Look for the <strong className="text-zinc-300">credential input panel</strong> — it appears below the account selector. Enter your internet banking username, password, and TOTP seed.</li>
-                          <li>Click <strong className="text-zinc-300">Save Credentials</strong>. That's it — you only need to do this once per account.</li>
+                          <li>Go to the <strong className="text-zinc-300">Settings</strong> tab (the bottom tab in the left sidebar) of this Terminal PWA.</li>
+                          <li>Scroll to the bottom of the page and look for the section labelled <strong className="text-zinc-300">"Managed Bank Accounts &amp; Login Safety Status"</strong>.</li>
+                          <li>If any account already shows <strong className="text-zinc-300">Credentials Configured</strong>, it is ready to use. Otherwise, click the <strong className="text-zinc-300">EDIT</strong> button next to the account and enter your internet banking username, password, and TOTP seed.</li>
+                          <li>Click <strong className="text-zinc-300">Save</strong>. You only need to do this once per account.</li>
                         </ol>
                       </div>
 
