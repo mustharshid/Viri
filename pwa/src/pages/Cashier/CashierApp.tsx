@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, Terminal, Activity, Sun, Moon, ExternalLink } from 'lucide-react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, Terminal, Activity, Sun, Moon, ExternalLink } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 
 const Tooltip = ({ text, helpSectionId, onHelpNavigate }: { text: string; helpSectionId?: string; onHelpNavigate?: (sectionId: string) => void }) => (
@@ -432,7 +432,9 @@ function App() {
 
   const [activeTab, setActiveTab] = useState<'verify' | 'ledger' | 'reports' | 'checklist' | 'help'>('verify');
   const [helpSearchQuery, setHelpSearchQuery] = useState('');
+  const [bankSearchQuery, setBankSearchQuery] = useState('');
   const helpContentRef = useRef<HTMLDivElement>(null);
+  const carouselRef = useRef<HTMLDivElement>(null);
 
   const [ledgerCache, setLedgerCache] = useState<Record<string, LedgerData>>(() => {
     const saved = localStorage.getItem('viri_ledger_cache');
@@ -3617,49 +3619,130 @@ function App() {
                     </div>
                   </div>
 
-                  {/* Horizontal Bank Account Cards Selector */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
-                    {bankAccounts.map(acc => {
-                      const isSelected = selectedLedgerAccountId === acc.id.toString();
-                      const isBml = acc.bank_name === 'BML';
-                      const accCache = ledgerCache[acc.id.toString()] || { balance: 'Not synced' };
-                      return (
-                        <button
-                          key={acc.id}
-                          onClick={() => {
-                            setSelectedLedgerAccountId(acc.id.toString());
-                            setLedgerPage(1);
-                          }}
-                          className={`p-4 rounded-xl border text-left flex items-center gap-3.5 transition-all shadow-lg ${isSelected
-                              ? 'bg-zinc-900 border-emerald-500/60 ring-1 ring-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.08)]'
-                              : 'bg-zinc-950/60 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/30'
-                            }`}
-                        >
-                          <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800 p-1 flex items-center justify-center shrink-0">
-                            <img src={isBml ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt={acc.bank_name} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">{acc.bank_name} • Active</span>
-                              {acc.label && (
-                                <span className="text-[9px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium">
-                                  {acc.label}
-                                </span>
-                              )}
+                  {/* Search input above carousel */}
+                  <div className="w-full flex justify-between items-center gap-4">
+                    <span className="text-xs text-zinc-500 font-sans">
+                      Select account to view entries
+                    </span>
+                    <div className="relative w-full max-w-[240px]">
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 pointer-events-none text-zinc-500">
+                        <Search size={13} />
+                      </span>
+                      <input
+                        type="text"
+                        placeholder="Search accounts..."
+                        className="w-full bg-zinc-950/40 border border-zinc-800 rounded-lg text-xs pl-7 pr-3 py-1.5 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500/60"
+                        value={bankSearchQuery}
+                        onChange={e => setBankSearchQuery(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Horizontal Bank Account Cards Selector Carousel */}
+                  <div className="relative w-full group flex items-center px-4">
+                    <style>{`
+                      .scrollbar-none::-webkit-scrollbar {
+                        display: none !important;
+                      }
+                    `}</style>
+
+                    {/* Left Scroll Arrow */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (carouselRef.current) {
+                          carouselRef.current.scrollBy({ left: -300, behavior: 'smooth' });
+                        }
+                      }}
+                      className="absolute left-0 z-10 w-8 h-8 rounded-full bg-zinc-950/70 border border-zinc-800/80 text-white/50 hover:text-white flex items-center justify-center transition-all hover:bg-zinc-900/80 shadow-md active:scale-95"
+                      title="Scroll Left"
+                    >
+                      <ChevronLeft size={18} />
+                    </button>
+
+                    {/* Scrollable Container */}
+                    <div 
+                      ref={carouselRef}
+                      className="flex gap-4 w-full overflow-x-auto scroll-smooth py-1 scrollbar-none"
+                      style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                    >
+                      {(() => {
+                        const filtered = bankAccounts.filter(acc => {
+                          const query = bankSearchQuery.trim().toLowerCase();
+                          if (!query) return true;
+                          return (
+                            acc.account_name.toLowerCase().includes(query) ||
+                            acc.account_number.toLowerCase().includes(query) ||
+                            acc.bank_name.toLowerCase().includes(query) ||
+                            (acc.label && acc.label.toLowerCase().includes(query))
+                          );
+                        });
+
+                        if (filtered.length === 0) {
+                          return (
+                            <div className="w-full text-center py-6 text-xs text-zinc-500 italic bg-zinc-950/20 border border-zinc-900 rounded-xl">
+                              No matching bank accounts found
                             </div>
-                            <div className="text-sm font-bold text-white truncate mt-0.5">{acc.account_name}</div>
-                            <div className="text-[10px] text-zinc-500 font-mono tracking-widest">{acc.account_number}</div>
-                            <div className="text-[11px] text-zinc-500 font-mono mt-0.5">
-                              {permissions.ledger_show_balance ? (
-                                accCache.balance !== 'Not synced' ? `${acc.currency || 'MVR'} ${formatAmount(accCache.balance)}` : 'Not synced'
-                              ) : (
-                                '[hidden]'
-                              )}
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })}
+                          );
+                        }
+
+                        return filtered.map(acc => {
+                          const isSelected = selectedLedgerAccountId === acc.id.toString();
+                          const isBml = acc.bank_name === 'BML';
+                          const accCache = ledgerCache[acc.id.toString()] || { balance: 'Not synced' };
+                          return (
+                            <button
+                              key={acc.id}
+                              onClick={() => {
+                                setSelectedLedgerAccountId(acc.id.toString());
+                                setLedgerPage(1);
+                              }}
+                              className={`p-4 rounded-xl border text-left flex items-center gap-3.5 transition-all shadow-lg shrink-0 w-80 ${isSelected
+                                  ? 'bg-zinc-900 border-emerald-500/60 ring-1 ring-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.08)]'
+                                  : 'bg-zinc-950/60 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/30'
+                                }`}
+                            >
+                              <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800 p-1 flex items-center justify-center shrink-0">
+                                <img src={isBml ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt={acc.bank_name} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">{acc.bank_name} • Active</span>
+                                  {acc.label && (
+                                    <span className="text-[9px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium">
+                                      {acc.label}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-sm font-bold text-white truncate mt-0.5">{acc.account_name}</div>
+                                <div className="text-[10px] text-zinc-500 font-mono tracking-widest">{acc.account_number}</div>
+                                <div className="text-[11px] text-zinc-500 font-mono mt-0.5">
+                                  {permissions.ledger_show_balance ? (
+                                    accCache.balance !== 'Not synced' ? `${acc.currency || 'MVR'} ${formatAmount(accCache.balance)}` : 'Not synced'
+                                  ) : (
+                                    '[hidden]'
+                                  )}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        });
+                      })()}
+                    </div>
+
+                    {/* Right Scroll Arrow */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (carouselRef.current) {
+                          carouselRef.current.scrollBy({ left: 300, behavior: 'smooth' });
+                        }
+                      }}
+                      className="absolute right-0 z-10 w-8 h-8 rounded-full bg-zinc-950/70 border border-zinc-800/80 text-white/50 hover:text-white flex items-center justify-center transition-all hover:bg-zinc-900/80 shadow-md active:scale-95"
+                      title="Scroll Right"
+                    >
+                      <ChevronRight size={18} />
+                    </button>
                   </div>
 
                   {/* Main Table Container */}
