@@ -31,8 +31,19 @@ Route::middleware('auth:sanctum')->group(function () {
     // Note: In production, add a role middleware here
     Route::get('/admin/companies', [SuperadminController::class, 'listCompanies']);
     Route::put('/admin/companies/{id}', [SuperadminController::class, 'updateCompany']);
+    Route::delete('/admin/companies/{id}', [SuperadminController::class, 'deleteCompany']);
     Route::put('/admin/terminals/{id}', [SuperadminController::class, 'updateTerminal']);
     Route::post('/admin/terminals/{id}/view-log', [SuperadminController::class, 'viewTerminalLog']);
+    Route::post('/admin/users/{id}/reset-password', [SuperadminController::class, 'resetPassword']);
+    
+    // Subscription Plans CRUD
+    Route::get('/admin/subscription-plans', [SuperadminController::class, 'listSubscriptionPlans']);
+    Route::post('/admin/subscription-plans', [SuperadminController::class, 'createSubscriptionPlan']);
+    Route::put('/admin/subscription-plans/{id}', [SuperadminController::class, 'updateSubscriptionPlan']);
+    Route::delete('/admin/subscription-plans/{id}', [SuperadminController::class, 'deleteSubscriptionPlan']);
+
+    // Admin DB Migration Runner
+    Route::post('/admin/run-migrations', [SuperadminController::class, 'runMigrations']);
 
     Route::get('/company/terminals', [CompanyController::class, 'getTerminals']);
     Route::post('/company/terminals', [CompanyController::class, 'createTerminal']);
@@ -147,17 +158,15 @@ Route::post('/verify-terminal', function (Request $request) {
         'terminal_pin' => $terminal->permissions['terminal_pin'] ?? null,
         'credentials' => $terminal->credentials,
         'should_upload_logs' => (isset($terminal->permissions['share_pwa_logs']) ? $terminal->permissions['share_pwa_logs'] : true) || ($terminal->allow_debug_until && now()->lessThan($terminal->allow_debug_until)),
-        'permissions' => ($tier === 'free' || $tier === '499') ? [
-            'verification_enabled' => true,
-            'ledger_enabled' => false,
-            'ledger_show_balance' => false,
-            'ledger_show_debit' => false,
-            'reports_enabled' => false,
-            'share_pwa_logs' => $terminal->permissions['share_pwa_logs'] ?? true,
-            'show_vbtl' => $terminal->permissions['show_vbtl'] ?? false
-        ] : array_merge($terminal->permissions ?? [], [
-            'share_pwa_logs' => $terminal->permissions['share_pwa_logs'] ?? true
-        ])
+        'permissions' => [
+            'verification_enabled' => (bool) ($tenant->features['verification_enabled'] ?? true),
+            'ledger_enabled' => (bool) ($tenant->features['ledger_enabled'] ?? (($tier === 'free' || $tier === '499') ? false : ($terminal->permissions['ledger_enabled'] ?? true))),
+            'ledger_show_balance' => (bool) ($tenant->features['ledger_show_balance'] ?? (($tier === 'free' || $tier === '499') ? false : ($terminal->permissions['ledger_show_balance'] ?? true))),
+            'ledger_show_debit' => (bool) ($tenant->features['ledger_show_debit'] ?? (($tier === 'free' || $tier === '499') ? false : ($terminal->permissions['ledger_show_debit'] ?? true))),
+            'reports_enabled' => (bool) ($tenant->features['reports_enabled'] ?? (($tier === 'free' || $tier === '499') ? false : ($terminal->permissions['reports_enabled'] ?? false))),
+            'share_pwa_logs' => (bool) ($terminal->permissions['share_pwa_logs'] ?? true),
+            'show_vbtl' => (bool) ($terminal->permissions['show_vbtl'] ?? false)
+        ]
     ]);
 });
 

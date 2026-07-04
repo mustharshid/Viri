@@ -1093,8 +1093,8 @@ function App() {
               const acc3 = bankAccounts.find(a => a.id.toString() === accountId);
               const labelVal = acc3 ? `${acc3.bank_name} ${acc3.account_number}` : '';
               
-              const getTxKey = (tx: any, index: number) => {
-                return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || index}`;
+              const getTxKey = (tx: any) => {
+                return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || ''}`;
               };
 
               const newTxs = response.transactions || [];
@@ -1102,10 +1102,10 @@ function App() {
                 (requestType === 'ledger'
                   ? ledgerCache[accountId]?.transactions
                   : recentTxCache[accountId]?.transactions
-                )?.map((tx, idx) => getTxKey(tx, idx)) || []
+                )?.map((tx) => getTxKey(tx)) || []
               );
               
-              const incomingKeys = newTxs.map((tx: any, idx: number) => getTxKey(tx, idx));
+              const incomingKeys = newTxs.map((tx: any) => getTxKey(tx));
               const newlyAddedKeys = incomingKeys.filter((k: string) => !currentKeys.has(k));
               
               if (newlyAddedKeys.length > 0) {
@@ -1116,11 +1116,11 @@ function App() {
                 });
               }
 
-              // Update recent transactions cache
+              // Update recent transactions cache (only keeping the 3 most recent)
               setRecentTxCache(prev => ({
                 ...prev,
                 [accountId]: {
-                  transactions: newTxs,
+                  transactions: newTxs.slice(0, 3),
                   label: labelVal,
                   lastUpdated: new Date().toLocaleTimeString(),
                   timestamp: Date.now()
@@ -1477,15 +1477,15 @@ function App() {
           const acc1 = bankAccounts.find(a => a.id.toString() === selectedAccountId);
           const labelVal = acc1 ? `${acc1.bank_name} ${acc1.account_number}` : '';
           
-          const getTxKey = (tx: any, index: number) => {
-            return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || index}`;
+          const getTxKey = (tx: any) => {
+            return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || ''}`;
           };
 
           const newTxs = response.transactions || [];
           const currentKeys = new Set(
-            recentTxCache[selectedAccountId]?.transactions?.map((tx, idx) => getTxKey(tx, idx)) || []
+            recentTxCache[selectedAccountId]?.transactions?.map((tx) => getTxKey(tx)) || []
           );
-          const incomingKeys = newTxs.map((tx: any, idx: number) => getTxKey(tx, idx));
+          const incomingKeys = newTxs.map((tx: any) => getTxKey(tx));
           const newlyAddedKeys = incomingKeys.filter((k: string) => !currentKeys.has(k));
 
           if (newlyAddedKeys.length > 0) {
@@ -1496,11 +1496,11 @@ function App() {
             });
           }
 
-          // Update recent transactions cache
+          // Update recent transactions cache (only keeping the 3 most recent)
           setRecentTxCache(prev => ({
             ...prev,
             [selectedAccountId]: {
-              transactions: newTxs,
+              transactions: newTxs.slice(0, 3),
               label: labelVal,
               lastUpdated: new Date().toLocaleTimeString(),
               timestamp: Date.now()
@@ -1613,7 +1613,7 @@ function App() {
         setRecentTxCache(prev => ({
           ...prev,
           [selectedAccountId]: {
-            transactions: response.transactions || [],
+            transactions: (response.transactions || []).slice(0, 3),
             label: labelVal,
             lastUpdated: new Date().toLocaleTimeString(),
             timestamp: Date.now()
@@ -1838,15 +1838,15 @@ function App() {
           setLoading(false);
           setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
           setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
-          const getTxKey = (tx: any, index: number) => {
-            return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || index}`;
+          const getTxKey = (tx: any) => {
+            return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || ''}`;
           };
 
           const newTxs = response.transactions || [];
           const currentKeys = new Set(
-            ledgerCache[targetAccountId]?.transactions?.map((tx, idx) => getTxKey(tx, idx)) || []
+            ledgerCache[targetAccountId]?.transactions?.map((tx) => getTxKey(tx)) || []
           );
-          const incomingKeys = newTxs.map((tx: any, idx: number) => getTxKey(tx, idx));
+          const incomingKeys = newTxs.map((tx: any) => getTxKey(tx));
           const newlyAddedKeys = incomingKeys.filter((k: string) => !currentKeys.has(k));
 
           if (newlyAddedKeys.length > 0) {
@@ -1857,6 +1857,7 @@ function App() {
             });
           }
 
+          // Update ledger cache
           setLedgerCache(prev => ({
             ...prev,
             [targetAccountId]: {
@@ -1864,6 +1865,18 @@ function App() {
               lastUpdated: new Date().toLocaleTimeString(),
               lastUpdatedTimestamp: Date.now(),
               transactions: newTxs
+            }
+          }));
+
+          // Also update recent transactions cache with the top 3
+          const accLabel = selectedAccount ? `${selectedAccount.bank_name} ${selectedAccount.account_number}` : '';
+          setRecentTxCache(prev => ({
+            ...prev,
+            [targetAccountId]: {
+              transactions: newTxs.slice(0, 3),
+              label: accLabel,
+              lastUpdated: new Date().toLocaleTimeString(),
+              timestamp: Date.now()
             }
           }));
           try {
@@ -3250,12 +3263,12 @@ function App() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-[var(--border-color)] text-xs text-[var(--text-secondary)]">
-                            {lastTransactions.map((tx, idx) => {
-                              const rowKey = `${tx.date}-${tx.amount}-${tx.details.substring(0, 30)}-${tx.runningBalance || idx}`;
-                              const getTxKey = (t: typeof tx, i: number) => {
-                                return `${t.date}-${t.amount}-${t.details}-${t.runningBalance || i}`;
+                            {lastTransactions.map((tx) => {
+                              const getTxKey = (t: typeof tx) => {
+                                return `${t.date}-${t.amount}-${t.details}-${t.runningBalance || ''}`;
                               };
-                              const txKey = getTxKey(tx, idx);
+                              const txKey = getTxKey(tx);
+                              const rowKey = txKey;
                               const isNew = newTransactionKeys.has(txKey);
                               const isCredit = tx.amount.startsWith('+');
                               const detailsParts = tx.details.split('\n');
@@ -3584,12 +3597,12 @@ function App() {
                                   </tr>
                                 </thead>
                                 <tbody className="divide-y divide-zinc-900/60">
-                                  {paginatedTransactions.map((tx, idx) => {
-                                    const rowKey = `${tx.date}-${tx.amount}-${tx.details.substring(0, 30)}-${tx.runningBalance || idx}`;
-                                    const getTxKey = (t: typeof tx, i: number) => {
-                                      return `${t.date}-${t.amount}-${t.details}-${t.runningBalance || i}`;
+                                  {paginatedTransactions.map((tx) => {
+                                    const getTxKey = (t: typeof tx) => {
+                                      return `${t.date}-${t.amount}-${t.details}-${t.runningBalance || ''}`;
                                     };
-                                    const txKey = getTxKey(tx, idx);
+                                    const txKey = getTxKey(tx);
+                                    const rowKey = txKey;
                                     const isNew = newTransactionKeys.has(txKey);
                                     const isCredit = tx.amount.startsWith('+');
                                     const detailsParts = tx.details.split('\n');

@@ -12,11 +12,13 @@ class Tenant extends Model
         'company_logo',
         'status',
         'license_expires_at',
-        'lock_timeout'
+        'lock_timeout',
+        'features'
     ];
 
     protected $casts = [
         'license_expires_at' => 'datetime',
+        'features' => 'array',
     ];
 
     public function terminals(): HasMany

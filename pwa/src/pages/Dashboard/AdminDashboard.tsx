@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield } from 'lucide-react';
+import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit } from 'lucide-react';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -33,7 +33,7 @@ export default function AdminDashboard() {
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRunIdx, setSelectedRunIdx] = useState<number>(0);
 
-  const [activeTab, setActiveTab] = useState<'companies' | 'logs'>('companies');
+  const [activeTab, setActiveTab] = useState<'companies' | 'archived' | 'tiers' | 'logs'>('companies');
   const [sessionLogs, setSessionLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsPage, setLogsPage] = useState(1);
@@ -45,6 +45,25 @@ export default function AdminDashboard() {
   
   const [activeTerminalsCount, setActiveTerminalsCount] = useState<number>(0);
   const [sessionHolders, setSessionHolders] = useState<any[]>([]);
+
+  // Subscription Tiers State
+  const [subscriptionPlans, setSubscriptionPlans] = useState<any[]>([]);
+  const [editingPlan, setEditingPlan] = useState<any | null>(null);
+  const [migrationRunning, setMigrationRunning] = useState(false);
+  const [planForm, setPlanForm] = useState({
+    tier_key: '',
+    name: '',
+    price: 0,
+    max_terminals: 1,
+    lock_timeout: 20,
+    features: {
+      verification_enabled: true,
+      ledger_enabled: false,
+      ledger_show_balance: false,
+      ledger_show_debit: false,
+      reports_enabled: false
+    }
+  });
 
   // Buffer for date picker — keyed by company id
   const [pendingExpiry, setPendingExpiry] = useState<Record<number, string>>({});
@@ -110,6 +129,11 @@ export default function AdminDashboard() {
       const compRes = await fetch('/api/admin/companies', { headers });
       setCompanies(await compRes.json());
 
+      const plansRes = await fetch('/api/admin/subscription-plans', { headers });
+      if (plansRes.ok) {
+        setSubscriptionPlans(await plansRes.json());
+      }
+
     } catch (err) {
       navigate('/login');
     } finally {
@@ -126,10 +150,17 @@ export default function AdminDashboard() {
     navigate('/login');
   };
 
-  const updateCompany = async (id: number, status: string, tier: string, lockTimeout?: number, maxTerminals?: number, licenseExpiresAt?: string | null) => {
+  const verifySecurityPin = (): boolean => {
     const userPin = window.prompt(`To confirm this action, please enter the 4-letter security PIN displayed at the top of the panel (${securityPin}):`);
     if (!userPin || userPin.toUpperCase() !== securityPin) {
       alert("Invalid or empty PIN. Action aborted.");
+      return false;
+    }
+    return true;
+  };
+
+  const updateCompany = async (id: number, status: string, tier: string, lockTimeout?: number, maxTerminals?: number, licenseExpiresAt?: string | null, features?: any) => {
+    if (!verifySecurityPin()) {
       fetchData();
       return;
     }
@@ -145,6 +176,9 @@ export default function AdminDashboard() {
     if (licenseExpiresAt !== undefined) {
       payload.license_expires_at = licenseExpiresAt;
     }
+    if (features !== undefined) {
+      payload.features = features;
+    }
     await fetch(`/api/admin/companies/${id}`, {
       method: 'PUT',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -153,12 +187,150 @@ export default function AdminDashboard() {
     fetchData();
   };
 
-  const updateTerminalPermission = async (terminalId: number, showVbtl: boolean) => {
-    const userPin = window.prompt(`To confirm this action, please enter the 4-letter security PIN displayed at the top of the panel (${securityPin}):`);
-    if (!userPin || userPin.toUpperCase() !== securityPin) {
-      alert("Invalid or empty PIN. Action aborted.");
+  const handleDeleteCompany = async (id: number, name: string) => {
+    if (!verifySecurityPin()) return;
+    if (!window.confirm(`Are you absolutely sure you want to permanently delete company "${name}" and all of its associated users, terminals, bank accounts, and logs? This cannot be undone.`)) {
       return;
     }
+
+    const token = localStorage.getItem('viri_token');
+    try {
+      const res = await fetch(`/api/admin/companies/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        alert("Company deleted successfully!");
+        fetchData();
+      } else {
+        alert("Failed to delete company.");
+      }
+    } catch (e) {
+      alert("Network error deleting company.");
+    }
+  };
+
+  const handleResetUserPassword = async (userId: number, email: string) => {
+    if (!verifySecurityPin()) return;
+    const newPassword = window.prompt(`Enter new dashboard password for ${email} (minimum 8 characters):`);
+    if (!newPassword) return;
+    if (newPassword.length < 8) {
+      alert("Password must be at least 8 characters long.");
+      return;
+    }
+
+    const token = localStorage.getItem('viri_token');
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/reset-password`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ password: newPassword })
+      });
+      if (res.ok) {
+        alert("Password reset successfully!");
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`Error: ${err.error || 'Failed to reset password'}`);
+      }
+    } catch (e) {
+      alert("Network error occurred.");
+    }
+  };
+
+  const handleSavePlan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!verifySecurityPin()) return;
+
+    const token = localStorage.getItem('viri_token');
+    const method = editingPlan ? 'PUT' : 'POST';
+    const url = editingPlan ? `/api/admin/subscription-plans/${editingPlan.id}` : '/api/admin/subscription-plans';
+
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(planForm)
+      });
+      if (res.ok) {
+        alert(editingPlan ? "Plan updated successfully!" : "Plan created successfully!");
+        setEditingPlan(null);
+        setPlanForm({
+          tier_key: '',
+          name: '',
+          price: 0,
+          max_terminals: 1,
+          lock_timeout: 20,
+          features: {
+            verification_enabled: true,
+            ledger_enabled: false,
+            ledger_show_balance: false,
+            ledger_show_debit: false,
+            reports_enabled: false
+          }
+        });
+        fetchData();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`Error: ${err.message || 'Failed to save plan'}`);
+      }
+    } catch (e) {
+      alert("Network error saving plan.");
+    }
+  };
+
+  const handleDeletePlan = async (id: number) => {
+    if (!verifySecurityPin()) return;
+    if (!window.confirm("Are you sure you want to delete this subscription plan? Existing companies on this plan will not be automatically deleted but should be migrated to another plan.")) return;
+
+    const token = localStorage.getItem('viri_token');
+    try {
+      const res = await fetch(`/api/admin/subscription-plans/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        alert("Plan deleted successfully!");
+        fetchData();
+      } else {
+        alert("Failed to delete plan.");
+      }
+    } catch (e) {
+      alert("Network error deleting plan.");
+    }
+  };
+
+  const handleRunMigrations = async () => {
+    if (!verifySecurityPin()) return;
+    setMigrationRunning(true);
+    const token = localStorage.getItem('viri_token');
+    try {
+      const res = await fetch('/api/admin/run-migrations', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        alert("Migrations run successfully!\n\nOutput:\n" + data.output);
+        fetchData();
+      } else {
+        alert("Failed to run migrations.");
+      }
+    } catch (e) {
+      alert("Network error running migrations.");
+    } finally {
+      setMigrationRunning(false);
+    }
+  };
+
+  const updateTerminalPermission = async (terminalId: number, showVbtl: boolean) => {
+    if (!verifySecurityPin()) return;
 
     const token = localStorage.getItem('viri_token');
     try {
@@ -226,6 +398,765 @@ export default function AdminDashboard() {
     }
   };
 
+  const renderCompanyCard = (company: any) => {
+    const adminUser = company.users?.find((u: any) => u.role === 'company_admin') || company.users?.[0];
+    return (
+      <div key={company.id} className="glass-panel p-6 border border-zinc-800 hover:border-zinc-700 transition-all flex flex-col gap-6 bg-black/20 rounded-2xl text-left">
+        {/* Header: Company Name & Status */}
+        <div className="flex flex-wrap justify-between items-center gap-4 border-b border-zinc-800/80 pb-4">
+          <div>
+            <h3 className="text-xl font-bold text-white tracking-tight">{company.name}</h3>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-400 mt-1">
+              <span>ID: #{company.id}</span>
+              {adminUser && (
+                <>
+                  <span className="text-zinc-700">•</span>
+                  <span>Email: <strong className="text-zinc-300 font-mono">{adminUser.email}</strong></span>
+                  <span className="text-zinc-700">•</span>
+                  <span>Phone: <strong className="text-zinc-300 font-mono">{adminUser.phone_number || 'N/A'}</strong></span>
+                  <span className="text-zinc-700">•</span>
+                  <button
+                    onClick={() => handleResetUserPassword(adminUser.id, adminUser.email)}
+                    className="text-[10px] text-yellow-500 hover:text-yellow-400 font-bold border border-yellow-500/30 px-2 py-0.5 rounded hover:bg-yellow-500/10 transition-all flex items-center gap-1"
+                  >
+                    <Lock size={10} /> Reset Password
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Status Badge */}
+            <span className={`px-2.5 py-1 rounded text-xs font-bold ${
+              company.status === 'active' 
+                ? 'bg-green-900/40 text-green-300 border border-green-500/20' 
+                : company.status === 'suspended'
+                  ? 'bg-orange-900/40 text-orange-300 border border-orange-500/20'
+                  : company.status === 'archived'
+                    ? 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                    : 'bg-yellow-900/40 text-yellow-300 border border-yellow-500/20'
+            }`}>
+              {company.status === 'pending' ? 'PENDING APPROVAL' : company.status.toUpperCase()}
+            </span>
+
+            {/* Actions */}
+            {company.status !== 'active' && (
+              <button 
+                onClick={() => updateCompany(company.id, 'active', company.subscription_tier, company.lock_timeout, company.max_terminals, company.license_expires_at, company.features)}
+                className="btn btn-success text-xs py-1.5 px-3 flex items-center gap-1.5 font-semibold"
+              >
+                Activate
+              </button>
+            )}
+            {company.status !== 'suspended' && (
+              <button 
+                onClick={() => updateCompany(company.id, 'suspended', company.subscription_tier, company.lock_timeout, company.max_terminals, company.license_expires_at, company.features)}
+                className="btn btn-outline text-xs py-1.5 px-3 border-orange-500/50 text-orange-400 hover:bg-orange-500/10 font-semibold"
+              >
+                Suspend
+              </button>
+            )}
+            {company.status !== 'archived' && (
+              <button 
+                onClick={() => updateCompany(company.id, 'archived', company.subscription_tier, company.lock_timeout, company.max_terminals, company.license_expires_at, company.features)}
+                className="btn btn-outline text-xs py-1.5 px-3 border-zinc-700 text-zinc-400 hover:bg-zinc-800 font-semibold"
+              >
+                Archive
+              </button>
+            )}
+            {company.status === 'archived' && (
+              <button 
+                onClick={() => handleDeleteCompany(company.id, company.name)}
+                className="btn btn-outline text-xs py-1.5 px-3 border-red-500/50 text-red-400 hover:bg-red-500/10 flex items-center gap-1 font-semibold"
+              >
+                <Trash2 size={13} /> Delete Company
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Grid Section: Key settings */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
+          {/* Subscription Plan/Tier Selector */}
+          <div className="input-group">
+            <label className="input-label flex items-center gap-1">
+              Subscription Tier
+              <Tooltip text="Billing plan selection controlling account limits and default features." />
+            </label>
+            <select 
+              className="input-field w-full text-sm font-medium"
+              value={company.subscription_tier}
+              onChange={(e) => {
+                const selectedTier = e.target.value;
+                const matchedPlan = subscriptionPlans.find(p => p.tier_key === selectedTier);
+                const defaultFeatures = matchedPlan ? matchedPlan.features : {};
+                updateCompany(
+                  company.id,
+                  company.status,
+                  selectedTier,
+                  matchedPlan ? matchedPlan.lock_timeout : company.lock_timeout,
+                  matchedPlan ? matchedPlan.max_terminals : company.max_terminals,
+                  company.license_expires_at,
+                  defaultFeatures
+                );
+              }}
+            >
+              {subscriptionPlans.map(plan => (
+                <option key={plan.id} value={plan.tier_key}>
+                  {plan.name} - MVR {plan.price} ({plan.max_terminals} {plan.max_terminals === 1 ? 'Terminal' : 'Terminals'})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Verifications Count */}
+          <div className="input-group">
+            <label className="input-label flex items-center gap-1">
+              Verifications (Used / Limit)
+              <Tooltip text="Total checks processed vs billing cycle limit." />
+            </label>
+            <div className="input-field bg-black/40 flex items-center justify-between text-sm font-mono opacity-80 cursor-not-allowed select-none">
+              <span>{company.verifications_count}</span>
+              <span className="text-zinc-500">/</span>
+              <span>
+                {(() => {
+                  const matchedPlan = subscriptionPlans.find(p => p.tier_key === company.subscription_tier);
+                  if (!matchedPlan) return 'Unlimited';
+                  return matchedPlan.price === 0 ? 20 : (matchedPlan.tier_key === '499' ? 300 : 'Unlimited');
+                })()}
+              </span>
+            </div>
+          </div>
+
+          {/* Max Terminals limit */}
+          <div className="input-group">
+            <label className="input-label flex items-center gap-1">
+              Terminals Limit
+              <Tooltip text="Current active terminals vs the max terminals limit (editable by superadmin)." />
+            </label>
+            <div className="flex items-center gap-2">
+              <input 
+                type="number"
+                min="1"
+                className="input-field text-sm font-mono text-center w-24"
+                value={company.max_terminals ?? 1}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  if (!isNaN(val)) {
+                    const updated = companies.map(c => c.id === company.id ? { ...c, max_terminals: val } : c);
+                    setCompanies(updated);
+                  }
+                }}
+                onBlur={(e) => {
+                  const val = parseInt(e.target.value);
+                  if (!isNaN(val)) {
+                    updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, val, company.license_expires_at, company.features);
+                  }
+                }}
+              />
+              <span className="text-xs text-zinc-400 font-mono">({company.terminals?.length ?? 0} active)</span>
+            </div>
+          </div>
+
+          {/* Lock Timeout */}
+          <div className="input-group">
+            <label className="input-label flex items-center gap-1">
+              Lock Timeout
+              <Tooltip text="Maximum inactive duration (seconds) before terminals lock automatically." />
+            </label>
+            <div className="flex items-center gap-2">
+              <input 
+                type="number"
+                min="5"
+                max="300"
+                className="input-field text-sm font-mono text-center w-24"
+                value={company.lock_timeout ?? 20}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  if (!isNaN(val)) {
+                    const updated = companies.map(c => c.id === company.id ? { ...c, lock_timeout: val } : c);
+                    setCompanies(updated);
+                  }
+                }}
+                onBlur={(e) => {
+                  const val = parseInt(e.target.value);
+                  if (!isNaN(val)) {
+                    updateCompany(company.id, company.status, company.subscription_tier, val, company.max_terminals, company.license_expires_at, company.features);
+                  }
+                }}
+              />
+              <span className="text-xs text-zinc-400 font-mono">seconds</span>
+            </div>
+          </div>
+
+          {/* Plan Expiry Date */}
+          <div className="input-group">
+            <label className="input-label flex items-center gap-1 text-red-400 font-semibold">
+              Plan Expiry Date
+              <Tooltip text="The date when this company's subscription will expire. Select a date then click Set." />
+            </label>
+            <div className="flex gap-2 items-center">
+              <input 
+                type="date"
+                className="input-field flex-1 text-sm font-mono text-white bg-zinc-900 border-zinc-800"
+                value={pendingExpiry[company.id] ?? (company.license_expires_at ? String(company.license_expires_at).substring(0, 10) : '')}
+                onChange={(e) => {
+                  setPendingExpiry(prev => ({ ...prev, [company.id]: e.target.value }));
+                }}
+              />
+              <button
+                type="button"
+                className="btn btn-success text-xs py-1.5 px-3 whitespace-nowrap"
+                onClick={() => {
+                  const val = pendingExpiry[company.id] ?? (company.license_expires_at ? String(company.license_expires_at).substring(0, 10) : '');
+                  updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, company.max_terminals, val || null, company.features);
+                  setPendingExpiry(prev => { const n = {...prev}; delete n[company.id]; return n; });
+                }}
+              >
+                Set
+              </button>
+            </div>
+          </div>
+
+          {/* Custom Feature Overrides Section */}
+          <div className="col-span-full border-t border-zinc-800/80 pt-4 mt-2 text-left">
+            <h4 className="text-xs font-bold text-zinc-400 mb-3 flex items-center gap-1.5">
+              <Shield size={14} className="text-yellow-500 animate-pulse" />
+              Individual Feature Overrides
+            </h4>
+            <div className="flex flex-wrap gap-x-6 gap-y-3">
+              {[
+                { key: 'verification_enabled', label: 'Verification Module' },
+                { key: 'ledger_enabled', label: 'Transaction Ledger' },
+                { key: 'ledger_show_balance', label: 'Ledger Show Balance' },
+                { key: 'ledger_show_debit', label: 'Ledger Show Debit (Outgoing)' },
+                { key: 'reports_enabled', label: 'Reports & Analytics' }
+              ].map(f => {
+                const isChecked = company.features?.[f.key] ?? false;
+                return (
+                  <label key={f.key} className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer hover:text-white select-none">
+                    <input
+                      type="checkbox"
+                      className="rounded bg-black border-zinc-700 text-yellow-500 focus:ring-yellow-500"
+                      checked={isChecked}
+                      onChange={(e) => {
+                        const updatedFeatures = {
+                          ...(company.features || {}),
+                          [f.key]: e.target.checked
+                        };
+                        updateCompany(
+                          company.id,
+                          company.status,
+                          company.subscription_tier,
+                          company.lock_timeout,
+                          company.max_terminals,
+                          company.license_expires_at,
+                          updatedFeatures
+                        );
+                      }}
+                    />
+                    {f.label}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Terminals list sub-section inside card */}
+        <div className="bg-black/35 rounded-xl border border-zinc-800/80 p-4">
+          <h4 className="text-sm font-bold text-zinc-300 mb-3 flex items-center gap-2">
+            <MonitorSmartphone size={16} className="text-zinc-400" />
+            Terminal Instances ({company.terminals?.length ?? 0})
+          </h4>
+          {company.terminals && company.terminals.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {company.terminals.map((term: any) => {
+                const showVbtl = term.permissions?.show_vbtl ?? false;
+                return (
+                  <div key={term.id} className="flex flex-wrap items-center justify-between gap-3 p-3 bg-zinc-950/40 border border-zinc-800 rounded-lg">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-semibold text-xs text-white truncate" title={term.terminal_name}>
+                        {term.terminal_name}
+                      </span>
+                      <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-mono shrink-0">
+                        {term.hardware_id ? term.hardware_id.substring(0, 8) + '...' : 'Unpaired'}
+                      </span>
+                    </div>
+                    
+                    <div className="flex items-center gap-4">
+                      {/* Toggle switch for VBTL show logs */}
+                      <label className="flex items-center gap-2 text-xs text-zinc-400 select-none cursor-pointer">
+                        <span>Show VBTL Logs</span>
+                        <input 
+                          type="checkbox"
+                          className="toggle-switch-checkbox opacity-0 absolute w-0 h-0"
+                          checked={showVbtl}
+                          onChange={() => updateTerminalPermission(term.id, !showVbtl)}
+                        />
+                        <div className={`w-8 h-4 rounded-full p-0.5 transition-colors ${showVbtl ? 'bg-emerald-500' : 'bg-zinc-700'}`}>
+                          <div className={`w-3 h-3 rounded-full bg-white transition-transform ${showVbtl ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </div>
+                      </label>
+
+                      {/* View Logs Button */}
+                      <button 
+                        onClick={() => openDebugLogModal(term)} 
+                        className="text-[10px] text-blue-400 hover:text-blue-300 border border-blue-500/30 px-2.5 py-1 rounded hover:bg-blue-500/10 transition-all flex items-center gap-1 font-mono font-medium"
+                      >
+                        <Terminal size={10} /> View Logs
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-zinc-500 italic text-xs py-1">No active cashier terminals linked to this company.</p>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderSubscriptionTiersManager = () => {
+    return (
+      <div className="flex flex-col gap-6 text-left">
+        {/* Tier Config Form */}
+        <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl">
+          <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+            <Plus size={20} className="text-yellow-500" />
+            {editingPlan ? 'Edit Subscription Tier Plan' : 'Create New Subscription Tier Plan'}
+          </h3>
+          <form onSubmit={handleSavePlan} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="input-group">
+              <label className="input-label">Tier Key (Unique URL key)</label>
+              <input
+                type="text"
+                required
+                disabled={!!editingPlan}
+                placeholder="e.g. starter, basic, custom_tier"
+                className="input-field text-sm"
+                value={planForm.tier_key}
+                onChange={e => setPlanForm(prev => ({ ...prev, tier_key: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') }))}
+              />
+            </div>
+            <div className="input-group">
+              <label className="input-label">Plan Name</label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Starter Plan"
+                className="input-field text-sm"
+                value={planForm.name}
+                onChange={e => setPlanForm(prev => ({ ...prev, name: e.target.value }))}
+              />
+            </div>
+            <div className="input-group">
+              <label className="input-label">Monthly Price (MVR)</label>
+              <input
+                type="number"
+                min="0"
+                required
+                placeholder="0"
+                className="input-field text-sm font-mono"
+                value={planForm.price}
+                onChange={e => setPlanForm(prev => ({ ...prev, price: parseFloat(e.target.value) || 0 }))}
+              />
+            </div>
+            <div className="input-group">
+              <label className="input-label">Terminals Limit</label>
+              <input
+                type="number"
+                min="1"
+                required
+                className="input-field text-sm font-mono"
+                value={planForm.max_terminals}
+                onChange={e => setPlanForm(prev => ({ ...prev, max_terminals: parseInt(e.target.value) || 1 }))}
+              />
+            </div>
+            <div className="input-group col-span-1">
+              <label className="input-label">Lock Timeout (seconds)</label>
+              <input
+                type="number"
+                min="5"
+                max="300"
+                required
+                className="input-field text-sm font-mono"
+                value={planForm.lock_timeout}
+                onChange={e => setPlanForm(prev => ({ ...prev, lock_timeout: parseInt(e.target.value) || 20 }))}
+              />
+            </div>
+
+            {/* Default Features Checkboxes */}
+            <div className="col-span-full border-t border-zinc-800/80 pt-4 mt-2">
+              <h4 className="text-xs font-bold text-zinc-400 mb-3">Default Enabled Functions/Modules</h4>
+              <div className="flex flex-wrap gap-x-6 gap-y-3">
+                {[
+                  { key: 'verification_enabled', label: 'Verification Module' },
+                  { key: 'ledger_enabled', label: 'Transaction Ledger' },
+                  { key: 'ledger_show_balance', label: 'Ledger Show Balance' },
+                  { key: 'ledger_show_debit', label: 'Ledger Show Debit (Outgoing)' },
+                  { key: 'reports_enabled', label: 'Reports & Analytics' }
+                ].map(f => {
+                  const isChecked = (planForm.features as any)[f.key] ?? false;
+                  return (
+                    <label key={f.key} className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer hover:text-white select-none">
+                      <input
+                        type="checkbox"
+                        className="rounded bg-black border-zinc-700 text-yellow-500 focus:ring-yellow-500"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          setPlanForm(prev => ({
+                            ...prev,
+                            features: {
+                              ...prev.features,
+                              [f.key]: e.target.checked
+                            }
+                          }));
+                        }}
+                      />
+                      {f.label}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="col-span-full flex gap-3 mt-2 justify-end">
+              {editingPlan && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingPlan(null);
+                    setPlanForm({
+                      tier_key: '',
+                      name: '',
+                      price: 0,
+                      max_terminals: 1,
+                      lock_timeout: 20,
+                      features: {
+                        verification_enabled: true,
+                        ledger_enabled: false,
+                        ledger_show_balance: false,
+                        ledger_show_debit: false,
+                        reports_enabled: false
+                      }
+                    });
+                  }}
+                  className="btn btn-outline text-xs px-4"
+                >
+                  Cancel Edit
+                </button>
+              )}
+              <button
+                type="submit"
+                className="btn btn-success text-xs px-6 py-2 font-bold"
+              >
+                {editingPlan ? 'Update Plan Tier' : 'Create Plan Tier'}
+              </button>
+            </div>
+          </form>
+        </div>
+
+        {/* Plans List Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {subscriptionPlans.map(plan => (
+            <div key={plan.id} className="glass-panel p-5 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col gap-4">
+              <div className="flex justify-between items-start border-b border-zinc-900 pb-3">
+                <div>
+                  <h4 className="text-lg font-bold text-white tracking-tight">{plan.name}</h4>
+                  <span className="font-mono text-[10px] text-zinc-500">Key: {plan.tier_key}</span>
+                </div>
+                <div className="text-right">
+                  <div className="text-lg font-extrabold text-yellow-400 font-mono">MVR {parseFloat(plan.price).toLocaleString()}</div>
+                  <span className="text-[10px] text-zinc-400">/ month</span>
+                </div>
+              </div>
+
+              <div className="flex-1 space-y-2">
+                <div className="flex justify-between text-xs text-zinc-400">
+                  <span>Terminals Limit:</span>
+                  <strong className="text-white font-mono">{plan.max_terminals}</strong>
+                </div>
+                <div className="flex justify-between text-xs text-zinc-400">
+                  <span>Auto-Lock Timeout:</span>
+                  <strong className="text-white font-mono">{plan.lock_timeout}s</strong>
+                </div>
+                
+                <div className="pt-2 border-t border-zinc-900">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-zinc-500 block mb-1.5">Enabled Functions:</span>
+                  <div className="flex flex-wrap gap-1">
+                    {[
+                      { key: 'verification_enabled', label: 'Verify' },
+                      { key: 'ledger_enabled', label: 'Ledger' },
+                      { key: 'ledger_show_balance', label: 'Balance' },
+                      { key: 'ledger_show_debit', label: 'Debit' },
+                      { key: 'reports_enabled', label: 'Reports' }
+                    ].map(f => {
+                      const isEnabled = plan.features?.[f.key] ?? false;
+                      return (
+                        <span
+                          key={f.key}
+                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider ${
+                            isEnabled
+                              ? 'bg-emerald-950/40 text-emerald-400 border-emerald-500/20'
+                              : 'bg-zinc-900/30 text-zinc-600 border-zinc-800'
+                          }`}
+                        >
+                          {f.label}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-zinc-900">
+                <button
+                  onClick={() => {
+                    setEditingPlan(plan);
+                    setPlanForm({
+                      tier_key: plan.tier_key,
+                      name: plan.name,
+                      price: plan.price,
+                      max_terminals: plan.max_terminals,
+                      lock_timeout: plan.lock_timeout,
+                      features: {
+                        verification_enabled: plan.features?.verification_enabled ?? true,
+                        ledger_enabled: plan.features?.ledger_enabled ?? false,
+                        ledger_show_balance: plan.features?.ledger_show_balance ?? false,
+                        ledger_show_debit: plan.features?.ledger_show_debit ?? false,
+                        reports_enabled: plan.features?.reports_enabled ?? false
+                      }
+                    });
+                  }}
+                  className="btn btn-outline text-xs px-3 py-1.5 flex items-center gap-1.5 font-semibold text-zinc-300 hover:text-white"
+                >
+                  <Edit size={12} /> Edit
+                </button>
+                {/* Prevent deleting default system plan keys if necessary, or just check */}
+                {!['free', '499', '999', '1999'].includes(plan.tier_key) && (
+                  <button
+                    onClick={() => handleDeletePlan(plan.id)}
+                    className="btn btn-outline text-xs px-3 py-1.5 border-red-500/30 text-red-400 hover:bg-red-500/10 flex items-center gap-1.5 font-semibold"
+                  >
+                    <Trash2 size={12} /> Delete Plan
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderSessionLogsTab = () => {
+    return (
+      <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl text-left animate-fade-in">
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+          <h3 className="text-xl font-bold text-white tracking-tight">Active Sessions & Logs Audit</h3>
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Company Filter */}
+            <select
+              className="input-field text-xs py-1.5 px-3 font-medium bg-zinc-900 border-zinc-800"
+              value={filterCompanyId}
+              onChange={(e) => {
+                setFilterCompanyId(e.target.value);
+                setLogsPage(1);
+              }}
+            >
+              <option value="">All Companies</option>
+              {companies.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+
+            {/* Event Type Filter */}
+            <select
+              className="input-field text-xs py-1.5 px-3 font-medium bg-zinc-900 border-zinc-800"
+              value={filterEventType}
+              onChange={(e) => {
+                setFilterEventType(e.target.value);
+                setLogsPage(1);
+              }}
+            >
+              <option value="">All Events</option>
+              <option value="session_login_started">Login Started</option>
+              <option value="session_login_success">Login Success</option>
+              <option value="session_login_failed">Login Failed</option>
+              <option value="session_claimed">Session Claimed</option>
+              <option value="session_heartbeat_lost">Heartbeat Lost</option>
+              <option value="session_released">Session Released</option>
+              <option value="fetch_request_submitted">Request Submitted</option>
+              <option value="fetch_request_fulfilled">Request Fulfilled</option>
+              <option value="fetch_request_failed">Request Failed</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Active Terminals and Session Holders Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800 flex items-center gap-4">
+            <div className="p-3 bg-emerald-900/30 text-emerald-400 rounded-full">
+              <MonitorSmartphone size={24} />
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-white">{activeTerminalsCount}</div>
+              <div className="text-xs text-zinc-400 uppercase tracking-wider font-semibold">Active Terminals</div>
+            </div>
+          </div>
+
+          <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800 flex items-center gap-4">
+            <div className="p-3 bg-blue-900/30 text-blue-400 rounded-full">
+              <Shield size={24} />
+            </div>
+            <div className="flex-1">
+              <div className="text-2xl font-bold text-white">{sessionHolders.length}</div>
+              <div className="text-xs text-zinc-400 uppercase tracking-wider font-semibold">Session Holding Terminals</div>
+            </div>
+            {sessionHolders.length > 0 && (
+              <div className="text-right">
+                <div className="text-[10px] text-zinc-500 mb-1">Current Holders:</div>
+                {sessionHolders.slice(0, 2).map((acc: any) => (
+                  <div key={acc.id} className="text-[10px] text-zinc-300 font-mono">
+                    {acc.session_holder_terminal?.terminal_name || 'Terminal'} ({acc.tenant?.name})
+                  </div>
+                ))}
+                {sessionHolders.length > 2 && (
+                  <div className="text-[10px] text-zinc-500 italic">+{sessionHolders.length - 2} more</div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {logsLoading ? (
+          <div className="text-center py-12 text-zinc-500 font-medium animate-pulse">Loading session activity logs...</div>
+        ) : sessionLogs.length === 0 ? (
+          <div className="text-center py-12 text-zinc-500 italic">No session logs match your criteria.</div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-zinc-800 text-zinc-400 font-semibold">
+                    <th className="pb-3 pr-4">Timestamp</th>
+                    <th className="pb-3 pr-4">Terminal / Company</th>
+                    <th className="pb-3 pr-4">Account</th>
+                    <th className="pb-3 pr-4">Event Type</th>
+                    <th className="pb-3 pr-4">Summary</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-900">
+                  {sessionLogs.map((log: any) => {
+                    const dateStr = new Date(log.created_at).toLocaleString();
+                    let badgeClass = "bg-zinc-800 text-zinc-400 border border-zinc-700";
+                    if (['session_login_success', 'session_claimed', 'fetch_request_fulfilled'].includes(log.event_type)) {
+                      badgeClass = "bg-green-950/40 text-green-400 border border-green-500/20";
+                    } else if (['session_login_failed', 'fetch_request_failed'].includes(log.event_type)) {
+                      badgeClass = "bg-red-950/40 text-red-400 border border-red-500/20";
+                    } else if (['session_heartbeat_lost', 'session_released'].includes(log.event_type)) {
+                      badgeClass = "bg-orange-950/40 text-orange-400 border border-orange-500/20";
+                    }
+                    const isExpanded = expandedLogId === log.id;
+                    return (
+                      <Fragment key={log.id}>
+                        <tr 
+                          className={`transition-colors border-b border-zinc-900/50 ${log.event_detail ? 'cursor-pointer hover:bg-zinc-800/25' : 'hover:bg-zinc-900/20'} ${isExpanded ? 'bg-zinc-850/40 border-b-0' : ''}`}
+                          onClick={() => log.event_detail && setExpandedLogId(isExpanded ? null : log.id)}
+                        >
+                          <td className="py-3 pr-4 font-mono text-zinc-400">{dateStr}</td>
+                          <td className="py-3 pr-4 font-medium text-white">
+                            {log.terminal_name || "System"} 
+                            <span className="text-[10px] text-zinc-500 block">{log.tenant?.name}</span>
+                          </td>
+                          <td className="py-3 pr-4 font-mono text-zinc-400">
+                            {log.bank_name || "N/A"}
+                            <span className="text-[10px] block">{log.account_number_masked || ""}</span>
+                          </td>
+                          <td className="py-3 pr-4">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${badgeClass}`}>
+                              {log.event_type.replace(/_/g, ' ').toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="py-3 pr-4 text-zinc-300 font-medium">
+                            <div className="flex items-center justify-between gap-4">
+                              <span>{log.event_summary}</span>
+                              {log.event_detail && (
+                                <span className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 rounded font-semibold whitespace-nowrap">
+                                  {isExpanded ? 'Hide Details' : 'View Details'}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                        {isExpanded && log.event_detail && (
+                          <tr className="bg-zinc-950/20 border-b border-zinc-900">
+                            <td colSpan={5} className="p-4">
+                              {log.event_detail.pwa_logs && log.event_detail.pwa_logs.length > 0 ? (
+                                <div className="flex flex-col gap-4">
+                                  {Object.keys(log.event_detail).filter(k => k !== 'pwa_logs').length > 0 && (
+                                    <div>
+                                      <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1 px-1">Event Details</div>
+                                      <pre className="text-[10px] font-mono text-zinc-400 bg-zinc-950/80 p-3 rounded-lg border border-zinc-800/80 overflow-x-auto max-w-full scrollbar-thin">
+                                        {JSON.stringify(Object.fromEntries(Object.entries(log.event_detail).filter(([k]) => k !== 'pwa_logs')), null, 2)}
+                                      </pre>
+                                    </div>
+                                  )}
+                                  <div>
+                                    <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1 px-1">Terminal Session Logs</div>
+                                    <div className="bg-[#0D0D0D] rounded-lg p-3.5 border border-zinc-800/80 font-mono text-[11px] text-[#4AF626] overflow-y-auto scrollbar-thin max-h-96 shadow-inner">
+                                      {Array.isArray(log.event_detail.pwa_logs) 
+                                        ? log.event_detail.pwa_logs.map((line: string, i: number) => (
+                                            <div key={i} className="whitespace-pre leading-relaxed">{line}</div>
+                                          ))
+                                        : <div className="whitespace-pre leading-relaxed">{JSON.stringify(log.event_detail.pwa_logs, null, 2)}</div>}
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <pre className="text-[10px] font-mono text-zinc-400 bg-zinc-950/80 p-3 rounded-lg border border-zinc-800/80 overflow-x-auto max-w-full scrollbar-thin">
+                                  {JSON.stringify(log.event_detail, null, 2)}
+                                </pre>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Footer */}
+            <div className="flex items-center justify-between border-t border-zinc-800 pt-4 mt-2">
+              <button
+                className="btn btn-outline text-xs px-3 py-1.5"
+                disabled={logsPage === 1}
+                onClick={() => setLogsPage(prev => Math.max(prev - 1, 1))}
+              >
+                Previous
+              </button>
+              <span className="text-xs text-zinc-400 font-mono">
+                Page {logsPage} of {logsTotalPages}
+              </span>
+              <button
+                className="btn btn-outline text-xs px-3 py-1.5"
+                disabled={logsPage === logsTotalPages}
+                onClick={() => setLogsPage(prev => Math.min(prev + 1, logsTotalPages))}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   if (loading) return <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center text-white">Loading...</div>;
 
   return (
@@ -245,7 +1176,7 @@ export default function AdminDashboard() {
         </header>
 
         {/* Navigation Tabs */}
-        <div className="flex border-b border-zinc-800 mb-6">
+        <div className="flex border-b border-zinc-800 mb-6 flex-wrap gap-2">
           <button
             onClick={() => setActiveTab('companies')}
             className={`px-4 py-2 text-sm font-bold border-b-2 transition-all ${
@@ -254,7 +1185,27 @@ export default function AdminDashboard() {
                 : 'border-transparent text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            Registered Companies
+            Registered Companies ({companies.filter(c => c.status !== 'archived').length})
+          </button>
+          <button
+            onClick={() => setActiveTab('archived')}
+            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all ${
+              activeTab === 'archived'
+                ? 'border-yellow-500 text-yellow-500'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            Archived Companies ({companies.filter(c => c.status === 'archived').length})
+          </button>
+          <button
+            onClick={() => setActiveTab('tiers')}
+            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all ${
+              activeTab === 'tiers'
+                ? 'border-yellow-500 text-yellow-500'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            Subscription Tiers ({subscriptionPlans.length})
           </button>
           <button
             onClick={() => setActiveTab('logs')}
@@ -269,469 +1220,53 @@ export default function AdminDashboard() {
         </div>
 
         {/* Security Confirmation PIN display */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-6 flex items-center justify-between shadow-lg">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-6 flex flex-wrap items-center justify-between gap-4 shadow-lg">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-yellow-500/10 flex items-center justify-center text-yellow-500">
               <Lock size={20} />
             </div>
             <div>
               <h4 className="font-bold text-white text-sm">Security Confirmation PIN</h4>
-              <p className="text-xs text-zinc-400">Enter this PIN to confirm company status updates or subscription plan changes.</p>
+              <p className="text-xs text-zinc-400">Enter this PIN to confirm company updates, password resets, plan edits, or deletions.</p>
             </div>
           </div>
-          <div className="bg-zinc-800 border border-zinc-700 px-4 py-2 rounded-lg">
-            <span className="font-mono text-xl font-extrabold text-yellow-400 tracking-widest">{securityPin}</span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleRunMigrations}
+              disabled={migrationRunning}
+              className="btn btn-outline text-xs border-zinc-700 text-zinc-400 font-mono py-1.5"
+            >
+              {migrationRunning ? 'Running...' : 'Run DB Migrations'}
+            </button>
+            <div className="bg-zinc-800 border border-zinc-700 px-4 py-2 rounded-lg">
+              <span className="font-mono text-xl font-extrabold text-yellow-400 tracking-widest">{securityPin}</span>
+            </div>
           </div>
         </div>
-
         <div className="flex flex-col gap-6">
-          {activeTab === 'companies' ?
-            companies.map(company => (
-              <div key={company.id} className="glass-panel p-6 border border-zinc-800 hover:border-zinc-700 transition-all flex flex-col gap-6 bg-black/20 rounded-2xl">
-              {/* Header: Company Name & Status */}
-              <div className="flex flex-wrap justify-between items-center gap-4 border-b border-zinc-800/80 pb-4">
-                {(() => {
-                  const adminUser = company.users?.find((u: any) => u.role === 'company_admin') || company.users?.[0];
-                  return (
-                    <div>
-                      <h3 className="text-xl font-bold text-white tracking-tight">{company.name}</h3>
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-400 mt-1">
-                        <span>ID: #{company.id}</span>
-                        {adminUser && (
-                          <>
-                            <span className="text-zinc-700">•</span>
-                            <span>Email: <strong className="text-zinc-300 font-mono">{adminUser.email}</strong></span>
-                            <span className="text-zinc-700">•</span>
-                            <span>Phone: <strong className="text-zinc-300 font-mono">{adminUser.phone_number || 'N/A'}</strong></span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()}
-                <div className="flex items-center gap-2 flex-wrap">
-                  {/* Status Badge */}
-                  <span className={`px-2.5 py-1 rounded text-xs font-bold ${
-                    company.status === 'active' 
-                      ? 'bg-green-900/40 text-green-300 border border-green-500/20' 
-                      : company.status === 'suspended'
-                        ? 'bg-orange-900/40 text-orange-300 border border-orange-500/20'
-                        : company.status === 'archived'
-                          ? 'bg-zinc-800 text-zinc-400 border border-zinc-700'
-                          : 'bg-yellow-900/40 text-yellow-300 border border-yellow-500/20'
-                  }`}>
-                    {company.status === 'pending' ? 'PENDING APPROVAL' : company.status.toUpperCase()}
-                  </span>
-
-                  {/* Actions */}
-                  {company.status !== 'active' && (
-                    <button 
-                      onClick={() => updateCompany(company.id, 'active', company.subscription_tier, company.lock_timeout, company.max_terminals)}
-                      className="btn btn-success text-xs py-1.5 px-3 flex items-center gap-1.5 font-semibold"
-                    >
-                      Activate
-                    </button>
-                  )}
-                  {company.status !== 'suspended' && (
-                    <button 
-                      onClick={() => updateCompany(company.id, 'suspended', company.subscription_tier, company.lock_timeout, company.max_terminals)}
-                      className="btn btn-outline text-xs py-1.5 px-3 border-orange-500/50 text-orange-400 hover:bg-orange-500/10 font-semibold"
-                    >
-                      Suspend
-                    </button>
-                  )}
-                  {company.status !== 'archived' && (
-                    <button 
-                      onClick={() => updateCompany(company.id, 'archived', company.subscription_tier, company.lock_timeout, company.max_terminals)}
-                      className="btn btn-outline text-xs py-1.5 px-3 border-zinc-700 text-zinc-400 hover:bg-zinc-800 font-semibold"
-                    >
-                      Archive
-                    </button>
-                  )}
-                </div>
+          {activeTab === 'companies' && (
+            companies.filter(c => c.status !== 'archived').length === 0 ? (
+              <div className="glass-panel p-8 text-center text-zinc-500 italic bg-black/20 rounded-2xl border border-zinc-850">
+                No active registered companies found.
               </div>
-
-              {/* Grid Section: Key settings */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
-                {/* Subscription Tier */}
-                <div className="input-group">
-                  <label className="input-label flex items-center gap-1">
-                    Subscription Tier
-                    <Tooltip text="Billing plan selection controlling account limits." />
-                  </label>
-                  <select 
-                    className="input-field w-full text-sm font-medium"
-                    value={company.subscription_tier}
-                    onChange={(e) => updateCompany(company.id, company.status, e.target.value, company.lock_timeout, company.max_terminals, company.license_expires_at)}
-                  >
-                    <option value="free">Free (1 Cashier Terminal)</option>
-                    <option value="499">Starter - MVR 499 (1 Cashier Terminal)</option>
-                    <option value="999">Growth - MVR 999 (1 Cashier Terminal, add. CT at 499/-)</option>
-                    <option value="1999">Enterprise - MVR 1999 (2 Cashier Terminals, add. CT at 399/-)</option>
-                  </select>
-                </div>
-
-                {/* Verifications Count */}
-                <div className="input-group">
-                  <label className="input-label flex items-center gap-1">
-                    Verifications (Used / Limit)
-                    <Tooltip text="Total checks processed vs billing cycle limit." />
-                  </label>
-                  <div className="input-field bg-black/40 flex items-center justify-between text-sm font-mono opacity-80 cursor-not-allowed select-none">
-                    <span>{company.verifications_count}</span>
-                    <span className="text-zinc-500">/</span>
-                    <span>{company.subscription_tier === 'free' ? 20 : (company.subscription_tier === '499' ? 300 : 'Unlimited')}</span>
-                  </div>
-                </div>
-
-                {/* Max Terminals limit */}
-                <div className="input-group">
-                  <label className="input-label flex items-center gap-1">
-                    Terminals Limit
-                    <Tooltip text="Current active terminals vs the max terminals limit (editable by superadmin)." />
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input 
-                      type="number"
-                      min="1"
-                      className="input-field text-sm font-mono text-center w-24"
-                      value={company.max_terminals ?? 1}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value);
-                        if (!isNaN(val)) {
-                          const updated = companies.map(c => c.id === company.id ? { ...c, max_terminals: val } : c);
-                          setCompanies(updated);
-                        }
-                      }}
-                      onBlur={(e) => {
-                        const val = parseInt(e.target.value);
-                        if (!isNaN(val)) {
-                          updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, val, company.license_expires_at);
-                        }
-                      }}
-                    />
-                    <span className="text-xs text-zinc-400 font-mono">({company.terminals?.length ?? 0} active)</span>
-                  </div>
-                </div>
-
-                {/* Lock Timeout */}
-                <div className="input-group">
-                  <label className="input-label flex items-center gap-1">
-                    Lock Timeout
-                    <Tooltip text="Maximum inactive duration (seconds) before terminals lock automatically." />
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input 
-                      type="number"
-                      min="5"
-                      max="300"
-                      className="input-field text-sm font-mono text-center w-24"
-                      value={company.lock_timeout ?? 20}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value);
-                        if (!isNaN(val)) {
-                          const updated = companies.map(c => c.id === company.id ? { ...c, lock_timeout: val } : c);
-                          setCompanies(updated);
-                        }
-                      }}
-                      onBlur={(e) => {
-                        const val = parseInt(e.target.value);
-                        if (!isNaN(val)) {
-                          updateCompany(company.id, company.status, company.subscription_tier, val, company.max_terminals, company.license_expires_at);
-                        }
-                      }}
-                    />
-                    <span className="text-xs text-zinc-400">seconds</span>
-                  </div>
-                </div>
-
-                {/* Plan Expiry Date */}
-                <div className="input-group">
-                  <label className="input-label flex items-center gap-1 text-red-400 font-semibold">
-                    Plan Expiry Date
-                    <Tooltip text="The date when this company's subscription will expire. Select a date then click Set." />
-                  </label>
-                  <div className="flex gap-2 items-center">
-                    <input 
-                      type="date"
-                      className="input-field flex-1 text-sm font-mono text-white bg-zinc-900 border-zinc-800"
-                      value={pendingExpiry[company.id] ?? (company.license_expires_at ? String(company.license_expires_at).substring(0, 10) : '')}
-                      onChange={(e) => {
-                        // Only update local buffer, do NOT trigger PIN prompt on every keystroke
-                        setPendingExpiry(prev => ({ ...prev, [company.id]: e.target.value }));
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-success text-xs py-1.5 px-3 whitespace-nowrap"
-                      onClick={() => {
-                        const val = pendingExpiry[company.id] ?? (company.license_expires_at ? String(company.license_expires_at).substring(0, 10) : '');
-                        updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, company.max_terminals, val || null);
-                        setPendingExpiry(prev => { const n = {...prev}; delete n[company.id]; return n; });
-                      }}
-                    >
-                      Set
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Terminals list sub-section inside card */}
-              <div className="bg-black/35 rounded-xl border border-zinc-800/80 p-4">
-                <h4 className="text-sm font-bold text-zinc-300 mb-3 flex items-center gap-2">
-                  <MonitorSmartphone size={16} className="text-zinc-400" />
-                  Terminal Instances ({company.terminals?.length ?? 0})
-                </h4>
-                {company.terminals && company.terminals.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {company.terminals.map((term: any) => {
-                      const showVbtl = term.permissions?.show_vbtl ?? false;
-                      return (
-                        <div key={term.id} className="flex flex-wrap items-center justify-between gap-3 p-3 bg-zinc-950/40 border border-zinc-800 rounded-lg">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="font-semibold text-xs text-white truncate" title={term.terminal_name}>
-                              {term.terminal_name}
-                            </span>
-                            <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-mono shrink-0">
-                              {term.hardware_id ? term.hardware_id.substring(0, 8) + '...' : 'Unpaired'}
-                            </span>
-                          </div>
-                          
-                          <div className="flex items-center gap-4">
-                            {/* Toggle switch for VBTL show logs */}
-                            <label className="flex items-center gap-2 text-xs text-zinc-400 select-none cursor-pointer">
-                              <span>Show VBTL Logs</span>
-                              <input 
-                                type="checkbox"
-                                className="toggle-switch-checkbox opacity-0 absolute w-0 h-0"
-                                checked={showVbtl}
-                                onChange={() => updateTerminalPermission(term.id, !showVbtl)}
-                              />
-                              <div className={`w-8 h-4 rounded-full p-0.5 transition-colors ${showVbtl ? 'bg-emerald-500' : 'bg-zinc-700'}`}>
-                                <div className={`w-3 h-3 rounded-full bg-white transition-transform ${showVbtl ? 'translate-x-4' : 'translate-x-0'}`} />
-                              </div>
-                            </label>
-
-                            {/* View Logs Button */}
-                            <button 
-                              onClick={() => openDebugLogModal(term)} 
-                              className="text-[10px] text-blue-400 hover:text-blue-300 border border-blue-500/30 px-2.5 py-1 rounded hover:bg-blue-500/10 transition-all flex items-center gap-1 font-mono font-medium"
-                            >
-                              <Terminal size={10} /> View Logs
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-zinc-500 italic text-xs py-1">No active cashier terminals linked to this company.</p>
-                )}
-              </div>
-            </div>
-          )) : (
-            <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl">
-              <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-                <h3 className="text-xl font-bold text-white tracking-tight">Active Sessions & Logs Audit</h3>
-                <div className="flex items-center gap-3 flex-wrap">
-                  {/* Company Filter */}
-                  <select
-                    className="input-field text-xs py-1.5 px-3 font-medium bg-zinc-900 border-zinc-800"
-                    value={filterCompanyId}
-                    onChange={(e) => {
-                      setFilterCompanyId(e.target.value);
-                      setLogsPage(1);
-                    }}
-                  >
-                    <option value="">All Companies</option>
-                    {companies.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
-
-                  {/* Event Type Filter */}
-                  <select
-                    className="input-field text-xs py-1.5 px-3 font-medium bg-zinc-900 border-zinc-800"
-                    value={filterEventType}
-                    onChange={(e) => {
-                      setFilterEventType(e.target.value);
-                      setLogsPage(1);
-                    }}
-                  >
-                    <option value="">All Events</option>
-                    <option value="session_login_started">Login Started</option>
-                    <option value="session_login_success">Login Success</option>
-                    <option value="session_login_failed">Login Failed</option>
-                    <option value="session_claimed">Session Claimed</option>
-                    <option value="session_heartbeat_lost">Heartbeat Lost</option>
-                    <option value="session_released">Session Released</option>
-                    <option value="fetch_request_submitted">Request Submitted</option>
-                    <option value="fetch_request_fulfilled">Request Fulfilled</option>
-                    <option value="fetch_request_failed">Request Failed</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Active Terminals and Session Holders Stats */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800 flex items-center gap-4">
-                  <div className="p-3 bg-emerald-900/30 text-emerald-400 rounded-full">
-                    <MonitorSmartphone size={24} />
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold text-white">{activeTerminalsCount}</div>
-                    <div className="text-xs text-zinc-400 uppercase tracking-wider font-semibold">Active Terminals</div>
-                  </div>
-                </div>
-
-                <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800 flex items-center gap-4">
-                  <div className="p-3 bg-blue-900/30 text-blue-400 rounded-full">
-                    <Shield size={24} />
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-2xl font-bold text-white">{sessionHolders.length}</div>
-                    <div className="text-xs text-zinc-400 uppercase tracking-wider font-semibold">Session Holding Terminals</div>
-                  </div>
-                  {sessionHolders.length > 0 && (
-                    <div className="text-right">
-                      <div className="text-[10px] text-zinc-500 mb-1">Current Holders:</div>
-                      {sessionHolders.slice(0, 2).map((acc: any) => (
-                        <div key={acc.id} className="text-[10px] text-zinc-300 font-mono">
-                          {acc.session_holder_terminal?.terminal_name || 'Terminal'} ({acc.tenant?.name})
-                        </div>
-                      ))}
-                      {sessionHolders.length > 2 && (
-                        <div className="text-[10px] text-zinc-500 italic">+{sessionHolders.length - 2} more</div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {logsLoading ? (
-                <div className="text-center py-12 text-zinc-500 font-medium">Loading session activity logs...</div>
-              ) : sessionLogs.length === 0 ? (
-                <div className="text-center py-12 text-zinc-500 italic">No session logs match your criteria.</div>
-              ) : (
-                <div className="flex flex-col gap-4">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b border-zinc-800 text-zinc-400 font-semibold">
-                          <th className="pb-3 pr-4">Timestamp</th>
-                          <th className="pb-3 pr-4">Terminal / Company</th>
-                          <th className="pb-3 pr-4">Account</th>
-                          <th className="pb-3 pr-4">Event Type</th>
-                          <th className="pb-3 pr-4">Summary</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-900">
-                        {sessionLogs.map((log: any) => {
-                          const dateStr = new Date(log.created_at).toLocaleString();
-                          // Determine event badge color
-                          let badgeClass = "bg-zinc-800 text-zinc-400 border border-zinc-700";
-                          if (['session_login_success', 'session_claimed', 'fetch_request_fulfilled'].includes(log.event_type)) {
-                            badgeClass = "bg-green-950/40 text-green-400 border border-green-500/20";
-                          } else if (['session_login_failed', 'fetch_request_failed'].includes(log.event_type)) {
-                            badgeClass = "bg-red-950/40 text-red-400 border border-red-500/20";
-                          } else if (['session_heartbeat_lost', 'session_released'].includes(log.event_type)) {
-                            badgeClass = "bg-orange-950/40 text-orange-400 border border-orange-500/20";
-                          }
-                          const isExpanded = expandedLogId === log.id;
-                          return (
-                            <Fragment key={log.id}>
-                              <tr 
-                                className={`transition-colors border-b border-zinc-900/50 ${log.event_detail ? 'cursor-pointer hover:bg-zinc-800/25' : 'hover:bg-zinc-900/20'} ${isExpanded ? 'bg-zinc-850/40 border-b-0' : ''}`}
-                                onClick={() => log.event_detail && setExpandedLogId(isExpanded ? null : log.id)}
-                              >
-                                <td className="py-3 pr-4 font-mono text-zinc-400">{dateStr}</td>
-                                <td className="py-3 pr-4 font-medium text-white">
-                                  {log.terminal_name || "System"} 
-                                  <span className="text-[10px] text-zinc-500 block">{log.tenant?.name}</span>
-                                </td>
-                                <td className="py-3 pr-4 font-mono text-zinc-400">
-                                  {log.bank_name || "N/A"}
-                                  <span className="text-[10px] block">{log.account_number_masked || ""}</span>
-                                </td>
-                                <td className="py-3 pr-4">
-                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${badgeClass}`}>
-                                    {log.event_type.replace(/_/g, ' ').toUpperCase()}
-                                  </span>
-                                </td>
-                                <td className="py-3 pr-4 text-zinc-300 font-medium">
-                                  <div className="flex items-center justify-between gap-4">
-                                    <span>{log.event_summary}</span>
-                                    {log.event_detail && (
-                                      <span className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 rounded font-semibold whitespace-nowrap">
-                                        {isExpanded ? 'Hide Details' : 'View Details'}
-                                      </span>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                              {isExpanded && log.event_detail && (
-                                <tr className="bg-zinc-950/20 border-b border-zinc-900">
-                                  <td colSpan={5} className="p-4">
-                                    {log.event_detail.pwa_logs && log.event_detail.pwa_logs.length > 0 ? (
-                                      <div className="flex flex-col gap-4">
-                                        {Object.keys(log.event_detail).filter(k => k !== 'pwa_logs').length > 0 && (
-                                          <div>
-                                            <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1 px-1">Event Details</div>
-                                            <pre className="text-[10px] font-mono text-zinc-400 bg-zinc-950/80 p-3 rounded-lg border border-zinc-800/80 overflow-x-auto max-w-full scrollbar-thin">
-                                              {JSON.stringify(Object.fromEntries(Object.entries(log.event_detail).filter(([k]) => k !== 'pwa_logs')), null, 2)}
-                                            </pre>
-                                          </div>
-                                        )}
-                                        <div>
-                                          <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1 px-1">Terminal Session Logs</div>
-                                          <div className="bg-[#0D0D0D] rounded-lg p-3.5 border border-zinc-800/80 font-mono text-[11px] text-[#4AF626] overflow-y-auto scrollbar-thin max-h-96 shadow-inner">
-                                            {Array.isArray(log.event_detail.pwa_logs) 
-                                              ? log.event_detail.pwa_logs.map((line: string, i: number) => (
-                                                  <div key={i} className="whitespace-pre leading-relaxed">{line}</div>
-                                                ))
-                                              : <div className="whitespace-pre leading-relaxed">{JSON.stringify(log.event_detail.pwa_logs, null, 2)}</div>}
-                                          </div>
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      <pre className="text-[10px] font-mono text-zinc-400 bg-zinc-950/80 p-3 rounded-lg border border-zinc-800/80 overflow-x-auto max-w-full scrollbar-thin">
-                                        {JSON.stringify(log.event_detail, null, 2)}
-                                      </pre>
-                                    )}
-                                  </td>
-                                </tr>
-                              )}
-                            </Fragment>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Pagination Footer */}
-                  <div className="flex items-center justify-between border-t border-zinc-800 pt-4 mt-2">
-                    <button
-                      className="btn btn-outline text-xs px-3 py-1.5"
-                      disabled={logsPage === 1}
-                      onClick={() => setLogsPage(prev => Math.max(prev - 1, 1))}
-                    >
-                      Previous
-                    </button>
-                    <span className="text-xs text-zinc-400 font-mono">
-                      Page {logsPage} of {logsTotalPages}
-                    </span>
-                    <button
-                      className="btn btn-outline text-xs px-3 py-1.5"
-                      disabled={logsPage === logsTotalPages}
-                      onClick={() => setLogsPage(prev => Math.min(prev + 1, logsTotalPages))}
-                    >
-                      Next
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+            ) : (
+              companies.filter(c => c.status !== 'archived').map(company => renderCompanyCard(company))
+            )
           )}
+
+          {activeTab === 'archived' && (
+            companies.filter(c => c.status === 'archived').length === 0 ? (
+              <div className="glass-panel p-8 text-center text-zinc-500 italic bg-black/20 rounded-2xl border border-zinc-850">
+                No archived companies found.
+              </div>
+            ) : (
+              companies.filter(c => c.status === 'archived').map(company => renderCompanyCard(company))
+            )
+          )}
+
+          {activeTab === 'tiers' && renderSubscriptionTiersManager()}
+
+          {activeTab === 'logs' && renderSessionLogsTab()}
         </div>
 
         {/* Debug Logs Viewer Modal */}
@@ -746,23 +1281,23 @@ export default function AdminDashboard() {
                 <X size={20} />
               </button>
 
-              <h3 className="text-lg font-bold mb-2 flex items-center gap-2 pr-8">
+              <h3 className="text-lg font-bold mb-2 flex items-center gap-2 pr-8 text-left">
                 <Terminal size={18} className="text-blue-400" />
                 Debug Logs: {selectedTerminal.terminal_name}
               </h3>
-              <p className="text-xs text-[var(--text-secondary)] mb-4">
+              <p className="text-xs text-[var(--text-secondary)] mb-4 text-left">
                 Enter the 6-digit debug code generated by the tenant admin to view this terminal's logs.
               </p>
 
               {modalError && (
-                <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded text-xs text-red-400">
+                <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded text-xs text-red-400 text-left">
                   {modalError}
                 </div>
               )}
 
               {modalLogs === null ? (
                 <form onSubmit={fetchTerminalLogs} className="flex flex-col gap-4 mt-2">
-                  <div className="input-group">
+                  <div className="input-group text-left">
                     <label className="input-label">One-Time Debug Code</label>
                     <input 
                       type="text" 
@@ -803,7 +1338,7 @@ export default function AdminDashboard() {
                     </div>
                   )}
 
-                  <div className="bg-black/50 border border-zinc-800 rounded-lg p-4 font-mono text-xs text-green-400 h-80 overflow-y-auto flex flex-col gap-1.5 scrollbar-thin">
+                  <div className="bg-black/50 border border-zinc-800 rounded-lg p-4 font-mono text-xs text-green-400 h-80 overflow-y-auto flex flex-col gap-1.5 scrollbar-thin text-left">
                     {modalLogs.length === 0 ? (
                       <span className="text-zinc-500 italic">No logs uploaded.</span>
                     ) : (

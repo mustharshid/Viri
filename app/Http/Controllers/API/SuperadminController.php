@@ -26,40 +26,42 @@ class SuperadminController extends Controller
     {
         $request->validate([
             'status' => 'required|in:pending,active,suspended,archived',
-            'subscription_tier' => 'required|in:free,499,999,1999',
+            'subscription_tier' => 'required|string',
             'lock_timeout' => 'sometimes|integer|min:5|max:300',
             'max_terminals' => 'sometimes|integer|min:1',
             'license_expires_at' => 'sometimes|nullable|date',
+            'features' => 'sometimes|array',
         ]);
 
         $tenant = Tenant::findOrFail($id);
+        
+        $oldTier = $tenant->subscription_tier;
         $tenant->status = $request->status;
         $tenant->subscription_tier = $request->subscription_tier;
+        
         if ($request->has('lock_timeout')) {
             $tenant->lock_timeout = $request->lock_timeout;
         }
         if ($request->has('license_expires_at')) {
             $tenant->license_expires_at = $request->license_expires_at;
         }
-
-        // Handle max terminals updating and dynamic baselines
-        $maxTerminals = $request->has('max_terminals') ? $request->max_terminals : ($tenant->max_terminals ?? 1);
-        if ($tenant->subscription_tier === 'free' || $tenant->subscription_tier === '499') {
-            $maxTerminals = 1;
-        } elseif ($tenant->subscription_tier === '999') {
-            if ($maxTerminals < 1) {
-                $maxTerminals = 1;
-            }
-        } elseif ($tenant->subscription_tier === '1999') {
-            if ($maxTerminals < 2) {
-                $maxTerminals = 2;
-            }
+        if ($request->has('max_terminals')) {
+            $tenant->max_terminals = $request->max_terminals;
         }
-        $tenant->max_terminals = $maxTerminals;
+
+        // Features updates
+        $plan = \App\Models\SubscriptionPlan::where('tier_key', $request->subscription_tier)->first();
+        if ($request->has('features')) {
+            $tenant->features = $request->features;
+        } elseif ($oldTier !== $request->subscription_tier && $plan) {
+            // Tier changed and no custom features sent, auto-apply defaults from new tier
+            $tenant->features = $plan->features;
+            $tenant->max_terminals = $plan->max_terminals;
+            $tenant->lock_timeout = $plan->lock_timeout;
+        }
 
         $tenant->save();
 
-        // Also approve the primary user if it's active
         if ($request->status === 'active') {
             User::where('tenant_id', $tenant->id)->update(['status' => 'approved']);
         }
@@ -144,5 +146,99 @@ class SuperadminController extends Controller
         $response['session_holders'] = \App\Models\BankAccount::whereNotNull('session_holder_terminal_id')->with('tenant')->get();
         
         return response()->json($response);
+    }
+
+    public function deleteCompany($id)
+    {
+        $tenant = Tenant::findOrFail($id);
+        if ($tenant->status !== 'archived') {
+            return response()->json(['error' => 'Only archived companies can be deleted.'], 400);
+        }
+
+        // Cascade delete relations
+        $tenant->terminals()->delete();
+        $tenant->bankAccounts()->delete();
+        $tenant->users()->delete();
+        $tenant->invoices()->delete();
+        $tenant->auditLogs()->delete();
+        
+        \App\Models\SessionActivityLog::where('tenant_id', $tenant->id)->delete();
+        \App\Models\SessionFetchRequest::whereHas('bankAccount', function($q) use ($tenant) {
+            $q->where('tenant_id', $tenant->id);
+        })->delete();
+
+        $tenant->delete();
+
+        return response()->json(['message' => 'Company and all associated data deleted successfully']);
+    }
+
+    public function resetPassword(Request $request, $id)
+    {
+        $request->validate([
+            'password' => 'required|string|min:8',
+        ]);
+
+        $user = User::findOrFail($id);
+        $user->password = \Illuminate\Support\Facades\Hash::make($request->password);
+        $user->save();
+
+        return response()->json(['message' => 'Password reset successfully']);
+    }
+
+    public function listSubscriptionPlans()
+    {
+        $plans = \App\Models\SubscriptionPlan::orderBy('price', 'asc')->get();
+        return response()->json($plans);
+    }
+
+    public function createSubscriptionPlan(Request $request)
+    {
+        $request->validate([
+            'tier_key' => 'required|string|unique:subscription_plans,tier_key',
+            'name' => 'required|string',
+            'price' => 'required|numeric|min:0',
+            'max_terminals' => 'required|integer|min:1',
+            'lock_timeout' => 'required|integer|min:5|max:300',
+            'features' => 'required|array'
+        ]);
+
+        $plan = \App\Models\SubscriptionPlan::create($request->all());
+        return response()->json(['message' => 'Subscription plan created successfully', 'plan' => $plan]);
+    }
+
+    public function updateSubscriptionPlan(Request $request, $id)
+    {
+        $request->validate([
+            'tier_key' => 'required|string|unique:subscription_plans,tier_key,' . $id,
+            'name' => 'required|string',
+            'price' => 'required|numeric|min:0',
+            'max_terminals' => 'required|integer|min:1',
+            'lock_timeout' => 'required|integer|min:5|max:300',
+            'features' => 'required|array'
+        ]);
+
+        $plan = \App\Models\SubscriptionPlan::findOrFail($id);
+        $plan->update($request->all());
+        return response()->json(['message' => 'Subscription plan updated successfully', 'plan' => $plan]);
+    }
+
+    public function deleteSubscriptionPlan($id)
+    {
+        $plan = \App\Models\SubscriptionPlan::findOrFail($id);
+        $plan->delete();
+        return response()->json(['message' => 'Subscription plan deleted successfully']);
+    }
+
+    public function runMigrations(Request $request)
+    {
+        if ($request->user()->role !== 'superadmin') {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+        
+        \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
+        
+        return response()->json([
+            'output' => \Illuminate\Support\Facades\Artisan::output()
+        ]);
     }
 }
