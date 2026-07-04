@@ -2015,7 +2015,7 @@ function App() {
       } else if (e.key.toLowerCase() === 'v') {
         e.preventDefault();
         setActiveTab('verify');
-      } else if (e.key.toLowerCase() === 't') {
+      } else if (e.key.toLowerCase() === 'l') {
         e.preventDefault();
         setActiveTab('ledger');
       } else if (e.key >= '1' && e.key <= '9') {
@@ -2252,8 +2252,8 @@ function App() {
               <span className="bg-zinc-800 text-zinc-300 font-mono px-1.5 rounded border border-zinc-700">V</span>
             </div>
             <div className="flex justify-between items-center text-[10px]">
-              <span className="text-zinc-400">Transactions Tab</span>
-              <span className="bg-zinc-800 text-zinc-300 font-mono px-1.5 rounded border border-zinc-700">T</span>
+              <span className="text-zinc-400">Ledger Tab</span>
+              <span className="bg-zinc-800 text-zinc-300 font-mono px-1.5 rounded border border-zinc-700">L</span>
             </div>
           </div>
         </div>
