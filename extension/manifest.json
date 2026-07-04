@@ -26,5 +26,17 @@
       "https://soft.thinksafe.mv/*",
       "https://viri.thinksafe.mv/*"
     ]
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "https://*.viri.app/*",
+        "https://soft.thinksafe.mv/*",
+        "https://viri.thinksafe.mv/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
 }

@@ -311,6 +311,24 @@ function App() {
     return () => clearInterval(interval);
   }, [extensionId]);
 
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'VIRI_BRIDGE_HEARTBEAT' && event.data.extensionId) {
+        console.log("Auto-detected Viri Bridge Extension ID:", event.data.extensionId);
+        setExtensionId(event.data.extensionId);
+        localStorage.setItem('viri_extension_id', event.data.extensionId);
+        if (event.data.version) {
+          setExtensionVersion(event.data.version);
+        }
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    try {
+      window.postMessage({ type: 'REQUEST_VIRI_BRIDGE_ID' }, '*');
+    } catch (e) { }
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
   const [showSettings, setShowSettings] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     return localStorage.getItem('viri_sidebar_collapsed') === 'true';
