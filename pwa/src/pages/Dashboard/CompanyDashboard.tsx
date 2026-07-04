@@ -495,357 +495,448 @@ export default function CompanyDashboard() {
   if (loading) return <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center text-white">Loading...</div>;
 
   return (
-    <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)] flex">
-      <aside className="w-64 border-r border-[var(--border-color)] bg-[var(--bg-surface)] p-6 hidden md:flex flex-col justify-between h-screen sticky top-0 shrink-0">
+    <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)] flex font-sans antialiased">
+      {/* ── Sidebar Navigation ── */}
+      <aside className="w-64 border-r border-zinc-800/60 bg-zinc-950/40 backdrop-blur-xl p-6 hidden md:flex flex-col justify-between h-screen sticky top-0 shrink-0">
         <div>
-          <div className="mb-8">
-            <img src="/logo_en.png" alt="Viri Logo" className="h-32 object-contain" />
+          <div className="mb-8 flex items-center justify-center p-3 rounded-2xl bg-zinc-900/20 border border-zinc-800/40 shadow-inner">
+            <img src="/logo_en.png" alt="Viri Logo" className="h-16 object-contain filter drop-shadow-[0_0_15px_rgba(16,185,129,0.15)]" />
           </div>
-          <nav className="space-y-2">
-            <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'dashboard' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
-              <LayoutDashboard size={20} /> Dashboard
+          <nav className="space-y-1.5">
+            <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'dashboard' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
+              <LayoutDashboard size={18} /> Dashboard
             </button>
-            <button onClick={() => setActiveTab('reporting')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'reporting' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
-              <BarChart3 size={20} /> Reporting
+            <button onClick={() => setActiveTab('reporting')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'reporting' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
+              <BarChart3 size={18} /> Reporting
             </button>
-            <button onClick={() => setActiveTab('activity')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'activity' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
-              <Clock size={20} /> Activity Logs
+            <button onClick={() => setActiveTab('activity')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'activity' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
+              <Clock size={18} /> Activity Logs
             </button>
-            <button onClick={() => setActiveTab('plans')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'plans' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
-              <CreditCard size={20} /> Plans & Upgrades
+            <button onClick={() => setActiveTab('plans')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'plans' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
+              <CreditCard size={18} /> Plans & Upgrades
             </button>
-            <button onClick={() => setActiveTab('support')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'support' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
-              <LifeBuoy size={20} /> Support
+            <button onClick={() => setActiveTab('support')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'support' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
+              <LifeBuoy size={18} /> Support
             </button>
-            <button onClick={() => setActiveTab('help')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'help' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
-              <Info size={20} /> Help Center
+            <button onClick={() => setActiveTab('help')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'help' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
+              <Info size={18} /> Help Center
             </button>
           </nav>
         </div>
         <div>
-          <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'settings' ? 'bg-[var(--color-success)] text-black font-bold' : 'hover:bg-white/5 text-[var(--text-secondary)]'}`}>
-            <Settings size={20} /> Settings
+          <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'settings' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
+            <Settings size={18} /> Settings
           </button>
         </div>
       </aside>
 
+      {/* ── Main Content Area ── */}
       <main className="flex-1 p-6 lg:p-10 overflow-y-auto">
-        <header className="flex justify-between items-center mb-8">
+        <header className="flex justify-between items-center mb-8 bg-zinc-900/10 border border-zinc-800/30 p-5 rounded-2xl backdrop-blur-md">
           <div>
-            <h1 className="text-3xl font-bold capitalize">{activeTab === 'dashboard' ? 'Company Dashboard' : activeTab}</h1>
-            <p className="text-[var(--text-secondary)]">Welcome, {user?.name} ({user?.tenant?.name})</p>
+            <h1 className="text-2xl font-bold text-white tracking-tight capitalize flex items-center gap-2">
+              {activeTab === 'dashboard' ? 'Overview' : activeTab}
+            </h1>
+            <p className="text-zinc-400 text-xs mt-0.5">Manage and monitor cashier terminals and local banking setups</p>
           </div>
           <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2.5 bg-zinc-900/60 border border-zinc-800/80 px-4 py-2 rounded-xl">
+              <div className="w-7 h-7 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center font-bold text-xs uppercase shadow-sm">
+                {user?.name?.slice(0, 2) || 'US'}
+              </div>
+              <div className="text-left hidden sm:block">
+                <div className="text-xs font-bold text-white leading-none">{user?.name}</div>
+                <div className="text-[10px] text-zinc-500 mt-0.5 leading-none">{user?.tenant?.name}</div>
+              </div>
+              <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded uppercase">
+                {user?.tenant?.subscription_tier === 'free' ? 'Free' : `Tier: ${user?.tenant?.subscription_tier}`}
+              </span>
+            </div>
+            
             <button
               onClick={toggleTheme}
               title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-              className="w-10 h-10 flex items-center justify-center rounded-xl border border-[var(--border-color)] bg-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--color-success)] hover:bg-emerald-900/10 transition-all"
+              className="w-10 h-10 flex items-center justify-center rounded-xl border border-zinc-800/80 bg-zinc-900/40 text-zinc-400 hover:text-white hover:border-emerald-500/40 transition-all shadow-sm"
             >
-              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
             </button>
-            <button onClick={handleLogout} className="btn btn-outline flex items-center gap-2">
-              <LogOut size={16} /> Logout
+            <button onClick={handleLogout} className="btn btn-outline text-xs py-2.5 flex items-center gap-2 hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-400 transition-all rounded-xl">
+              <LogOut size={14} /> Logout
             </button>
           </div>
         </header>
 
         {user?.status === 'pending' || user?.tenant?.status === 'pending' ? (
-          <div className="bg-yellow-900/30 border border-yellow-500/50 p-6 rounded-lg text-yellow-200 mb-8 shadow-lg">
-            <h2 className="text-xl font-bold mb-2 flex items-center gap-2"><Shield /> Account Pending Approval</h2>
-            <p>Your account is currently under review by a superadmin. You can configure your terminals and bank accounts, but they will not be active until approved.</p>
+          <div className="bg-yellow-950/40 border border-yellow-500/30 p-5 rounded-2xl text-yellow-300 mb-8 shadow-lg flex items-start gap-3">
+            <Shield className="shrink-0 mt-0.5 text-yellow-500" />
+            <div>
+              <h2 className="text-sm font-bold text-white mb-1">Account Pending Approval</h2>
+              <p className="text-xs text-yellow-400/80 leading-relaxed">Your account is currently under review by a superadmin. You can configure terminals and bank accounts, but they will not be active until approved.</p>
+            </div>
           </div>
         ) : null}
 
-        {/* --- TAB: DASHBOARD --- */}
+        {/* ─── TAB: DASHBOARD ─── */}
         {activeTab === 'dashboard' && (
-          <div className="grid md:grid-cols-2 gap-8">
-            <div className="glass-panel p-6">
-              <div className="flex justify-between items-center border-b border-[var(--border-color)] pb-2 mb-4">
-                <h2 className="text-xl font-bold flex items-center">
-                  Subscription Details <Tooltip text="Your current billing tier and monthly verification usage limits. Click for more info." onClick={() => navigateToHelp('help-subscription')} />
-                </h2>
-                <span className="text-xs font-semibold text-[var(--text-secondary)]">
-                  {getVerificationLimit()} Verifications/ {user?.tenant?.verifications_count ?? 0} used
-                </span>
-              </div>
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-[var(--text-secondary)]">Current Plan:</span>
-                  <span className="font-bold uppercase text-[var(--color-success)]">{user?.tenant?.subscription_tier === 'free' ? 'Free Trial' : `MVR ${user?.tenant?.subscription_tier}`}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-[var(--text-secondary)]">Status:</span>
+          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="grid md:grid-cols-3 gap-6">
+              
+              {/* Subscription card with dynamic usage metrics */}
+              <div className="glass-panel p-6 flex flex-col justify-between min-h-[220px]">
+                <div>
+                  <div className="flex justify-between items-start">
+                    <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Subscription</span>
+                    <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full uppercase">
+                      {user?.tenant?.subscription_tier === 'free' ? 'Free Trial' : `MVR ${user?.tenant?.subscription_tier}`}
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-bold text-white mt-3">Monthly Usage</h3>
+                  
+                  {/* Dynamic Progress Bar */}
                   {(() => {
-                    const isExpired = user?.tenant?.license_expires_at ? new Date(user.tenant.license_expires_at).getTime() < Date.now() : false;
-                    const displayStatus = isExpired ? 'expired' : (user?.tenant?.status || 'Unknown');
-                    
-                    let statusColor = 'text-yellow-500';
-                    if (displayStatus === 'active') statusColor = 'text-[var(--color-success)]';
-                    else if (displayStatus === 'suspended') statusColor = 'text-red-500';
-                    else if (displayStatus === 'expired') statusColor = 'text-red-500';
-
+                    const limitVal = getVerificationLimit();
+                    const limitNum = limitVal === 'Unlimited' ? Infinity : parseInt(limitVal);
+                    const used = user?.tenant?.verifications_count ?? 0;
+                    const percent = limitNum === Infinity ? 0 : Math.min(100, (used / limitNum) * 100);
                     return (
-                      <span className={`font-bold uppercase ${statusColor}`}>
-                        {displayStatus}
-                      </span>
+                      <div className="mt-4">
+                        <div className="flex justify-between text-xs text-zinc-400 mb-1.5 font-mono">
+                          <span>{used} / {limitVal} Verifications</span>
+                          <span>{percent > 0 ? `${Math.round(percent)}%` : 'Active'}</span>
+                        </div>
+                        <div className="w-full bg-zinc-800/80 h-2.5 rounded-full overflow-hidden border border-zinc-700/30">
+                          <div 
+                            className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-500" 
+                            style={{ width: limitVal === 'Unlimited' ? '10%' : `${percent}%` }}
+                          />
+                        </div>
+                      </div>
                     );
                   })()}
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-[var(--text-secondary)]">Plan Expiry Date:</span>
-                  <span className="font-mono">{user?.tenant?.license_expires_at ? new Date(user.tenant.license_expires_at).toLocaleDateString() : 'Never'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-[var(--text-secondary)]">Verifications Used:</span>
-                  <span className="font-mono">{user?.tenant?.verifications_count} / {getVerificationLimit()} this month</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-[var(--text-secondary)]">Active Terminals:</span>
-                  <span className="font-mono">{terminals.length} / {user?.tenant?.max_terminals ?? 1} used</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-[var(--text-secondary)]">Configured Bank Accounts:</span>
-                  <span className="font-mono">{bankAccounts.length} / {getBankAccountLimit()} used</span>
+                
+                <div className="border-t border-zinc-800/60 pt-3 mt-4 flex justify-between text-xs text-zinc-500">
+                  <span>Expires:</span>
+                  <span className="font-mono text-zinc-300">{user?.tenant?.license_expires_at ? new Date(user.tenant.license_expires_at).toLocaleDateString() : 'Never'}</span>
                 </div>
               </div>
-            </div>
 
-            <div className="glass-panel p-6">
-              <div className="flex justify-between items-center border-b border-[var(--border-color)] pb-2 mb-4">
-                <h2 className="text-xl font-bold flex items-center">
-                  Terminals <Tooltip text="Create terminals to generate unique Hardware IDs. Paste these IDs into the Viri Cashier app on your devices. Click for more info." onClick={() => navigateToHelp('help-terminals')} />
-                </h2>
-                <div className="flex items-center gap-4">
-                  <span className="text-xs font-semibold text-[var(--text-secondary)]">
-                    {user?.tenant?.max_terminals ?? 1} Cashier Terminals/ {terminals.length} used
-                  </span>
-                  <a href="/extention/viri-connect.zip" download className="flex items-center gap-1 text-sm text-[var(--color-success)] hover:underline bg-[var(--color-success)]/10 px-3 py-1 rounded transition-colors hover:bg-[var(--color-success)]/20">
-                    <Download size={14} /> Download Extension
+              {/* Terminals summary card */}
+              <div className="glass-panel p-6 flex flex-col justify-between min-h-[220px]">
+                <div>
+                  <div className="flex justify-between items-start">
+                    <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Device Limits</span>
+                    <span className="text-xs font-bold text-zinc-300 bg-zinc-800/60 border border-zinc-700/60 px-2 py-0.5 rounded-full">
+                      {terminals.length} / {user?.tenant?.max_terminals ?? 1} Used
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-bold text-white mt-3">Cashier Terminals</h3>
+                  <p className="text-zinc-400 text-xs mt-1 leading-relaxed">
+                    Set up Cashier Terminals on counter devices to start verifying transactions.
+                  </p>
+                </div>
+                
+                <div className="pt-3 border-t border-zinc-800/60 mt-4 flex justify-between items-center">
+                  <a href="/extention/viri-connect.zip" download className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 hover:underline">
+                    <Download size={13} /> Download Extension
                   </a>
                 </div>
               </div>
-              <form onSubmit={handleAddTerminalClick} className="flex gap-2 mb-4">
-                <input type="text" required placeholder="New Terminal Name (e.g. Counter 1)" className="input-field flex-1" value={newTerminalName} onChange={e => setNewTerminalName(e.target.value)} />
-                <button type="submit" className="btn btn-success p-3"><Plus size={20} /></button>
-              </form>
-              <div className="space-y-3">
-                {terminals.map(term => {
-                  const isExpired = term.pairing_code_expires_at ? new Date(term.pairing_code_expires_at).getTime() < now : true;
-                  const minutesLeft = term.pairing_code_expires_at ? Math.max(0, Math.floor((new Date(term.pairing_code_expires_at).getTime() - now) / 60000)) : 0;
-                  const secondsLeft = term.pairing_code_expires_at ? Math.max(0, Math.floor(((new Date(term.pairing_code_expires_at).getTime() - now) % 60000) / 1000)) : 0;
 
-                  return (
-                    <div key={term.id} className="bg-[var(--bg-canvas)] p-3 rounded border border-[var(--border-color)] flex flex-col gap-3">
-                      <div className="flex justify-between items-center">
-                        <strong className="text-[var(--color-success)] flex items-center gap-2">
-                          <MonitorSmartphone size={18} className="text-[var(--text-secondary)]" /> 
-                          {term.terminal_name}
-                        </strong>
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => editTerminal(term)} className="text-zinc-400 hover:text-white" title="Edit Terminal"><Edit size={16}/></button>
-                          <button onClick={() => deleteTerminal(term.id)} className="text-red-400 hover:text-red-300" title="Delete Terminal"><Trash2 size={16}/></button>
-                        </div>
-                      </div>
+              {/* Bank accounts summary card */}
+              <div className="glass-panel p-6 flex flex-col justify-between min-h-[220px]">
+                <div>
+                  <div className="flex justify-between items-start">
+                    <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Banking</span>
+                    <span className="text-xs font-bold text-zinc-300 bg-zinc-800/60 border border-zinc-700/60 px-2 py-0.5 rounded-full">
+                      {bankAccounts.length} / {getBankAccountLimit()} Linked
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-bold text-white mt-3">Linked Accounts</h3>
+                  <p className="text-zinc-400 text-xs mt-1 leading-relaxed">
+                    Connected bank accounts are dynamically polled by terminals to perform verification scans.
+                  </p>
+                </div>
+                
+                <div className="pt-3 border-t border-zinc-800/60 mt-4 text-xs text-zinc-500">
+                  Secure local browser vault storage
+                </div>
+              </div>
 
-                      {term.pairing_code && !isExpired ? (
-                        <div className="flex justify-between items-center bg-black/40 p-4 rounded border border-yellow-500/30">
-                          <div>
-                            <div className="text-xs text-[var(--text-secondary)] mb-1 uppercase tracking-wider">Pairing Code</div>
-                            <div className="text-3xl font-mono text-yellow-400 tracking-[0.2em]">{term.pairing_code}</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-xs text-[var(--text-secondary)] mb-1">Expires In</div>
-                            <div className="text-sm font-mono text-yellow-200">
-                              {minutesLeft}:{secondsLeft.toString().padStart(2, '0')}
+            </div>
+
+            {/* Grid for detailed management */}
+            <div className="grid lg:grid-cols-3 gap-8">
+              
+              {/* Terminals list & creation (2/3 width) */}
+              <div className="lg:col-span-2 space-y-6">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                    Terminal Devices
+                    <Tooltip text="Create and configure cashier counter device IDs. Edit permissions or allow debugging. Click to learn more." onClick={() => navigateToHelp('help-terminals')} />
+                  </h2>
+                </div>
+
+                <form onSubmit={handleAddTerminalClick} className="flex gap-2.5 bg-zinc-900/40 p-2.5 border border-zinc-800/80 rounded-2xl">
+                  <input 
+                    type="text" 
+                    required 
+                    placeholder="Terminal name (e.g. Counter 1, Shop Front)" 
+                    className="input-field border-transparent bg-transparent focus:ring-0 focus:border-transparent flex-1 py-2" 
+                    value={newTerminalName} 
+                    onChange={e => setNewTerminalName(e.target.value)} 
+                  />
+                  <button type="submit" className="btn btn-success px-5 py-2.5 text-sm flex items-center gap-1">
+                    <Plus size={16} /> Create
+                  </button>
+                </form>
+
+                <div className="grid sm:grid-cols-2 gap-4">
+                  {terminals.map(term => {
+                    const isExpired = term.pairing_code_expires_at ? new Date(term.pairing_code_expires_at).getTime() < now : true;
+                    const minutesLeft = term.pairing_code_expires_at ? Math.max(0, Math.floor((new Date(term.pairing_code_expires_at).getTime() - now) / 60000)) : 0;
+                    const secondsLeft = term.pairing_code_expires_at ? Math.max(0, Math.floor(((new Date(term.pairing_code_expires_at).getTime() - now) % 60000) / 1000)) : 0;
+
+                    return (
+                      <div key={term.id} className="bg-zinc-900/35 border border-zinc-850 hover:border-zinc-800 hover:shadow-xl hover:shadow-emerald-500/[0.01] rounded-2xl p-5 flex flex-col justify-between gap-4 transition-all duration-300 group">
+                        
+                        <div className="flex justify-between items-start">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-lg bg-zinc-800/60 border border-zinc-700/30 flex items-center justify-center text-zinc-400 group-hover:text-emerald-400 transition-colors">
+                              <MonitorSmartphone size={16} />
                             </div>
-                          </div>
-                        </div>
-                      ) : (
-                        term.pairing_code && isExpired ? (
-                          <div className="flex justify-between items-center bg-red-900/20 p-3 rounded border border-red-500/20">
-                            <span className="text-red-400 text-sm">Pairing Code Expired</span>
-                            <div className="flex gap-2">
-                              <button onClick={() => regeneratePairingCode(term.id)} className="btn btn-outline text-xs py-1 px-2 border-yellow-500 text-yellow-500 hover:bg-yellow-500 hover:text-black transition-colors">Regenerate Code</button>
-                              <button onClick={() => deleteTerminal(term.id)} className="btn btn-outline text-xs py-1 px-2 border-red-500 text-red-500 hover:bg-red-500 hover:text-white transition-colors">Delete</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col gap-2 w-full">
-                            <div className="flex justify-between items-center bg-emerald-900/20 p-3 rounded border border-[var(--color-success)] border-opacity-30">
-                              <span className="flex items-center gap-2 text-sm text-[var(--color-success)] font-medium">
-                                <CheckCircle2 size={16}/> Configured
-                              </span>
-                              <div className="flex items-center gap-2 text-xs font-mono text-[var(--text-secondary)]">
-                                ID: ...{term.hardware_id.slice(-8)}
-                                <button onClick={() => copyToClipboard(term.hardware_id)} className="hover:text-white" title="Copy Hardware ID"><Copy size={14}/></button>
+                            <div>
+                              <h4 className="text-sm font-bold text-white leading-tight">{term.terminal_name}</h4>
+                              <div className="text-[10px] text-zinc-500 font-mono mt-0.5">
+                                ID: ...{term.hardware_id ? term.hardware_id.slice(-8) : 'Unpaired'}
                               </div>
                             </div>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => editTerminal(term)} className="p-1 text-zinc-500 hover:text-zinc-200 transition-colors rounded-md hover:bg-white/5" title="Edit Terminal"><Edit size={14}/></button>
+                            <button onClick={() => deleteTerminal(term.id)} className="p-1 text-red-500/60 hover:text-red-400 transition-colors rounded-md hover:bg-red-500/5" title="Delete Terminal"><Trash2 size={14}/></button>
+                          </div>
+                        </div>
 
-                            <button type="button" onClick={() => regeneratePairingCode(term.id)} className="btn btn-outline border-yellow-500/50 text-yellow-400 hover:bg-yellow-500 hover:text-black py-2 text-xs w-full flex items-center justify-center gap-1.5 transition-colors">
-                              <RefreshCw size={14} /> Reconnect / Pair Device
+                        {term.pairing_code && !isExpired ? (
+                          <div className="bg-zinc-950/40 p-4 rounded-xl border border-yellow-500/20 flex justify-between items-center">
+                            <div>
+                              <div className="text-[9px] font-bold text-yellow-500 uppercase tracking-widest mb-0.5">Pairing Code</div>
+                              <div className="text-2xl font-mono text-yellow-400 tracking-wider font-extrabold">{term.pairing_code}</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-[9px] text-zinc-500 uppercase tracking-widest mb-0.5">Expires</div>
+                              <div className="text-xs font-mono text-yellow-300 bg-yellow-950/60 border border-yellow-500/20 px-2 py-0.5 rounded">
+                                {minutesLeft}:{secondsLeft.toString().padStart(2, '0')}
+                              </div>
+                            </div>
+                          </div>
+                        ) : term.pairing_code && isExpired ? (
+                          <div className="bg-red-950/20 p-3 rounded-xl border border-red-500/20 flex flex-col gap-2">
+                            <span className="text-red-400 text-xs font-medium">Pairing Code Expired</span>
+                            <button onClick={() => regeneratePairingCode(term.id)} className="w-full text-center text-xs py-1.5 border border-yellow-500/30 text-yellow-500 hover:bg-yellow-500 hover:text-black rounded-lg transition-all font-semibold">Regenerate Code</button>
+                          </div>
+                        ) : (
+                          <div className="space-y-3.5">
+                            
+                            {/* Device connected status indicator */}
+                            <div className="flex justify-between items-center bg-emerald-950/10 px-3.5 py-2.5 rounded-xl border border-emerald-500/20">
+                              <span className="flex items-center gap-2 text-xs text-emerald-400 font-semibold uppercase tracking-wider">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+                                Connected
+                              </span>
+                              <button onClick={() => copyToClipboard(term.hardware_id)} className="text-[10px] text-zinc-400 hover:text-white flex items-center gap-1 font-mono uppercase bg-zinc-800/40 border border-zinc-700/30 px-2 py-0.5 rounded" title="Copy Hardware ID">
+                                Copy ID <Copy size={10} />
+                              </button>
+                            </div>
+
+                            <button type="button" onClick={() => regeneratePairingCode(term.id)} className="w-full border border-yellow-500/30 hover:border-yellow-500 text-yellow-500 hover:bg-yellow-500 hover:text-black py-2.5 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all font-semibold shadow-sm">
+                              <RefreshCw size={12} /> Reconnect / Pair Device
                             </button>
 
                             {terminals.filter(t => t.id !== term.id && !t.pairing_code).length > 0 && (
                               <button
                                 type="button"
                                 onClick={() => openSyncWizard(term.id.toString())}
-                                className="btn btn-outline border-emerald-600/50 text-emerald-400 hover:bg-emerald-600 hover:text-white py-2 text-xs w-full flex items-center justify-center gap-1.5 transition-colors"
-                                title="Copy credentials from this terminal to another terminal securely"
+                                className="w-full border border-emerald-500/30 hover:border-emerald-500 text-emerald-400 hover:bg-emerald-600 hover:text-white py-2.5 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all font-semibold shadow-sm"
                               >
-                                <ShieldCheck size={14} /> Sync Credentials
+                                <ShieldCheck size={12} /> Sync Credentials
                               </button>
                             )}
 
                             {term.allow_debug_until && new Date(term.allow_debug_until).getTime() > now && term.debug_one_time_code ? (
-                              <div className="bg-blue-950/40 border border-blue-500/30 p-3 rounded flex flex-col gap-2">
+                              <div className="bg-blue-950/20 border border-blue-500/20 p-3 rounded-xl flex flex-col gap-2.5">
                                 <div className="flex justify-between items-center">
-                                  <span className="text-xs font-semibold text-blue-400 flex items-center gap-1.5">
-                                    <Bug size={14} /> Superadmin Debug Enabled
+                                  <span className="text-[10px] font-bold text-blue-400 flex items-center gap-1">
+                                    <Bug size={12} /> Debug Access Active
                                   </span>
-                                  <span className="text-xs font-mono text-blue-300 flex items-center gap-1">
-                                    <Clock size={12} />
+                                  <span className="text-[10px] font-mono text-blue-300 flex items-center gap-1">
+                                    <Clock size={10} />
                                     {Math.max(0, Math.floor((new Date(term.allow_debug_until).getTime() - now) / 60000))}:
                                     {Math.max(0, Math.floor(((new Date(term.allow_debug_until).getTime() - now) % 60000) / 1000)).toString().padStart(2, '0')}
                                   </span>
                                 </div>
-                                <div className="flex justify-between items-center bg-black/30 px-3 py-2 rounded border border-blue-900/40">
+                                <div className="flex justify-between items-center bg-black/40 px-3 py-2 rounded-lg border border-blue-900/30">
                                   <div>
-                                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider">One-Time Code</div>
-                                    <div className="text-lg font-mono font-bold text-blue-300 tracking-wider">{term.debug_one_time_code}</div>
+                                    <div className="text-[8px] text-zinc-500 uppercase tracking-widest">OTC Code</div>
+                                    <div className="text-md font-mono font-bold text-blue-300 tracking-wider">{term.debug_one_time_code}</div>
                                   </div>
                                   <button type="button" onClick={() => {
                                     navigator.clipboard.writeText(term.debug_one_time_code);
                                     alert('One-time code copied!');
-                                  }} className="btn btn-outline text-[10px] py-1 px-2 border-blue-500 text-blue-400 hover:bg-blue-500 hover:text-white transition-colors flex items-center gap-1">
-                                    <Copy size={10} /> Copy Code
+                                  }} className="text-[9px] px-2 py-1 border border-blue-500 text-blue-400 hover:bg-blue-500 hover:text-white transition-colors flex items-center gap-1 rounded-md">
+                                    <Copy size={9} /> Copy
                                   </button>
                                 </div>
-                                <p className="text-[10px] text-zinc-500 leading-normal">
-                                  🔐 <strong>Zero-Knowledge:</strong> No username or password will be sent to the super admin even if debug mode is enabled.
-                                </p>
                               </div>
                             ) : (
-                              <div className="flex flex-col gap-1.5 w-full">
-                                <button type="button" onClick={() => enableDebug(term.id)} className="btn btn-outline border-blue-500/50 text-blue-400 hover:bg-blue-500 hover:text-white py-2 text-xs w-full flex items-center justify-center gap-1.5 transition-colors">
-                                  <Bug size={14} /> Allow Superadmin Debug Access
+                              <div className="flex flex-col gap-1">
+                                <button type="button" onClick={() => enableDebug(term.id)} className="w-full border border-blue-500/30 hover:border-blue-500 text-blue-400 hover:bg-blue-500 hover:text-white py-2 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all font-semibold">
+                                  <Bug size={12} /> Allow Superadmin Debug
                                 </button>
-                                <p className="text-[10px] text-zinc-500 text-center leading-normal">
-                                  No username or password will be sent to the super admin even if debug mode is enabled.
+                                <p className="text-[9px] text-zinc-500 text-center mt-0.5 leading-normal">
+                                  Credentials are never sent during debugging
                                 </p>
                               </div>
                             )}
                           </div>
-                        )
-                      )}
+                        )}
+                      </div>
+                    );
+                  })}
+                  {terminals.length === 0 && (
+                    <div className="col-span-2 text-center py-10 bg-zinc-900/10 border border-zinc-800/40 rounded-2xl">
+                      <p className="text-sm text-zinc-500">No cashier terminals configured.</p>
                     </div>
-                  );
-                })}
-                {terminals.length === 0 && <p className="text-sm text-[var(--text-secondary)]">No terminals created yet.</p>}
-              </div>
-            </div>
-
-            <div className="glass-panel p-6 md:col-span-2">
-              <div className="flex justify-between items-center border-b border-[var(--border-color)] pb-2 mb-4">
-                <h2 className="text-xl font-bold flex items-center">
-                  Bank Accounts <Tooltip text="Add the bank accounts where you receive transfers. These will be automatically checked by the terminals. Click for more info." onClick={() => navigateToHelp('help-banks')} />
-                </h2>
-                <span className="text-xs font-semibold text-[var(--text-secondary)]">
-                  {getBankAccountLimit()} Bank Accounts/ {bankAccounts.length} used
-                </span>
-              </div>
-              <form onSubmit={createBankAccount} className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
-                <select className="input-field" value={bankName} onChange={e => setBankName(e.target.value)}>
-                  <option value="BML">Bank of Maldives (BML)</option>
-                  <option value="MIB">Maldives Islamic Bank (MIB)</option>
-                </select>
-                <input type="text" required placeholder="Account Name" className="input-field" value={accountName} onChange={e => setAccountName(e.target.value)} />
-                <input type="text" required placeholder="Account Number" className="input-field" value={accountNumber} onChange={e => setAccountNumber(e.target.value)} />
-                <input type="text" placeholder="Label (e.g. Counter 1)" className="input-field" value={accountLabel} onChange={e => setAccountLabel(e.target.value)} />
-                <select className="input-field" value={currency} onChange={e => setCurrency(e.target.value)}>
-                  <option value="MVR">MVR</option>
-                  <option value="USD">USD</option>
-                </select>
-                <button type="submit" className="btn btn-success flex justify-center items-center gap-2"><Plus size={18}/> Add Account</button>
-              </form>
-              {bankName === 'MIB' && (
-                <div className="mb-6 -mt-2 bg-emerald-900/10 border border-emerald-500/20 p-4 rounded-lg">
-                  <label className="text-sm text-[var(--text-secondary)] mb-2 block">MIB Profile Type</label>
-                  <div className="flex gap-3">
-                    <button type="button" onClick={() => setMibProfileType('0')} className={`flex-1 py-2 px-4 rounded-lg text-sm font-semibold transition-all border ${mibProfileType === '0' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-transparent border-[var(--border-color)] text-[var(--text-secondary)] hover:border-emerald-500/50'}`}>
-                      Personal
-                    </button>
-                    <button type="button" onClick={() => setMibProfileType('1')} className={`flex-1 py-2 px-4 rounded-lg text-sm font-semibold transition-all border ${mibProfileType === '1' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-transparent border-[var(--border-color)] text-[var(--text-secondary)] hover:border-emerald-500/50'}`}>
-                      Business
-                    </button>
-                  </div>
+                  )}
                 </div>
-              )}
-              <div className="grid md:grid-cols-2 gap-4">
-                {bankAccounts.map(acc => (
-                  <div key={acc.id} className="bg-[var(--bg-canvas)] p-4 rounded border border-[var(--border-color)] flex justify-between items-center">
-                    <div className="flex gap-4 items-center">
-                      <div className="w-12 h-12 rounded-lg bg-zinc-950 flex items-center justify-center p-1.5 shadow-lg border border-zinc-800 shrink-0">
-                        <img 
-                           src={acc.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'} 
-                           alt={acc.bank_name} 
-                           className="w-full h-full object-contain" 
-                        />
-                      </div>
-                      <div>
-                        <div className="font-bold text-lg flex items-center gap-2">
-                          <span>{acc.label ? acc.label : (acc.bank_name === 'BML' ? 'Bank of Maldives' : 'Maldives Islamic Bank')}</span>
-                          {(acc.login_failures || 0) >= 2 ? (
-                            <span className="text-[9px] font-bold text-red-400 bg-red-955/40 border border-red-500/30 px-2 py-0.5 rounded uppercase shrink-0">
-                              Locked
-                            </span>
-                          ) : (acc.login_failures || 0) > 0 ? (
-                            <span className="text-[9px] font-bold text-yellow-500 bg-yellow-955/40 border border-yellow-500/30 px-2 py-0.5 rounded uppercase shrink-0">
-                              {acc.login_failures} Fail
-                            </span>
-                          ) : (
-                            <span className="text-[9px] font-bold text-emerald-400 bg-emerald-955/40 border border-emerald-500/30 px-2 py-0.5 rounded uppercase font-sans shrink-0">
-                              Secure
-                            </span>
-                          )}
-                        </div>
-                        {acc.label && (
-                          <div className="text-xs text-[var(--color-success)] font-semibold uppercase tracking-wider">
-                            {acc.bank_name === 'BML' ? 'Bank of Maldives' : 'Maldives Islamic Bank'}
-                          </div>
-                        )}
-                        <div className="text-[var(--text-secondary)]">{acc.account_name}</div>
-                        <div className="font-mono text-sm flex items-center gap-2">
-                          <span>{acc.account_number}</span>
-                          <span className="text-[10px] bg-zinc-850 text-zinc-300 border border-zinc-700 px-1.5 py-0.5 rounded font-bold font-mono">
-                            {acc.currency || 'MVR'}
-                          </span>
-                        </div>
-                        {acc.bank_name === 'MIB' && (
-                          <div className="text-xs mt-1 text-emerald-400/70">{acc.mib_profile_type === '1' ? '🏢 Business Profile' : '👤 Personal Profile'}</div>
-                        )}
-                      </div>
+              </div>
+
+              {/* Bank accounts management list (1/3 width) */}
+              <div className="space-y-6">
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  Linked Accounts
+                  <Tooltip text="Link bank accounts here. The cashier terminals use these to scan bank transaction statements dynamically." onClick={() => navigateToHelp('help-banks')} />
+                </h2>
+
+                <form onSubmit={createBankAccount} className="bg-zinc-900/30 border border-zinc-850 p-5 rounded-2xl space-y-4 shadow-xl">
+                  <div className="space-y-3.5">
+                    <div>
+                      <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">Select Bank</label>
+                      <select className="input-field text-sm" value={bankName} onChange={e => setBankName(e.target.value)}>
+                        <option value="BML">Bank of Maldives (BML)</option>
+                        <option value="MIB">Maldives Islamic Bank (MIB)</option>
+                      </select>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {(acc.login_failures || 0) > 0 && (
-                        <button 
-                          type="button"
-                          onClick={() => resetBankAccountFailures(acc.id)} 
-                          className="text-xs font-semibold px-3 py-1.5 rounded border border-red-500/30 bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 transition-colors"
-                        >
-                          Reset Lock
+                    <div>
+                      <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">Account Holder Name</label>
+                      <input type="text" required placeholder="Name on account" className="input-field text-sm" value={accountName} onChange={e => setAccountName(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">Account Number</label>
+                      <input type="text" required placeholder="Account number" className="input-field text-sm font-mono" value={accountNumber} onChange={e => setAccountNumber(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">Label / Nickname</label>
+                      <input type="text" placeholder="Counter 1, Main Vault..." className="input-field text-sm" value={accountLabel} onChange={e => setAccountLabel(e.target.value)} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">Currency</label>
+                        <select className="input-field text-sm font-mono" value={currency} onChange={e => setCurrency(e.target.value)}>
+                          <option value="MVR">MVR</option>
+                          <option value="USD">USD</option>
+                        </select>
+                      </div>
+                      <div className="flex flex-col justify-end">
+                        <button type="submit" className="btn btn-success w-full py-3 text-xs flex justify-center items-center gap-1.5 font-bold shadow-md">
+                          <Plus size={14}/> Add Account
                         </button>
-                      )}
-                      <button onClick={() => deleteBankAccount(acc.id)} className="p-2 text-red-400 hover:text-red-300 hover:bg-red-400/10 rounded"><Trash2 size={20}/></button>
+                      </div>
                     </div>
                   </div>
-                ))}
-                {bankAccounts.length === 0 && <p className="text-sm text-[var(--text-secondary)]">No bank accounts configured.</p>}
+
+                  {bankName === 'MIB' && (
+                    <div className="bg-emerald-950/20 border border-emerald-500/25 p-3 rounded-xl space-y-2">
+                      <label className="text-[9px] font-bold text-emerald-400 uppercase tracking-widest block">MIB Profile Type</label>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setMibProfileType('0')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${mibProfileType === '0' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-transparent border-zinc-800 text-zinc-400 hover:border-emerald-500/40'}`}>
+                          Personal
+                        </button>
+                        <button type="button" onClick={() => setMibProfileType('1')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${mibProfileType === '1' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-transparent border-zinc-800 text-zinc-400 hover:border-emerald-500/40'}`}>
+                          Business
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </form>
+
+                <div className="space-y-3">
+                  {bankAccounts.map(acc => (
+                    <div key={acc.id} className="bg-zinc-900/35 border border-zinc-850 hover:border-zinc-800 rounded-xl p-4 flex justify-between items-center transition-all duration-300">
+                      <div className="flex gap-3 items-center min-w-0">
+                        <div className="w-10 h-10 rounded-xl bg-zinc-950 flex items-center justify-center p-1 border border-zinc-800 shrink-0">
+                          <img 
+                            src={acc.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'} 
+                            alt={acc.bank_name} 
+                            className="w-full h-full object-contain" 
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-bold text-sm text-white flex items-center gap-1.5 truncate">
+                            <span className="truncate">{acc.label ? acc.label : (acc.bank_name === 'BML' ? 'BML Account' : 'MIB Account')}</span>
+                            {(acc.login_failures || 0) >= 2 ? (
+                              <span className="text-[8px] font-extrabold text-red-400 bg-red-950/40 border border-red-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">
+                                Locked
+                              </span>
+                            ) : (acc.login_failures || 0) > 0 ? (
+                              <span className="text-[8px] font-extrabold text-yellow-500 bg-yellow-950/40 border border-yellow-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">
+                                {acc.login_failures} Fail
+                              </span>
+                            ) : (
+                              <span className="text-[8px] font-extrabold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">
+                                Secure
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-zinc-500 font-mono mt-0.5 truncate">{acc.account_name}</div>
+                          <div className="font-mono text-xs text-zinc-400 flex items-center gap-1.5 mt-0.5">
+                            <span>{acc.account_number}</span>
+                            <span className="text-[8px] bg-zinc-800 border border-zinc-700 px-1 rounded font-bold font-mono text-zinc-300">
+                              {acc.currency || 'MVR'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {(acc.login_failures || 0) > 0 && (
+                          <button 
+                            type="button"
+                            onClick={() => resetBankAccountFailures(acc.id)} 
+                            className="text-[9px] font-bold px-2.5 py-1.5 rounded-lg border border-red-500/30 bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 transition-all"
+                          >
+                            Reset
+                          </button>
+                        )}
+                        <button onClick={() => deleteBankAccount(acc.id)} className="p-2 text-zinc-500 hover:text-red-400 hover:bg-red-500/5 rounded-lg transition-colors"><Trash2 size={16}/></button>
+                      </div>
+                    </div>
+                  ))}
+                  {bankAccounts.length === 0 && (
+                    <div className="text-center py-8 bg-zinc-900/10 border border-zinc-800/40 rounded-xl">
+                      <p className="text-xs text-zinc-500">No bank accounts linked.</p>
+                    </div>
+                  )}
+                </div>
+
               </div>
+
             </div>
           </div>
         )}
 
-        {/* --- TAB: REPORTING --- */}
+        {/* ─── TAB: REPORTING ─── */}
+
         {activeTab === 'reporting' && (
           <div className="glass-panel p-8 flex flex-col gap-8">
             <div>
