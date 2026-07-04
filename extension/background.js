@@ -448,11 +448,36 @@ async function generateTOTP(secret, clockOffset = 0) {
   return otp;
 }
 
+function parseBmlNarrativeDate(tx) {
+  if (tx && tx.narrative1 && /^\d{2}-\d{2}-\d{4} \d{2}-\d{2}-\d{2}$/.test(tx.narrative1.trim())) {
+    const parts = tx.narrative1.trim().split(/[ -]/);
+    if (parts.length === 6) {
+      const day = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10);
+      const year = parseInt(parts[2], 10);
+      const hour = parseInt(parts[3], 10);
+      const minute = parseInt(parts[4], 10);
+      const second = parseInt(parts[5], 10);
+      const parsedDate = new Date(year, month - 1, day, hour, minute, second);
+      if (!isNaN(parsedDate.getTime())) {
+        return parsedDate;
+      }
+    }
+  }
+  return null;
+}
+
 function normalizeTransactions(rawTxList, bankType, limit = 50) {
   if (!Array.isArray(rawTxList)) return [];
   const sliced = limit ? rawTxList.slice(0, limit) : rawTxList;
   return sliced.map(tx => {
     let date = tx.transactionDate || tx.valueDate || tx.trxDate || tx.bookingDate || tx.postDate || tx.date || '';
+    if (bankType === 'BML') {
+      const parsedDate = parseBmlNarrativeDate(tx);
+      if (parsedDate) {
+        date = parsedDate;
+      }
+    }
     if (date) {
       try {
         const d = new Date(date);
@@ -1291,7 +1316,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
             status: 'CREDITED',
             reference: matchFound.reference || matchFound.id || "BML-MATCH",
             amount: Math.abs(matchFound.amount).toFixed(2),
-            timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString(),
+            timestamp: parseBmlNarrativeDate(matchFound)?.toISOString() || matchFound.date || matchFound.bookingDate || new Date().toISOString(),
             transaction: normalizedMatch
           },
           balance: balance,
