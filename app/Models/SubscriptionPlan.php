@@ -11,6 +11,7 @@ class SubscriptionPlan extends Model
         'name',
         'price',
         'max_terminals',
+        'max_bank_accounts',
         'lock_timeout',
         'features'
     ];
@@ -18,6 +19,7 @@ class SubscriptionPlan extends Model
     protected $casts = [
         'price' => 'float',
         'max_terminals' => 'integer',
+        'max_bank_accounts' => 'integer',
         'lock_timeout' => 'integer',
         'features' => 'array'
     ];

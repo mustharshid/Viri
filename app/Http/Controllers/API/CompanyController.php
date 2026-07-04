@@ -236,10 +236,7 @@ class CompanyController extends Controller
 
         // Check subscription limits
         $currentAccounts = BankAccount::where('tenant_id', $tenantId)->count();
-        $limit = 2; // Free
-        if ($tenant->subscription_tier === '499') $limit = 2;
-        if ($tenant->subscription_tier === '999') $limit = 4;
-        if ($tenant->subscription_tier === '1999') $limit = 20;
+        $limit = $tenant->max_bank_accounts ?? 1;
 
         if ($currentAccounts >= $limit) {
             return response()->json(['message' => 'Bank account limit reached for your subscription tier.'], 403);

@@ -13,11 +13,16 @@ class Tenant extends Model
         'status',
         'license_expires_at',
         'lock_timeout',
+        'max_terminals',
+        'max_bank_accounts',
         'features'
     ];
 
     protected $casts = [
         'license_expires_at' => 'datetime',
+        'lock_timeout' => 'integer',
+        'max_terminals' => 'integer',
+        'max_bank_accounts' => 'integer',
         'features' => 'array',
     ];
 

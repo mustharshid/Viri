@@ -29,6 +29,7 @@ class SuperadminController extends Controller
             'subscription_tier' => 'required|string',
             'lock_timeout' => 'sometimes|integer|min:5|max:300',
             'max_terminals' => 'sometimes|integer|min:1',
+            'max_bank_accounts' => 'sometimes|integer|min:1',
             'license_expires_at' => 'sometimes|nullable|date',
             'features' => 'sometimes|array',
         ]);
@@ -48,6 +49,9 @@ class SuperadminController extends Controller
         if ($request->has('max_terminals')) {
             $tenant->max_terminals = $request->max_terminals;
         }
+        if ($request->has('max_bank_accounts')) {
+            $tenant->max_bank_accounts = $request->max_bank_accounts;
+        }
 
         // Features updates
         $plan = \App\Models\SubscriptionPlan::where('tier_key', $request->subscription_tier)->first();
@@ -57,6 +61,7 @@ class SuperadminController extends Controller
             // Tier changed and no custom features sent, auto-apply defaults from new tier
             $tenant->features = $plan->features;
             $tenant->max_terminals = $plan->max_terminals;
+            $tenant->max_bank_accounts = $plan->max_bank_accounts;
             $tenant->lock_timeout = $plan->lock_timeout;
         }
 
@@ -198,6 +203,7 @@ class SuperadminController extends Controller
             'name' => 'required|string',
             'price' => 'required|numeric|min:0',
             'max_terminals' => 'required|integer|min:1',
+            'max_bank_accounts' => 'required|integer|min:1',
             'lock_timeout' => 'required|integer|min:5|max:300',
             'features' => 'required|array'
         ]);
@@ -213,6 +219,7 @@ class SuperadminController extends Controller
             'name' => 'required|string',
             'price' => 'required|numeric|min:0',
             'max_terminals' => 'required|integer|min:1',
+            'max_bank_accounts' => 'required|integer|min:1',
             'lock_timeout' => 'required|integer|min:5|max:300',
             'features' => 'required|array'
         ]);

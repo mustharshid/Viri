@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit } from 'lucide-react';
+import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList } from 'lucide-react';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -55,6 +55,7 @@ export default function AdminDashboard() {
     name: '',
     price: 0,
     max_terminals: 1,
+    max_bank_accounts: 1,
     lock_timeout: 20,
     features: {
       verification_enabled: true,
@@ -159,7 +160,7 @@ export default function AdminDashboard() {
     return true;
   };
 
-  const updateCompany = async (id: number, status: string, tier: string, lockTimeout?: number, maxTerminals?: number, licenseExpiresAt?: string | null, features?: any) => {
+  const updateCompany = async (id: number, status: string, tier: string, lockTimeout?: number, maxTerminals?: number, licenseExpiresAt?: string | null, features?: any, maxBankAccounts?: number) => {
     if (!verifySecurityPin()) {
       fetchData();
       return;
@@ -172,6 +173,9 @@ export default function AdminDashboard() {
     }
     if (maxTerminals !== undefined) {
       payload.max_terminals = maxTerminals;
+    }
+    if (maxBankAccounts !== undefined) {
+      payload.max_bank_accounts = maxBankAccounts;
     }
     if (licenseExpiresAt !== undefined) {
       payload.license_expires_at = licenseExpiresAt;
@@ -266,6 +270,7 @@ export default function AdminDashboard() {
           name: '',
           price: 0,
           max_terminals: 1,
+          max_bank_accounts: 1,
           lock_timeout: 20,
           features: {
             verification_enabled: true,
@@ -497,7 +502,8 @@ export default function AdminDashboard() {
                   matchedPlan ? matchedPlan.lock_timeout : company.lock_timeout,
                   matchedPlan ? matchedPlan.max_terminals : company.max_terminals,
                   company.license_expires_at,
-                  defaultFeatures
+                  defaultFeatures,
+                  matchedPlan ? matchedPlan.max_bank_accounts : company.max_bank_accounts
                 );
               }}
             >
@@ -550,11 +556,41 @@ export default function AdminDashboard() {
                 onBlur={(e) => {
                   const val = parseInt(e.target.value);
                   if (!isNaN(val)) {
-                    updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, val, company.license_expires_at, company.features);
+                    updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, val, company.license_expires_at, company.features, company.max_bank_accounts);
                   }
                 }}
               />
               <span className="text-xs text-zinc-400 font-mono">({company.terminals?.length ?? 0} active)</span>
+            </div>
+          </div>
+
+          {/* Max Bank Accounts limit */}
+          <div className="input-group">
+            <label className="input-label flex items-center gap-1">
+              Bank Accounts Limit
+              <Tooltip text="Maximum number of bank accounts allowed for this company." />
+            </label>
+            <div className="flex items-center gap-2">
+              <input 
+                type="number"
+                min="1"
+                className="input-field text-sm font-mono text-center w-24"
+                value={company.max_bank_accounts ?? 1}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  if (!isNaN(val)) {
+                    const updated = companies.map(c => c.id === company.id ? { ...c, max_bank_accounts: val } : c);
+                    setCompanies(updated);
+                  }
+                }}
+                onBlur={(e) => {
+                  const val = parseInt(e.target.value);
+                  if (!isNaN(val)) {
+                    updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, company.max_terminals, company.license_expires_at, company.features, val);
+                  }
+                }}
+              />
+              <span className="text-xs text-zinc-400 font-mono">({company.bank_accounts?.length ?? 0} active)</span>
             </div>
           </div>
 
@@ -581,7 +617,7 @@ export default function AdminDashboard() {
                 onBlur={(e) => {
                   const val = parseInt(e.target.value);
                   if (!isNaN(val)) {
-                    updateCompany(company.id, company.status, company.subscription_tier, val, company.max_terminals, company.license_expires_at, company.features);
+                    updateCompany(company.id, company.status, company.subscription_tier, val, company.max_terminals, company.license_expires_at, company.features, company.max_bank_accounts);
                   }
                 }}
               />
@@ -609,7 +645,7 @@ export default function AdminDashboard() {
                 className="btn btn-success text-xs py-1.5 px-3 whitespace-nowrap"
                 onClick={() => {
                   const val = pendingExpiry[company.id] ?? (company.license_expires_at ? String(company.license_expires_at).substring(0, 10) : '');
-                  updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, company.max_terminals, val || null, company.features);
+                  updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, company.max_terminals, val || null, company.features, company.max_bank_accounts);
                   setPendingExpiry(prev => { const n = {...prev}; delete n[company.id]; return n; });
                 }}
               >
@@ -775,6 +811,17 @@ export default function AdminDashboard() {
                 onChange={e => setPlanForm(prev => ({ ...prev, max_terminals: parseInt(e.target.value) || 1 }))}
               />
             </div>
+            <div className="input-group">
+              <label className="input-label">Bank Accounts Limit</label>
+              <input
+                type="number"
+                min="1"
+                required
+                className="input-field text-sm font-mono"
+                value={planForm.max_bank_accounts}
+                onChange={e => setPlanForm(prev => ({ ...prev, max_bank_accounts: parseInt(e.target.value) || 1 }))}
+              />
+            </div>
             <div className="input-group col-span-1">
               <label className="input-label">Lock Timeout (seconds)</label>
               <input
@@ -834,6 +881,7 @@ export default function AdminDashboard() {
                       name: '',
                       price: 0,
                       max_terminals: 1,
+                      max_bank_accounts: 1,
                       lock_timeout: 20,
                       features: {
                         verification_enabled: true,
@@ -880,6 +928,10 @@ export default function AdminDashboard() {
                   <strong className="text-white font-mono">{plan.max_terminals}</strong>
                 </div>
                 <div className="flex justify-between text-xs text-zinc-400">
+                  <span>Bank Accounts Limit:</span>
+                  <strong className="text-white font-mono">{plan.max_bank_accounts ?? 1}</strong>
+                </div>
+                <div className="flex justify-between text-xs text-zinc-400">
                   <span>Auto-Lock Timeout:</span>
                   <strong className="text-white font-mono">{plan.lock_timeout}s</strong>
                 </div>
@@ -921,6 +973,7 @@ export default function AdminDashboard() {
                       name: plan.name,
                       price: plan.price,
                       max_terminals: plan.max_terminals,
+                      max_bank_accounts: plan.max_bank_accounts ?? 1,
                       lock_timeout: plan.lock_timeout,
                       features: {
                         verification_enabled: plan.features?.verification_enabled ?? true,
@@ -1179,43 +1232,47 @@ export default function AdminDashboard() {
         <div className="flex border-b border-zinc-800 mb-6 flex-wrap gap-2">
           <button
             onClick={() => setActiveTab('companies')}
-            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all ${
+            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
               activeTab === 'companies'
                 ? 'border-yellow-500 text-yellow-500'
                 : 'border-transparent text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            Registered Companies ({companies.filter(c => c.status !== 'archived').length})
+            <Building2 size={16} className="shrink-0" />
+            <span>Registered Companies ({companies.filter(c => c.status !== 'archived').length})</span>
           </button>
           <button
             onClick={() => setActiveTab('archived')}
-            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all ${
+            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
               activeTab === 'archived'
                 ? 'border-yellow-500 text-yellow-500'
                 : 'border-transparent text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            Archived Companies ({companies.filter(c => c.status === 'archived').length})
+            <Archive size={16} className="shrink-0" />
+            <span>Archived Companies ({companies.filter(c => c.status === 'archived').length})</span>
           </button>
           <button
             onClick={() => setActiveTab('tiers')}
-            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all ${
+            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
               activeTab === 'tiers'
                 ? 'border-yellow-500 text-yellow-500'
                 : 'border-transparent text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            Subscription Tiers ({subscriptionPlans.length})
+            <Layers size={16} className="shrink-0" />
+            <span>Subscription Tiers ({subscriptionPlans.length})</span>
           </button>
           <button
             onClick={() => setActiveTab('logs')}
-            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all ${
+            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
               activeTab === 'logs'
                 ? 'border-yellow-500 text-yellow-500'
                 : 'border-transparent text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            Session Activity Log
+            <ClipboardList size={16} className="shrink-0" />
+            <span>Session Activity Log</span>
           </button>
         </div>
 

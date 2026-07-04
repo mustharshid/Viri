@@ -571,6 +571,21 @@ function App() {
 
   const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<string>('');
 
+  // Auto-center selected ledger card in carousel when it changes
+  useEffect(() => {
+    if (activeTab === 'ledger' && selectedLedgerAccountId && carouselRef.current) {
+      const timer = setTimeout(() => {
+        const selectedEl = carouselRef.current?.querySelector(
+          `[data-ledger-card-id="${selectedLedgerAccountId}"]`
+        );
+        if (selectedEl) {
+          selectedEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedLedgerAccountId, activeTab]);
+
   const activePortRef = useRef<chrome.runtime.Port | null>(null);
   const [initLoading, setInitLoading] = useState(false);
   const [result, setResult] = useState<{
@@ -3694,10 +3709,10 @@ function App() {
                           return (
                             <button
                               key={acc.id}
-                              onClick={(e) => {
+                              data-ledger-card-id={acc.id.toString()}
+                              onClick={() => {
                                 setSelectedLedgerAccountId(acc.id.toString());
                                 setLedgerPage(1);
-                                e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
                               }}
                               className={`p-4 rounded-xl border text-left flex items-center gap-3.5 transition-all shadow-lg shrink-0 w-80 ${isSelected
                                   ? 'bg-zinc-900 border-emerald-500/60 ring-1 ring-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.08)]'
