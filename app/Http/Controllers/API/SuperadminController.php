@@ -248,4 +248,38 @@ class SuperadminController extends Controller
             'output' => \Illuminate\Support\Facades\Artisan::output()
         ]);
     }
+
+    public function getSystemSettings(Request $request)
+    {
+        if ($request->user()->role !== 'superadmin') {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        $settings = \Illuminate\Support\Facades\DB::table('system_settings')->get();
+        return response()->json(['settings' => $settings]);
+    }
+
+    public function updateSystemSettings(Request $request)
+    {
+        if ($request->user()->role !== 'superadmin') {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        $request->validate([
+            'settings' => 'required|array',
+            'settings.*.key' => 'required|string',
+            'settings.*.value' => 'required|string'
+        ]);
+
+        foreach ($request->settings as $setting) {
+            \Illuminate\Support\Facades\DB::table('system_settings')
+                ->where('key', $setting['key'])
+                ->update([
+                    'value' => $setting['value'],
+                    'updated_at' => now()
+                ]);
+        }
+
+        return response()->json(['message' => 'System settings updated successfully']);
+    }
 }

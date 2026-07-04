@@ -156,6 +156,12 @@ function App() {
 
   const [amount, setAmount] = useState('');
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [appConfig, setAppConfig] = useState({
+    session_status_poll_interval: 6,
+    credential_sync_poll_interval: 10,
+    version_check_interval: 5,
+    active_session_heartbeat_interval: 5
+  });
   const [settingsPin, setSettingsPin] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<any>({
     verification_enabled: true,
@@ -307,9 +313,9 @@ function App() {
     };
 
     checkVersion();
-    const interval = setInterval(checkVersion, 5000);
+    const interval = setInterval(checkVersion, appConfig.version_check_interval * 1000);
     return () => clearInterval(interval);
-  }, [extensionId]);
+  }, [extensionId, appConfig.version_check_interval]);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -502,6 +508,9 @@ function App() {
         });
         if (response.ok) {
           const data = await response.json();
+          if (data.app_config) {
+            setAppConfig(data.app_config);
+          }
           const accounts = data.tenant?.bank_accounts || [];
           setBankAccounts(accounts);
 
@@ -533,9 +542,9 @@ function App() {
       }
     };
 
-    const interval = setInterval(poll, 6000);
+    const interval = setInterval(poll, appConfig.session_status_poll_interval * 1000);
     return () => clearInterval(interval);
-  }, [hardwareId, backendUrl, isSetupMode]);
+  }, [hardwareId, backendUrl, isSetupMode, appConfig.session_status_poll_interval]);
 
   const syncCredentialsMapping = async (accountsList: BankAccount[]) => {
     if (!hardwareId || !backendUrl || accountsList.length === 0) return;
@@ -819,12 +828,12 @@ function App() {
       }
     };
 
-    const intervalId = setInterval(poll, 10_000);
+    const intervalId = setInterval(poll, appConfig.credential_sync_poll_interval * 1000);
     return () => {
       clearInterval(intervalId);
       if (credSyncTimerRef.current) clearTimeout(credSyncTimerRef.current);
     };
-  }, [hardwareId, backendUrl, isSetupMode, credSyncStatus, accountsCreds]);
+  }, [hardwareId, backendUrl, isSetupMode, credSyncStatus, accountsCreds, appConfig.credential_sync_poll_interval]);
 
   // Synchronize isDefault check box with selectedAccountId and defaultAccountId
   useEffect(() => {
@@ -883,6 +892,9 @@ function App() {
       });
       if (response.ok) {
         const data = await response.json();
+        if (data.app_config) {
+          setAppConfig(data.app_config);
+        }
         const accounts = data.tenant?.bank_accounts || [];
         setBankAccounts(accounts);
 
@@ -1582,7 +1594,7 @@ function App() {
       } catch (hbErr) {
         console.error("Heartbeat exception:", hbErr);
       }
-    }, 5000);
+    }, appConfig.active_session_heartbeat_interval * 1000);
 
     // Step 3: Send message to the local extension using a persistent port
     if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {

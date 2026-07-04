@@ -63,6 +63,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Session activity logs for Superadmin
     Route::get('/admin/session-logs', [SuperadminController::class, 'getSessionLogs']);
+    Route::get('/admin/system-settings', [SuperadminController::class, 'getSystemSettings']);
+    Route::post('/admin/system-settings', [SuperadminController::class, 'updateSystemSettings']);
 
     // Credential Sync (Company Dashboard)
     Route::post('/company/credential-sync/initiate',            [CredentialSyncController::class, 'initiate']);
@@ -130,10 +132,19 @@ Route::post('/verify-terminal', function (Request $request) {
         $tenant->increment('verifications_count');
     }
 
+    $settings = DB::table('system_settings')->pluck('value', 'key')->all();
+    $appConfig = [
+        'session_status_poll_interval' => (int) ($settings['session_status_poll_interval'] ?? 6),
+        'credential_sync_poll_interval' => (int) ($settings['credential_sync_poll_interval'] ?? 10),
+        'version_check_interval' => (int) ($settings['version_check_interval'] ?? 5),
+        'active_session_heartbeat_interval' => (int) ($settings['active_session_heartbeat_interval'] ?? 5),
+    ];
+
     return response()->json([
         'status' => 'authorized',
         'credits_exhausted' => $creditsExhausted,
         'subscription_expired' => $subscriptionExpired,
+        'app_config' => $appConfig,
         'tenant' => [
             'name' => $tenant->name,
             'logo' => $tenant->company_logo,

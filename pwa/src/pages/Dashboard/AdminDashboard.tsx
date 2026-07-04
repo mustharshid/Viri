@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList } from 'lucide-react';
+import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings } from 'lucide-react';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -33,11 +33,72 @@ export default function AdminDashboard() {
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRunIdx, setSelectedRunIdx] = useState<number>(0);
 
-  const [activeTab, setActiveTab] = useState<'companies' | 'archived' | 'tiers' | 'logs'>('companies');
+  const [activeTab, setActiveTab] = useState<'companies' | 'archived' | 'tiers' | 'logs' | 'settings'>('companies');
   const [sessionLogs, setSessionLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsPage, setLogsPage] = useState(1);
   const [logsTotalPages, setLogsTotalPages] = useState(1);
+
+  // System Settings State
+  const [systemSettings, setSystemSettings] = useState<any[]>([]);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
+
+  const fetchSystemSettings = async () => {
+    setSettingsLoading(true);
+    setSettingsError(null);
+    try {
+      const token = localStorage.getItem('viri_token');
+      const res = await fetch('/api/admin/system-settings', {
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+      });
+      if (!res.ok) throw new Error('Failed to fetch system settings');
+      const data = await res.json();
+      setSystemSettings(data.settings);
+    } catch (err: any) {
+      setSettingsError(err.message);
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+
+  const handleSaveSystemSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!verifySecurityPin()) return;
+    setSettingsSaving(true);
+    setSettingsError(null);
+    setSettingsSuccess(null);
+    try {
+      const token = localStorage.getItem('viri_token');
+      const res = await fetch('/api/admin/system-settings', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ settings: systemSettings })
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Failed to save system settings');
+      }
+      setSettingsSuccess('System settings saved successfully!');
+      setTimeout(() => setSettingsSuccess(null), 5000);
+    } catch (err: any) {
+      setSettingsError(err.message);
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'settings') {
+      fetchSystemSettings();
+    }
+  }, [activeTab]);
 
   const [filterEventType, setFilterEventType] = useState('');
   const [filterCompanyId, setFilterCompanyId] = useState('');
@@ -1005,6 +1066,183 @@ export default function AdminDashboard() {
     );
   };
 
+  const renderSystemSettingsTab = () => {
+    return (
+      <div className="glass-panel p-6 rounded-2xl border border-zinc-800 bg-black/20 text-left max-w-4xl mx-auto shadow-xl">
+        <div className="flex items-center justify-between mb-6 pb-4 border-b border-zinc-800">
+          <div>
+            <h3 className="text-xl font-bold text-white flex items-center gap-2">
+              <Settings className="text-yellow-500" size={22} />
+              App Configuration & Server Polling Intervals
+            </h3>
+            <p className="text-xs text-zinc-400 mt-1">
+              Configure system-wide background polling intervals. Reducing intervals increases server load, while increasing them reduces responsiveness.
+            </p>
+          </div>
+        </div>
+
+        {settingsLoading ? (
+          <div className="flex flex-col items-center justify-center py-12 text-zinc-400 gap-3 font-medium">
+            <div className="w-8 h-8 rounded-full border-2 border-t-yellow-500 border-zinc-700 animate-spin" />
+            <span>Loading configurations...</span>
+          </div>
+        ) : settingsError ? (
+          <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl text-sm mb-6">
+            ⚠️ Error loading settings: {settingsError}
+            <button onClick={fetchSystemSettings} className="ml-3 text-xs underline font-semibold hover:text-red-300">Retry</button>
+          </div>
+        ) : (
+          <form onSubmit={handleSaveSystemSettings} className="space-y-6">
+            {settingsSuccess && (
+              <div className="bg-green-500/10 border border-green-500/20 text-green-400 p-3 rounded-xl text-sm mb-4">
+                {settingsSuccess}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Session Status Poll */}
+              <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-colors">
+                <div className="flex justify-between items-start mb-2">
+                  <label className="text-sm font-bold text-white block">Session Status Poll Interval</label>
+                  <span className="text-xs text-yellow-500 font-mono font-bold bg-yellow-500/10 px-2 py-0.5 rounded">
+                    {systemSettings.find(s => s.key === 'session_status_poll_interval')?.value || 6}s
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+                  How often the cashier terminal checks the backend for locking status, pairing state, and permission updates.
+                </p>
+                <input
+                  type="range"
+                  min="2"
+                  max="60"
+                  className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+                  value={systemSettings.find(s => s.key === 'session_status_poll_interval')?.value || 6}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSystemSettings(prev => prev.map(s => s.key === 'session_status_poll_interval' ? { ...s, value: val } : s));
+                  }}
+                />
+                <div className="flex justify-between text-[10px] text-zinc-500 mt-1 font-mono">
+                  <span>2s (Heavy load)</span>
+                  <span>60s (Slow)</span>
+                </div>
+              </div>
+
+              {/* Credential Sync Poll */}
+              <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-colors">
+                <div className="flex justify-between items-start mb-2">
+                  <label className="text-sm font-bold text-white block">Credential Sync Poll Interval</label>
+                  <span className="text-xs text-yellow-500 font-mono font-bold bg-yellow-500/10 px-2 py-0.5 rounded">
+                    {systemSettings.find(s => s.key === 'credential_sync_poll_interval')?.value || 10}s
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+                  Frequency with which the terminal polls for pending zero-knowledge credential export or import sync tasks.
+                </p>
+                <input
+                  type="range"
+                  min="3"
+                  max="60"
+                  className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+                  value={systemSettings.find(s => s.key === 'credential_sync_poll_interval')?.value || 10}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSystemSettings(prev => prev.map(s => s.key === 'credential_sync_poll_interval' ? { ...s, value: val } : s));
+                  }}
+                />
+                <div className="flex justify-between text-[10px] text-zinc-500 mt-1 font-mono">
+                  <span>3s</span>
+                  <span>60s</span>
+                </div>
+              </div>
+
+              {/* Version Check */}
+              <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-colors">
+                <div className="flex justify-between items-start mb-2">
+                  <label className="text-sm font-bold text-white block">Extension Version Check</label>
+                  <span className="text-xs text-yellow-500 font-mono font-bold bg-yellow-500/10 px-2 py-0.5 rounded">
+                    {systemSettings.find(s => s.key === 'version_check_interval')?.value || 5}s
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+                  Determines the frequency of checking for the local browser extension context compatibility and version.
+                </p>
+                <input
+                  type="range"
+                  min="1"
+                  max="60"
+                  className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+                  value={systemSettings.find(s => s.key === 'version_check_interval')?.value || 5}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSystemSettings(prev => prev.map(s => s.key === 'version_check_interval' ? { ...s, value: val } : s));
+                  }}
+                />
+                <div className="flex justify-between text-[10px] text-zinc-500 mt-1 font-mono">
+                  <span>1s</span>
+                  <span>60s</span>
+                </div>
+              </div>
+
+              {/* Active Session Heartbeats */}
+              <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-colors">
+                <div className="flex justify-between items-start mb-2">
+                  <label className="text-sm font-bold text-white block">Active Session Heartbeats</label>
+                  <span className="text-xs text-yellow-500 font-mono font-bold bg-yellow-500/10 px-2 py-0.5 rounded">
+                    {systemSettings.find(s => s.key === 'active_session_heartbeat_interval')?.value || 5}s
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+                  Interval at which active session locks send heartbeats to keep the bank account session bound to this terminal.
+                </p>
+                <input
+                  type="range"
+                  min="2"
+                  max="30"
+                  className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+                  value={systemSettings.find(s => s.key === 'active_session_heartbeat_interval')?.value || 5}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSystemSettings(prev => prev.map(s => s.key === 'active_session_heartbeat_interval' ? { ...s, value: val } : s));
+                  }}
+                />
+                <div className="flex justify-between text-[10px] text-zinc-500 mt-1 font-mono">
+                  <span>2s</span>
+                  <span>30s</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-4 border-t border-zinc-800 gap-3">
+              <button
+                type="button"
+                onClick={fetchSystemSettings}
+                className="btn btn-outline text-xs px-4 py-2"
+                disabled={settingsSaving}
+              >
+                Reset Changes
+              </button>
+              <button
+                type="submit"
+                className="btn btn-success text-xs px-5 py-2 font-bold flex items-center gap-1.5"
+                disabled={settingsSaving}
+              >
+                {settingsSaving ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border border-t-transparent border-white rounded-full animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save Settings'
+                )}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    );
+  };
+
   const renderSessionLogsTab = () => {
     return (
       <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl text-left animate-fade-in">
@@ -1274,6 +1512,17 @@ export default function AdminDashboard() {
             <ClipboardList size={16} className="shrink-0" />
             <span>Session Activity Log</span>
           </button>
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+              activeTab === 'settings'
+                ? 'border-yellow-500 text-yellow-500'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Settings size={16} className="shrink-0" />
+            <span>App Configuration</span>
+          </button>
         </div>
 
         {/* Security Confirmation PIN display */}
@@ -1324,6 +1573,8 @@ export default function AdminDashboard() {
           {activeTab === 'tiers' && renderSubscriptionTiersManager()}
 
           {activeTab === 'logs' && renderSessionLogsTab()}
+
+          {activeTab === 'settings' && renderSystemSettingsTab()}
         </div>
 
         {/* Debug Logs Viewer Modal */}
