@@ -3674,6 +3674,7 @@ function App() {
                             acc.account_name.toLowerCase().includes(query) ||
                             acc.account_number.toLowerCase().includes(query) ||
                             acc.bank_name.toLowerCase().includes(query) ||
+                            (acc.currency && acc.currency.toLowerCase().includes(query)) ||
                             (acc.label && acc.label.toLowerCase().includes(query))
                           );
                         });
@@ -3693,9 +3694,10 @@ function App() {
                           return (
                             <button
                               key={acc.id}
-                              onClick={() => {
+                              onClick={(e) => {
                                 setSelectedLedgerAccountId(acc.id.toString());
                                 setLedgerPage(1);
+                                e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
                               }}
                               className={`p-4 rounded-xl border text-left flex items-center gap-3.5 transition-all shadow-lg shrink-0 w-80 ${isSelected
                                   ? 'bg-zinc-900 border-emerald-500/60 ring-1 ring-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.08)]'
