@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 
 use App\Http\Controllers\API\AuthController;
 use App\Http\Controllers\API\CompanyController;
+use App\Http\Controllers\API\CredentialSyncController;
 use App\Http\Controllers\API\SuperadminController;
 use App\Http\Controllers\API\TerminalPairingController;
 use App\Http\Controllers\API\BankAccountLockController;
@@ -62,6 +63,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Session activity logs for Superadmin
     Route::get('/admin/session-logs', [SuperadminController::class, 'getSessionLogs']);
+
+    // Credential Sync (Company Dashboard)
+    Route::post('/company/credential-sync/initiate',            [CredentialSyncController::class, 'initiate']);
+    Route::get('/company/credential-sync/{id}/status',          [CredentialSyncController::class, 'status']);
+    Route::post('/company/credential-sync/{id}/trigger-import', [CredentialSyncController::class, 'triggerImport']);
+    Route::delete('/company/credential-sync/{id}',              [CredentialSyncController::class, 'cancel']);
 });
 
 /*
@@ -156,7 +163,7 @@ Route::post('/verify-terminal', function (Request $request) {
         'terminal_name' => $terminal->terminal_name,
         'settings_pin' => $terminal->settings_pin,
         'terminal_pin' => $terminal->permissions['terminal_pin'] ?? null,
-        'credentials' => $terminal->credentials,
+        // 'credentials' intentionally omitted — credentials are never transmitted by server (ZK architecture)
         'should_upload_logs' => (isset($terminal->permissions['share_pwa_logs']) ? $terminal->permissions['share_pwa_logs'] : true) || ($terminal->allow_debug_until && now()->lessThan($terminal->allow_debug_until)),
         'permissions' => [
             'verification_enabled' => (bool) ($tenant->features['verification_enabled'] ?? true),
@@ -175,10 +182,16 @@ Route::post('/terminal/heartbeat', [BankAccountLockController::class, 'heartbeat
 Route::post('/terminal/unlock-account', [BankAccountLockController::class, 'unlockAccount']);
 Route::post('/terminal/status/log', [TerminalPairingController::class, 'logStatus']);
 Route::post('/terminal/logs', [TerminalPairingController::class, 'uploadLogs']);
+// /terminal/credentials kept for backward compat but PWA no longer calls it (ZK architecture)
 Route::post('/terminal/credentials', [TerminalPairingController::class, 'saveCredentials']);
 Route::post('/terminal/bank-accounts/increment-failures', [BankAccountLockController::class, 'incrementFailures']);
 Route::post('/terminal/bank-accounts/reset-failures', [BankAccountLockController::class, 'resetFailures']);
 Route::post('/terminal/bank-accounts/map-credentials', [BankAccountLockController::class, 'mapCredentials']);
+
+// Credential Sync (Terminal side — hardware_id auth)
+Route::get('/terminal/credential-sync/pending',                [CredentialSyncController::class, 'pendingForTerminal']);
+Route::post('/terminal/credential-sync/{id}/upload',           [CredentialSyncController::class, 'upload']);
+Route::post('/terminal/credential-sync/{id}/confirm-import',   [CredentialSyncController::class, 'confirmImport']);
 
 Route::post('/terminal/update-pin', function (Request $request) {
     $request->validate([

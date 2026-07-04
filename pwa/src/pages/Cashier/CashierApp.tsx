@@ -34,6 +34,90 @@ const computeCredsHash = async (bank: string, username: string): Promise<string>
   return sha256(`${bank}_${username.trim().toLowerCase()}`);
 };
 
+// ---------------------------------------------------------------------------
+// Zero-Knowledge Credential Sync Helpers
+// All cryptography runs exclusively in the browser via Web Crypto API.
+// ---------------------------------------------------------------------------
+const ZK_WORD_LIST = [
+  'apple','brave','coral','delta','eagle','frost','grape','honey','ivory','jewel',
+  'karma','lemon','maple','noble','ocean','pearl','quartz','river','storm','tiger',
+  'ultra','vivid','waltz','xenon','yield','zebra','amber','blaze','cedar','drift',
+  'ember','flint','glade','haven','iris','jade','knoll','lunar','mirth','nexus',
+  'oasis','prism','quest','ridge','solar','thorn','unity','valor','winds','xenial',
+  'young','zephyr','acorn','birch','crest','dusk','ether','forge','grove','haze',
+  'inlet','jest','kite','lance','mango','north','orbit','pike','quiet','raven',
+  'swift','tide','urban','veil','wheat','xeric','yarn','zinc','atlas','bison',
+  'cliff','dune','epoch','fable','giant','helix','icon','joust','knave','lark',
+  'merit','nymph','olive','plume','quirk','robin','slate','trove','umbra','vortex',
+  'wren','exact','yoke','zonal','abyss','bloom','chrome','dawns','elbow','flair',
+  'guile','hyper','irony','joker','kiosk','laser','magic','nerve','optic','pivot',
+  'quota','realm','scout','tempo','utmost','vibrant','woven','xtra','yeoman','zipper',
+  'arch','beam','crisp','dwell','elite','flora','glyph','hoard','isle','jelly',
+  'kudos','lilac','marsh','notch','oven','plaza','quill','reign','spare','torque',
+  'uncap','visor','watch','xenon2','yodel','zippy','azure','blunt','cloak','decoy',
+  'envoy','fluke','glint','hinge','index','joust2','knelt','lyric','manor','nudge',
+  'onset','prowl','quake','rivet','servo','tunic','ultra2','vouch','whisk','expel',
+  'yearn','zesty','adept','brace','crane','depot','evoke','floss','gloom','hatch',
+  'input','jolly','knack','ledge','model','notch2','onset2','pixel','query','rouge',
+  'synth','tryst','upend','vivid2','walrus','xylem','yawns','zonal2','abode','brush'
+];
+
+function generateSyncPassphrase(): string {
+  const arr = new Uint32Array(8);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map(n => ZK_WORD_LIST[n % ZK_WORD_LIST.length]).join('-');
+}
+
+async function encryptCredentialsForSync(
+  passphrase: string,
+  creds: object
+): Promise<{ passphrase: string; encrypted_blob: string; wrapped_dek: string; kdf_salt: string; gcm_iv: string }> {
+  const enc     = new TextEncoder();
+  const kdfSalt = crypto.getRandomValues(new Uint8Array(16));
+  const gcmIv   = crypto.getRandomValues(new Uint8Array(12));
+
+  const keyMat = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+  const kek    = await crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: kdfSalt, iterations: 600_000, hash: 'SHA-256' },
+    keyMat, { name: 'AES-KW', length: 256 }, false, ['wrapKey']
+  );
+  const dek    = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
+  const blob   = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: gcmIv }, dek, enc.encode(JSON.stringify(creds))
+  );
+  const wdek   = await crypto.subtle.wrapKey('raw', dek, kek, 'AES-KW');
+
+  const b64 = (b: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b)));
+  return {
+    passphrase,
+    encrypted_blob: b64(blob),
+    wrapped_dek:    b64(wdek),
+    kdf_salt:       b64(kdfSalt),
+    gcm_iv:         b64(gcmIv),
+  };
+}
+
+async function decryptCredentialsFromSync(
+  payload: { passphrase: string; encrypted_blob: string; wrapped_dek: string; kdf_salt: string; gcm_iv: string }
+): Promise<Record<string, { username?: string; password?: string; totpSeed?: string }>> {
+  const enc  = new TextEncoder();
+  const b64d = (s: string) => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+
+  const keyMat = await crypto.subtle.importKey('raw', enc.encode(payload.passphrase), 'PBKDF2', false, ['deriveKey']);
+  const kek    = await crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: b64d(payload.kdf_salt), iterations: 600_000, hash: 'SHA-256' },
+    keyMat, { name: 'AES-KW', length: 256 }, false, ['unwrapKey']
+  );
+  const dek    = await crypto.subtle.unwrapKey(
+    'raw', b64d(payload.wrapped_dek), kek, 'AES-KW',
+    { name: 'AES-GCM', length: 256 }, false, ['decrypt']
+  );
+  const plain  = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: b64d(payload.gcm_iv) }, dek, b64d(payload.encrypted_blob)
+  );
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
 interface BankAccount {
   id: number;
   bank_name: string;
@@ -248,26 +332,7 @@ function App() {
   const [tempTotpSeed, setTempTotpSeed] = useState('');
   const [expandedCredsAccountId, setExpandedCredsAccountId] = useState<string | null>(null);
 
-  const syncCredentialsToServer = async (newCredsList: any) => {
-    const hId = localStorage.getItem('viri_hardware_id') || hardwareId;
-    const bUrl = localStorage.getItem('viri_backend_url') || backendUrl;
-    if (!hId || !bUrl) return;
 
-    try {
-      await fetch(`${bUrl}/terminal/credentials`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hardware_id: hId,
-          credentials: {
-            accounts: newCredsList
-          }
-        })
-      });
-    } catch (e) {
-      console.error("Error syncing credentials to server:", e);
-    }
-  };
 
   const logActivityToServer = async (eventType: string, metadata: any = {}) => {
     if (!hardwareId || !backendUrl) return;
@@ -315,7 +380,7 @@ function App() {
     };
     setAccountsCreds(updated);
     localStorage.setItem('viri_accounts_creds', JSON.stringify(updated));
-    await syncCredentialsToServer(updated);
+    // Credentials are stored locally only (ZK architecture — not transmitted to server)
     logActivityToServer('settings_changed', { action: 'saved_credentials', account_id: accId });
   };
 
@@ -324,7 +389,7 @@ function App() {
     delete updated[accId];
     setAccountsCreds(updated);
     localStorage.setItem('viri_accounts_creds', JSON.stringify(updated));
-    await syncCredentialsToServer(updated);
+    // Credentials are stored locally only (ZK architecture — not transmitted to server)
     logActivityToServer('settings_changed', { action: 'cleared_credentials', account_id: accId });
   };
 
@@ -382,7 +447,7 @@ function App() {
       if (Object.keys(migrated).length > 0) {
         setAccountsCreds(migrated);
         localStorage.setItem('viri_accounts_creds', JSON.stringify(migrated));
-        syncCredentialsToServer(migrated);
+        // Credentials are stored locally only (ZK architecture — not transmitted to server)
 
         // Clean up old storage keys to avoid re-run
         localStorage.removeItem('viri_bml_username');
@@ -649,6 +714,75 @@ function App() {
     localStorage.setItem('viri_accounts_creds', JSON.stringify(accountsCreds));
   }, [accountsCreds]);
 
+  // ---------------------------------------------------------------------------
+  // Zero-Knowledge Credential Sync (background, no admin terminal interaction)
+  // ---------------------------------------------------------------------------
+  const [credSyncStatus, setCredSyncStatus] = useState<
+    'idle' | 'exporting' | 'export_done' | 'importing' | 'import_done' | 'error'
+  >('idle');
+  const [credSyncMsg, setCredSyncMsg] = useState<string | null>(null);
+  const credSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showCredSyncMsg = (status: typeof credSyncStatus, msg: string, autoDismissMs = 8000) => {
+    setCredSyncStatus(status);
+    setCredSyncMsg(msg);
+    if (credSyncTimerRef.current) clearTimeout(credSyncTimerRef.current);
+    credSyncTimerRef.current = setTimeout(() => {
+      setCredSyncStatus('idle');
+      setCredSyncMsg(null);
+    }, autoDismissMs);
+  };
+
+  useEffect(() => {
+    if (!hardwareId || !backendUrl || isSetupMode) return;
+
+    const poll = async () => {
+      if (credSyncStatus !== 'idle') return; // already handling one
+      try {
+        const res = await fetch(`${backendUrl}/terminal/credential-sync/pending?hardware_id=${hardwareId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.sync_id) return;
+
+        if (data.action === 'export') {
+          setCredSyncStatus('exporting');
+          setCredSyncMsg('🔐 Encrypting credentials for sync...');
+          const passphrase = generateSyncPassphrase();
+          const pkg = await encryptCredentialsForSync(passphrase, accountsCreds);
+          const uploadRes = await fetch(`${backendUrl}/terminal/credential-sync/${data.sync_id}/upload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hardware_id: hardwareId, ...pkg })
+          });
+          if (!uploadRes.ok) throw new Error('Upload failed');
+          showCredSyncMsg('export_done', '✅ Credentials encrypted and exported. Select a target terminal in Company Dashboard.', 12000);
+        }
+
+        if (data.action === 'import') {
+          setCredSyncStatus('importing');
+          setCredSyncMsg('🔐 Decrypting and importing credentials...');
+          const decrypted = await decryptCredentialsFromSync(data.payload);
+          setAccountsCreds(decrypted);
+          const confirmRes = await fetch(`${backendUrl}/terminal/credential-sync/${data.sync_id}/confirm-import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hardware_id: hardwareId })
+          });
+          if (!confirmRes.ok) throw new Error('Confirm failed');
+          showCredSyncMsg('import_done', '✅ Credentials imported successfully!', 8000);
+        }
+      } catch (e: any) {
+        showCredSyncMsg('error', `❌ Credential sync failed: ${e.message}`, 12000);
+      }
+    };
+
+    const intervalId = setInterval(poll, 10_000);
+    return () => {
+      clearInterval(intervalId);
+      if (credSyncTimerRef.current) clearTimeout(credSyncTimerRef.current);
+    };
+  }, [hardwareId, backendUrl, isSetupMode, credSyncStatus, accountsCreds]);
+
   // Synchronize isDefault check box with selectedAccountId and defaultAccountId
   useEffect(() => {
     if (!selectedAccountId || bankAccounts.length === 0) return;
@@ -751,10 +885,7 @@ function App() {
           setShouldUploadLogs(data.should_upload_logs);
         }
 
-        if (data.credentials && data.credentials.accounts) {
-          setAccountsCreds(data.credentials.accounts);
-          localStorage.setItem('viri_accounts_creds', JSON.stringify(data.credentials.accounts));
-        }
+        // Credentials are stored locally only (ZK architecture — server no longer holds credentials)
 
         if (accounts.length > 0) {
           const savedDefaultId = localStorage.getItem('viri_default_account_id');
@@ -825,11 +956,7 @@ function App() {
       if (data.extension_id) setExtensionId(data.extension_id);
       if (data.terminal_name) setTerminalName(data.terminal_name);
 
-      // Restore credentials if they exist in the response
-      if (data.credentials && data.credentials.accounts) {
-        setAccountsCreds(data.credentials.accounts);
-        localStorage.setItem('viri_accounts_creds', JSON.stringify(data.credentials.accounts));
-      }
+      // Credentials are stored locally only (ZK architecture — server no longer holds credentials)
 
       // Clear legacy PIN when a new terminal is paired
       localStorage.removeItem('viri_terminal_pin');
@@ -2320,6 +2447,31 @@ function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 h-screen overflow-y-auto p-4 md:p-8 flex flex-col items-center">
+
+        {/* ── Credential Sync Toast ── */}
+        {credSyncMsg && (
+          <div
+            className={`fixed bottom-6 right-6 z-[9999] max-w-sm px-5 py-4 rounded-2xl shadow-2xl border flex items-start gap-3 transition-all duration-300 ${
+              credSyncStatus === 'error'
+                ? 'bg-red-950/95 border-red-500/60 text-red-200'
+                : credSyncStatus === 'exporting' || credSyncStatus === 'importing'
+                ? 'bg-zinc-900/95 border-emerald-500/40 text-zinc-100'
+                : 'bg-emerald-950/95 border-emerald-500/50 text-emerald-200'
+            }`}
+          >
+            {(credSyncStatus === 'exporting' || credSyncStatus === 'importing') && (
+              <span className="mt-0.5 h-4 w-4 rounded-full border-2 border-emerald-400 border-t-transparent animate-spin shrink-0" />
+            )}
+            <span className="text-sm leading-snug">{credSyncMsg}</span>
+            <button
+              onClick={() => { setCredSyncMsg(null); setCredSyncStatus('idle'); }}
+              className="ml-auto shrink-0 text-zinc-400 hover:text-white"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+            </button>
+          </div>
+        )}
+
         {subscriptionExpired && (
           <div className="w-full max-w-xl lg:max-w-full mb-6 bg-red-955/25 border-2 border-red-500 text-red-300 px-6 py-4 rounded-2xl flex items-center justify-between gap-4 shadow-[0_0_30px_rgba(239,68,68,0.15)]">
             <div className="flex items-center gap-3">

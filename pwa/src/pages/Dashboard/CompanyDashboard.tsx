@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon } from 'lucide-react';
+import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ShieldCheck, ArrowRight, Loader2 } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 
 const Tooltip = ({ text, onClick }: { text: string; onClick?: () => void }) => (
@@ -31,6 +31,95 @@ export default function CompanyDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [now, setNow] = useState(Date.now());
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+
+  // Credential Sync Wizard
+  const [syncWizard, setSyncWizard] = useState<{
+    open: boolean;
+    step: 'confirm_source' | 'waiting_export' | 'select_target' | 'waiting_import' | 'done' | 'error';
+    syncId: string | null;
+    sourceTerminalId: string | null;
+    targetTerminalId: string | null;
+    error: string | null;
+  }>({
+    open: false,
+    step: 'confirm_source',
+    syncId: null,
+    sourceTerminalId: null,
+    targetTerminalId: null,
+    error: null,
+  });
+
+  const openSyncWizard = (terminalId: string) => {
+    setSyncWizard({ open: true, step: 'confirm_source', syncId: null, sourceTerminalId: terminalId, targetTerminalId: null, error: null });
+  };
+
+  const closeSyncWizard = async () => {
+    // Cancel any active sync on the server
+    if (syncWizard.syncId && !['done'].includes(syncWizard.step)) {
+      const token = localStorage.getItem('viri_token');
+      await fetch(`/api/company/credential-sync/${syncWizard.syncId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).catch(() => {});
+    }
+    setSyncWizard({ open: false, step: 'confirm_source', syncId: null, sourceTerminalId: null, targetTerminalId: null, error: null });
+  };
+
+  const startSync = async () => {
+    const token = localStorage.getItem('viri_token');
+    const res = await fetch('/api/company/credential-sync/initiate', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_terminal_id: parseInt(syncWizard.sourceTerminalId!) })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setSyncWizard(prev => ({ ...prev, step: 'error', error: data.error || 'Failed to start sync.' }));
+      return;
+    }
+    setSyncWizard(prev => ({ ...prev, step: 'waiting_export', syncId: data.sync_id }));
+  };
+
+  const triggerImport = async () => {
+    if (!syncWizard.targetTerminalId) return;
+    const token = localStorage.getItem('viri_token');
+    const res = await fetch(`/api/company/credential-sync/${syncWizard.syncId}/trigger-import`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_terminal_id: parseInt(syncWizard.targetTerminalId) })
+    });
+    if (!res.ok) {
+      const d = await res.json();
+      setSyncWizard(prev => ({ ...prev, step: 'error', error: d.error || 'Failed to trigger import.' }));
+      return;
+    }
+    setSyncWizard(prev => ({ ...prev, step: 'waiting_import' }));
+  };
+
+  // Poll sync status while wizard is in waiting states
+  useEffect(() => {
+    if (!syncWizard.syncId || !['waiting_export', 'waiting_import'].includes(syncWizard.step)) return;
+    const token = localStorage.getItem('viri_token');
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/company/credential-sync/${syncWizard.syncId}/status`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (syncWizard.step === 'waiting_export' && data.status === 'ready') {
+          setSyncWizard(prev => ({ ...prev, step: 'select_target' }));
+        }
+        if (syncWizard.step === 'waiting_import' && data.status === 'completed') {
+          setSyncWizard(prev => ({ ...prev, step: 'done' }));
+        }
+        if (data.status === 'expired') {
+          setSyncWizard(prev => ({ ...prev, step: 'error', error: 'Sync request expired. Please try again.' }));
+        }
+      } catch { /* ignore */ }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [syncWizard.syncId, syncWizard.step]);
 
   const navigateToHelp = (sectionId: string) => {
     setActiveTab('help');
@@ -595,6 +684,17 @@ export default function CompanyDashboard() {
                             <button type="button" onClick={() => regeneratePairingCode(term.id)} className="btn btn-outline border-yellow-500/50 text-yellow-400 hover:bg-yellow-500 hover:text-black py-2 text-xs w-full flex items-center justify-center gap-1.5 transition-colors">
                               <RefreshCw size={14} /> Reconnect / Pair Device
                             </button>
+
+                            {terminals.filter(t => t.id !== term.id && !t.pairing_code).length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => openSyncWizard(term.id.toString())}
+                                className="btn btn-outline border-emerald-600/50 text-emerald-400 hover:bg-emerald-600 hover:text-white py-2 text-xs w-full flex items-center justify-center gap-1.5 transition-colors"
+                                title="Copy credentials from this terminal to another terminal securely"
+                              >
+                                <ShieldCheck size={14} /> Sync Credentials
+                              </button>
+                            )}
 
                             {term.allow_debug_until && new Date(term.allow_debug_until).getTime() > now && term.debug_one_time_code ? (
                               <div className="bg-blue-950/40 border border-blue-500/30 p-3 rounded flex flex-col gap-2">
@@ -1200,6 +1300,154 @@ export default function CompanyDashboard() {
         )}
 
       </main>
+
+      {/* ── Credential Sync Wizard Modal ── */}
+      {syncWizard.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-zinc-700/80 rounded-2xl max-w-lg w-full p-7 shadow-2xl relative">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-900/60 border border-emerald-600/40 flex items-center justify-center">
+                  <ShieldCheck size={16} className="text-emerald-400" />
+                </div>
+                <h2 className="text-lg font-bold text-white">Secure Credential Sync</h2>
+              </div>
+              <button onClick={closeSyncWizard} className="text-zinc-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5">
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Step indicators */}
+            <div className="flex items-center gap-1.5 mb-6">
+              {(['confirm_source', 'waiting_export', 'select_target', 'waiting_import', 'done'] as const).map((s, i) => (
+                <div key={s} className={`h-1 rounded-full flex-1 transition-all ${
+                  ['confirm_source', 'waiting_export', 'select_target', 'waiting_import', 'done'].indexOf(syncWizard.step) >= i
+                    ? 'bg-emerald-500'
+                    : 'bg-zinc-700'
+                }`} />
+              ))}
+            </div>
+
+            {/* Step 1 — Confirm Source */}
+            {syncWizard.step === 'confirm_source' && (() => {
+              const srcTerm = terminals.find(t => t.id.toString() === syncWizard.sourceTerminalId);
+              return (
+                <div className="space-y-4">
+                  <p className="text-zinc-300 text-sm leading-relaxed">
+                    This will securely copy all bank credentials from <strong className="text-white">{srcTerm?.terminal_name}</strong> to another terminal using AES-256 encryption. The process runs automatically in the background — no action required on the terminal devices.
+                  </p>
+                  <div className="bg-emerald-950/40 border border-emerald-800/40 rounded-xl p-4 text-xs text-emerald-300 space-y-1">
+                    <div className="flex gap-2"><span>🔐</span><span>Credentials are encrypted on the source terminal before leaving the device</span></div>
+                    <div className="flex gap-2"><span>⚡</span><span>The entire process takes ~30 seconds with no terminal interaction needed</span></div>
+                    <div className="flex gap-2"><span>🗑️</span><span>The encrypted package is permanently deleted from Viri servers after import</span></div>
+                  </div>
+                  <button onClick={startSync} className="btn btn-success w-full py-3 flex items-center justify-center gap-2 font-semibold">
+                    Start Sync <ArrowRight size={16} />
+                  </button>
+                </div>
+              );
+            })()}
+
+            {/* Step 2 — Waiting for export */}
+            {syncWizard.step === 'waiting_export' && (() => {
+              const srcTerm = terminals.find(t => t.id.toString() === syncWizard.sourceTerminalId);
+              return (
+                <div className="space-y-5 text-center">
+                  <Loader2 size={40} className="animate-spin text-emerald-400 mx-auto" />
+                  <p className="text-white font-semibold">Waiting for <span className="text-emerald-400">{srcTerm?.terminal_name}</span> to encrypt...</p>
+                  <p className="text-zinc-400 text-sm">The terminal is working in the background. No action required there.</p>
+                  <p className="text-zinc-500 text-xs">This usually takes 10–15 seconds.</p>
+                </div>
+              );
+            })()}
+
+            {/* Step 3 — Select target */}
+            {syncWizard.step === 'select_target' && (() => {
+              const otherTerminals = terminals.filter(t => t.id.toString() !== syncWizard.sourceTerminalId && !t.pairing_code);
+              return (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm">
+                    <CheckCircle2 size={16} /> Encrypted package ready
+                  </div>
+                  <p className="text-zinc-300 text-sm">Select the terminal that should receive the credentials:</p>
+                  <div className="space-y-2">
+                    {otherTerminals.map(t => (
+                      <label key={t.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                        syncWizard.targetTerminalId === t.id.toString()
+                          ? 'border-emerald-500 bg-emerald-950/30'
+                          : 'border-zinc-700 hover:border-zinc-500 bg-zinc-800/40'
+                      }`}>
+                        <input
+                          type="radio"
+                          name="target_terminal"
+                          value={t.id.toString()}
+                          checked={syncWizard.targetTerminalId === t.id.toString()}
+                          onChange={() => setSyncWizard(prev => ({ ...prev, targetTerminalId: t.id.toString() }))}
+                          className="accent-emerald-500"
+                        />
+                        <MonitorSmartphone size={16} className="text-zinc-400" />
+                        <span className="text-white text-sm font-medium">{t.terminal_name}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <button
+                    onClick={triggerImport}
+                    disabled={!syncWizard.targetTerminalId}
+                    className="btn btn-success w-full py-3 flex items-center justify-center gap-2 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Import to Selected Terminal <ArrowRight size={16} />
+                  </button>
+                </div>
+              );
+            })()}
+
+            {/* Step 4 — Waiting for import */}
+            {syncWizard.step === 'waiting_import' && (() => {
+              const tgtTerm = terminals.find(t => t.id.toString() === syncWizard.targetTerminalId);
+              return (
+                <div className="space-y-5 text-center">
+                  <Loader2 size={40} className="animate-spin text-emerald-400 mx-auto" />
+                  <p className="text-white font-semibold">Waiting for <span className="text-emerald-400">{tgtTerm?.terminal_name}</span> to decrypt...</p>
+                  <p className="text-zinc-400 text-sm">The target terminal is decrypting and saving credentials in the background. No action required there.</p>
+                  <p className="text-zinc-500 text-xs">This usually takes 10–15 seconds.</p>
+                </div>
+              );
+            })()}
+
+            {/* Step 5 — Done */}
+            {syncWizard.step === 'done' && (
+              <div className="space-y-5 text-center">
+                <div className="w-16 h-16 rounded-full bg-emerald-900/50 border-2 border-emerald-500 flex items-center justify-center mx-auto">
+                  <CheckCircle2 size={32} className="text-emerald-400" />
+                </div>
+                <div>
+                  <p className="text-white font-bold text-lg">Sync Complete!</p>
+                  <p className="text-zinc-400 text-sm mt-1">Credentials synchronized successfully.</p>
+                  <p className="text-zinc-600 text-xs mt-2">The encrypted package and passphrase have been permanently deleted from Viri's servers.</p>
+                </div>
+                <button onClick={closeSyncWizard} className="btn btn-success w-full py-3 font-semibold">
+                  Close
+                </button>
+              </div>
+            )}
+
+            {/* Error step */}
+            {syncWizard.step === 'error' && (
+              <div className="space-y-4 text-center">
+                <div className="w-14 h-14 rounded-full bg-red-950/50 border-2 border-red-500 flex items-center justify-center mx-auto">
+                  <X size={28} className="text-red-400" />
+                </div>
+                <p className="text-red-300 font-semibold">Sync Failed</p>
+                <p className="text-zinc-400 text-sm">{syncWizard.error}</p>
+                <button onClick={closeSyncWizard} className="btn btn-outline border-red-500/50 text-red-400 hover:bg-red-500 hover:text-white w-full py-2.5 font-semibold">
+                  Dismiss
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {isTerminalModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
