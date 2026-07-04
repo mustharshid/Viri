@@ -637,7 +637,7 @@ export default function CompanyDashboard() {
                 </div>
                 
                 <div className="pt-3 border-t border-zinc-800/60 mt-4 flex justify-between items-center">
-                  <a href="/extention/viri-connect.zip" download className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 hover:underline">
+                  <a href="/viri/viri-bridge.zip" download className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 hover:underline">
                     <Download size={13} /> Download Extension
                   </a>
                 </div>
