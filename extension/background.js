@@ -1,7 +1,7 @@
 const BASE_URL = "https://www.bankofmaldives.com.mv/internetbanking";
 const MIB_BASE_URL = "https://faisanet.mib.com.mv";
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
-const EXTENSION_VERSION = "1.0.5";
+const EXTENSION_VERSION = "1.0.6";
 
 let globalInertiaVersion = "";
 
@@ -155,7 +155,7 @@ function startHeartbeat() {
         })
       });
     } catch (e) {
-      console.error("Heartbeat post failed:", e);
+      console.warn("Heartbeat post failed:", e);
     }
   }, 20000);
 }
@@ -188,7 +188,7 @@ function startRequestPolling() {
         }
       }
     } catch (e) {
-      console.error("Error polling pending requests:", e);
+      console.warn("Error polling pending requests:", e);
     }
   }, 3000);
 }
