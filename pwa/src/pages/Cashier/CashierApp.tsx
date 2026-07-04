@@ -2373,19 +2373,6 @@ function App() {
 
 
         <button
-          onClick={() => { setShowSettings(false); setActiveTab('checklist'); }}
-          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
-            } ${activeTab === 'checklist' && !showSettings
-              ? 'bg-amber-500/20 text-amber-300 font-bold ring-1 ring-amber-500/40'
-              : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
-            }`}
-          title="Setup Checklist"
-        >
-          <ChevronRight size={16} className="shrink-0" />
-          <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Checklist</span>
-        </button>
-
-        <button
           onClick={() => { setShowSettings(false); setActiveTab('help'); }}
           className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
             } ${activeTab === 'help' && !showSettings
@@ -2440,6 +2427,19 @@ function App() {
             <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Lock Terminal</span>
           </button>
         )}
+
+        <button
+          onClick={() => { setShowSettings(false); setActiveTab('checklist'); }}
+          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+            } ${activeTab === 'checklist' && !showSettings
+              ? 'bg-amber-500/20 text-amber-300 font-bold ring-1 ring-amber-500/40'
+              : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
+            }`}
+          title="Setup Checklist"
+        >
+          <ChevronRight size={16} className="shrink-0" />
+          <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Checklist</span>
+        </button>
 
         <button
           onClick={() => {
