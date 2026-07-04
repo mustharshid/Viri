@@ -1,0 +1,17 @@
+{
+  "short_name": "Viri Admin",
+  "name": "Viri Superadmin Portal",
+  "icons": [
+    {
+      "src": "favicon.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/admin",
+  "background_color": "#09090b",
+  "theme_color": "#eab308",
+  "display": "standalone",
+  "orientation": "any"
+}
