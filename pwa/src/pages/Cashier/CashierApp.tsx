@@ -323,10 +323,18 @@ function App() {
       }
     };
     window.addEventListener('message', handleMessage);
+    const requestInterval = setInterval(() => {
+      try {
+        window.postMessage({ type: 'REQUEST_VIRI_BRIDGE_ID' }, '*');
+      } catch (e) { }
+    }, 2000);
     try {
       window.postMessage({ type: 'REQUEST_VIRI_BRIDGE_ID' }, '*');
     } catch (e) { }
-    return () => window.removeEventListener('message', handleMessage);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      clearInterval(requestInterval);
+    };
   }, []);
 
   const [showSettings, setShowSettings] = useState(false);
@@ -864,7 +872,10 @@ function App() {
         if (data.tenant?.name) setTenantName(data.tenant.name);
         if (data.tenant?.tier) setSubscriptionTier(data.tenant.tier);
         if (data.tenant?.lock_timeout) setLockTimeout(data.tenant.lock_timeout);
-        if (data.tenant?.extension_id) setExtensionId(data.tenant.extension_id);
+        if (data.tenant?.extension_id && data.tenant.extension_id !== 'viri_default_extension_id') {
+          setExtensionId(data.tenant.extension_id);
+          localStorage.setItem('viri_extension_id', data.tenant.extension_id);
+        }
         if (data.terminal_name) setTerminalName(data.terminal_name);
         setSettingsPin(data.settings_pin || null);
 
@@ -971,7 +982,10 @@ function App() {
         return;
       }
       setHardwareId(data.hardware_id);
-      if (data.extension_id) setExtensionId(data.extension_id);
+      if (data.extension_id && data.extension_id !== 'viri_default_extension_id') {
+        setExtensionId(data.extension_id);
+        localStorage.setItem('viri_extension_id', data.extension_id);
+      }
       if (data.terminal_name) setTerminalName(data.terminal_name);
 
       // Credentials are stored locally only (ZK architecture — server no longer holds credentials)

@@ -22,6 +22,7 @@
   "externally_connectable": {
     "matches": [
       "http://localhost/*",
+      "http://127.0.0.1/*",
       "https://*.viri.app/*",
       "https://soft.thinksafe.mv/*",
       "https://viri.thinksafe.mv/*"
@@ -31,6 +32,7 @@
     {
       "matches": [
         "http://localhost/*",
+        "http://127.0.0.1/*",
         "https://*.viri.app/*",
         "https://soft.thinksafe.mv/*",
         "https://viri.thinksafe.mv/*"
