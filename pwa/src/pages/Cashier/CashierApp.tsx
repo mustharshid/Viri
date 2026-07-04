@@ -2554,9 +2554,13 @@ function App() {
                     <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">Viri Bridge Extension ID (System) <Tooltip text="Unique ID of the local companion browser extension helper." helpSectionId="extension-installation" /></label>
                     <input
                       type="text"
-                      className="input-field opacity-60 cursor-not-allowed bg-zinc-950/50 border-zinc-800 text-xs px-3 py-2"
+                      className="input-field bg-zinc-950/50 border-zinc-800 text-xs px-3 py-2 text-white"
                       value={extensionId}
-                      readOnly
+                      onChange={e => {
+                        const val = e.target.value;
+                        setExtensionId(val);
+                        localStorage.setItem('viri_extension_id', val);
+                      }}
                     />
                   </div>
 
