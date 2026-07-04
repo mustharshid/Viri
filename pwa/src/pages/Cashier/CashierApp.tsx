@@ -87,7 +87,7 @@ async function encryptCredentialsForSync(
   );
   const wdek   = await crypto.subtle.wrapKey('raw', dek, kek, 'AES-KW');
 
-  const b64 = (b: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b)));
+  const b64 = (b: ArrayBuffer | Uint8Array) => btoa(String.fromCharCode(...new Uint8Array(b)));
   return {
     passphrase,
     encrypted_blob: b64(blob),
