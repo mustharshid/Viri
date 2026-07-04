@@ -2521,13 +2521,21 @@ function App() {
           /* Extension settings/admin panel */
           <div className="w-full max-w-xl lg:max-w-full mb-6 glass-panel border-zinc-850 animate-fade-in p-6">
             {/* Header */}
-            <div className="border-b border-[var(--border-color)] pb-4 mb-6">
-              <h3 className="text-xl font-bold flex items-center gap-2 text-white">
-                <Settings size={22} className="text-zinc-400" /> Viri Admin Panel <Tooltip text="System settings, terminal registration, lock PIN, and bank credentials." helpSectionId="admin-panel" />
-              </h3>
-              <p className="text-xs text-[var(--text-secondary)] mt-1">
-                System configuration, lock PIN security, and local bank account credentials.
-              </p>
+            <div className="border-b border-zinc-800 pb-4 mb-6 flex justify-between items-start">
+              <div>
+                <h3 className="text-xl font-bold flex items-center gap-2 text-white">
+                  <Settings size={22} className="text-zinc-400" /> Viri Admin Panel <Tooltip text="System settings, terminal registration, lock PIN, and bank credentials." helpSectionId="admin-panel" />
+                </h3>
+                <p className="text-xs text-[var(--text-secondary)] mt-1">
+                  System configuration, lock PIN security, and local bank account credentials.
+                </p>
+              </div>
+              <button 
+                onClick={() => setShowSettings(false)}
+                className="btn btn-success px-4 py-2 text-xs flex items-center gap-1.5 shadow-md rounded-xl font-semibold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20"
+              >
+                Save & Close
+              </button>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
