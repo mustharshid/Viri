@@ -203,7 +203,7 @@ function App() {
   const syncStartTimeRef = useRef<number | null>(null);
   const [currentTick, setCurrentTick] = useState(Date.now());
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.0.6";
+  const LATEST_EXTENSION_VERSION = "1.0.7";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
