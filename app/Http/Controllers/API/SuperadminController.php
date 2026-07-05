@@ -352,14 +352,22 @@ class SuperadminController extends Controller
         ]);
 
         $payment = \App\Models\PaymentReceipt::findOrFail($id);
-        
+        $tenant = $payment->tenant;
+        $previousExpiry = $payment->previous_license_expires_at;
+
         $payment->update([
             'status' => 'rejected',
             'remarks' => $request->remarks
         ]);
 
+        // Revert license expiry if previous expiry exists
+        if ($previousExpiry) {
+            $tenant->license_expires_at = $previousExpiry;
+            $tenant->save();
+        }
+
         return response()->json([
-            'message' => 'Payment rejected successfully.'
+            'message' => 'Payment rejected and license expiry reverted if applicable.'
         ]);
     }
 }

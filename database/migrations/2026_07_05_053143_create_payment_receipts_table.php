@@ -18,6 +18,7 @@ return new class extends Migration
             $table->string('reference_number');
             $table->string('receipt_slip_path');
             $table->string('status')->default('pending'); // pending, approved, rejected
+            $table->timestamp('previous_license_expires_at')->nullable();
             $table->text('remarks')->nullable();
             $table->timestamps();
         });

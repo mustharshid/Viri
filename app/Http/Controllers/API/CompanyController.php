@@ -358,13 +358,28 @@ class CompanyController extends Controller
             return response()->json(['error' => 'Receipt slip file is required'], 400);
         }
 
+        // Auto-renew license for 1 month upon payment receipt upload
+        $tenant = $user->tenant;
+        $previousExpiry = $tenant->license_expires_at; // could be null
+        // Determine new expiry date
+        if ($previousExpiry && $previousExpiry->gt(now())) {
+            $newExpiry = (clone $previousExpiry)->addMonth();
+        } else {
+            $newExpiry = now()->addMonth();
+        }
+        // Update tenant's license expiry
+        $tenant->license_expires_at = $newExpiry;
+        $tenant->save();
+
         $payment = \App\Models\PaymentReceipt::create([
             'tenant_id' => $user->tenant_id,
             'amount' => $request->amount,
             'reference_number' => $request->reference_number,
             'receipt_slip_path' => $receiptSlipPath,
             'status' => 'pending',
-            'remarks' => $request->remarks
+            'remarks' => $request->remarks,
+            // Store previous expiry for potential rollback on rejection
+            'previous_license_expires_at' => $previousExpiry
         ]);
 
         return response()->json([
