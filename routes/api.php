@@ -9,6 +9,8 @@ use App\Http\Controllers\API\CredentialSyncController;
 use App\Http\Controllers\API\SuperadminController;
 use App\Http\Controllers\API\TerminalPairingController;
 use App\Http\Controllers\API\BankAccountLockController;
+use App\Http\Controllers\API\LedgerCacheController;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -212,6 +214,14 @@ Route::post('/terminal/bank-accounts/map-credentials', [BankAccountLockControlle
 Route::get('/terminal/credential-sync/pending',                [CredentialSyncController::class, 'pendingForTerminal']);
 Route::post('/terminal/credential-sync/{id}/upload',           [CredentialSyncController::class, 'upload']);
 Route::post('/terminal/credential-sync/{id}/confirm-import',   [CredentialSyncController::class, 'confirmImport']);
+
+// Shared Transaction Cache & Real-Time Signaling Endpoints
+Route::get('/terminal/events',                                  [LedgerCacheController::class, 'streamEvents']);
+Route::get('/terminal/ledger-cache/{account_id}',               [LedgerCacheController::class, 'readCache']);
+Route::post('/terminal/ledger-cache/push',                      [LedgerCacheController::class, 'pushCache']);
+Route::post('/terminal/ledger-cache/request-refresh',           [LedgerCacheController::class, 'requestRefresh']);
+Route::post('/terminal/session/acknowledge',                    [LedgerCacheController::class, 'acknowledge']);
+
 
 Route::post('/terminal/update-pin', function (Request $request) {
     $request->validate([
