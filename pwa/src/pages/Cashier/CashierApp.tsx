@@ -175,6 +175,10 @@ function App() {
   const [creditsExhausted, setCreditsExhausted] = useState(false);
   const [subscriptionExpired, setSubscriptionExpired] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
+  
+  const [sessionStatus, setSessionStatus] = useState<'idle' | 'claiming' | 'holder' | 'delegating'>('idle');
+  const [sessionHolderAccountId, setSessionHolderAccountId] = useState<string | null>(null);
+  const [delegatedFulfilling, setDelegatedFulfilling] = useState(false);
   const [isDefault, setIsDefault] = useState(true);
   const [defaultAccountId, setDefaultAccountId] = useState<string>(() => {
     return localStorage.getItem('viri_default_account_id') || '';
@@ -233,6 +237,7 @@ function App() {
   const syncStartTimeRef = useRef<number | null>(null);
   const [currentTick, setCurrentTick] = useState(Date.now());
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
+  const [terminalId, setTerminalId] = useState<number | null>(null);
   const LATEST_EXTENSION_VERSION = "1.0.8";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
@@ -550,6 +555,25 @@ function App() {
           if (data.subscription_expired !== undefined) {
             setSubscriptionExpired(data.subscription_expired);
           }
+          if (data.terminal_id !== undefined) {
+            setTerminalId(data.terminal_id);
+          }
+
+          // Auto-heal session holding state from database
+          if (data.terminal_id) {
+            const heldAccount = accounts.find((a: any) => a.session_holder_terminal_id === data.terminal_id);
+            if (heldAccount) {
+              if (sessionStatus === 'idle') {
+                setSessionStatus('holder');
+                setSessionHolderAccountId(heldAccount.id.toString());
+              }
+            } else {
+              if (sessionStatus === 'holder') {
+                setSessionStatus('idle');
+                setSessionHolderAccountId(null);
+              }
+            }
+          }
 
           // Sync local PIN with server-set/reset lock PIN
           if (data.terminal_pin !== undefined) {
@@ -591,7 +615,7 @@ function App() {
     poll();
 
     return () => clearTimeout(timeoutId);
-  }, [hardwareId, backendUrl, isSetupMode, appConfig.session_status_poll_interval, isUserIdle]);
+  }, [hardwareId, backendUrl, isSetupMode, appConfig.session_status_poll_interval, isUserIdle, sessionStatus]);
 
   const syncCredentialsMapping = async (accountsList: BankAccount[]) => {
     if (!hardwareId || !backendUrl || accountsList.length === 0) return;
@@ -1220,8 +1244,6 @@ function App() {
     alert("Logs copied to clipboard!");
   };
 
-  const [sessionStatus, setSessionStatus] = useState<'idle' | 'claiming' | 'holder' | 'delegating'>('idle');
-  const [sessionHolderAccountId, setSessionHolderAccountId] = useState<string | null>(null);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
@@ -1248,8 +1270,6 @@ function App() {
     }
     return () => clearInterval(interval);
   }, [sessionStatus, hardwareId, backendUrl, sessionHolderAccountId, extensionId]);
-
-  const [delegatedFulfilling, setDelegatedFulfilling] = useState(false);
 
   useEffect(() => {
     if (sessionStatus !== 'holder' || !hardwareId || !backendUrl || !sessionHolderAccountId) return;
@@ -3391,7 +3411,7 @@ function App() {
 
                                 // This terminal's own actively-held account is the ground truth.
                                 // We know exactly which account we synced, so override server heartbeat data.
-                                const isOwnSession = sessionStatus === 'holder' && sessionHolderAccountId === accountIdStr;
+                                const isOwnSession = (sessionStatus === 'holder' && sessionHolderAccountId === accountIdStr) || (terminalId !== null && account.session_holder_terminal_id === terminalId);
 
                                 let isActive = isOwnSession; // start with local knowledge
                                 let elapsedMs: number | null = null;

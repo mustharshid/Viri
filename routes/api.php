@@ -142,6 +142,7 @@ Route::post('/verify-terminal', function (Request $request) {
 
     return response()->json([
         'status' => 'authorized',
+        'terminal_id' => $terminal->id,
         'credits_exhausted' => $creditsExhausted,
         'subscription_expired' => $subscriptionExpired,
         'app_config' => $appConfig,
