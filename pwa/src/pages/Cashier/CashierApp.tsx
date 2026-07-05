@@ -3455,11 +3455,15 @@ function App() {
                               {bankAccounts.map((account) => {
                                 const accountIdStr = account.id.toString();
 
-                                // This terminal's own actively-held account is the ground truth.
-                                // We know exactly which account we synced, so override server heartbeat data.
-                                const isOwnSession = (sessionStatus === 'holder' && sessionHolderAccountId === accountIdStr) || (terminalId !== null && account.session_holder_terminal_id === terminalId);
+                                // Only trust local state as the ground truth for OWN live session.
+                                // If we know *locally* we are the active holder, that's definitive.
+                                const isLocalHolder = sessionStatus === 'holder' && sessionHolderAccountId === accountIdStr;
+                                // Server says this terminal holds the account — but validate with heartbeat, don't blindly trust.
+                                const isServerHolder = terminalId !== null && account.session_holder_terminal_id === terminalId;
 
-                                let isActive = isOwnSession; // start with local knowledge
+                                const isOwnSession = isLocalHolder || isServerHolder;
+
+                                let isActive = false; // default to inactive; only set true with real evidence
                                 let elapsedMs: number | null = null;
                                 let heartbeatTime: number | undefined;
                                 let claimedTime: number | undefined;
@@ -3470,21 +3474,26 @@ function App() {
                                   } catch (e) { }
                                 }
 
-                                if (!isOwnSession && account.session_holder_terminal_id && account.session_last_heartbeat_at) {
-                                  // For other terminals' sessions, fall back to heartbeat timing
+                                if (!account.session_holder_terminal_id) {
+                                  // No holder at all — definitely idle
+                                  isActive = false;
+                                } else if (isLocalHolder) {
+                                  // We are the holder locally right now — we are active
+                                  isActive = true;
+                                  if (account.session_last_heartbeat_at) {
+                                    try {
+                                      heartbeatTime = new Date(account.session_last_heartbeat_at).getTime();
+                                    } catch (e) { }
+                                  }
+                                } else if (account.session_last_heartbeat_at) {
+                                  // For any other terminal's session (or our server-listed session without local confirmation),
+                                  // validate recency of heartbeat
                                   try {
                                     heartbeatTime = new Date(account.session_last_heartbeat_at).getTime();
                                     const idleMs = Math.max(0, currentTick - heartbeatTime);
                                     isActive = idleMs <= 90000;
                                   } catch (e) {
                                     isActive = false;
-                                  }
-                                } else if (isOwnSession) {
-                                  // For our own session, use the local clock since we're actively heartbeating
-                                  if (account.session_last_heartbeat_at) {
-                                    try {
-                                      heartbeatTime = new Date(account.session_last_heartbeat_at).getTime();
-                                    } catch (e) { }
                                   }
                                 }
 
