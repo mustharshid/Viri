@@ -282,4 +282,84 @@ class SuperadminController extends Controller
 
         return response()->json(['message' => 'System settings updated successfully']);
     }
+
+    public function getPayments(Request $request)
+    {
+        if ($request->user()->role !== 'superadmin') {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        $payments = \App\Models\PaymentReceipt::with('tenant')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json($payments);
+    }
+
+    public function approvePayment(Request $request, $id)
+    {
+        if ($request->user()->role !== 'superadmin') {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        $request->validate([
+            'subscription_tier' => 'required|string',
+            'license_expires_at' => 'required|date',
+            'remarks' => 'nullable|string'
+        ]);
+
+        $payment = \App\Models\PaymentReceipt::findOrFail($id);
+        
+        $payment->update([
+            'status' => 'approved',
+            'remarks' => $request->remarks ?: $payment->remarks
+        ]);
+
+        $tenant = $payment->tenant;
+        $tenant->update([
+            'subscription_tier' => $request->subscription_tier,
+            'license_expires_at' => \Carbon\Carbon::parse($request->license_expires_at),
+            'verifications_count' => 0
+        ]);
+
+        \App\Models\SessionActivityLog::create([
+            'tenant_id' => $tenant->id,
+            'event_type' => 'billing_payment_approved',
+            'event_summary' => "Payment reference {$payment->reference_number} approved. Extended license to " . $tenant->license_expires_at->toDateString(),
+            'event_detail' => [
+                'payment_id' => $payment->id,
+                'amount' => $payment->amount,
+                'reference_number' => $payment->reference_number,
+                'new_tier' => $tenant->subscription_tier,
+                'new_expiry' => $tenant->license_expires_at->toIso8601String()
+            ],
+            'created_at' => now()
+        ]);
+
+        return response()->json([
+            'message' => 'Payment approved successfully. Subscription plan updated.'
+        ]);
+    }
+
+    public function rejectPayment(Request $request, $id)
+    {
+        if ($request->user()->role !== 'superadmin') {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        $request->validate([
+            'remarks' => 'required|string|max:1000'
+        ]);
+
+        $payment = \App\Models\PaymentReceipt::findOrFail($id);
+        
+        $payment->update([
+            'status' => 'rejected',
+            'remarks' => $request->remarks
+        ]);
+
+        return response()->json([
+            'message' => 'Payment rejected successfully.'
+        ]);
+    }
 }

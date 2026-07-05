@@ -36,6 +36,11 @@ class Tenant extends Model
         return $this->hasMany(Invoice::class);
     }
 
+    public function paymentReceipts(): HasMany
+    {
+        return $this->hasMany(PaymentReceipt::class);
+    }
+
     public function auditLogs(): HasMany
     {
         return $this->hasMany(AuditLog::class);

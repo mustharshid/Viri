@@ -162,9 +162,59 @@ export default function CompanyDashboard() {
   const [settingsPhone, setSettingsPhone] = useState('');
   const [settingsPassword, setSettingsPassword] = useState('');
   const [settingsPasswordConfirm, setSettingsPasswordConfirm] = useState('');
+  const [settingsExpiryWarningDays, setSettingsExpiryWarningDays] = useState(7);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
+
+  // Billing & Payments States
+  const [payments, setPayments] = useState<any[]>([]);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentRef, setPaymentRef] = useState('');
+  const [paymentRemarks, setPaymentRemarks] = useState('');
+  const [paymentSlip, setPaymentSlip] = useState<File | null>(null);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState<string | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+
+  const fetchPayments = async () => {
+    try {
+      const token = localStorage.getItem('viri_token');
+      const res = await fetch('/api/company/payments', {
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+      });
+      if (res.ok) {
+        setPayments(await res.json());
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const disableDebug = async (id: number) => {
+    try {
+      const token = localStorage.getItem('viri_token');
+      const response = await fetch(`/api/company/terminals/${id}/disable-debug`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        }
+      });
+      if (response.ok) {
+        setTerminals(prev => prev.map(t => t.id === id ? { 
+          ...t, 
+          debug_one_time_code: null, 
+          allow_debug_until: null 
+        } : t));
+      } else {
+        alert("Failed to revoke debug access.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error revoking debug access.");
+    }
+  };
   
   const navigate = useNavigate();
 
@@ -203,6 +253,8 @@ export default function CompanyDashboard() {
       const userData = await userRes.json();
       setUser(userData.user);
       setSettingsPhone(userData.user.phone_number || '');
+      setSettingsExpiryWarningDays(userData.user.tenant?.features?.expiry_warning_days ?? 7);
+      fetchPayments();
 
       const termsRes = await fetch('/api/company/terminals', { headers });
       setTerminals(await termsRes.json());
@@ -252,7 +304,8 @@ export default function CompanyDashboard() {
         body: JSON.stringify({
           phone_number: settingsPhone,
           password: settingsPassword || undefined,
-          password_confirmation: settingsPassword ? settingsPasswordConfirm : undefined
+          password_confirmation: settingsPassword ? settingsPasswordConfirm : undefined,
+          expiry_warning_days: settingsExpiryWarningDays
         })
       });
 
@@ -269,6 +322,56 @@ export default function CompanyDashboard() {
       setSettingsError(err.message);
     } finally {
       setSettingsLoading(false);
+    }
+  };
+
+  const handleUploadPaymentReceipt = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPaymentError(null);
+    setPaymentSuccess(null);
+    setPaymentLoading(true);
+
+    if (!paymentSlip) {
+      setPaymentError("Please select a transfer slip image to upload");
+      setPaymentLoading(false);
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('viri_token');
+      const formData = new FormData();
+      formData.append('amount', paymentAmount);
+      formData.append('reference_number', paymentRef);
+      formData.append('remarks', paymentRemarks);
+      formData.append('receipt_slip', paymentSlip);
+
+      const response = await fetch('/api/company/payments', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        },
+        body: formData
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setPaymentSuccess("Payment receipt uploaded successfully! Superadmin will verify it shortly.");
+        setPaymentAmount('');
+        setPaymentRef('');
+        setPaymentRemarks('');
+        setPaymentSlip(null);
+        const fileInput = document.getElementById('receipt_slip_file') as HTMLInputElement;
+        if (fileInput) fileInput.value = '';
+        fetchPayments();
+        fetchData();
+      } else {
+        setPaymentError(data.message || data.error || "Failed to upload payment receipt");
+      }
+    } catch (err: any) {
+      setPaymentError(err.message || "Network error uploading receipt");
+    } finally {
+      setPaymentLoading(false);
     }
   };
 
@@ -513,7 +616,10 @@ export default function CompanyDashboard() {
               <Clock size={18} /> Activity Logs
             </button>
             <button onClick={() => setActiveTab('plans')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'plans' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
-              <CreditCard size={18} /> Plans & Upgrades
+              <CreditCard size={18} /> Plans & Pricing
+            </button>
+            <button onClick={() => { setActiveTab('billing'); fetchPayments(); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'billing' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
+              <CreditCard size={18} /> Billing & Payments
             </button>
             <button onClick={() => setActiveTab('support')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'support' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
               <LifeBuoy size={18} /> Support
@@ -631,9 +737,25 @@ export default function CompanyDashboard() {
                     </span>
                   </div>
                   <h3 className="text-lg font-bold text-white mt-3">Cashier Terminals</h3>
-                  <p className="text-zinc-400 text-xs mt-1 leading-relaxed">
-                    Set up Cashier Terminals on counter devices to start verifying transactions.
-                  </p>
+                  {(() => {
+                    const limit = user?.tenant?.max_terminals ?? 1;
+                    const used = terminals.length;
+                    const percent = Math.min(100, (used / limit) * 100);
+                    return (
+                      <div className="mt-4">
+                        <div className="flex justify-between text-xs text-zinc-400 mb-1.5 font-mono">
+                          <span>{used} / {limit} Devices</span>
+                          <span>{Math.round(percent)}%</span>
+                        </div>
+                        <div className="w-full bg-zinc-800/80 h-2 rounded-full overflow-hidden border border-zinc-700/30">
+                          <div 
+                            className="bg-gradient-to-r from-blue-500 to-indigo-400 h-full rounded-full transition-all duration-500" 
+                            style={{ width: `${percent}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
                 
                 <div className="pt-3 border-t border-zinc-800/60 mt-4 flex justify-between items-center">
@@ -653,9 +775,25 @@ export default function CompanyDashboard() {
                     </span>
                   </div>
                   <h3 className="text-lg font-bold text-white mt-3">Linked Accounts</h3>
-                  <p className="text-zinc-400 text-xs mt-1 leading-relaxed">
-                    Connected bank accounts are dynamically polled by terminals to perform verification scans.
-                  </p>
+                  {(() => {
+                    const limit = getBankAccountLimit();
+                    const used = bankAccounts.length;
+                    const percent = Math.min(100, (used / limit) * 100);
+                    return (
+                      <div className="mt-4">
+                        <div className="flex justify-between text-xs text-zinc-400 mb-1.5 font-mono">
+                          <span>{used} / {limit} Accounts</span>
+                          <span>{Math.round(percent)}%</span>
+                        </div>
+                        <div className="w-full bg-zinc-800/80 h-2 rounded-full overflow-hidden border border-zinc-700/30">
+                          <div 
+                            className="bg-gradient-to-r from-purple-500 to-pink-400 h-full rounded-full transition-all duration-500" 
+                            style={{ width: `${percent}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
                 
                 <div className="pt-3 border-t border-zinc-800/60 mt-4 text-xs text-zinc-500">
@@ -788,6 +926,13 @@ export default function CompanyDashboard() {
                                     <Copy size={9} /> Copy
                                   </button>
                                 </div>
+                                <button
+                                  type="button"
+                                  onClick={() => disableDebug(term.id)}
+                                  className="w-full border border-red-500/30 hover:border-red-500 text-red-400 hover:bg-red-500 hover:text-white py-1.5 text-[10px] rounded-xl flex items-center justify-center gap-1 transition-all font-bold mt-2 shadow-sm"
+                                >
+                                  <X size={11} /> Revoke Debug Access
+                                </button>
                               </div>
                             ) : (
                               <div className="flex flex-col gap-1">
@@ -1244,6 +1389,183 @@ export default function CompanyDashboard() {
           </div>
         )}
 
+        {/* --- TAB: BILLING & PAYMENTS --- */}
+        {activeTab === 'billing' && (
+          <div className="space-y-8 animate-fade-in text-left">
+            <div className="grid md:grid-cols-2 gap-8">
+              {/* Current Plan Summary Card */}
+              <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl flex flex-col justify-between shadow-xl">
+                <div>
+                  <div className="flex justify-between items-start mb-4">
+                    <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Plan Status</span>
+                    <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full uppercase">
+                      {user?.tenant?.subscription_tier === 'free' ? 'Free Trial' : `Premium MVR ${user?.tenant?.subscription_tier}`}
+                    </span>
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-2">Current Active Subscription</h3>
+                  <p className="text-zinc-400 text-xs mb-6 leading-relaxed">
+                    Here are the active features and limits allocated to your business account under your current subscription tier.
+                  </p>
+
+                  <div className="space-y-3.5 border-t border-zinc-800/60 pt-4">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-zinc-500">Monthly Verification Limit</span>
+                      <span className="font-mono font-bold text-white">{getVerificationLimit()} Requests</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-zinc-500">Maximum Cashier Counters</span>
+                      <span className="font-mono font-bold text-white">{user?.tenant?.max_terminals ?? 1} Counters</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-zinc-500">Linked Bank Accounts</span>
+                      <span className="font-mono font-bold text-white">{getBankAccountLimit()} Accounts</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-zinc-500">Subscription Expiration</span>
+                      <span className="font-mono font-bold text-zinc-300">
+                        {user?.tenant?.license_expires_at ? new Date(user.tenant.license_expires_at).toLocaleDateString() : 'Never'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-zinc-800/60 pt-4 mt-6">
+                  <button onClick={() => setActiveTab('plans')} className="btn btn-outline border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-xs w-full py-2.5 justify-center font-bold">
+                    View Pricing Plans & Limits
+                  </button>
+                </div>
+              </div>
+
+              {/* Submit Payment Receipt Form */}
+              <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl shadow-xl">
+                <h3 className="text-lg font-bold text-white mb-1">Submit Payment Slip</h3>
+                <p className="text-xs text-zinc-400 mb-6">Send us a bank transfer slip receipt copy to renew or upgrade your plan.</p>
+
+                {paymentError && <div className="p-3 mb-4 bg-red-950/40 border border-red-500/30 rounded-xl text-red-300 text-xs font-semibold">{paymentError}</div>}
+                {paymentSuccess && <div className="p-3 mb-4 bg-green-950/40 border border-green-500/30 rounded-xl text-green-300 text-xs font-semibold">{paymentSuccess}</div>}
+
+                <form onSubmit={handleUploadPaymentReceipt} className="space-y-4">
+                  <div className="input-group">
+                    <label className="input-label">Transfer Amount (MVR)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      placeholder="e.g. 499.00"
+                      className="input-field"
+                      value={paymentAmount}
+                      onChange={e => setPaymentAmount(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="input-group">
+                    <label className="input-label">Bank Reference Number</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Enter bank transaction reference ID"
+                      className="input-field"
+                      value={paymentRef}
+                      onChange={e => setPaymentRef(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="input-group">
+                    <label className="input-label">Upload Slip Image (PNG/JPEG)</label>
+                    <input
+                      id="receipt_slip_file"
+                      type="file"
+                      accept="image/png, image/jpeg"
+                      required
+                      className="input-field py-1.5"
+                      onChange={e => {
+                        if (e.target.files && e.target.files.length > 0) {
+                          setPaymentSlip(e.target.files[0]);
+                        }
+                      }}
+                    />
+                  </div>
+
+                  <div className="input-group">
+                    <label className="input-label">Optional Remarks</label>
+                    <textarea
+                      rows={2}
+                      placeholder="Any additional details or comments..."
+                      className="input-field w-full text-xs"
+                      value={paymentRemarks}
+                      onChange={e => setPaymentRemarks(e.target.value)}
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={paymentLoading}
+                    className="btn btn-success w-full py-3 mt-4 justify-center font-bold"
+                  >
+                    {paymentLoading ? 'Uploading...' : 'Submit Payment Receipt'}
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            {/* Payment Submissions History list */}
+            <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl shadow-xl">
+              <h3 className="text-lg font-bold text-white mb-6">Payment Submission History</h3>
+              {payments.length === 0 ? (
+                <div className="text-center text-zinc-500 italic py-8 border border-dashed border-zinc-800/80 rounded-xl">
+                  No payment slip submissions recorded.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-zinc-800/60 text-zinc-400 font-bold uppercase tracking-wider">
+                        <th className="pb-3">Submitted Date</th>
+                        <th className="pb-3">Amount</th>
+                        <th className="pb-3">Reference Number</th>
+                        <th className="pb-3">Receipt Image</th>
+                        <th className="pb-3">Status</th>
+                        <th className="pb-3">Remarks / Superadmin Feedback</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800/40">
+                      {payments.map((p: any) => (
+                        <tr key={p.id} className="hover:bg-zinc-850/10">
+                          <td className="py-3 text-zinc-400">{new Date(p.created_at).toLocaleString()}</td>
+                          <td className="py-3 font-mono font-bold text-white">MVR {parseFloat(p.amount).toFixed(2)}</td>
+                          <td className="py-3 font-mono text-zinc-300">{p.reference_number}</td>
+                          <td className="py-3">
+                            <a
+                              href={p.receipt_slip_path}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-blue-400 hover:text-blue-300 underline font-semibold flex items-center gap-1"
+                            >
+                              View Slip
+                            </a>
+                          </td>
+                          <td className="py-3">
+                            <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] ${
+                              p.status === 'pending'
+                                ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
+                                : p.status === 'approved'
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                            }`}>
+                              {p.status}
+                            </span>
+                          </td>
+                          <td className="py-3 text-zinc-400 max-w-xs truncate" title={p.remarks}>{p.remarks || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* --- TAB: PLANS --- */}
         {activeTab === 'plans' && (
           <div className="flex flex-col gap-8">
@@ -1357,6 +1679,25 @@ export default function CompanyDashboard() {
                   value={settingsPhone} 
                   onChange={e => setSettingsPhone(e.target.value)} 
                 />
+              </div>
+
+              <div className="input-group">
+                <label className="input-label">Subscription Expiry Warning Notices</label>
+                <select
+                  className="input-field w-full font-semibold"
+                  value={settingsExpiryWarningDays}
+                  onChange={e => setSettingsExpiryWarningDays(parseInt(e.target.value))}
+                >
+                  <option value={0}>None (Do not warn)</option>
+                  <option value={1}>1 Day before</option>
+                  <option value={3}>3 Days before</option>
+                  <option value={7}>7 Days before (Default)</option>
+                  <option value={14}>14 Days before</option>
+                  <option value={30}>30 Days before</option>
+                </select>
+                <p className="text-[10px] text-zinc-500 mt-1 leading-normal">
+                  Warn cashier registers when subscription expiration time approaches within this period.
+                </p>
               </div>
 
               <div className="input-group">

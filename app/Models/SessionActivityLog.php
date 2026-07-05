@@ -92,4 +92,46 @@ class SessionActivityLog extends Model
             default => 'neutral',
         };
     }
+
+    public static function maskBalanceInText(string $text): string
+    {
+        return preg_replace_callback(
+            '/(Balance for \d+: |card for \d+: |fallback: |Balance:\s*|balance fetched:\s*|runningBalance"\s*:\s*"|running_balance"\s*:\s*")([\d,]+\.\d{2})/i',
+            function ($matches) {
+                $prefix = $matches[1];
+                $val = $matches[2];
+                if (strlen($val) <= 2) {
+                    $masked = str_repeat('*', strlen($val));
+                } else {
+                    $masked = $val[0] . str_repeat('*', strlen($val) - 2) . $val[strlen($val) - 1];
+                }
+                return $prefix . $masked;
+            },
+            $text
+        );
+    }
+
+    private static function maskArrayRecursive($arr)
+    {
+        if (is_array($arr)) {
+            foreach ($arr as $key => $val) {
+                $arr[$key] = static::maskArrayRecursive($val);
+            }
+        } elseif (is_string($arr)) {
+            return static::maskBalanceInText($arr);
+        }
+        return $arr;
+    }
+
+    protected static function booted()
+    {
+        static::saving(function ($log) {
+            if ($log->event_summary) {
+                $log->event_summary = static::maskBalanceInText($log->event_summary);
+            }
+            if ($log->event_detail) {
+                $log->event_detail = static::maskArrayRecursive($log->event_detail);
+            }
+        });
+    }
 }

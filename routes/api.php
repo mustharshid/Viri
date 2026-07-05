@@ -51,6 +51,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/company/terminals/{id}', [CompanyController::class, 'updateTerminal']);
     Route::delete('/company/terminals/{id}', [CompanyController::class, 'deleteTerminal']);
     Route::post('/company/terminals/{id}/enable-debug', [CompanyController::class, 'enableDebug']);
+    Route::post('/company/terminals/{id}/disable-debug', [CompanyController::class, 'disableDebug']);
     Route::post('/company/terminals/{id}/regenerate-pairing-code', [CompanyController::class, 'regeneratePairingCode']);
 
     Route::get('/company/bank-accounts', [CompanyController::class, 'getBankAccounts']);
@@ -58,6 +59,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/company/bank-accounts/{id}', [CompanyController::class, 'deleteBankAccount']);
     Route::post('/company/bank-accounts/{id}/reset-failures', [CompanyController::class, 'resetBankAccountFailures']);
     Route::put('/company/profile', [CompanyController::class, 'updateProfile']);
+    Route::get('/company/payments', [CompanyController::class, 'getPayments']);
+    Route::post('/company/payments', [CompanyController::class, 'storePayment']);
     
     Route::get('/company/audit-logs', [CompanyController::class, 'getAuditLogs']);
 
@@ -65,6 +68,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/admin/session-logs', [SuperadminController::class, 'getSessionLogs']);
     Route::get('/admin/system-settings', [SuperadminController::class, 'getSystemSettings']);
     Route::post('/admin/system-settings', [SuperadminController::class, 'updateSystemSettings']);
+    Route::get('/admin/payments', [SuperadminController::class, 'getPayments']);
+    Route::post('/admin/payments/{id}/approve', [SuperadminController::class, 'approvePayment']);
+    Route::post('/admin/payments/{id}/reject', [SuperadminController::class, 'rejectPayment']);
 
     // Credential Sync (Company Dashboard)
     Route::post('/company/credential-sync/initiate',            [CredentialSyncController::class, 'initiate']);
@@ -146,6 +152,8 @@ Route::post('/verify-terminal', function (Request $request) {
         'credits_exhausted' => $creditsExhausted,
         'subscription_expired' => $subscriptionExpired,
         'app_config' => $appConfig,
+        'license_expires_at' => $tenant->license_expires_at ? $tenant->license_expires_at->toIso8601String() : null,
+        'expiry_warning_days' => (int) ($tenant->features['expiry_warning_days'] ?? 7),
         'tenant' => [
             'name' => $tenant->name,
             'logo' => $tenant->company_logo,

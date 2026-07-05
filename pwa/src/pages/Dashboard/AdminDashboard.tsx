@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw } from 'lucide-react';
+import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2 } from 'lucide-react';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -33,11 +33,23 @@ export default function AdminDashboard() {
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRunIdx, setSelectedRunIdx] = useState<number>(0);
 
-  const [activeTab, setActiveTab] = useState<'companies' | 'archived' | 'tiers' | 'logs' | 'settings'>('companies');
+  const [activeTab, setActiveTab] = useState<'companies' | 'archived' | 'tiers' | 'logs' | 'settings' | 'payments'>('companies');
   const [sessionLogs, setSessionLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsPage, setLogsPage] = useState(1);
   const [logsTotalPages, setLogsTotalPages] = useState(1);
+
+  // Payments State
+  const [payments, setPayments] = useState<any[]>([]);
+  const pendingPaymentsCount = payments.filter((p: any) => p.status === 'pending').length;
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState<any | null>(null);
+  const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [showRejectionModal, setShowRejectionModal] = useState(false);
+  const [approveTier, setApproveTier] = useState('499');
+  const [approveExpiry, setApproveExpiry] = useState('');
+  const [actionRemarks, setActionRemarks] = useState('');
+  const [showSlipPreview, setShowSlipPreview] = useState<string | null>(null);
 
   // System Settings State
   const [systemSettings, setSystemSettings] = useState<any[]>([]);
@@ -94,9 +106,97 @@ export default function AdminDashboard() {
     }
   };
 
+  const fetchPayments = async () => {
+    setPaymentsLoading(true);
+    try {
+      const token = localStorage.getItem('viri_token');
+      const res = await fetch('/api/admin/payments', {
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+      });
+      if (!res.ok) throw new Error('Failed to fetch payments');
+      const data = await res.json();
+      setPayments(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setPaymentsLoading(false);
+    }
+  };
+
+  const handleApprovePayment = async () => {
+    if (!verifySecurityPin()) return;
+    if (!selectedPayment) return;
+    try {
+      const token = localStorage.getItem('viri_token');
+      const res = await fetch(`/api/admin/payments/${selectedPayment.id}/approve`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          subscription_tier: approveTier,
+          license_expires_at: approveExpiry,
+          remarks: actionRemarks
+        })
+      });
+      if (res.ok) {
+        alert("Payment approved and plan updated successfully!");
+        setShowApprovalModal(false);
+        setSelectedPayment(null);
+        setActionRemarks('');
+        fetchPayments();
+        fetchData();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || "Failed to approve payment");
+      }
+    } catch (e) {
+      alert("Network error approving payment");
+    }
+  };
+
+  const handleRejectPayment = async () => {
+    if (!verifySecurityPin()) return;
+    if (!selectedPayment) return;
+    if (!actionRemarks.trim()) {
+      alert("Please provide rejection remarks");
+      return;
+    }
+    try {
+      const token = localStorage.getItem('viri_token');
+      const res = await fetch(`/api/admin/payments/${selectedPayment.id}/reject`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          remarks: actionRemarks
+        })
+      });
+      if (res.ok) {
+        alert("Payment rejected successfully!");
+        setShowRejectionModal(false);
+        setSelectedPayment(null);
+        setActionRemarks('');
+        fetchPayments();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || "Failed to reject payment");
+      }
+    } catch (e) {
+      alert("Network error rejecting payment");
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'settings') {
       fetchSystemSettings();
+    } else if (activeTab === 'payments') {
+      fetchPayments();
     }
   }, [activeTab]);
 
@@ -205,6 +305,8 @@ export default function AdminDashboard() {
       fetchSessionLogs(true);
     } else if (activeTab === 'settings') {
       fetchSystemSettings();
+    } else if (activeTab === 'payments') {
+      fetchPayments();
     }
   };
 
@@ -1071,6 +1173,145 @@ export default function AdminDashboard() {
     );
   };
 
+  const renderPaymentsTab = () => {
+    return (
+      <div className="space-y-8 animate-fade-in text-left">
+        <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl shadow-xl">
+          <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+            <CreditCard className="text-yellow-500" size={20} />
+            Pending Payment Approvals
+          </h3>
+          
+          {paymentsLoading ? (
+            <div className="text-center text-zinc-500 py-10 font-medium">Loading payments...</div>
+          ) : payments.filter(p => p.status === 'pending').length === 0 ? (
+            <div className="text-center text-zinc-500 italic py-10 border border-dashed border-zinc-800 rounded-xl bg-zinc-900/10">
+              No pending payment submissions.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-zinc-800/80 text-zinc-400 font-bold uppercase tracking-wider">
+                    <th className="pb-3">Company</th>
+                    <th className="pb-3">Amount</th>
+                    <th className="pb-3">Reference Number</th>
+                    <th className="pb-3">Submitted At</th>
+                    <th className="pb-3">Admin Remarks</th>
+                    <th className="pb-3">Receipt Slip</th>
+                    <th className="pb-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800/40">
+                  {payments.filter(p => p.status === 'pending').map((pay: any) => (
+                    <tr key={pay.id} className="hover:bg-zinc-850/20">
+                      <td className="py-3 font-semibold text-white">{pay.tenant?.name || 'Unknown'}</td>
+                      <td className="py-3 font-mono font-bold text-yellow-400">MVR {parseFloat(pay.amount).toFixed(2)}</td>
+                      <td className="py-3 font-mono text-zinc-300">{pay.reference_number}</td>
+                      <td className="py-3 text-zinc-500">{new Date(pay.created_at).toLocaleString()}</td>
+                      <td className="py-3 text-zinc-400 max-w-xs truncate" title={pay.remarks}>{pay.remarks || '-'}</td>
+                      <td className="py-3">
+                        <button
+                          onClick={() => setShowSlipPreview(pay.receipt_slip_path)}
+                          className="text-blue-400 hover:text-blue-300 underline font-semibold flex items-center gap-1.5"
+                        >
+                          View Slip Image
+                        </button>
+                      </td>
+                      <td className="py-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => {
+                              setSelectedPayment(pay);
+                              setApproveTier(pay.tenant?.subscription_tier || '499');
+                              const defaultExpiry = new Date();
+                              defaultExpiry.setDate(defaultExpiry.getDate() + 30);
+                              setApproveExpiry(defaultExpiry.toISOString().split('T')[0]);
+                              setShowApprovalModal(true);
+                            }}
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1 px-3 rounded-lg transition-colors text-[10px]"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => {
+                              setSelectedPayment(pay);
+                              setShowRejectionModal(true);
+                            }}
+                            className="bg-red-950/40 hover:bg-red-900 border border-red-500/30 hover:border-red-500 text-red-300 hover:text-white font-bold py-1 px-3 rounded-lg transition-colors text-[10px]"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl shadow-xl">
+          <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+            <ClipboardList className="text-zinc-500" size={20} />
+            Payment History Log
+          </h3>
+          
+          {payments.filter(p => p.status !== 'pending').length === 0 ? (
+            <div className="text-center text-zinc-600 italic py-10">
+              No historical payment entries found.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-zinc-800/80 text-zinc-400 font-bold uppercase tracking-wider">
+                    <th className="pb-3">Company</th>
+                    <th className="pb-3">Amount</th>
+                    <th className="pb-3">Reference Number</th>
+                    <th className="pb-3">Date</th>
+                    <th className="pb-3">Receipt Slip</th>
+                    <th className="pb-3">Status</th>
+                    <th className="pb-3">Remarks / Comments</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800/40">
+                  {payments.filter(p => p.status !== 'pending').map((pay: any) => (
+                    <tr key={pay.id} className="hover:bg-zinc-850/20">
+                      <td className="py-3 text-zinc-300 font-semibold">{pay.tenant?.name || 'Unknown'}</td>
+                      <td className="py-3 font-mono font-semibold text-zinc-300">MVR {parseFloat(pay.amount).toFixed(2)}</td>
+                      <td className="py-3 font-mono text-zinc-400">{pay.reference_number}</td>
+                      <td className="py-3 text-zinc-500">{new Date(pay.created_at).toLocaleDateString()}</td>
+                      <td className="py-3">
+                        <button
+                          onClick={() => setShowSlipPreview(pay.receipt_slip_path)}
+                          className="text-blue-400 hover:text-blue-300 underline font-semibold flex items-center gap-1"
+                        >
+                          View Receipt
+                        </button>
+                      </td>
+                      <td className="py-3">
+                        <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] ${
+                          pay.status === 'approved' 
+                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                            : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                        }`}>
+                          {pay.status}
+                        </span>
+                      </td>
+                      <td className="py-3 text-zinc-400 max-w-xs truncate" title={pay.remarks}>{pay.remarks || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderSystemSettingsTab = () => {
     return (
       <div className="glass-panel p-6 rounded-2xl border border-zinc-800 bg-black/20 text-left max-w-4xl mx-auto shadow-xl">
@@ -1252,7 +1493,16 @@ export default function AdminDashboard() {
     return (
       <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl text-left animate-fade-in">
         <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-          <h3 className="text-xl font-bold text-white tracking-tight">Active Sessions & Logs Audit</h3>
+          <div className="flex items-center gap-3">
+            <h3 className="text-xl font-bold text-white tracking-tight">Active Sessions & Logs Audit</h3>
+            <button
+              onClick={handleRefresh}
+              className="btn border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-300 py-1 px-2.5 text-xs flex items-center gap-1.5 h-auto min-h-0 font-medium rounded-lg"
+              title="Refresh logs data"
+            >
+              <RefreshCw size={11} /> Refresh Logs
+            </button>
+          </div>
           <div className="flex items-center gap-3 flex-wrap">
             {/* Company Filter */}
             <select
@@ -1533,6 +1783,22 @@ export default function AdminDashboard() {
             <Settings size={16} className="shrink-0" />
             <span>App Configuration</span>
           </button>
+          <button
+            onClick={() => setActiveTab('payments')}
+            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 relative ${
+              activeTab === 'payments'
+                ? 'border-yellow-500 text-yellow-500'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <CreditCard size={16} className="shrink-0" />
+            <span>Payment Receipts</span>
+            {pendingPaymentsCount > 0 && (
+              <span className="absolute -top-1.5 -right-1 px-1.5 py-0.5 text-[9px] font-bold bg-red-600 text-white rounded-full leading-none shrink-0 border border-black animate-pulse">
+                {pendingPaymentsCount}
+              </span>
+            )}
+          </button>
         </div>
 
         {/* Security Confirmation PIN display */}
@@ -1585,6 +1851,8 @@ export default function AdminDashboard() {
           {activeTab === 'logs' && renderSessionLogsTab()}
 
           {activeTab === 'settings' && renderSystemSettingsTab()}
+
+          {activeTab === 'payments' && renderPaymentsTab()}
         </div>
 
         {/* Debug Logs Viewer Modal */}
@@ -1703,6 +1971,175 @@ export default function AdminDashboard() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Receipt Slip Preview Modal */}
+        {showSlipPreview && (
+          <div className="fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-50 animate-fade-in">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-3xl w-full flex flex-col relative shadow-2xl">
+              <button 
+                onClick={() => setShowSlipPreview(null)} 
+                className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors"
+                title="Close"
+              >
+                <X size={20} />
+              </button>
+              <h3 className="text-lg font-bold text-white mb-4 text-left">Transfer Slip Receipt Preview</h3>
+              <div className="flex-1 flex justify-center bg-black/40 border border-zinc-800 rounded-xl overflow-hidden max-h-[70vh]">
+                <img src={showSlipPreview} alt="Receipt Slip" className="object-contain max-h-full max-w-full" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Approval Modal */}
+        {showApprovalModal && selectedPayment && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-md w-full relative shadow-2xl text-left">
+              <button 
+                onClick={() => {
+                  setShowApprovalModal(false);
+                  setSelectedPayment(null);
+                }} 
+                className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors"
+                title="Close"
+              >
+                <X size={20} />
+              </button>
+              <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
+                <CheckCircle2 className="text-emerald-500" size={20} />
+                Approve Payment Receipt
+              </h3>
+              <p className="text-xs text-zinc-400 mb-4">
+                Confirm receipt validation and adjust subscription settings for <strong>{selectedPayment.tenant?.name}</strong>.
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[10px] uppercase text-zinc-500 font-bold mb-1.5 block">Reference Number</label>
+                  <div className="input-field bg-zinc-950 font-mono text-zinc-300 select-all border-zinc-800/80">{selectedPayment.reference_number}</div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase text-zinc-500 font-bold mb-1.5 block">Amount Approved</label>
+                  <div className="input-field bg-zinc-950 font-mono text-emerald-400 font-bold border-zinc-800/80">MVR {parseFloat(selectedPayment.amount).toFixed(2)}</div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase text-zinc-500 font-bold mb-1.5 block">Assign Subscription Tier</label>
+                  <select
+                    className="input-field w-full font-semibold"
+                    value={approveTier}
+                    onChange={(e) => setApproveTier(e.target.value)}
+                  >
+                    {subscriptionPlans.map((plan: any) => (
+                      <option key={plan.id} value={plan.tier_key}>
+                        {plan.name} (MVR {plan.price}/mo)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase text-zinc-500 font-bold mb-1.5 block">New Expiration Date</label>
+                  <input
+                    type="date"
+                    required
+                    className="input-field w-full font-mono text-zinc-200"
+                    value={approveExpiry}
+                    onChange={(e) => setApproveExpiry(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase text-zinc-500 font-bold mb-1.5 block">Approval Remarks / Notes</label>
+                  <textarea
+                    rows={2}
+                    className="input-field w-full text-xs"
+                    placeholder="Enter approval details or comments..."
+                    value={actionRemarks}
+                    onChange={(e) => setActionRemarks(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={handleApprovePayment}
+                  className="btn btn-success flex-1 py-2 font-bold justify-center"
+                >
+                  Confirm Approval
+                </button>
+                <button
+                  onClick={() => {
+                    setShowApprovalModal(false);
+                    setSelectedPayment(null);
+                  }}
+                  className="btn btn-outline border-zinc-800 py-2 flex-1 justify-center"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Rejection Modal */}
+        {showRejectionModal && selectedPayment && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-md w-full relative shadow-2xl text-left">
+              <button 
+                onClick={() => {
+                  setShowRejectionModal(false);
+                  setSelectedPayment(null);
+                }} 
+                className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors"
+                title="Close"
+              >
+                <X size={20} />
+              </button>
+              <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
+                <X className="text-red-500" size={20} />
+                Reject Payment Receipt
+              </h3>
+              <p className="text-xs text-zinc-400 mb-4">
+                Reject the uploaded slip reference <strong>{selectedPayment.reference_number}</strong>. Rejection reason is required.
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[10px] uppercase text-zinc-500 font-bold mb-1.5 block">Rejection Reason / Remarks</label>
+                  <textarea
+                    rows={3}
+                    required
+                    className="input-field w-full text-xs"
+                    placeholder="Provide the reason for rejecting this payment (e.g. Reference not found, Incorrect amount)..."
+                    value={actionRemarks}
+                    onChange={(e) => setActionRemarks(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={handleRejectPayment}
+                  className="btn bg-red-650 hover:bg-red-500 text-white flex-1 py-2 font-bold justify-center"
+                  disabled={!actionRemarks.trim()}
+                >
+                  Confirm Rejection
+                </button>
+                <button
+                  onClick={() => {
+                    setShowRejectionModal(false);
+                    setSelectedPayment(null);
+                  }}
+                  className="btn btn-outline border-zinc-800 py-2 flex-1 justify-center"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         )}

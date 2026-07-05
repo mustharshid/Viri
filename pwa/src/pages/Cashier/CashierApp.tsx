@@ -174,7 +174,16 @@ function App() {
   const [shouldUploadLogs, setShouldUploadLogs] = useState(true);
   const [creditsExhausted, setCreditsExhausted] = useState(false);
   const [subscriptionExpired, setSubscriptionExpired] = useState(false);
+  const [licenseExpiresAt, setLicenseExpiresAt] = useState<string | null>(null);
+  const [expiryWarningDays, setExpiryWarningDays] = useState<number>(7);
+  const [showExpiryWarning, setShowExpiryWarning] = useState<boolean>(false);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
+
+  useEffect(() => {
+    if (showExpiryWarning) {
+      console.log(`Subscription warning threshold triggered: expiry within ${expiryWarningDays} days.`);
+    }
+  }, [showExpiryWarning, expiryWarningDays]);
   
   const [sessionStatus, setSessionStatus] = useState<'idle' | 'claiming' | 'holder' | 'delegating'>('idle');
   const [sessionHolderAccountId, setSessionHolderAccountId] = useState<string | null>(null);
@@ -554,6 +563,24 @@ function App() {
           }
           if (data.subscription_expired !== undefined) {
             setSubscriptionExpired(data.subscription_expired);
+          }
+          if (data.license_expires_at !== undefined) {
+            setLicenseExpiresAt(data.license_expires_at);
+          }
+          if (data.expiry_warning_days !== undefined) {
+            setExpiryWarningDays(data.expiry_warning_days);
+          }
+          if (data.license_expires_at && data.expiry_warning_days) {
+            const expires = new Date(data.license_expires_at).getTime();
+            const warningMs = data.expiry_warning_days * 24 * 60 * 60 * 1000;
+            const diff = expires - Date.now();
+            if (diff > 0 && diff <= warningMs) {
+              setShowExpiryWarning(true);
+            } else {
+              setShowExpiryWarning(false);
+            }
+          } else {
+            setShowExpiryWarning(false);
           }
           if (data.terminal_id !== undefined) {
             setTerminalId(data.terminal_id);
@@ -1009,6 +1036,24 @@ function App() {
         }
         if (data.subscription_expired !== undefined) {
           setSubscriptionExpired(data.subscription_expired);
+        }
+        if (data.license_expires_at !== undefined) {
+          setLicenseExpiresAt(data.license_expires_at);
+        }
+        if (data.expiry_warning_days !== undefined) {
+          setExpiryWarningDays(data.expiry_warning_days);
+        }
+        if (data.license_expires_at && data.expiry_warning_days) {
+          const expires = new Date(data.license_expires_at).getTime();
+          const warningMs = data.expiry_warning_days * 24 * 60 * 60 * 1000;
+          const diff = expires - Date.now();
+          if (diff > 0 && diff <= warningMs) {
+            setShowExpiryWarning(true);
+          } else {
+            setShowExpiryWarning(false);
+          }
+        } else {
+          setShowExpiryWarning(false);
         }
         if (data.should_upload_logs !== undefined) {
           setShouldUploadLogs(data.should_upload_logs);
@@ -3226,6 +3271,16 @@ function App() {
                         <div>
                           <strong className="block font-bold mb-0.5">Verification Credits Exhausted</strong>
                           Your monthly verification limit has been reached. Verification services are temporarily disabled. Please contact your company administrator to upgrade your plan.
+                        </div>
+                      </div>
+                    )}
+
+                    {showExpiryWarning && licenseExpiresAt && (
+                      <div className="mt-2 p-3.5 bg-yellow-950/20 border border-yellow-500/30 rounded-xl text-xs text-yellow-400 leading-normal flex items-start gap-2.5">
+                        <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                        <div>
+                          <strong className="block font-bold mb-0.5">Subscription Expiring Soon</strong>
+                          Your subscription is set to expire on <strong>{new Date(licenseExpiresAt).toLocaleDateString()}</strong>. Please contact your company administrator to submit renewal payment details to avoid service interruptions.
                         </div>
                       </div>
                     )}

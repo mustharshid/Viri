@@ -294,6 +294,7 @@ class CompanyController extends Controller
         $request->validate([
             'phone_number' => 'required|string|max:255',
             'password' => 'nullable|string|min:8|confirmed',
+            'expiry_warning_days' => 'nullable|integer|min:0|max:90'
         ]);
 
         $user->phone_number = $request->phone_number;
@@ -302,9 +303,73 @@ class CompanyController extends Controller
         }
         $user->save();
 
+        if ($request->has('expiry_warning_days')) {
+            $tenant = $user->tenant;
+            $features = $tenant->features ?? [];
+            $features['expiry_warning_days'] = (int) $request->expiry_warning_days;
+            $tenant->features = $features;
+            $tenant->save();
+        }
+
         return response()->json([
             'message' => 'Profile updated successfully',
             'user' => $user->load('tenant')
+        ]);
+    }
+
+    public function disableDebug(Request $request, $id)
+    {
+        $terminal = Terminal::where('tenant_id', $request->user()->tenant_id)->findOrFail($id);
+
+        $terminal->update([
+            'debug_one_time_code' => null,
+            'allow_debug_until' => null
+        ]);
+
+        return response()->json([
+            'message' => 'Debug access revoked successfully.'
+        ]);
+    }
+
+    public function getPayments(Request $request)
+    {
+        $payments = \App\Models\PaymentReceipt::where('tenant_id', $request->user()->tenant_id)
+            ->orderBy('created_at', 'desc')
+            ->get();
+            
+        return response()->json($payments);
+    }
+
+    public function storePayment(Request $request)
+    {
+        $request->validate([
+            'amount' => 'required|numeric|min:0.01',
+            'reference_number' => 'required|string|max:255',
+            'receipt_slip' => 'required|image|mimes:jpeg,png|max:5120',
+            'remarks' => 'nullable|string|max:1000'
+        ]);
+
+        $user = $request->user();
+        
+        if ($request->hasFile('receipt_slip')) {
+            $path = $request->file('receipt_slip')->store('receipts', 'public');
+            $receiptSlipPath = '/storage/' . $path;
+        } else {
+            return response()->json(['error' => 'Receipt slip file is required'], 400);
+        }
+
+        $payment = \App\Models\PaymentReceipt::create([
+            'tenant_id' => $user->tenant_id,
+            'amount' => $request->amount,
+            'reference_number' => $request->reference_number,
+            'receipt_slip_path' => $receiptSlipPath,
+            'status' => 'pending',
+            'remarks' => $request->remarks
+        ]);
+
+        return response()->json([
+            'message' => 'Payment receipt uploaded successfully. Awaiting superadmin verification.',
+            'payment' => $payment
         ]);
     }
 }
