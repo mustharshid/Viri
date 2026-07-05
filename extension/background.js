@@ -122,7 +122,6 @@ chrome.storage.local.get(['viri_held_session'], (result) => {
   if (result.viri_held_session) {
     heldSession = result.viri_held_session;
     startHeartbeat();
-    startRequestPolling();
     console.log("[Viri Bridge] Restored heldSession from storage.");
   }
 });
@@ -167,101 +166,7 @@ function stopHeartbeat() {
   }
 }
 
-function startRequestPolling() {
-  if (pollInterval) clearInterval(pollInterval);
-  pollInterval = setInterval(async () => {
-    if (!heldSession || !heldSession.backendUrl) return;
-    try {
-      const res = await fetch(`${heldSession.backendUrl}/terminal/session/pending`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hardware_id: heldSession.hardwareId,
-          bank_account_id: parseInt(heldSession.accountId)
-        })
-      });
-      if (!res.ok) return;
-      const requests = await res.json();
-      if (Array.isArray(requests) && requests.length > 0) {
-        for (const req of requests) {
-          await fulfillPendingRequest(req);
-        }
-      }
-    } catch (e) {
-      console.warn("Error polling pending requests:", e);
-    }
-  }, 3000);
-}
 
-function stopRequestPolling() {
-  if (pollInterval) {
-    clearInterval(pollInterval);
-    pollInterval = null;
-  }
-}
-
-async function fulfillPendingRequest(req) {
-  if (!heldSession) return;
-  emitLog(activePort, `> [Session] Fulfilling pending request ID ${req.id} (${req.request_type})...`);
-  
-  const collectedLogs = [];
-  collectedLogs.push(`> [Session] Fulfilling pending request ID ${req.id} (${req.request_type})...`);
-
-  try {
-    const fakePort = {
-      postMessage: (msg) => {
-        if (msg.type === 'log') {
-          collectedLogs.push(msg.message);
-          if (activePort) {
-            activePort.postMessage(msg);
-          }
-        }
-      }
-    };
-
-    let result;
-    if (heldSession.bankName === 'MIB') {
-      result = await runMibFlow(heldSession.credentials, heldSession.accountId, fakePort, req.target_amount || '1.00', '0', req.request_type, 'fetch_only');
-    } else {
-      result = await runBmlFlow(heldSession.credentials, heldSession.accountId, fakePort, req.target_amount || '1.00', req.request_type, 'fetch_only');
-    }
-
-    await fetch(`${heldSession.backendUrl}/terminal/session/fulfill`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        hardware_id: heldSession.hardwareId,
-        request_id: req.id,
-        status: 'fulfilled',
-        result_json: result
-      })
-    });
-    
-    await logSessionEvent('fetch_request_fulfilled', {
-      bank_name: heldSession.bankName,
-      account_number_masked: maskString(heldSession.accountId),
-      event_summary: `Fulfilled request ID ${req.id} (${req.request_type})`
-    }, collectedLogs);
-  } catch (err) {
-    console.error("Failed to fulfill request:", err);
-    await fetch(`${heldSession.backendUrl}/terminal/session/fulfill`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        hardware_id: heldSession.hardwareId,
-        request_id: req.id,
-        status: 'failed',
-        error_message: err.message
-      })
-    }).catch(() => {});
-
-    await logSessionEvent('fetch_request_failed', {
-      bank_name: heldSession.bankName,
-      account_number_masked: maskString(heldSession.accountId),
-      event_summary: `Failed request ID ${req.id}: ${err.message}`
-    }, collectedLogs);
-  }
-}
 
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'GET_VERSION') {
@@ -321,6 +226,22 @@ chrome.runtime.onConnectExternal.addListener((port) => {
           port.postMessage({ type: 'error', error: error.message });
         }
       }
+      else if (msg.action === 'FULFILL_DELEGATED_REQUEST') {
+        const payload = msg.payload;
+        const req = payload.req;
+        const targetAcc = heldSession ? heldSession.accountId : req.bank_account_id;
+        try {
+          let result;
+          if (payload.bankName === 'MIB') {
+            result = await runMibFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', '0', req.request_type, 'fetch_only');
+          } else {
+            result = await runBmlFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', req.request_type, 'fetch_only');
+          }
+          port.postMessage({ type: 'success', payload: result });
+        } catch (error) {
+          port.postMessage({ type: 'error', error: error.message });
+        }
+      }
       else if (msg.action === 'CLAIM_SESSION') {
         heldSession = {
           accountId: msg.payload.accountId,
@@ -331,12 +252,10 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         };
         chrome.storage.local.set({ viri_held_session: heldSession });
         startHeartbeat();
-        startRequestPolling();
         emitLog(port, `> [Session] Session holder status activated.`);
       }
       else if (msg.action === 'RELEASE_SESSION') {
         stopHeartbeat();
-        stopRequestPolling();
         clearBankSessions();
         heldSession = null;
         chrome.storage.local.remove('viri_held_session');

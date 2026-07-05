@@ -1249,6 +1249,116 @@ function App() {
     return () => clearInterval(interval);
   }, [sessionStatus, hardwareId, backendUrl, sessionHolderAccountId, extensionId]);
 
+  const [delegatedFulfilling, setDelegatedFulfilling] = useState(false);
+
+  useEffect(() => {
+    if (sessionStatus !== 'holder' || !hardwareId || !backendUrl || !sessionHolderAccountId) return;
+
+    let intervalId: ReturnType<typeof setInterval>;
+
+    const checkPendingRequests = async () => {
+      if (delegatedFulfilling) return;
+      try {
+        const res = await fetch(`${backendUrl}/terminal/session/pending`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hardware_id: hardwareId,
+            bank_account_id: parseInt(sessionHolderAccountId)
+          })
+        });
+        if (!res.ok) return;
+        const requests = await res.json();
+        if (Array.isArray(requests) && requests.length > 0) {
+          for (const req of requests) {
+            setDelegatedFulfilling(true);
+            try {
+              addLog(`> [Session] Fulfilling delegated request ID ${req.id} (${req.request_type}) in background...`);
+              
+              const activeCreds = accountsCreds[sessionHolderAccountId];
+              if (!activeCreds) {
+                throw new Error("No saved bank account credentials for session holder.");
+              }
+              
+              if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
+                throw new Error("Local extension not connected/detected.");
+              }
+              
+              const port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
+              
+              const responseData = await new Promise<any>((resolve, reject) => {
+                const disconnectHandler = () => reject(new Error("Extension port disconnected unexpectedly."));
+                port.onDisconnect.addListener(disconnectHandler);
+                
+                port.onMessage.addListener((msg) => {
+                  if (msg.type === 'log') {
+                    addLog(msg.message);
+                  } else if (msg.type === 'success') {
+                    port.onDisconnect.removeListener(disconnectHandler);
+                    resolve(msg.payload);
+                  } else if (msg.type === 'error') {
+                    port.onDisconnect.removeListener(disconnectHandler);
+                    reject(new Error(msg.error));
+                  }
+                });
+
+                port.postMessage({
+                  action: 'FULFILL_DELEGATED_REQUEST',
+                  payload: {
+                    req,
+                    credentials: {
+                      username: activeCreds.username,
+                      password: activeCreds.password,
+                      totpSeed: activeCreds.totpSeed
+                    },
+                    bankName: bankAccounts.find(a => a.id.toString() === sessionHolderAccountId)?.bank_name || 'BML'
+                  }
+                });
+              });
+              
+              port.disconnect();
+
+              const fulfillRes = await fetch(`${backendUrl}/terminal/session/fulfill`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  hardware_id: hardwareId,
+                  request_id: req.id,
+                  status: 'fulfilled',
+                  result_json: responseData
+                })
+              });
+              if (!fulfillRes.ok) throw new Error("Fulfillment upload failed");
+              
+              addLog(`> [Session] Fulfilling delegated request ID ${req.id} succeeded.`);
+            } catch (err: any) {
+              console.error("Failed to fulfill delegated request:", err);
+              addLog(`> [Session] Fulfilling delegated request ID ${req.id} failed: ${err.message}`);
+              
+              await fetch(`${backendUrl}/terminal/session/fulfill`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  hardware_id: hardwareId,
+                  request_id: req.id,
+                  status: 'failed',
+                  error_message: err.message
+                })
+              }).catch(() => {});
+            } finally {
+              setDelegatedFulfilling(false);
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Error polling delegated requests:", e);
+      }
+    };
+
+    intervalId = setInterval(checkPendingRequests, 3000);
+    return () => clearInterval(intervalId);
+  }, [sessionStatus, hardwareId, backendUrl, sessionHolderAccountId, accountsCreds, delegatedFulfilling, extensionId, bankAccounts]);
+
   const resolveSessionStrategy = async (accountId: string) => {
     try {
       const response = await fetch(`${backendUrl}/terminal/session/status`, {
