@@ -434,6 +434,7 @@ class SessionController extends Controller
                     'requester'    => $requesterName,
                     'duration_ms'  => $request->duration_ms,
                     'request_type' => $fetchRequest->request_type,
+                    'result_json'  => $request->result_json,
                 ],
                 $terminal->terminal_name
             );
