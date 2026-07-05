@@ -2119,32 +2119,23 @@ function App() {
     }
 
     addLog("> [System] Validating terminal license...");
-    try {
-      const response = await fetch(`${backendUrl}/verify-terminal`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hardware_id: hardwareId })
-      });
-      if (!response.ok) {
-        throw new Error("License validation failed.");
-      }
-      const data = await response.json().catch(() => ({}));
-      if (data.subscription_expired) {
-        setSubscriptionExpired(true);
-        throw new Error("Subscription Expired - contact your admin!");
-      }
-      if (data.should_upload_logs !== undefined) {
-        setShouldUploadLogs(!!data.should_upload_logs);
-      }
-      addLog("> [System] License valid.");
-    } catch (err: any) {
-      setErrorAndLog(`Backend Connection Failed: ${err.message}`, targetAccountId);
-      addLog(`> [System] License validation FAILED: ${err.message}`);
+    if (subscriptionExpired) {
+      setErrorAndLog("Subscription Expired - contact your admin!", targetAccountId);
+      addLog("> [System] License validation FAILED: Subscription Expired.");
       setLoading(false);
       isVerifyingRef.current = false;
       setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
       return;
     }
+    if (creditsExhausted) {
+      setErrorAndLog("Verification credits exhausted - contact your admin!", targetAccountId);
+      addLog("> [System] License validation FAILED: Credits Exhausted.");
+      setLoading(false);
+      isVerifyingRef.current = false;
+      setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+      return;
+    }
+    addLog("> [System] License valid (cached).");
 
     if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
       setErrorAndLog("Browser extension API not detected.", targetAccountId);
