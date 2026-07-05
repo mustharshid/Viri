@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings } from 'lucide-react';
+import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw } from 'lucide-react';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -135,13 +135,8 @@ export default function AdminDashboard() {
   }, []);
 
   useEffect(() => {
-    let interval: any;
     if (activeTab === 'logs') {
       fetchSessionLogs(true);
-      interval = setInterval(() => fetchSessionLogs(false), 5000);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
     }
   }, [activeTab, logsPage, filterEventType, filterCompanyId]);
 
@@ -200,6 +195,16 @@ export default function AdminDashboard() {
       navigate('/login');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRefresh = () => {
+    if (activeTab === 'companies' || activeTab === 'archived' || activeTab === 'tiers') {
+      fetchData();
+    } else if (activeTab === 'logs') {
+      fetchSessionLogs(true);
+    } else if (activeTab === 'settings') {
+      fetchSystemSettings();
     }
   };
 
@@ -1461,9 +1466,14 @@ export default function AdminDashboard() {
             </h1>
             <p className="text-[var(--text-secondary)]">Manage tenant subscriptions and approvals</p>
           </div>
-          <button onClick={handleLogout} className="btn btn-outline flex items-center gap-2">
-            <LogOut size={16} /> Logout
-          </button>
+          <div className="flex gap-2">
+            <button onClick={handleRefresh} className="btn btn-outline flex items-center gap-2">
+              <RefreshCw size={16} /> Refresh
+            </button>
+            <button onClick={handleLogout} className="btn btn-outline flex items-center gap-2">
+              <LogOut size={16} /> Logout
+            </button>
+          </div>
         </header>
 
         {/* Navigation Tabs */}

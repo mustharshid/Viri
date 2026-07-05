@@ -198,6 +198,30 @@ function App() {
     localStorage.setItem('viri_recent_tx_cache', JSON.stringify(recentTxCache));
   }, [recentTxCache]);
 
+  const [isUserIdle, setIsUserIdle] = useState(false);
+
+  useEffect(() => {
+    let idleTimeout: ReturnType<typeof setTimeout>;
+
+    const resetIdleTimer = () => {
+      setIsUserIdle(false);
+      clearTimeout(idleTimeout);
+      idleTimeout = setTimeout(() => {
+        setIsUserIdle(true);
+      }, 180000); // 3 minutes of inactivity
+    };
+
+    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+    events.forEach(event => window.addEventListener(event, resetIdleTimer));
+
+    resetIdleTimer();
+
+    return () => {
+      clearTimeout(idleTimeout);
+      events.forEach(event => window.removeEventListener(event, resetIdleTimer));
+    };
+  }, []);
+
   const [newTransactionKeys, setNewTransactionKeys] = useState<Set<string>>(new Set());
 
   // Derived state for the selected account's recent transactions
@@ -499,7 +523,11 @@ function App() {
   useEffect(() => {
     if (!hardwareId || !backendUrl || isSetupMode) return;
 
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let consecutiveFailures = 0;
+
     const poll = async () => {
+      let success = false;
       try {
         const response = await fetch(`${backendUrl}/verify-terminal`, {
           method: 'POST',
@@ -507,6 +535,8 @@ function App() {
           body: JSON.stringify({ hardware_id: hardwareId })
         });
         if (response.ok) {
+          success = true;
+          consecutiveFailures = 0;
           const data = await response.json();
           if (data.app_config) {
             setAppConfig(data.app_config);
@@ -540,11 +570,28 @@ function App() {
       } catch (e) {
         console.error("Session status poll failed:", e);
       }
+
+      if (!success) {
+        consecutiveFailures++;
+      }
+
+      // Calculate next dynamic delay based on idle state & failures
+      const baseInterval = appConfig.session_status_poll_interval * 1000;
+      const idleMultiplier = isUserIdle ? 5 : 1;
+      const backoffMultiplier = Math.pow(2, Math.min(consecutiveFailures, 4));
+
+      const nextDelay = Math.min(
+        baseInterval * idleMultiplier * backoffMultiplier,
+        60000
+      );
+
+      timeoutId = setTimeout(poll, nextDelay);
     };
 
-    const interval = setInterval(poll, appConfig.session_status_poll_interval * 1000);
-    return () => clearInterval(interval);
-  }, [hardwareId, backendUrl, isSetupMode, appConfig.session_status_poll_interval]);
+    poll();
+
+    return () => clearTimeout(timeoutId);
+  }, [hardwareId, backendUrl, isSetupMode, appConfig.session_status_poll_interval, isUserIdle]);
 
   const syncCredentialsMapping = async (accountsList: BankAccount[]) => {
     if (!hardwareId || !backendUrl || accountsList.length === 0) return;
