@@ -1565,7 +1565,7 @@ function App() {
               });
               if (!fulfillRes.ok) throw new Error("Fulfillment upload failed");
               
-              addLog(`> [Session] Fulfilling delegated request ID ${req.id} succeeded.`);
+              addLog(`> [Session] Fulfilling delegated request ID ${req.id} succeeded. Uploaded: ${JSON.stringify(responseData)}`);
             } catch (err: any) {
               console.error("Failed to fulfill delegated request:", err);
               addLog(`> [Session] Fulfilling delegated request ID ${req.id} failed: ${err.message}`);
@@ -1664,6 +1664,7 @@ function App() {
           const pollData = await pollRes.json();
           if (pollData.status === 'fulfilled') {
             const response = pollData.result_json;
+            addLog(`> [Session] Delegation fulfilled. Raw result_json: ${JSON.stringify(response)}`);
             setProgress({
               stage: 'success',
               text: requestType === 'ledger' ? '✅ Ledger Synced!' : '✅ Transfer Verified!',
@@ -1674,7 +1675,9 @@ function App() {
               setLoading(false);
               setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
               setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
-              setResult(response.data || null);
+              
+              const resData = response ? (response.data || null) : null;
+              setResult(resData);
               const acc3 = bankAccounts.find(a => a.id.toString() === accountId);
               const labelVal = acc3 ? `${acc3.bank_name} ${acc3.account_number}` : '';
               
@@ -1682,7 +1685,8 @@ function App() {
                 return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || ''}`;
               };
 
-              const newTxs = response.transactions || [];
+              const newTxs = response ? (response.transactions || []) : [];
+              addLog(`> [Session] Extracted transactions count: ${newTxs.length}`);
               const currentKeys = new Set(
                 (requestType === 'ledger'
                   ? ledgerCache[accountId]?.transactions
