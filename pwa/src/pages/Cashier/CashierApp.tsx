@@ -391,6 +391,8 @@ function App() {
   const [ledgerPageSize, setLedgerPageSize] = useState(25);
   const [ledgerDateFilter, setLedgerDateFilter] = useState<string | null>(null); // "YYYY-MM-DD" or null
   const [ledgerDatePickerOpen, setLedgerDatePickerOpen] = useState(false);
+  const [ledgerPickerYear, setLedgerPickerYear] = useState(() => new Date().getFullYear());
+  const [ledgerPickerMonth, setLedgerPickerMonth] = useState(() => new Date().getMonth());
 
   // Credentials States
   const [accountsCreds, setAccountsCreds] = useState<Record<string, { username?: string; password?: string; totpSeed?: string }>>(() => {
@@ -3865,7 +3867,7 @@ function App() {
                       <div className="flex items-center gap-2 mb-1.5">
                         <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-950/30 border border-emerald-500/20 rounded-full text-[10px] font-semibold text-emerald-400">
                           <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse"></span>
-                          <span>ONLINE — C2</span>
+                          <span>ONLINE{terminalName && ` — ${terminalName.toUpperCase()}`}</span>
                         </div>
                         <span className="text-[10px] text-zinc-500 font-mono flex items-center gap-1">
                           <Shield size={10} /> Viri Zero-Knowledge Architecture: Fully encrypted local storage.
@@ -4070,13 +4072,35 @@ function App() {
 
                           {/* Date Picker */}
                           {(() => {
-                            const now = new Date();
-                            const pickerYear = now.getFullYear();
-                            const pickerMonth = now.getMonth();
+                            const today = new Date();
+                            const todayYear = today.getFullYear();
+                            const todayMonth = today.getMonth();
+                            const pickerYear = ledgerPickerYear;
+                            const pickerMonth = ledgerPickerMonth;
                             const daysInMonth = new Date(pickerYear, pickerMonth + 1, 0).getDate();
                             const firstDayOfWeek = new Date(pickerYear, pickerMonth, 1).getDay();
-                            const monthLabel = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-                            const todayStr = `${pickerYear}-${String(pickerMonth + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                            const monthLabel = new Date(pickerYear, pickerMonth, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+                            const todayStr = `${todayYear}-${String(todayMonth + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                            const isCurrentMonth = pickerYear === todayYear && pickerMonth === todayMonth;
+
+                            const goToPrevMonth = () => {
+                              if (pickerMonth === 0) {
+                                setLedgerPickerYear(pickerYear - 1);
+                                setLedgerPickerMonth(11);
+                              } else {
+                                setLedgerPickerMonth(pickerMonth - 1);
+                              }
+                            };
+                            const goToNextMonth = () => {
+                              if (isCurrentMonth) return; // don't go past current month
+                              if (pickerMonth === 11) {
+                                setLedgerPickerYear(pickerYear + 1);
+                                setLedgerPickerMonth(0);
+                              } else {
+                                setLedgerPickerMonth(pickerMonth + 1);
+                              }
+                            };
+
                             return (
                               <div className="relative" id="ledger-date-picker">
                                 <button
@@ -4111,8 +4135,25 @@ function App() {
                                     />
                                     {/* Calendar Dropdown */}
                                     <div className="absolute right-0 top-full mt-2 z-50 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl p-3 w-64 select-none" style={{backdropFilter:'blur(12px)'}}>
-                                      {/* Month label */}
-                                      <div className="text-[11px] font-bold text-zinc-300 text-center mb-2 tracking-wider uppercase">{monthLabel}</div>
+                                      {/* Month navigation header */}
+                                      <div className="flex items-center justify-between mb-2">
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); goToPrevMonth(); }}
+                                          className="w-6 h-6 flex items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors text-sm"
+                                          title="Previous month"
+                                        >&#8249;</button>
+                                        <span className="text-[11px] font-bold text-zinc-300 tracking-wider uppercase">{monthLabel}</span>
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); goToNextMonth(); }}
+                                          disabled={isCurrentMonth}
+                                          className={`w-6 h-6 flex items-center justify-center rounded-md text-sm transition-colors ${
+                                            isCurrentMonth
+                                              ? 'text-zinc-700 cursor-not-allowed'
+                                              : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                                          }`}
+                                          title={isCurrentMonth ? 'Already at current month' : 'Next month'}
+                                        >&#8250;</button>
+                                      </div>
                                       {/* Weekday headers */}
                                       <div className="grid grid-cols-7 mb-1">
                                         {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
@@ -4128,20 +4169,26 @@ function App() {
                                           const dateStr = `${pickerYear}-${String(pickerMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                                           const isSelected = ledgerDateFilter === dateStr;
                                           const isToday = dateStr === todayStr;
+                                          // Disable future dates in current month
+                                          const isFuture = isCurrentMonth && day > today.getDate();
                                           return (
                                             <button
                                               key={day}
+                                              disabled={isFuture}
                                               onClick={() => {
+                                                if (isFuture) return;
                                                 setLedgerDateFilter(isSelected ? null : dateStr);
                                                 setLedgerPage(1);
                                                 setLedgerDatePickerOpen(false);
                                               }}
                                               className={`w-full aspect-square rounded-lg text-[11px] font-medium transition-all flex items-center justify-center ${
-                                                isSelected
-                                                  ? 'bg-violet-500 text-white shadow-[0_0_10px_rgba(139,92,246,0.5)]'
-                                                  : isToday
-                                                    ? 'bg-zinc-800 text-violet-300 ring-1 ring-violet-500/40'
-                                                    : 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                                                isFuture
+                                                  ? 'text-zinc-700 cursor-not-allowed'
+                                                  : isSelected
+                                                    ? 'bg-violet-500 text-white shadow-[0_0_10px_rgba(139,92,246,0.5)]'
+                                                    : isToday
+                                                      ? 'bg-zinc-800 text-violet-300 ring-1 ring-violet-500/40'
+                                                      : 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
                                               }`}
                                             >
                                               {day}
@@ -4149,15 +4196,25 @@ function App() {
                                           );
                                         })}
                                       </div>
-                                      {/* Show All link */}
-                                      {ledgerDateFilter && (
-                                        <button
-                                          onClick={() => { setLedgerDateFilter(null); setLedgerPage(1); setLedgerDatePickerOpen(false); }}
-                                          className="mt-2 w-full text-center text-[10px] text-zinc-500 hover:text-white transition-colors py-1"
-                                        >
-                                          Show all dates
-                                        </button>
-                                      )}
+                                      {/* Show All / Jump to Today */}
+                                      <div className="mt-2 flex items-center justify-between gap-2">
+                                        {!isCurrentMonth && (
+                                          <button
+                                            onClick={(e) => { e.stopPropagation(); setLedgerPickerYear(todayYear); setLedgerPickerMonth(todayMonth); }}
+                                            className="text-[10px] text-zinc-500 hover:text-violet-300 transition-colors py-1"
+                                          >
+                                            Jump to today
+                                          </button>
+                                        )}
+                                        {ledgerDateFilter && (
+                                          <button
+                                            onClick={() => { setLedgerDateFilter(null); setLedgerPage(1); setLedgerDatePickerOpen(false); }}
+                                            className="ml-auto text-[10px] text-zinc-500 hover:text-white transition-colors py-1"
+                                          >
+                                            Show all dates
+                                          </button>
+                                        )}
+                                      </div>
                                     </div>
                                   </>
                                 )}
