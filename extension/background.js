@@ -231,13 +231,11 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         const req = payload.req;
         const targetAcc = heldSession ? heldSession.accountId : req.bank_account_id;
         try {
-          let result;
           if (payload.bankName === 'MIB') {
-            result = await runMibFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', '0', req.request_type, 'fetch_only');
+            await runMibFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', '0', req.request_type, 'fetch_only');
           } else {
-            result = await runBmlFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', req.request_type, 'fetch_only');
+            await runBmlFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', req.request_type, 'fetch_only');
           }
-          port.postMessage({ type: 'success', payload: result });
         } catch (error) {
           port.postMessage({ type: 'error', error: error.message });
         }
