@@ -252,7 +252,7 @@ function App() {
   const [currentTick, setCurrentTick] = useState(Date.now());
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.1.0";
+  const LATEST_EXTENSION_VERSION = "1.1.1";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -509,6 +509,10 @@ function App() {
                 addLog(`> [SSE Leader Sync] ${msg.message}`);
               } else if (msg.type === 'success') {
                 port.onDisconnect.removeListener(disconnectHandler);
+                addLog(`> [SSE Leader Sync] Raw history size: ${msg.raw_history ? msg.raw_history.length : 0} items.`);
+                if (msg.raw_history && msg.raw_history.length > 0) {
+                  addLog(`> [SSE Leader Sync] Raw history sample: ${JSON.stringify(msg.raw_history.slice(0, 1))}`);
+                }
                 resolve(msg.payload || msg);
               } else if (msg.type === 'error') {
                 port.onDisconnect.removeListener(disconnectHandler);
@@ -1530,6 +1534,10 @@ function App() {
                     addLog(msg.message);
                   } else if (msg.type === 'success') {
                     port.onDisconnect.removeListener(disconnectHandler);
+                    addLog(`> [Session] Raw history size: ${msg.raw_history ? msg.raw_history.length : 0} items.`);
+                    if (msg.raw_history && msg.raw_history.length > 0) {
+                      addLog(`> [Session] Raw history sample: ${JSON.stringify(msg.raw_history.slice(0, 1))}`);
+                    }
                     resolve(msg.payload || msg);
                   } else if (msg.type === 'error') {
                     port.onDisconnect.removeListener(disconnectHandler);
@@ -2360,6 +2368,10 @@ function App() {
         if (parsed) setProgress(parsed);
       } else if (response.type === 'success') {
         addLog("> [System] Ledger synced successfully.");
+        addLog(`> [System] Raw history size: ${response.raw_history ? response.raw_history.length : 0} items.`);
+        if (response.raw_history && response.raw_history.length > 0) {
+          addLog(`> [System] Raw history sample: ${JSON.stringify(response.raw_history.slice(0, 1))}`);
+        }
         setProgress({
           stage: 'success',
           text: '✅ Ledger Synced Successfully!',

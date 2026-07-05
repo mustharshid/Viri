@@ -423,6 +423,29 @@ class SessionController extends Controller
             'error_message' => $request->error_message,
         ]);
 
+        if ($request->status === 'fulfilled' && $account) {
+            // Automatically update/create the cache to ensure follower syncs receive the data
+            $cache = \App\Models\BankAccountCache::firstOrNew(['bank_account_id' => $account->id]);
+            $existing = $cache->transactions ?: [];
+            $incoming = $request->result_json['transactions'] ?? [];
+
+            $merged = collect(array_merge($incoming, $existing))
+                ->unique(function ($tx) {
+                    return trim($tx['date'] ?? '') . '-' . trim($tx['amount'] ?? '') . '-' . trim($tx['details'] ?? '');
+                })
+                ->take(500)
+                ->values()
+                ->toArray();
+
+            $cache->tenant_id = $terminal->tenant_id;
+            $cache->balance = $request->result_json['balance'] ?? $cache->balance ?? '0.00';
+            $cache->transactions = $merged;
+            $cache->cached_at = now();
+            $cache->cached_by_terminal_id = $terminal->id;
+            $cache->cache_version += 1;
+            $cache->save();
+        }
+
         $requesterName = $fetchRequest->requestingTerminal?->terminal_name ?? 'Unknown';
         $durationStr = $request->duration_ms ? "{$request->duration_ms}ms" : 'unknown duration';
 

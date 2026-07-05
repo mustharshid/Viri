@@ -1221,7 +1221,8 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
         type: 'success',
         data: null,
         balance: balance,
-        transactions: last3Txs
+        transactions: last3Txs,
+        raw_history: mergedHistory
       });
     } else {
       if (matchFound) {
@@ -1237,7 +1238,8 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
             transaction: normalizedMatch
           },
           balance: balance,
-          transactions: last3Txs
+          transactions: last3Txs,
+          raw_history: mergedHistory
         });
       } else {
         throw new Error(`Verification Failed: No recent credit transaction found for ${targetAmount} MVR.`);
@@ -2063,7 +2065,8 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
         type: 'success',
         data: null,
         balance: mibBalance,
-        transactions: last3Txs
+        transactions: last3Txs,
+        raw_history: transactions
       });
     } else {
       if (matchFound) {
@@ -2083,7 +2086,8 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
             transaction: normalizedMatch
           },
           balance: mibBalance,
-          transactions: last3Txs
+          transactions: last3Txs,
+          raw_history: transactions
         });
       } else {
         throw new Error(`Verification Failed: No recent credit transaction found for ${targetAmount} MVR on MIB account ${targetAccount}.`);

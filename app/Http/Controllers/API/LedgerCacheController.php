@@ -197,7 +197,7 @@ class LedgerCacheController extends Controller
         DB::transaction(function () use ($request, $account, $terminal) {
             $cache = BankAccountCache::firstOrNew(['bank_account_id' => $account->id]);
             
-            $existing = json_decode($cache->transactions ?? '[]', true) ?: [];
+            $existing = $cache->transactions ?: [];
             $incoming = $request->transactions;
 
             // Merge & Deduplicate based on transaction date, amount, and details
