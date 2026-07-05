@@ -389,6 +389,8 @@ function App() {
   const [ledgerFilter, setLedgerFilter] = useState<'all' | 'in' | 'out'>('all');
   const [ledgerSearch, setLedgerSearch] = useState('');
   const [ledgerPageSize, setLedgerPageSize] = useState(25);
+  const [ledgerDateFilter, setLedgerDateFilter] = useState<string | null>(null); // "YYYY-MM-DD" or null
+  const [ledgerDatePickerOpen, setLedgerDatePickerOpen] = useState(false);
 
   // Credentials States
   const [accountsCreds, setAccountsCreds] = useState<Record<string, { username?: string; password?: string; totpSeed?: string }>>(() => {
@@ -3817,6 +3819,17 @@ function App() {
                   const matchesAmount = tx.amount.toLowerCase().includes(query);
                   return matchesDesc || matchesDate || matchesAmount;
                 }
+
+                // 3. Date Filter
+                if (ledgerDateFilter) {
+                  // tx.date format: "Jul 5, 14:06" → match by "Jul D," prefix
+                  const picked = new Date(ledgerDateFilter);
+                  const monthShort = picked.toLocaleString('en-US', { month: 'short' });
+                  const day = picked.getDate();
+                  const prefix = `${monthShort} ${day},`;
+                  if (!tx.date.startsWith(prefix)) return false;
+                }
+
                 return true;
               });
 
@@ -4054,6 +4067,103 @@ function App() {
                               className="pl-9 pr-4 py-1.5 bg-zinc-900/60 border border-zinc-800 focus:border-zinc-700 text-xs text-white rounded-lg w-48 font-medium focus:outline-none transition-colors"
                             />
                           </div>
+
+                          {/* Date Picker */}
+                          {(() => {
+                            const now = new Date();
+                            const pickerYear = now.getFullYear();
+                            const pickerMonth = now.getMonth();
+                            const daysInMonth = new Date(pickerYear, pickerMonth + 1, 0).getDate();
+                            const firstDayOfWeek = new Date(pickerYear, pickerMonth, 1).getDay();
+                            const monthLabel = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+                            const todayStr = `${pickerYear}-${String(pickerMonth + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                            return (
+                              <div className="relative" id="ledger-date-picker">
+                                <button
+                                  onClick={() => setLedgerDatePickerOpen(v => !v)}
+                                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
+                                    ledgerDateFilter
+                                      ? 'bg-violet-500/20 border-violet-500/50 text-violet-300 hover:bg-violet-500/30'
+                                      : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-white'
+                                  }`}
+                                  title={ledgerDateFilter ? `Showing: ${new Date(ledgerDateFilter).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : 'Filter by date'}
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                  {ledgerDateFilter
+                                    ? new Date(ledgerDateFilter).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                    : 'Date'}
+                                  {ledgerDateFilter && (
+                                    <span
+                                      role="button"
+                                      onClick={(e) => { e.stopPropagation(); setLedgerDateFilter(null); setLedgerPage(1); }}
+                                      className="ml-0.5 text-violet-300 hover:text-white leading-none"
+                                      title="Clear date filter"
+                                    >✕</span>
+                                  )}
+                                </button>
+
+                                {ledgerDatePickerOpen && (
+                                  <>
+                                    {/* Backdrop */}
+                                    <div
+                                      className="fixed inset-0 z-40"
+                                      onClick={() => setLedgerDatePickerOpen(false)}
+                                    />
+                                    {/* Calendar Dropdown */}
+                                    <div className="absolute right-0 top-full mt-2 z-50 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl p-3 w-64 select-none" style={{backdropFilter:'blur(12px)'}}>
+                                      {/* Month label */}
+                                      <div className="text-[11px] font-bold text-zinc-300 text-center mb-2 tracking-wider uppercase">{monthLabel}</div>
+                                      {/* Weekday headers */}
+                                      <div className="grid grid-cols-7 mb-1">
+                                        {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
+                                          <span key={d} className="text-center text-[9px] font-bold text-zinc-600 uppercase py-0.5">{d}</span>
+                                        ))}
+                                      </div>
+                                      {/* Day cells */}
+                                      <div className="grid grid-cols-7 gap-y-0.5">
+                                        {Array.from({ length: firstDayOfWeek }).map((_, i) => (
+                                          <span key={`empty-${i}`} />
+                                        ))}
+                                        {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
+                                          const dateStr = `${pickerYear}-${String(pickerMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                                          const isSelected = ledgerDateFilter === dateStr;
+                                          const isToday = dateStr === todayStr;
+                                          return (
+                                            <button
+                                              key={day}
+                                              onClick={() => {
+                                                setLedgerDateFilter(isSelected ? null : dateStr);
+                                                setLedgerPage(1);
+                                                setLedgerDatePickerOpen(false);
+                                              }}
+                                              className={`w-full aspect-square rounded-lg text-[11px] font-medium transition-all flex items-center justify-center ${
+                                                isSelected
+                                                  ? 'bg-violet-500 text-white shadow-[0_0_10px_rgba(139,92,246,0.5)]'
+                                                  : isToday
+                                                    ? 'bg-zinc-800 text-violet-300 ring-1 ring-violet-500/40'
+                                                    : 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                                              }`}
+                                            >
+                                              {day}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                      {/* Show All link */}
+                                      {ledgerDateFilter && (
+                                        <button
+                                          onClick={() => { setLedgerDateFilter(null); setLedgerPage(1); setLedgerDatePickerOpen(false); }}
+                                          className="mt-2 w-full text-center text-[10px] text-zinc-500 hover:text-white transition-colors py-1"
+                                        >
+                                          Show all dates
+                                        </button>
+                                      )}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            );
+                          })()}
 
                           {/* Sync Button */}
                           <button
