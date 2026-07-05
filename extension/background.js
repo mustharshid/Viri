@@ -1530,22 +1530,24 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     // STEP 1: Initialize Session — GET /auth
     // ═══════════════════════════════════════════════════════════════
     emitLog(port, `> [MIB] Step 1: Initializing session...`);
+    const t0 = Date.now();
     const authPageRes = await mibFetch(`${MIB_BASE_URL}/auth`, {
       headers: { 'User-Agent': USER_AGENT }
     }, port);
+    const t3 = Date.now();
 
     if (!authPageRes.ok) {
       throw new Error(`MIB auth page load failed: HTTP ${authPageRes.status}`);
     }
 
-    // Calculate MIB server clock offset dynamically from the response Date header
+    // Calculate MIB server clock offset dynamically from the response Date header using RTT-aware NTP calculation
     mibClockOffset = 0;
     const serverDateHeader = authPageRes.headers.get('date');
     if (serverDateHeader) {
-      const serverTime = new Date(serverDateHeader).getTime();
-      const clientTime = Date.now();
-      mibClockOffset = serverTime - clientTime;
-      emitLog(port, `> [MIB] Calculated MIB server clock offset: ${mibClockOffset}ms (${Math.round(mibClockOffset / 1000)}s)`);
+      const rtt = t3 - t0;
+      const serverTime = new Date(serverDateHeader).getTime() + Math.round(rtt / 2);
+      mibClockOffset = serverTime - t3;
+      emitLog(port, `> [MIB] Calculated MIB server clock offset (RTT-aware): ${mibClockOffset}ms (RTT: ${rtt}ms)`);
     }
 
     const authPageHtml = await authPageRes.text();
