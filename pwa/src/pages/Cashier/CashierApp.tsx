@@ -248,6 +248,7 @@ function App() {
   const lastPopulatedTimestamp = selectedAccountId ? (recentTxCache[selectedAccountId]?.timestamp || null) : null;
   const [syncTimeElapsed, setSyncTimeElapsed] = useState<number | null>(null);
   const syncStartTimeRef = useRef<number | null>(null);
+  const checkPendingRequestsRef = useRef<() => Promise<void>>();
   const [currentTick, setCurrentTick] = useState(Date.now());
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
@@ -458,6 +459,17 @@ function App() {
       // Build SSE URL
       const sseUrl = `${backendUrl.replace(/\/api$/, '')}/terminal/events?hardware_id=${encodeURIComponent(hardwareId)}`;
       eventSource = new EventSource(sseUrl);
+
+      eventSource.addEventListener('verify_request_queued', async () => {
+        try {
+          addLog(`> [SSE] Received instant verification request signal. Querying pending queue...`);
+          if (checkPendingRequestsRef.current) {
+            await checkPendingRequestsRef.current();
+          }
+        } catch (err: any) {
+          console.error("SSE verify_request_queued failed:", err);
+        }
+      });
 
       eventSource.addEventListener('cache_refresh_requested', async (event: any) => {
         try {
@@ -1490,9 +1502,10 @@ function App() {
           })
         });
         if (!res.ok) return;
-        const requests = await res.json();
-        if (Array.isArray(requests) && requests.length > 0) {
-          for (const req of requests) {
+        const resData = await res.json();
+        const requestsList = Array.isArray(resData) ? resData : (resData && Array.isArray(resData.requests) ? resData.requests : []);
+        if (requestsList.length > 0) {
+          for (const req of requestsList) {
             setDelegatedFulfilling(true);
             try {
               addLog(`> [Session] Fulfilling delegated request ID ${req.id} (${req.request_type}) in background...`);
@@ -1577,8 +1590,13 @@ function App() {
       }
     };
 
+    checkPendingRequestsRef.current = checkPendingRequests;
+
     intervalId = setInterval(checkPendingRequests, 3000);
-    return () => clearInterval(intervalId);
+    return () => {
+      clearInterval(intervalId);
+      checkPendingRequestsRef.current = undefined;
+    };
   }, [sessionStatus, hardwareId, backendUrl, sessionHolderAccountId, accountsCreds, delegatedFulfilling, extensionId, bankAccounts]);
 
   const resolveSessionStrategy = async (accountId: string) => {

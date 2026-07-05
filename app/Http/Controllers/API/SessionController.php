@@ -7,6 +7,8 @@ use App\Models\BankAccount;
 use App\Models\SessionActivityLog;
 use App\Models\SessionFetchRequest;
 use App\Models\Terminal;
+use App\Models\TerminalEvent;
+
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -325,6 +327,21 @@ class SessionController extends Controller
             ],
             $holderName
         );
+
+        // Notify active leader via SSE for instant trigger
+        if ($account->session_holder_terminal_id) {
+            $leader = Terminal::find($account->session_holder_terminal_id);
+            if ($leader && $leader->status === 'active') {
+                TerminalEvent::create([
+                    'hardware_id' => $leader->hardware_id,
+                    'event_type'  => 'verify_request_queued',
+                    'payload'     => json_encode([
+                        'request_id'      => $fetchRequest->id,
+                        'bank_account_id' => $account->id,
+                    ])
+                ]);
+            }
+        }
 
         return response()->json(['request_id' => $fetchRequest->id]);
     }
