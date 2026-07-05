@@ -509,7 +509,7 @@ function App() {
                 addLog(`> [SSE Leader Sync] ${msg.message}`);
               } else if (msg.type === 'success') {
                 port.onDisconnect.removeListener(disconnectHandler);
-                resolve(msg.payload);
+                resolve(msg.payload || msg);
               } else if (msg.type === 'error') {
                 port.onDisconnect.removeListener(disconnectHandler);
                 reject(new Error(msg.error));
@@ -1530,7 +1530,7 @@ function App() {
                     addLog(msg.message);
                   } else if (msg.type === 'success') {
                     port.onDisconnect.removeListener(disconnectHandler);
-                    resolve(msg.payload);
+                    resolve(msg.payload || msg);
                   } else if (msg.type === 'error') {
                     port.onDisconnect.removeListener(disconnectHandler);
                     reject(new Error(msg.error));
