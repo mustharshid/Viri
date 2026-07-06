@@ -39,27 +39,27 @@ const computeCredsHash = async (bank: string, username: string): Promise<string>
 // All cryptography runs exclusively in the browser via Web Crypto API.
 // ---------------------------------------------------------------------------
 const ZK_WORD_LIST = [
-  'apple','brave','coral','delta','eagle','frost','grape','honey','ivory','jewel',
-  'karma','lemon','maple','noble','ocean','pearl','quartz','river','storm','tiger',
-  'ultra','vivid','waltz','xenon','yield','zebra','amber','blaze','cedar','drift',
-  'ember','flint','glade','haven','iris','jade','knoll','lunar','mirth','nexus',
-  'oasis','prism','quest','ridge','solar','thorn','unity','valor','winds','xenial',
-  'young','zephyr','acorn','birch','crest','dusk','ether','forge','grove','haze',
-  'inlet','jest','kite','lance','mango','north','orbit','pike','quiet','raven',
-  'swift','tide','urban','veil','wheat','xeric','yarn','zinc','atlas','bison',
-  'cliff','dune','epoch','fable','giant','helix','icon','joust','knave','lark',
-  'merit','nymph','olive','plume','quirk','robin','slate','trove','umbra','vortex',
-  'wren','exact','yoke','zonal','abyss','bloom','chrome','dawns','elbow','flair',
-  'guile','hyper','irony','joker','kiosk','laser','magic','nerve','optic','pivot',
-  'quota','realm','scout','tempo','utmost','vibrant','woven','xtra','yeoman','zipper',
-  'arch','beam','crisp','dwell','elite','flora','glyph','hoard','isle','jelly',
-  'kudos','lilac','marsh','notch','oven','plaza','quill','reign','spare','torque',
-  'uncap','visor','watch','xenon2','yodel','zippy','azure','blunt','cloak','decoy',
-  'envoy','fluke','glint','hinge','index','joust2','knelt','lyric','manor','nudge',
-  'onset','prowl','quake','rivet','servo','tunic','ultra2','vouch','whisk','expel',
-  'yearn','zesty','adept','brace','crane','depot','evoke','floss','gloom','hatch',
-  'input','jolly','knack','ledge','model','notch2','onset2','pixel','query','rouge',
-  'synth','tryst','upend','vivid2','walrus','xylem','yawns','zonal2','abode','brush'
+  'apple', 'brave', 'coral', 'delta', 'eagle', 'frost', 'grape', 'honey', 'ivory', 'jewel',
+  'karma', 'lemon', 'maple', 'noble', 'ocean', 'pearl', 'quartz', 'river', 'storm', 'tiger',
+  'ultra', 'vivid', 'waltz', 'xenon', 'yield', 'zebra', 'amber', 'blaze', 'cedar', 'drift',
+  'ember', 'flint', 'glade', 'haven', 'iris', 'jade', 'knoll', 'lunar', 'mirth', 'nexus',
+  'oasis', 'prism', 'quest', 'ridge', 'solar', 'thorn', 'unity', 'valor', 'winds', 'xenial',
+  'young', 'zephyr', 'acorn', 'birch', 'crest', 'dusk', 'ether', 'forge', 'grove', 'haze',
+  'inlet', 'jest', 'kite', 'lance', 'mango', 'north', 'orbit', 'pike', 'quiet', 'raven',
+  'swift', 'tide', 'urban', 'veil', 'wheat', 'xeric', 'yarn', 'zinc', 'atlas', 'bison',
+  'cliff', 'dune', 'epoch', 'fable', 'giant', 'helix', 'icon', 'joust', 'knave', 'lark',
+  'merit', 'nymph', 'olive', 'plume', 'quirk', 'robin', 'slate', 'trove', 'umbra', 'vortex',
+  'wren', 'exact', 'yoke', 'zonal', 'abyss', 'bloom', 'chrome', 'dawns', 'elbow', 'flair',
+  'guile', 'hyper', 'irony', 'joker', 'kiosk', 'laser', 'magic', 'nerve', 'optic', 'pivot',
+  'quota', 'realm', 'scout', 'tempo', 'utmost', 'vibrant', 'woven', 'xtra', 'yeoman', 'zipper',
+  'arch', 'beam', 'crisp', 'dwell', 'elite', 'flora', 'glyph', 'hoard', 'isle', 'jelly',
+  'kudos', 'lilac', 'marsh', 'notch', 'oven', 'plaza', 'quill', 'reign', 'spare', 'torque',
+  'uncap', 'visor', 'watch', 'xenon2', 'yodel', 'zippy', 'azure', 'blunt', 'cloak', 'decoy',
+  'envoy', 'fluke', 'glint', 'hinge', 'index', 'joust2', 'knelt', 'lyric', 'manor', 'nudge',
+  'onset', 'prowl', 'quake', 'rivet', 'servo', 'tunic', 'ultra2', 'vouch', 'whisk', 'expel',
+  'yearn', 'zesty', 'adept', 'brace', 'crane', 'depot', 'evoke', 'floss', 'gloom', 'hatch',
+  'input', 'jolly', 'knack', 'ledge', 'model', 'notch2', 'onset2', 'pixel', 'query', 'rouge',
+  'synth', 'tryst', 'upend', 'vivid2', 'walrus', 'xylem', 'yawns', 'zonal2', 'abode', 'brush'
 ];
 
 function generateSyncPassphrase(): string {
@@ -72,47 +72,47 @@ async function encryptCredentialsForSync(
   passphrase: string,
   creds: object
 ): Promise<{ passphrase: string; encrypted_blob: string; wrapped_dek: string; kdf_salt: string; gcm_iv: string }> {
-  const enc     = new TextEncoder();
+  const enc = new TextEncoder();
   const kdfSalt = crypto.getRandomValues(new Uint8Array(16));
-  const gcmIv   = crypto.getRandomValues(new Uint8Array(12));
+  const gcmIv = crypto.getRandomValues(new Uint8Array(12));
 
   const keyMat = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
-  const kek    = await crypto.subtle.deriveKey(
+  const kek = await crypto.subtle.deriveKey(
     { name: 'PBKDF2', salt: kdfSalt, iterations: 600_000, hash: 'SHA-256' },
     keyMat, { name: 'AES-KW', length: 256 }, false, ['wrapKey']
   );
-  const dek    = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
-  const blob   = await crypto.subtle.encrypt(
+  const dek = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
+  const blob = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv: gcmIv }, dek, enc.encode(JSON.stringify(creds))
   );
-  const wdek   = await crypto.subtle.wrapKey('raw', dek, kek, 'AES-KW');
+  const wdek = await crypto.subtle.wrapKey('raw', dek, kek, 'AES-KW');
 
   const b64 = (b: ArrayBuffer | Uint8Array) => btoa(String.fromCharCode(...new Uint8Array(b)));
   return {
     passphrase,
     encrypted_blob: b64(blob),
-    wrapped_dek:    b64(wdek),
-    kdf_salt:       b64(kdfSalt),
-    gcm_iv:         b64(gcmIv),
+    wrapped_dek: b64(wdek),
+    kdf_salt: b64(kdfSalt),
+    gcm_iv: b64(gcmIv),
   };
 }
 
 async function decryptCredentialsFromSync(
   payload: { passphrase: string; encrypted_blob: string; wrapped_dek: string; kdf_salt: string; gcm_iv: string }
 ): Promise<Record<string, { username?: string; password?: string; totpSeed?: string }>> {
-  const enc  = new TextEncoder();
+  const enc = new TextEncoder();
   const b64d = (s: string) => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 
   const keyMat = await crypto.subtle.importKey('raw', enc.encode(payload.passphrase), 'PBKDF2', false, ['deriveKey']);
-  const kek    = await crypto.subtle.deriveKey(
+  const kek = await crypto.subtle.deriveKey(
     { name: 'PBKDF2', salt: b64d(payload.kdf_salt), iterations: 600_000, hash: 'SHA-256' },
     keyMat, { name: 'AES-KW', length: 256 }, false, ['unwrapKey']
   );
-  const dek    = await crypto.subtle.unwrapKey(
+  const dek = await crypto.subtle.unwrapKey(
     'raw', b64d(payload.wrapped_dek), kek, 'AES-KW',
     { name: 'AES-GCM', length: 256 }, false, ['decrypt']
   );
-  const plain  = await crypto.subtle.decrypt(
+  const plain = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: b64d(payload.gcm_iv) }, dek, b64d(payload.encrypted_blob)
   );
   return JSON.parse(new TextDecoder().decode(plain));
@@ -189,7 +189,7 @@ function App() {
       console.log(`Subscription warning threshold triggered: expiry within ${expiryWarningDays} days.`);
     }
   }, [showExpiryWarning, expiryWarningDays]);
-  
+
   const [sessionStatus, setSessionStatus] = useState<'idle' | 'claiming' | 'holder' | 'delegating'>('idle');
   const [sessionHolderAccountId, setSessionHolderAccountId] = useState<string | null>(null);
   const [delegatedFulfilling, setDelegatedFulfilling] = useState(false);
@@ -465,7 +465,7 @@ function App() {
           }
         } else if (eventType === 'cache_refresh_requested') {
           const { request_id, bank_account_id, bank_name, account_number, mib_profile_type, requester_name } = payload;
-          
+
           addLog(`> [Realtime] Received cache refresh request ID ${request_id} from counter "${requester_name}". Acknowledging...`);
 
           // 1. Acknowledge the request immediately to let follower know we're active
@@ -489,11 +489,11 @@ function App() {
 
           addLog(`> [Realtime] Initiating background bank sync for request ID ${request_id}...`);
           const port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
-          
+
           const responseData = await new Promise<any>((resolve, reject) => {
             const disconnectHandler = () => reject(new Error("Extension port disconnected unexpectedly."));
             port.onDisconnect.addListener(disconnectHandler);
-            
+
             port.onMessage.addListener((msg) => {
               if (msg.type === 'log') {
                 addLog(`> [Realtime Leader Sync] ${msg.message}`);
@@ -563,14 +563,14 @@ function App() {
 
         } else if (eventType === 'verify_request_completed') {
           addLog(`> [Realtime] Sync request ID ${payload.request_id} resolved with status: ${payload.status}`);
-          
+
           const customEvent = new CustomEvent(`sync_request_${payload.request_id}`, {
             detail: payload
           });
           window.dispatchEvent(customEvent);
         } else if (eventType === 'verify_request_acknowledged') {
           addLog(`> [Realtime] Sync request ID ${payload.request_id} acknowledged by leader.`);
-          
+
           const customEvent = new CustomEvent(`sync_request_ack_${payload.request_id}`, {
             detail: payload
           });
@@ -1515,22 +1515,22 @@ function App() {
             setDelegatedFulfilling(true);
             try {
               addLog(`> [Session] Fulfilling delegated request ID ${req.id} (${req.request_type}) in background...`);
-              
+
               const activeCreds = accountsCreds[sessionHolderAccountId];
               if (!activeCreds) {
                 throw new Error("No saved bank account credentials for session holder.");
               }
-              
+
               if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
                 throw new Error("Local extension not connected/detected.");
               }
-              
+
               const port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
-              
+
               const responseData = await new Promise<any>((resolve, reject) => {
                 const disconnectHandler = () => reject(new Error("Extension port disconnected unexpectedly."));
                 port.onDisconnect.addListener(disconnectHandler);
-                
+
                 port.onMessage.addListener((msg) => {
                   if (msg.type === 'log') {
                     addLog(msg.message);
@@ -1560,7 +1560,7 @@ function App() {
                   }
                 });
               });
-              
+
               port.disconnect();
 
               const fulfillRes = await fetch(`${backendUrl}/terminal/session/fulfill`, {
@@ -1574,12 +1574,12 @@ function App() {
                 })
               });
               if (!fulfillRes.ok) throw new Error("Fulfillment upload failed");
-              
+
               addLog(`> [Session] Fulfilling delegated request ID ${req.id} succeeded. Uploaded: ${JSON.stringify(responseData)}`);
             } catch (err: any) {
               console.error("Failed to fulfill delegated request:", err);
               addLog(`> [Session] Fulfilling delegated request ID ${req.id} failed: ${err.message}`);
-              
+
               await fetch(`${backendUrl}/terminal/session/fulfill`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1589,7 +1589,7 @@ function App() {
                   status: 'failed',
                   error_message: err.message
                 })
-              }).catch(() => {});
+              }).catch(() => { });
             } finally {
               setDelegatedFulfilling(false);
             }
@@ -1602,7 +1602,8 @@ function App() {
 
     checkPendingRequestsRef.current = checkPendingRequests;
 
-    intervalId = setInterval(checkPendingRequests, 30000);
+    // Reduced polling interval to 3 seconds for faster detection
+    intervalId = setInterval(checkPendingRequests, 3000);
     return () => {
       clearInterval(intervalId);
       checkPendingRequestsRef.current = undefined;
@@ -1661,7 +1662,7 @@ function App() {
       addLog(`> [Session] Request queued (ID: ${request_id}). Waiting for active session holder...`);
 
       // Wait for verify_request_completed event via custom event instead of polling!
-      const resultData = await new Promise<{status: string, result_json?: any, error_message?: string}>((resolve) => {
+      const resultData = await new Promise<{ status: string, result_json?: any, error_message?: string }>((resolve) => {
         let resolved = false;
 
         const eventHandler = (e: any) => {
@@ -1669,7 +1670,7 @@ function App() {
           cleanup({ status: detail.status, result_json: detail.result_json, error_message: detail.error });
         };
 
-        const cleanup = (res: {status: string, result_json?: any, error_message?: string}) => {
+        const cleanup = (res: { status: string, result_json?: any, error_message?: string }) => {
           if (resolved) return;
           resolved = true;
           clearTimeout(timeoutId);
@@ -1679,7 +1680,7 @@ function App() {
 
         window.addEventListener(`sync_request_${request_id}`, eventHandler);
 
-        // Fallback timeout limit of 30 seconds
+        // Fallback timeout limit of 12 seconds
         const timeoutId = setTimeout(async () => {
           addLog("> [Session] SSE signal wait timed out. Checking server once before failure.");
           try {
@@ -1689,9 +1690,9 @@ function App() {
               cleanup({ status: pollData.status, result_json: pollData.result_json, error_message: pollData.error_message });
               return;
             }
-          } catch (err) {}
+          } catch (err) { }
           cleanup({ status: 'timeout' });
-        }, 30000);
+        }, 12000);
       });
 
       if (!isVerifyingRef.current) {
@@ -1712,12 +1713,12 @@ function App() {
           setLoading(false);
           setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
           setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
-          
+
           const resData = response ? (response.data || null) : null;
           setResult(resData);
           const acc3 = bankAccounts.find(a => a.id.toString() === accountId);
           const labelVal = acc3 ? `${acc3.bank_name} ${acc3.account_number}` : '';
-          
+
           const getTxKey = (tx: any) => {
             return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || ''}`;
           };
@@ -1730,10 +1731,10 @@ function App() {
               : recentTxCache[accountId]?.transactions
             )?.map((tx) => getTxKey(tx)) || []
           );
-          
+
           const incomingKeys = newTxs.map((tx: any) => getTxKey(tx));
           const newlyAddedKeys = incomingKeys.filter((k: string) => !currentKeys.has(k));
-          
+
           if (newlyAddedKeys.length > 0) {
             setNewTransactionKeys(prev => {
               const next = new Set(prev);
@@ -2101,7 +2102,7 @@ function App() {
           setResult(response.data || null);
           const acc1 = bankAccounts.find(a => a.id.toString() === selectedAccountId);
           const labelVal = acc1 ? `${acc1.bank_name} ${acc1.account_number}` : '';
-          
+
           const getTxKey = (tx: any) => {
             return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || ''}`;
           };
@@ -2632,7 +2633,7 @@ function App() {
     if (cacheData && cacheData.transactions) {
       const cacheTxs = cacheData.transactions || [];
       addLog(`> [Cache] Rendered cached transactions from server (${cacheTxs.length} entries).`);
-      
+
       setLedgerCache(prev => ({
         ...prev,
         [targetAccountId]: {
@@ -2658,8 +2659,8 @@ function App() {
       }));
 
       // Check age: is it less than 10 seconds old?
-      const cacheAgeSeconds = cacheData.cached_at 
-        ? (Date.now() - new Date(cacheData.cached_at).getTime()) / 1000 
+      const cacheAgeSeconds = cacheData.cached_at
+        ? (Date.now() - new Date(cacheData.cached_at).getTime()) / 1000
         : Infinity;
 
       if (cacheAgeSeconds < 10 && !forceFullSync) {
@@ -2774,7 +2775,7 @@ function App() {
                   cleanup({ status: pollData.status, error: pollData.error_message });
                   return;
                 }
-              } catch (err) {}
+              } catch (err) { }
               cleanup({ status: 'timeout' });
             }
           }, 6000);
@@ -2791,7 +2792,7 @@ function App() {
           if (finalRes.ok) {
             const finalCache = await finalRes.json();
             const finalTxs = finalCache.transactions || [];
-            
+
             setLedgerCache(prev => ({
               ...prev,
               [targetAccountId]: {
@@ -3188,13 +3189,12 @@ function App() {
         {/* ── Credential Sync Toast ── */}
         {credSyncMsg && (
           <div
-            className={`fixed bottom-6 right-6 z-[9999] max-w-sm px-5 py-4 rounded-2xl shadow-2xl border flex items-start gap-3 transition-all duration-300 ${
-              credSyncStatus === 'error'
+            className={`fixed bottom-6 right-6 z-[9999] max-w-sm px-5 py-4 rounded-2xl shadow-2xl border flex items-start gap-3 transition-all duration-300 ${credSyncStatus === 'error'
                 ? 'bg-red-950/95 border-red-500/60 text-red-200'
                 : credSyncStatus === 'exporting' || credSyncStatus === 'importing'
-                ? 'bg-zinc-900/95 border-emerald-500/40 text-zinc-100'
-                : 'bg-emerald-950/95 border-emerald-500/50 text-emerald-200'
-            }`}
+                  ? 'bg-zinc-900/95 border-emerald-500/40 text-zinc-100'
+                  : 'bg-emerald-950/95 border-emerald-500/50 text-emerald-200'
+              }`}
           >
             {(credSyncStatus === 'exporting' || credSyncStatus === 'importing') && (
               <span className="mt-0.5 h-4 w-4 rounded-full border-2 border-emerald-400 border-t-transparent animate-spin shrink-0" />
@@ -3204,7 +3204,7 @@ function App() {
               onClick={() => { setCredSyncMsg(null); setCredSyncStatus('idle'); }}
               className="ml-auto shrink-0 text-zinc-400 hover:text-white"
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
             </button>
           </div>
         )}
@@ -3235,7 +3235,7 @@ function App() {
                   System configuration, lock PIN security, and local bank account credentials.
                 </p>
               </div>
-              <button 
+              <button
                 onClick={() => setShowSettings(false)}
                 className="btn btn-success px-4 py-2 text-xs flex items-center gap-1.5 shadow-md rounded-xl font-semibold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20"
               >
@@ -3395,8 +3395,8 @@ function App() {
 
                           <div className="flex items-center gap-3">
                             <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider ${hasCreds
-                                ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-500/10'
-                                : 'bg-zinc-800 text-zinc-400'
+                              ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-500/10'
+                              : 'bg-zinc-800 text-zinc-400'
                               }`}>
                               {hasCreds ? 'Credentials Configured' : 'No Credentials'}
                             </span>
@@ -3404,8 +3404,8 @@ function App() {
                               <div className="flex items-center gap-2">
                                 <button
                                   className={`btn text-xs py-1.5 px-3 font-semibold ${hasCreds
-                                      ? 'border border-zinc-800 hover:bg-zinc-800 text-zinc-300'
-                                      : 'btn-success text-black'
+                                    ? 'border border-zinc-800 hover:bg-zinc-800 text-zinc-300'
+                                    : 'btn-success text-black'
                                     }`}
                                   onClick={() => {
                                     const creds = accountsCreds[acc.id.toString()] || {};
@@ -3604,10 +3604,10 @@ function App() {
                                 disabled={loading}
                                 onClick={() => setSelectedAccountId(acc.id.toString())}
                                 className={`w-full px-4 py-3 rounded-xl border text-left flex items-center gap-3 transition-all ${isSelected
-                                    ? isBml
-                                      ? 'bg-red-955/20 border-red-500/80 shadow-[0_0_12px_rgba(239,68,68,0.15)]'
-                                      : 'bg-emerald-955/20 border-emerald-500/80 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
-                                    : 'bg-zinc-950/40 border-zinc-800/80 hover:border-zinc-700'
+                                  ? isBml
+                                    ? 'bg-red-955/20 border-red-500/80 shadow-[0_0_12px_rgba(239,68,68,0.15)]'
+                                    : 'bg-emerald-955/20 border-emerald-500/80 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+                                  : 'bg-zinc-950/40 border-zinc-800/80 hover:border-zinc-700'
                                   }`}
                               >
                                 <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800/80 p-1 flex items-center justify-center shrink-0">
@@ -4133,10 +4133,10 @@ function App() {
                         <div className="w-24 sm:w-40 bg-zinc-800 h-3 rounded-full overflow-hidden relative shadow-inner shrink-0">
                           <div
                             className={`h-full transition-all duration-300 rounded-full ${progress.stage === 'error'
-                                ? 'bg-red-500'
-                                : ((loading && loadingMode === 'history')
-                                  ? 'bg-gradient-to-r from-emerald-400 to-cyan-500'
-                                  : 'bg-emerald-400')
+                              ? 'bg-red-500'
+                              : ((loading && loadingMode === 'history')
+                                ? 'bg-gradient-to-r from-emerald-400 to-cyan-500'
+                                : 'bg-emerald-400')
                               }`}
                             style={{ width: `${(loading && loadingMode === 'history') ? progress.percent : 100}%` }}
                           />
@@ -4394,7 +4394,7 @@ function App() {
                     </button>
 
                     {/* Scrollable Container */}
-                    <div 
+                    <div
                       ref={carouselRef}
                       className="flex gap-4 w-full overflow-x-auto scroll-smooth py-1 scrollbar-none"
                       style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
@@ -4433,8 +4433,8 @@ function App() {
                                 setLedgerPage(1);
                               }}
                               className={`p-4 rounded-xl border text-left flex items-center gap-3.5 transition-all shadow-lg shrink-0 w-80 ${isSelected
-                                  ? 'bg-zinc-900 border-emerald-500/60 ring-1 ring-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.08)]'
-                                  : 'bg-zinc-950/60 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/30'
+                                ? 'bg-zinc-900 border-emerald-500/60 ring-1 ring-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.08)]'
+                                : 'bg-zinc-950/60 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/30'
                                 }`}
                             >
                               <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800 p-1 flex items-center justify-center shrink-0">
@@ -4498,12 +4498,11 @@ function App() {
                             const terminalNameStr = cache.cachedByTerminalName || 'System';
 
                             return (
-                              <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
-                                isFresh
+                              <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${isFresh
                                   ? 'bg-emerald-950/30 border-emerald-500/20 text-emerald-400'
                                   : 'bg-amber-950/30 border-amber-500/20 text-amber-400'
-                              }`}
-                              title={`Version: ${cache.cacheVersion || 0}`}>
+                                }`}
+                                title={`Version: ${cache.cacheVersion || 0}`}>
                                 <span className={`w-1.5 h-1.5 rounded-full ${isFresh ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
                                 <span>Updated by {terminalNameStr} {secondsAgo}s ago</span>
                               </div>
@@ -4585,14 +4584,13 @@ function App() {
                               <div className="relative" id="ledger-date-picker">
                                 <button
                                   onClick={() => setLedgerDatePickerOpen(v => !v)}
-                                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
-                                    ledgerDateFilter
+                                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-all ${ledgerDateFilter
                                       ? 'bg-violet-500/20 border-violet-500/50 text-violet-300 hover:bg-violet-500/30'
                                       : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-white'
-                                  }`}
+                                    }`}
                                   title={ledgerDateFilter ? `Showing: ${new Date(ledgerDateFilter).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : 'Filter by date'}
                                 >
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
                                   {ledgerDateFilter
                                     ? new Date(ledgerDateFilter).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                                     : 'Date'}
@@ -4614,7 +4612,7 @@ function App() {
                                       onClick={() => setLedgerDatePickerOpen(false)}
                                     />
                                     {/* Calendar Dropdown */}
-                                    <div className="absolute right-0 top-full mt-2 z-50 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl p-3 w-64 select-none" style={{backdropFilter:'blur(12px)'}}>
+                                    <div className="absolute right-0 top-full mt-2 z-50 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl p-3 w-64 select-none" style={{ backdropFilter: 'blur(12px)' }}>
                                       {/* Month navigation header */}
                                       <div className="flex items-center justify-between mb-2">
                                         <button
@@ -4626,17 +4624,16 @@ function App() {
                                         <button
                                           onClick={(e) => { e.stopPropagation(); goToNextMonth(); }}
                                           disabled={isCurrentMonth}
-                                          className={`w-6 h-6 flex items-center justify-center rounded-md text-sm transition-colors ${
-                                            isCurrentMonth
+                                          className={`w-6 h-6 flex items-center justify-center rounded-md text-sm transition-colors ${isCurrentMonth
                                               ? 'text-zinc-700 cursor-not-allowed'
                                               : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
-                                          }`}
+                                            }`}
                                           title={isCurrentMonth ? 'Already at current month' : 'Next month'}
                                         >&#8250;</button>
                                       </div>
                                       {/* Weekday headers */}
                                       <div className="grid grid-cols-7 mb-1">
-                                        {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
+                                        {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => (
                                           <span key={d} className="text-center text-[9px] font-bold text-zinc-600 uppercase py-0.5">{d}</span>
                                         ))}
                                       </div>
@@ -4661,15 +4658,14 @@ function App() {
                                                 setLedgerPage(1);
                                                 setLedgerDatePickerOpen(false);
                                               }}
-                                              className={`w-full aspect-square rounded-lg text-[11px] font-medium transition-all flex items-center justify-center ${
-                                                isFuture
+                                              className={`w-full aspect-square rounded-lg text-[11px] font-medium transition-all flex items-center justify-center ${isFuture
                                                   ? 'text-zinc-700 cursor-not-allowed'
                                                   : isSelected
                                                     ? 'bg-violet-500 text-white shadow-[0_0_10px_rgba(139,92,246,0.5)]'
                                                     : isToday
                                                       ? 'bg-zinc-800 text-violet-300 ring-1 ring-violet-500/40'
                                                       : 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
-                                              }`}
+                                                }`}
                                             >
                                               {day}
                                             </button>
@@ -4733,10 +4729,10 @@ function App() {
                           <div className="w-24 sm:w-40 bg-zinc-800 h-3 rounded-full overflow-hidden relative shadow-inner shrink-0">
                             <div
                               className={`h-full transition-all duration-300 rounded-full ${progress.stage === 'error'
-                                  ? 'bg-red-500'
-                                  : (isSyncing
-                                    ? 'bg-gradient-to-r from-emerald-400 to-cyan-500'
-                                    : 'bg-emerald-400')
+                                ? 'bg-red-500'
+                                : (isSyncing
+                                  ? 'bg-gradient-to-r from-emerald-400 to-cyan-500'
+                                  : 'bg-emerald-400')
                                 }`}
                               style={{ width: `${isSyncing ? progress.percent : 100}%` }}
                             />
