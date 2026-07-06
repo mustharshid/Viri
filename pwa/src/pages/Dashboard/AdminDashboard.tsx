@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2 } from 'lucide-react';
+import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2, Server, Database, Code, Zap, Activity } from 'lucide-react';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -53,13 +53,14 @@ export default function AdminDashboard() {
 
   // System Settings State
   const [systemSettings, setSystemSettings] = useState<any[]>([]);
+  const [serverInfo, setServerInfo] = useState<any | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
 
-  const fetchSystemSettings = async () => {
-    setSettingsLoading(true);
+  const fetchSystemSettings = async (showLoading = true) => {
+    if (showLoading) setSettingsLoading(true);
     setSettingsError(null);
     try {
       const token = localStorage.getItem('viri_token');
@@ -69,12 +70,25 @@ export default function AdminDashboard() {
       if (!res.ok) throw new Error('Failed to fetch system settings');
       const data = await res.json();
       setSystemSettings(data.settings);
+      if (data.server_info) {
+        setServerInfo(data.server_info);
+      }
     } catch (err: any) {
-      setSettingsError(err.message);
+      if (showLoading) setSettingsError(err.message);
     } finally {
-      setSettingsLoading(false);
+      if (showLoading) setSettingsLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (activeTab !== 'settings') return;
+    const intervalValue = parseInt(systemSettings.find(s => s.key === 'server_metrics_poll_interval')?.value || '60', 10);
+    const pollInterval = setInterval(() => {
+      fetchSystemSettings(false);
+    }, intervalValue * 1000);
+    
+    return () => clearInterval(pollInterval);
+  }, [activeTab, systemSettings]);
 
   const handleSaveSystemSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1334,6 +1348,123 @@ export default function AdminDashboard() {
           </button>
         </div>
 
+        {/* Server Metrics Dashboard */}
+        {serverInfo && (
+          <div className="mb-8 p-5 bg-gradient-to-br from-zinc-900 to-black border border-zinc-800 rounded-xl shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-3 opacity-5 pointer-events-none">
+              <Server size={180} />
+            </div>
+            <h4 className="text-sm font-bold text-white flex items-center gap-2 mb-4 relative z-10">
+              <Activity size={16} className="text-blue-400" />
+              Performance & Server Environment
+            </h4>
+            
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 relative z-10">
+              <div className="bg-black/40 border border-zinc-800/80 rounded-lg p-3 hover:border-zinc-700 transition-all shadow-inner backdrop-blur-sm">
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1 flex items-center gap-1"><Server size={12}/> Server OS</div>
+                <div className="text-sm font-mono text-zinc-200 truncate" title={serverInfo.server_os}>{serverInfo.server_os}</div>
+              </div>
+              <div className="bg-black/40 border border-zinc-800/80 rounded-lg p-3 hover:border-zinc-700 transition-all shadow-inner backdrop-blur-sm">
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1 flex items-center gap-1"><Code size={12}/> PHP Version</div>
+                <div className="text-lg font-mono text-zinc-200">{serverInfo.php_version}</div>
+              </div>
+              <div className="bg-black/40 border border-zinc-800/80 rounded-lg p-3 hover:border-zinc-700 transition-all shadow-inner backdrop-blur-sm">
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1 flex items-center gap-1"><Layers size={12}/> Laravel Version</div>
+                <div className="text-lg font-mono text-zinc-200">{serverInfo.laravel_version}</div>
+              </div>
+              <div className="bg-black/40 border border-zinc-800/80 rounded-lg p-3 hover:border-zinc-700 transition-all shadow-inner backdrop-blur-sm">
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1 flex items-center gap-1"><Database size={12}/> MySQL Version</div>
+                <div className="text-lg font-mono text-zinc-200 truncate" title={serverInfo.mysql_version}>{serverInfo.mysql_version}</div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
+              {/* PHP INI Settings */}
+              <div className="bg-zinc-950/50 border border-zinc-800/50 rounded-lg p-4 backdrop-blur-sm">
+                <h5 className="text-[11px] uppercase font-bold text-zinc-400 mb-3 tracking-wider flex items-center gap-1.5"><Settings size={12}/> PHP INI Configuration</h5>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs font-mono">
+                  <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                    <span className="text-zinc-500">memory_limit</span>
+                    <span className="text-blue-400">{serverInfo.ini?.memory_limit}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                    <span className="text-zinc-500">max_execution_time</span>
+                    <span className="text-yellow-400">{serverInfo.ini?.max_execution_time}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                    <span className="text-zinc-500">upload_max_filesize</span>
+                    <span className="text-green-400">{serverInfo.ini?.upload_max_filesize}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                    <span className="text-zinc-500">post_max_size</span>
+                    <span className="text-green-400">{serverInfo.ini?.post_max_size}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                    <span className="text-zinc-500">opcache.enable</span>
+                    <span className="text-purple-400">{serverInfo.ini?.opcache_enable}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                    <span className="text-zinc-500">max_input_time</span>
+                    <span className="text-yellow-400">{serverInfo.ini?.max_input_time}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* PHP FPM Settings */}
+              <div className="bg-zinc-950/50 border border-zinc-800/50 rounded-lg p-4 backdrop-blur-sm">
+                <h5 className="text-[11px] uppercase font-bold text-zinc-400 mb-3 tracking-wider flex items-center gap-1.5"><Zap size={12}/> PHP-FPM Pool Settings</h5>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs font-mono">
+                  <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                    <span className="text-zinc-500">pm</span>
+                    <span className="text-orange-400">{serverInfo.fpm?.pm}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                    <span className="text-zinc-500">pm.max_children</span>
+                    <span className="text-zinc-300">{serverInfo.fpm?.pm_max_children}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                    <span className="text-zinc-500">pm.start_servers</span>
+                    <span className="text-zinc-300">{serverInfo.fpm?.pm_start_servers}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                    <span className="text-zinc-500">pm.min_spare_servers</span>
+                    <span className="text-zinc-300">{serverInfo.fpm?.pm_min_spare_servers}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                    <span className="text-zinc-500">pm.max_spare_servers</span>
+                    <span className="text-zinc-300">{serverInfo.fpm?.pm_max_spare_servers}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                    <span className="text-zinc-500">pm.max_requests</span>
+                    <span className="text-zinc-300">{serverInfo.fpm?.pm_max_requests}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* App Diagnostics */}
+            <div className="mt-4 pt-4 border-t border-zinc-800/80 flex flex-wrap gap-6 relative z-10">
+              <div className="flex flex-col">
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1">Active Terminals</div>
+                <div className="text-sm font-mono text-zinc-200">{activeTerminalsCount}</div>
+              </div>
+              <div className="flex flex-col">
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1">Memory (Client JS)</div>
+                <div className="text-sm font-mono text-zinc-200">
+                  {/* @ts-ignore */}
+                  {window.performance && (window.performance as any).memory ? Math.round((window.performance as any).memory.usedJSHeapSize / 1024 / 1024) + ' MB' : 'N/A'}
+                </div>
+              </div>
+              <div className="flex flex-col">
+                <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1">System Status</div>
+                <div className="text-sm font-mono text-green-400 flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div> Healthy
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {settingsLoading ? (
           <div className="flex flex-col items-center justify-center py-12 text-zinc-400 gap-3 font-medium">
             <div className="w-8 h-8 rounded-full border-2 border-t-yellow-500 border-zinc-700 animate-spin" />
@@ -1342,7 +1473,7 @@ export default function AdminDashboard() {
         ) : settingsError ? (
           <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl text-sm mb-6">
             ⚠️ Error loading settings: {settingsError}
-            <button onClick={fetchSystemSettings} className="ml-3 text-xs underline font-semibold hover:text-red-300">Retry</button>
+            <button onClick={() => fetchSystemSettings()} className="ml-3 text-xs underline font-semibold hover:text-red-300">Retry</button>
           </div>
         ) : (
           <form onSubmit={handleSaveSystemSettings} className="space-y-6">
@@ -1464,6 +1595,33 @@ export default function AdminDashboard() {
                   <span>30s</span>
                 </div>
               </div>
+              {/* Server Metrics Poll Interval */}
+              <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-colors">
+                <div className="flex justify-between items-start mb-2">
+                  <label className="text-sm font-bold text-white block">Server Metrics Poll Interval</label>
+                  <span className="text-xs text-yellow-500 font-mono font-bold bg-yellow-500/10 px-2 py-0.5 rounded">
+                    {systemSettings.find(s => s.key === 'server_metrics_poll_interval')?.value || 60}s
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+                  Frequency for automatically refreshing the live Performance & Server Environment metrics card.
+                </p>
+                <input
+                  type="range"
+                  min="5"
+                  max="300"
+                  className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+                  value={systemSettings.find(s => s.key === 'server_metrics_poll_interval')?.value || 60}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSystemSettings(prev => prev.map(s => s.key === 'server_metrics_poll_interval' ? { ...s, value: val } : s));
+                  }}
+                />
+                <div className="flex justify-between text-[10px] text-zinc-500 mt-1 font-mono">
+                  <span>5s</span>
+                  <span>300s</span>
+                </div>
+              </div>
               {/* Real-time Event Polling */}
               <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-colors">
                 <div className="flex justify-between items-start mb-2">
@@ -1493,40 +1651,12 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            <div className="mt-8 mb-4 border-t border-zinc-800 pt-6">
-              <h4 className="text-sm font-bold text-white flex items-center gap-2 mb-4">
-                <RefreshCw size={16} className="text-blue-400" />
-                Performance Metrics (Live)
-              </h4>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-black/40 border border-zinc-800/80 rounded-lg p-4">
-                  <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1">Active Terminals</div>
-                  <div className="text-lg font-mono text-zinc-200">{activeTerminalsCount}</div>
-                </div>
-                <div className="bg-black/40 border border-zinc-800/80 rounded-lg p-4">
-                  <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1">UI Render Mode</div>
-                  <div className="text-lg font-mono text-zinc-200">Hardware Accel.</div>
-                </div>
-                <div className="bg-black/40 border border-zinc-800/80 rounded-lg p-4">
-                  <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1">Memory Usage (Est.)</div>
-                  <div className="text-lg font-mono text-zinc-200">
-                    {/* @ts-ignore */}
-                    {window.performance && (window.performance as any).memory ? Math.round((window.performance as any).memory.usedJSHeapSize / 1024 / 1024) + ' MB' : 'N/A'}
-                  </div>
-                </div>
-                <div className="bg-black/40 border border-zinc-800/80 rounded-lg p-4">
-                  <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1">Connection State</div>
-                  <div className="text-lg font-mono text-green-400 flex items-center gap-1.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div> Stable
-                  </div>
-                </div>
-              </div>
-            </div>
+
 
             <div className="flex justify-end pt-4 border-t border-zinc-800 gap-3">
               <button
                 type="button"
-                onClick={fetchSystemSettings}
+                onClick={() => fetchSystemSettings()}
                 className="btn btn-outline text-xs px-4 py-2"
                 disabled={settingsSaving}
               >

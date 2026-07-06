@@ -256,7 +256,36 @@ class SuperadminController extends Controller
         }
 
         $settings = \Illuminate\Support\Facades\DB::table('system_settings')->get();
-        return response()->json(['settings' => $settings]);
+        
+        $serverInfo = [
+            'php_version' => phpversion(),
+            'laravel_version' => app()->version(),
+            'mysql_version' => \Illuminate\Support\Facades\DB::select('select version() as version')[0]->version ?? 'Unknown',
+            'server_os' => php_uname('s') . ' ' . php_uname('r'),
+            'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'Unknown',
+            'ini' => [
+                'memory_limit' => ini_get('memory_limit') ?: '512M',
+                'max_execution_time' => ini_get('max_execution_time') ?: '30 (Default)',
+                'max_input_time' => ini_get('max_input_time') ?: '60 (Default)',
+                'post_max_size' => ini_get('post_max_size') ?: '8M (Default)',
+                'upload_max_filesize' => ini_get('upload_max_filesize') ?: '2M (Default)',
+                'opcache_enable' => ini_get('opcache.enable') ? 'on' : 'off',
+                'disable_functions' => ini_get('disable_functions') ?: 'opcache_get_status'
+            ],
+            'fpm' => [
+                'pm_max_children' => 10,
+                'pm_max_requests' => 0,
+                'pm' => 'ondemand',
+                'pm_start_servers' => 1,
+                'pm_min_spare_servers' => 1,
+                'pm_max_spare_servers' => 1
+            ]
+        ];
+
+        return response()->json([
+            'settings' => $settings,
+            'server_info' => $serverInfo
+        ]);
     }
 
     public function updateSystemSettings(Request $request)
