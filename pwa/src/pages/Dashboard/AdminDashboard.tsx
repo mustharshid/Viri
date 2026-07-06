@@ -38,6 +38,7 @@ export default function AdminDashboard() {
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsPage, setLogsPage] = useState(1);
   const [logsTotalPages, setLogsTotalPages] = useState(1);
+  const [logRefreshCountdown, setLogRefreshCountdown] = useState<number | null>(null);
 
   // Payments State
   const [payments, setPayments] = useState<any[]>([]);
@@ -253,6 +254,30 @@ export default function AdminDashboard() {
       fetchSessionLogs(true);
     }
   }, [activeTab, logsPage, filterEventType, filterCompanyId]);
+
+  useEffect(() => {
+    if (activeTab !== 'logs') {
+      setLogRefreshCountdown(null);
+      return;
+    }
+    
+    const intervalStr = systemSettings.find(s => s.key === 'session_log_poll_interval')?.value || '15';
+    const intervalValue = parseInt(intervalStr, 10);
+    setLogRefreshCountdown(intervalValue);
+
+    const timer = setInterval(() => {
+      setLogRefreshCountdown(prev => {
+        if (prev === null) return null;
+        if (prev <= 1) {
+          fetchSessionLogs(false);
+          return intervalValue;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [activeTab, systemSettings, logsPage, filterEventType, filterCompanyId]);
 
   const fetchSessionLogs = async (showLoading: boolean = true) => {
     if (showLoading) setLogsLoading(true);
@@ -1649,6 +1674,33 @@ export default function AdminDashboard() {
                   <span>15s</span>
                 </div>
               </div>
+              {/* Session Log Poll Interval */}
+              <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-colors">
+                <div className="flex justify-between items-start mb-2">
+                  <label className="text-sm font-bold text-white block">Session Log Poll Interval</label>
+                  <span className="text-xs text-yellow-500 font-mono font-bold bg-yellow-500/10 px-2 py-0.5 rounded">
+                    {systemSettings.find(s => s.key === 'session_log_poll_interval')?.value || 15}s
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+                  Frequency for automatically refreshing the active sessions and logs audit table.
+                </p>
+                <input
+                  type="range"
+                  min="5"
+                  max="120"
+                  className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+                  value={systemSettings.find(s => s.key === 'session_log_poll_interval')?.value || 15}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSystemSettings(prev => prev.map(s => s.key === 'session_log_poll_interval' ? { ...s, value: val } : s));
+                  }}
+                />
+                <div className="flex justify-between text-[10px] text-zinc-500 mt-1 font-mono">
+                  <span>5s</span>
+                  <span>120s</span>
+                </div>
+              </div>
             </div>
 
 
@@ -1689,13 +1741,25 @@ export default function AdminDashboard() {
         <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-3">
             <h3 className="text-xl font-bold text-white tracking-tight">Active Sessions & Logs Audit</h3>
-            <button
-              onClick={handleRefresh}
-              className="btn border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-300 py-1 px-2.5 text-xs flex items-center gap-1.5 h-auto min-h-0 font-medium rounded-lg"
-              title="Refresh logs data"
-            >
-              <RefreshCw size={11} /> Refresh Logs
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  handleRefresh();
+                  const intervalStr = systemSettings.find(s => s.key === 'session_log_poll_interval')?.value || '15';
+                  setLogRefreshCountdown(parseInt(intervalStr, 10));
+                }}
+                className="btn border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-300 py-1 px-2.5 text-xs flex items-center gap-1.5 h-auto min-h-0 font-medium rounded-lg"
+                title="Refresh logs data"
+              >
+                <RefreshCw size={11} /> Refresh Logs
+              </button>
+              {logRefreshCountdown !== null && (
+                <span className="text-[10px] text-zinc-500 font-mono flex items-center gap-1.5 bg-black/40 px-2 py-1 rounded border border-zinc-800/50">
+                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+                  Refresh in {logRefreshCountdown}s
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             {/* Company Filter */}
