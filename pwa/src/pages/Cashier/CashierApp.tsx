@@ -161,9 +161,9 @@ function App() {
   const [amount, setAmount] = useState('');
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [appConfig, setAppConfig] = useState({
-    session_status_poll_interval: 6,
-    credential_sync_poll_interval: 10,
-    version_check_interval: 5,
+    session_status_poll_interval: 12,
+    credential_sync_poll_interval: 60,
+    version_check_interval: 120,
     active_session_heartbeat_interval: 5
   });
   const [settingsPin, setSettingsPin] = useState<string | null>(null);
@@ -448,35 +448,24 @@ function App() {
     };
   }, [hardwareId, backendUrl]);
 
-  // SSE Event Stream for Leader signaling (Zero-Knowledge: credentials remain client-side only)
+  // Real-Time signaling poll (Zero-Knowledge: credentials remain client-side only)
   useEffect(() => {
     if (!hardwareId || !backendUrl) return;
 
-    let eventSource: EventSource | null = null;
-    let reconnectTimeout: ReturnType<typeof setTimeout>;
+    let pollInterval: ReturnType<typeof setInterval>;
 
-    const connectSSE = () => {
-      // Build SSE URL
-      const sseUrl = `${backendUrl}/terminal/events?hardware_id=${encodeURIComponent(hardwareId)}`;
-      eventSource = new EventSource(sseUrl);
-
-      eventSource.addEventListener('verify_request_queued', async () => {
-        try {
-          addLog(`> [SSE] Received instant verification request signal. Querying pending queue...`);
+    const processEvent = async (eventType: string, payloadStr: string) => {
+      try {
+        const payload = JSON.parse(payloadStr || '{}');
+        if (eventType === 'verify_request_queued') {
+          addLog(`> [Realtime] Received instant verification request signal. Querying pending queue...`);
           if (checkPendingRequestsRef.current) {
             await checkPendingRequestsRef.current();
           }
-        } catch (err: any) {
-          console.error("SSE verify_request_queued failed:", err);
-        }
-      });
-
-      eventSource.addEventListener('cache_refresh_requested', async (event: any) => {
-        try {
-          const payload = JSON.parse(event.data);
+        } else if (eventType === 'cache_refresh_requested') {
           const { request_id, bank_account_id, bank_name, account_number, mib_profile_type, requester_name } = payload;
           
-          addLog(`> [SSE] Received cache refresh request ID ${request_id} from counter "${requester_name}". Acknowledging...`);
+          addLog(`> [Realtime] Received cache refresh request ID ${request_id} from counter "${requester_name}". Acknowledging...`);
 
           // 1. Acknowledge the request immediately to let follower know we're active
           await fetch(`${backendUrl}/terminal/session/acknowledge`, {
@@ -497,7 +486,7 @@ function App() {
             throw new Error("Local extension not connected/detected.");
           }
 
-          addLog(`> [SSE] Initiating background bank sync for request ID ${request_id}...`);
+          addLog(`> [Realtime] Initiating background bank sync for request ID ${request_id}...`);
           const port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
           
           const responseData = await new Promise<any>((resolve, reject) => {
@@ -506,12 +495,12 @@ function App() {
             
             port.onMessage.addListener((msg) => {
               if (msg.type === 'log') {
-                addLog(`> [SSE Leader Sync] ${msg.message}`);
+                addLog(`> [Realtime Leader Sync] ${msg.message}`);
               } else if (msg.type === 'success') {
                 port.onDisconnect.removeListener(disconnectHandler);
-                addLog(`> [SSE Leader Sync] Raw history size: ${msg.raw_history ? msg.raw_history.length : 0} items.`);
+                addLog(`> [Realtime Leader Sync] Raw history size: ${msg.raw_history ? msg.raw_history.length : 0} items.`);
                 if (msg.raw_history && msg.raw_history.length > 0) {
-                  addLog(`> [SSE Leader Sync] Raw history sample: ${JSON.stringify(msg.raw_history.slice(0, 1))}`);
+                  addLog(`> [Realtime Leader Sync] Raw history sample: ${JSON.stringify(msg.raw_history.slice(0, 1))}`);
                 }
                 resolve(msg.payload || msg);
               } else if (msg.type === 'error') {
@@ -544,7 +533,7 @@ function App() {
           port.disconnect();
 
           // 3. Push new data to cache & mark request fulfilled
-          addLog(`> [SSE] Sync succeeded for request ID ${request_id}. Pushing new cache to server...`);
+          addLog(`> [Realtime] Sync succeeded for request ID ${request_id}. Pushing new cache to server...`);
           await fetch(`${backendUrl}/terminal/ledger-cache/push`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -557,7 +546,7 @@ function App() {
             })
           });
 
-          addLog(`> [SSE] Cache updated successfully for account ID ${bank_account_id}.`);
+          addLog(`> [Realtime] Cache updated successfully for account ID ${bank_account_id}.`);
 
           // Proactively update local cache too!
           setLedgerCache(prev => ({
@@ -571,71 +560,54 @@ function App() {
             }
           }));
 
-        } catch (err: any) {
-          console.error("SSE Leader Sync failed:", err);
-          addLog(`> [SSE Leader Sync Failed] ${err.message}`);
-          if (event.data) {
-            try {
-              const payload = JSON.parse(event.data);
-              await fetch(`${backendUrl}/terminal/session/fulfill`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  hardware_id: hardwareId,
-                  request_id: payload.request_id,
-                  status: 'failed',
-                  error_message: err.message
-                })
-              });
-            } catch (failErr) {}
-          }
-        }
-      });
-
-      eventSource.addEventListener('verify_request_completed', (event: any) => {
-        try {
-          const payload = JSON.parse(event.data);
-          addLog(`> [SSE] Sync request ID ${payload.request_id} resolved with status: ${payload.status}`);
+        } else if (eventType === 'verify_request_completed') {
+          addLog(`> [Realtime] Sync request ID ${payload.request_id} resolved with status: ${payload.status}`);
           
           const customEvent = new CustomEvent(`sync_request_${payload.request_id}`, {
             detail: payload
           });
           window.dispatchEvent(customEvent);
-        } catch (err: any) {
-          console.error("SSE verify_request_completed processing failed:", err);
-        }
-      });
-
-      eventSource.addEventListener('verify_request_acknowledged', (event: any) => {
-        try {
-          const payload = JSON.parse(event.data);
-          addLog(`> [SSE] Sync request ID ${payload.request_id} acknowledged by leader.`);
+        } else if (eventType === 'verify_request_acknowledged') {
+          addLog(`> [Realtime] Sync request ID ${payload.request_id} acknowledged by leader.`);
           
           const customEvent = new CustomEvent(`sync_request_ack_${payload.request_id}`, {
             detail: payload
           });
           window.dispatchEvent(customEvent);
-        } catch (err: any) {
-          console.error("SSE verify_request_acknowledged processing failed:", err);
         }
-      });
-
-      eventSource.onerror = (err) => {
-        console.error("SSE EventSource error, reconnecting in 3s...", err);
-        if (eventSource) {
-          eventSource.close();
-        }
-        reconnectTimeout = setTimeout(connectSSE, 3000);
-      };
+      } catch (err: any) {
+        console.error("Realtime event process failed:", err);
+        addLog(`> [Realtime Sync Failed] ${err.message}`);
+      }
     };
 
-    connectSSE();
+    const poll = async () => {
+      // Visibility-Based Throttling: Pause polling completely when tab is hidden/minimized
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+
+      try {
+        const res = await fetch(`${backendUrl}/terminal/events/poll?hardware_id=${encodeURIComponent(hardwareId)}`);
+        if (!res.ok) return;
+        const events = await res.json();
+        if (Array.isArray(events)) {
+          for (const evt of events) {
+            await processEvent(evt.event_type, evt.payload);
+          }
+        }
+      } catch (err) {
+        console.error("Realtime event polling error:", err);
+      }
+    };
+
+    // Run initial poll immediately
+    poll();
+
+    pollInterval = setInterval(poll, 3000);
 
     return () => {
-      if (eventSource) {
-        eventSource.close();
-      }
-      clearTimeout(reconnectTimeout);
+      clearInterval(pollInterval);
     };
   }, [hardwareId, backendUrl, accountsCreds, extensionId]);
 
@@ -832,7 +804,8 @@ function App() {
       const idleMultiplier = isUserIdle ? 5 : 1;
       const backoffMultiplier = Math.pow(2, Math.min(consecutiveFailures, 4));
 
-      const nextDelay = Math.min(
+      const isTabHidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+      const nextDelay = isTabHidden ? 60000 : Math.min(
         baseInterval * idleMultiplier * backoffMultiplier,
         60000
       );
@@ -1628,7 +1601,7 @@ function App() {
 
     checkPendingRequestsRef.current = checkPendingRequests;
 
-    intervalId = setInterval(checkPendingRequests, 3000);
+    intervalId = setInterval(checkPendingRequests, 30000);
     return () => {
       clearInterval(intervalId);
       checkPendingRequestsRef.current = undefined;

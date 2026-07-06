@@ -140,11 +140,13 @@ Route::post('/verify-terminal', function (Request $request) {
         $tenant->increment('verifications_count');
     }
 
-    $settings = DB::table('system_settings')->pluck('value', 'key')->all();
+    $settings = \Illuminate\Support\Facades\Cache::remember('viri_system_settings', 300, function () {
+        return DB::table('system_settings')->pluck('value', 'key')->all();
+    });
     $appConfig = [
-        'session_status_poll_interval' => (int) ($settings['session_status_poll_interval'] ?? 6),
-        'credential_sync_poll_interval' => (int) ($settings['credential_sync_poll_interval'] ?? 10),
-        'version_check_interval' => (int) ($settings['version_check_interval'] ?? 5),
+        'session_status_poll_interval' => (int) ($settings['session_status_poll_interval'] ?? 12),
+        'credential_sync_poll_interval' => (int) ($settings['credential_sync_poll_interval'] ?? 60),
+        'version_check_interval' => (int) ($settings['version_check_interval'] ?? 120),
         'active_session_heartbeat_interval' => (int) ($settings['active_session_heartbeat_interval'] ?? 5),
     ];
 
@@ -217,6 +219,7 @@ Route::post('/terminal/credential-sync/{id}/confirm-import',   [CredentialSyncCo
 
 // Shared Transaction Cache & Real-Time Signaling Endpoints
 Route::get('/terminal/events',                                  [LedgerCacheController::class, 'streamEvents']);
+Route::get('/terminal/events/poll',                             [LedgerCacheController::class, 'pollEvents']);
 Route::get('/terminal/ledger-cache/{account_id}',               [LedgerCacheController::class, 'readCache']);
 Route::post('/terminal/ledger-cache/push',                      [LedgerCacheController::class, 'pushCache']);
 Route::post('/terminal/ledger-cache/request-refresh',           [LedgerCacheController::class, 'requestRefresh']);

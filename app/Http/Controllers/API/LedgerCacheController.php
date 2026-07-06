@@ -75,6 +75,7 @@ class LedgerCacheController extends Controller
         }
 
         return response()->stream(function () use ($hardwareId) {
+            $startTime = time();
             $lastHeartbeat = time();
             
             // Set execution limit to 0 (unlimited time)
@@ -83,39 +84,34 @@ class LedgerCacheController extends Controller
             }
 
             while (true) {
-                if (connection_aborted()) {
+                if (connection_aborted() || (time() - $startTime >= 25)) {
                     break;
                 }
 
-                // Check for undelivered events for this terminal
-                $events = DB::transaction(function () use ($hardwareId) {
-                    $evts = DB::table('terminal_events')
-                        ->where('hardware_id', $hardwareId)
-                        ->where('delivered', false)
-                        ->lockForUpdate()
-                        ->get();
+                // Check for undelivered events for this terminal locklessly
+                $events = DB::table('terminal_events')
+                    ->where('hardware_id', $hardwareId)
+                    ->where('delivered', false)
+                    ->get();
 
-                    if ($evts->isNotEmpty()) {
-                        DB::table('terminal_events')
-                            ->whereIn('id', $evts->pluck('id'))
-                            ->update([
-                                'delivered' => true,
-                                'updated_at' => now()
-                            ]);
+                if ($events->isNotEmpty()) {
+                    DB::table('terminal_events')
+                        ->whereIn('id', $events->pluck('id'))
+                        ->update([
+                            'delivered' => true,
+                            'updated_at' => now()
+                        ]);
+
+                    foreach ($events as $event) {
+                        echo "event: " . $event->event_type . "\n";
+                        echo "data: " . $event->payload . "\n\n";
                     }
 
-                    return $evts;
-                });
-
-                foreach ($events as $event) {
-                    echo "event: " . $event->event_type . "\n";
-                    echo "data: " . $event->payload . "\n\n";
+                    if (ob_get_level() > 0) {
+                        ob_flush();
+                    }
+                    flush();
                 }
-
-                if (ob_get_level() > 0) {
-                    ob_flush();
-                }
-                flush();
 
                 // Periodic keep-alive event (every 10 seconds)
                 if (time() - $lastHeartbeat > 10) {
@@ -127,7 +123,7 @@ class LedgerCacheController extends Controller
                     $lastHeartbeat = time();
                 }
 
-                usleep(500000); // 500ms polling pause
+                usleep(1500000); // 1.5s polling pause to reduce CPU load
             }
         }, 200, [
             'Content-Type' => 'text/event-stream',
@@ -135,6 +131,31 @@ class LedgerCacheController extends Controller
             'Connection' => 'keep-alive',
             'X-Accel-Buffering' => 'no', // Disable Nginx buffering
         ]);
+    }
+
+    public function pollEvents(Request $request)
+    {
+        $hardwareId = $request->query('hardware_id');
+        if (!$hardwareId) {
+            return response()->json(['error' => 'hardware_id parameter is required'], 400);
+        }
+
+        // Fast lockless query
+        $events = DB::table('terminal_events')
+            ->where('hardware_id', $hardwareId)
+            ->where('delivered', false)
+            ->get();
+
+        if ($events->isNotEmpty()) {
+            DB::table('terminal_events')
+                ->whereIn('id', $events->pluck('id'))
+                ->update([
+                    'delivered' => true,
+                    'updated_at' => now()
+                ]);
+        }
+
+        return response()->json($events);
     }
 
     /**

@@ -280,6 +280,8 @@ class SuperadminController extends Controller
                 ]);
         }
 
+        \Illuminate\Support\Facades\Cache::forget('viri_system_settings');
+
         return response()->json(['message' => 'System settings updated successfully']);
     }
 
