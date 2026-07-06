@@ -242,3 +242,7 @@ Route::post('/terminal/update-pin', function (Request $request) {
     }
     return response()->json(['error' => 'Terminal not found'], 404);
 });
+
+// Ledger Reports
+Route::post('/terminal/reports', [\App\Http\Controllers\API\LedgerReportController::class, 'store']);
+Route::get('/terminal/reports', [\App\Http\Controllers\API\LedgerReportController::class, 'index']);

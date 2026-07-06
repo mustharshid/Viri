@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, Terminal, Activity, Sun, Moon, ExternalLink } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
+import CryptoJS from 'crypto-js';
 
 const Tooltip = ({ text, helpSectionId, onHelpNavigate }: { text: string; helpSectionId?: string; onHelpNavigate?: (sectionId: string) => void }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -660,9 +661,103 @@ function App() {
     return saved ? JSON.parse(saved) : {};
   });
 
+  const handleSaveReport = async () => {
+    if (!hardwareId || !backendUrl) return;
+
+    // We get the active account and its transactions
+    const activeLedgerAcc = bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId);
+    if (!activeLedgerAcc) return;
+
+    const cache = ledgerCache[activeLedgerAcc.id.toString()];
+    if (!cache || !cache.transactions || cache.transactions.length === 0) {
+      alert("No transactions available to save into a report.");
+      return;
+    }
+
+    const reportPayload = {
+      createdAt: new Date().toISOString(),
+      bankName: activeLedgerAcc.bank_name,
+      accountName: activeLedgerAcc.account_name,
+      accountNumber: activeLedgerAcc.account_number,
+      currency: activeLedgerAcc.currency || 'MVR',
+      balanceAtSave: cache.balance || '0.00',
+      transactions: cache.transactions,
+    };
+
+    const payloadString = JSON.stringify(reportPayload);
+    const encryptedPayload = CryptoJS.AES.encrypt(payloadString, reportsKey).toString();
+
+    try {
+      const res = await fetch(`${backendUrl}/terminal/reports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hardware_id: hardwareId,
+          date: reportPayload.createdAt,
+          bank: reportPayload.bankName,
+          account_name: reportPayload.accountName,
+          account_number: reportPayload.accountNumber,
+          encrypted_payload: encryptedPayload
+        })
+      });
+
+      if (res.ok) {
+        alert("Report successfully saved!");
+        loadReports(); // Refresh the saved reports list
+      } else {
+        const errData = await res.json();
+        alert(`Failed to save report: ${errData.error || 'Unknown error'}`);
+      }
+    } catch (e: any) {
+      alert(`Error saving report: ${e.message}`);
+    }
+  };
+
   useEffect(() => {
     localStorage.setItem('viri_ledger_cache', JSON.stringify(ledgerCache));
   }, [ledgerCache]);
+
+  const [reportsKey] = useState<string>(() => {
+    let key = localStorage.getItem('viri_reports_key');
+    if (!key) {
+      key = CryptoJS.lib.WordArray.random(256 / 8).toString();
+      localStorage.setItem('viri_reports_key', key);
+    }
+    return key;
+  });
+
+  const [savedReports, setSavedReports] = useState<any[]>([]);
+  const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
+
+  const loadReports = async () => {
+    if (!hardwareId || !backendUrl) return;
+    try {
+      const response = await fetch(`${backendUrl}/terminal/reports?hardware_id=${hardwareId}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.reports) {
+          const decrypted = data.reports.map((r: any) => {
+            try {
+              const bytes = CryptoJS.AES.decrypt(r.encrypted_payload, reportsKey);
+              const decStr = bytes.toString(CryptoJS.enc.Utf8);
+              return { ...r, payload: JSON.parse(decStr) };
+            } catch (e) {
+              return { ...r, payload: null, error: 'Decryption failed' };
+            }
+          }).filter((r: any) => r.payload);
+          setSavedReports(decrypted);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load reports', err);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'reports') {
+      loadReports();
+    }
+  }, [activeTab, hardwareId, backendUrl, reportsKey]);
 
   // Migrate old credentials format to new per-account format
   useEffect(() => {
@@ -3077,13 +3172,16 @@ function App() {
 
         {permissions.reports_enabled && (
           <button
-            disabled
-            className={`w-10 h-10 flex items-center justify-center rounded-lg text-xs font-semibold text-zinc-600 cursor-not-allowed ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+            onClick={() => { setShowSettings(false); setActiveTab('reports'); }}
+            className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+              } ${activeTab === 'reports' && !showSettings
+                ? 'bg-[var(--color-success)] text-black font-bold'
+                : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
               }`}
-            title="Reports (Coming soon)"
+            title="Reports"
           >
             <BarChart3 size={16} className="shrink-0" />
-            <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Reports (Soon)</span>
+            <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Reports</span>
           </button>
         )}
 
@@ -4857,6 +4955,16 @@ function App() {
                                   </select>
                                 </div>
 
+                                {/* Save Report Button */}
+                                <button
+                                  onClick={handleSaveReport}
+                                  className="bg-[var(--color-success)] hover:bg-emerald-400 text-black font-semibold text-[10px] px-2.5 py-1.5 rounded-md border border-emerald-500 hover:border-emerald-400 flex items-center gap-1.5 transition-all shadow-[0_0_10px_rgba(16,185,129,0.2)] hover:shadow-[0_0_15px_rgba(16,185,129,0.4)]"
+                                  title="Save this ledger snapshot as an encrypted report"
+                                >
+                                  <BookOpen size={12} />
+                                  <span>Save Report</span>
+                                </button>
+
                                 {/* Force Full Sync Button */}
                                 <button
                                   onClick={() => syncLedger(activeLedgerAcc.id.toString(), true)}
@@ -4877,6 +4985,95 @@ function App() {
                 </div>
               );
             })()}
+
+            {activeTab === 'reports' && (
+              <div className="flex-1 w-full max-w-7xl mx-auto flex gap-6 p-4 md:p-6 animate-fade-in h-full min-h-[500px]">
+                {/* Left Sidebar: List of Reports */}
+                <div className="w-80 flex flex-col gap-4 overflow-y-auto pr-2">
+                  <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                    <BarChart3 className="text-[var(--color-success)]" size={20} />
+                    Saved Reports
+                  </h2>
+                  {savedReports.length === 0 ? (
+                    <div className="text-sm text-zinc-500 italic p-4 bg-zinc-900/50 rounded-xl border border-zinc-800">No reports saved yet. Save a snapshot from the Ledger tab.</div>
+                  ) : (
+                    savedReports.map(report => (
+                      <button
+                        key={report.id}
+                        onClick={() => setSelectedReportId(report.id)}
+                        className={`w-full text-left p-4 rounded-xl border transition-all ${
+                          selectedReportId === report.id 
+                            ? 'bg-[var(--color-success)]/10 border-[var(--color-success)] shadow-[0_0_15px_rgba(16,185,129,0.15)] animate-scale-bump' 
+                            : 'bg-zinc-950/40 border-zinc-800 hover:border-zinc-700'
+                        }`}
+                      >
+                        <div className="text-sm font-bold text-white mb-1">{report.bank} - {report.account_name}</div>
+                        <div className="text-[10px] text-zinc-400 font-mono tracking-wider mb-2">{new Date(report.date).toLocaleString()}</div>
+                        <div className="text-xs font-semibold text-[var(--color-success)]">Bal: {report.payload?.balanceAtSave || '-'} {report.payload?.currency}</div>
+                      </button>
+                    ))
+                  )}
+                </div>
+                
+                {/* Right Panel: Report Details */}
+                <div className="flex-1 flex flex-col bg-zinc-950/40 border border-zinc-800 rounded-2xl overflow-hidden relative">
+                  {selectedReportId ? (() => {
+                    const selectedReport = savedReports.find(r => r.id === selectedReportId);
+                    if (!selectedReport) return null;
+                    return (
+                      <div className="flex flex-col h-full animate-slide-up">
+                        <div className="p-6 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-sm z-20 sticky top-0">
+                          <h3 className="text-2xl font-bold text-white">Ledger Report Snapshot</h3>
+                          <div className="flex flex-wrap gap-x-6 gap-y-2 mt-4 text-xs font-mono">
+                            <div className="flex flex-col"><span className="text-zinc-500 uppercase">Bank</span><span className="text-zinc-200">{selectedReport.bank}</span></div>
+                            <div className="flex flex-col"><span className="text-zinc-500 uppercase">Account</span><span className="text-zinc-200">{selectedReport.account_name} ({selectedReport.account_number})</span></div>
+                            <div className="flex flex-col"><span className="text-zinc-500 uppercase">Date Generated</span><span className="text-zinc-200">{new Date(selectedReport.date).toLocaleString()}</span></div>
+                            <div className="flex flex-col"><span className="text-zinc-500 uppercase">Snapshot Balance</span><span className="text-[var(--color-success)] font-bold">{selectedReport.payload?.balanceAtSave} {selectedReport.payload?.currency}</span></div>
+                          </div>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-0">
+                          <table className="w-full text-sm text-left">
+                            <thead className="text-[10px] text-zinc-500 bg-zinc-950 sticky top-0 uppercase tracking-wider z-10">
+                              <tr>
+                                <th className="px-6 py-3 font-semibold">Date</th>
+                                <th className="px-6 py-3 font-semibold">Description</th>
+                                <th className="px-6 py-3 font-semibold text-right">Amount</th>
+                                <th className="px-6 py-3 font-semibold text-right hidden sm:table-cell">Balance</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-zinc-800/50">
+                              {selectedReport.payload?.transactions?.length > 0 ? (
+                                selectedReport.payload.transactions.map((tx: any, idx: number) => (
+                                  <tr key={idx} className="hover:bg-zinc-900/50 transition-colors group">
+                                    <td className="px-6 py-3 text-zinc-300 whitespace-nowrap text-xs">{tx.date}</td>
+                                    <td className="px-6 py-3 text-zinc-200 text-xs">{tx.description}</td>
+                                    <td className={`px-6 py-3 text-right font-mono font-medium text-xs ${tx.type === 'CREDIT' ? 'text-[var(--color-success)]' : 'text-red-400'}`}>
+                                      {tx.type === 'CREDIT' ? '+' : '-'}{tx.amount}
+                                    </td>
+                                    <td className="px-6 py-3 text-right text-zinc-400 font-mono text-xs hidden sm:table-cell">{tx.balance || '-'}</td>
+                                  </tr>
+                                ))
+                              ) : (
+                                <tr>
+                                  <td colSpan={4} className="px-6 py-8 text-center text-zinc-500 italic">No transactions found in this snapshot.</td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })() : (
+                    <div className="flex flex-col items-center justify-center h-full text-zinc-600 gap-4">
+                      <div className="w-16 h-16 rounded-full bg-zinc-900/50 border border-zinc-800 flex items-center justify-center">
+                        <BookOpen size={24} className="opacity-50" />
+                      </div>
+                      <p>Select a report from the left to view details.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {activeTab === 'checklist' && (
               <div className="flex-1 w-full max-w-3xl mx-auto flex flex-col items-start justify-start p-4 md:p-8 animate-fade-in overflow-y-auto space-y-8">
