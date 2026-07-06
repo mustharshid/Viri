@@ -2054,13 +2054,13 @@ export default function CompanyDashboard() {
                       type="checkbox" 
                       id="perm-reports"
                       checked={permissionsForm.reports_enabled} 
-                      disabled
-                      className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-30"
+                      onChange={e => setPermissionsForm(prev => ({ ...prev, reports_enabled: e.target.checked }))}
+                      disabled={user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
+                      className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
                     />
                     <div>
-                      <label htmlFor="perm-reports" className="text-sm font-medium flex items-center gap-1.5 text-zinc-500 cursor-not-allowed">
+                      <label htmlFor="perm-reports" className={`text-sm font-medium flex items-center gap-1.5 ${user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499' ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
                         View Analytics & Reports
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-zinc-800 text-zinc-400 border border-zinc-700 uppercase tracking-wider">Coming Soon</span>
                       </label>
                       <p className="text-xs text-[var(--text-secondary)]">Allow access to historical charts and performance reports.</p>
                     </div>
