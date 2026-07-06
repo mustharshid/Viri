@@ -246,3 +246,4 @@ Route::post('/terminal/update-pin', function (Request $request) {
 // Ledger Reports
 Route::post('/terminal/reports', [\App\Http\Controllers\API\LedgerReportController::class, 'store']);
 Route::get('/terminal/reports', [\App\Http\Controllers\API\LedgerReportController::class, 'index']);
+Route::delete('/terminal/reports/{id}', [\App\Http\Controllers\API\LedgerReportController::class, 'destroy']);

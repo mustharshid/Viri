@@ -57,4 +57,28 @@ class LedgerReportController extends Controller
 
         return response()->json(['status' => 'success', 'reports' => $reports]);
     }
+    public function destroy(Request $request, $id)
+    {
+        $request->validate([
+            'hardware_id' => 'required|string'
+        ]);
+
+        $terminal = Terminal::where('hardware_id', $request->hardware_id)->first();
+
+        if (!$terminal || $terminal->status !== 'active') {
+            return response()->json(['error' => 'Terminal unauthorized'], 403);
+        }
+
+        $report = LedgerReport::where('id', $id)
+            ->where('tenant_id', $terminal->tenant_id)
+            ->first();
+
+        if (!$report) {
+            return response()->json(['error' => 'Report not found'], 404);
+        }
+
+        $report->delete();
+
+        return response()->json(['status' => 'success']);
+    }
 }

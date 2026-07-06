@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, Terminal, Activity, Sun, Moon, ExternalLink } from 'lucide-react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, Terminal, Activity, Sun, Moon, ExternalLink, Trash2 } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import CryptoJS from 'crypto-js';
 
@@ -750,6 +750,26 @@ function App() {
       }
     } catch (err) {
       console.error('Failed to load reports', err);
+    }
+  };
+
+  const handleDeleteReport = async (reportId: number) => {
+    if (!hardwareId || !backendUrl) return;
+    if (!confirm('Are you sure you want to delete this report? This action cannot be undone.')) return;
+    
+    try {
+      const response = await fetch(`${backendUrl}/terminal/reports/${reportId}?hardware_id=${hardwareId}`, {
+        method: 'DELETE'
+      });
+      if (response.ok) {
+        if (selectedReportId === reportId) setSelectedReportId(null);
+        setSavedReports(prev => prev.filter(r => r.id !== reportId));
+      } else {
+        const errData = await response.json();
+        alert(`Failed to delete report: ${errData.error || 'Unknown error'}`);
+      }
+    } catch (err: any) {
+      alert(`Error deleting report: ${err.message}`);
     }
   };
 
@@ -4998,19 +5018,28 @@ function App() {
                     <div className="text-sm text-zinc-500 italic p-4 bg-zinc-900/50 rounded-xl border border-zinc-800">No reports saved yet. Save a snapshot from the Ledger tab.</div>
                   ) : (
                     savedReports.map(report => (
-                      <button
+                      <div
                         key={report.id}
-                        onClick={() => setSelectedReportId(report.id)}
-                        className={`w-full text-left p-4 rounded-xl border transition-all ${
+                        className={`w-full text-left p-4 rounded-xl border transition-all relative flex flex-col items-start justify-center cursor-pointer ${
                           selectedReportId === report.id 
                             ? 'bg-[var(--color-success)]/10 border-[var(--color-success)] shadow-[0_0_15px_rgba(16,185,129,0.15)] animate-scale-bump' 
                             : 'bg-zinc-950/40 border-zinc-800 hover:border-zinc-700'
                         }`}
+                        onClick={() => setSelectedReportId(report.id)}
                       >
-                        <div className="text-sm font-bold text-white mb-1">{report.bank} - {report.account_name}</div>
+                        <div className="flex justify-between items-start w-full">
+                          <div className="text-sm font-bold text-white mb-1">{report.bank} - {report.account_name}</div>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteReport(report.id); }}
+                            className="text-zinc-500 hover:text-red-400 p-1 rounded-md hover:bg-red-400/10 transition-colors z-10"
+                            title="Delete this report"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                         <div className="text-[10px] text-zinc-400 font-mono tracking-wider mb-2">{new Date(report.date).toLocaleString()}</div>
                         <div className="text-xs font-semibold text-[var(--color-success)]">Bal: {report.payload?.balanceAtSave || '-'} {report.payload?.currency}</div>
-                      </button>
+                      </div>
                     ))
                   )}
                 </div>
@@ -5043,16 +5072,21 @@ function App() {
                             </thead>
                             <tbody className="divide-y divide-zinc-800/50">
                               {selectedReport.payload?.transactions?.length > 0 ? (
-                                selectedReport.payload.transactions.map((tx: any, idx: number) => (
-                                  <tr key={idx} className="hover:bg-zinc-900/50 transition-colors group">
-                                    <td className="px-6 py-3 text-zinc-300 whitespace-nowrap text-xs">{tx.date}</td>
-                                    <td className="px-6 py-3 text-zinc-200 text-xs">{tx.description}</td>
-                                    <td className={`px-6 py-3 text-right font-mono font-medium text-xs ${tx.type === 'CREDIT' ? 'text-[var(--color-success)]' : 'text-red-400'}`}>
-                                      {tx.type === 'CREDIT' ? '+' : '-'}{tx.amount}
-                                    </td>
-                                    <td className="px-6 py-3 text-right text-zinc-400 font-mono text-xs hidden sm:table-cell">{tx.balance || '-'}</td>
-                                  </tr>
-                                ))
+                                selectedReport.payload.transactions.map((tx: any, idx: number) => {
+                                  const isCredit = (tx.amount || '').startsWith('+');
+                                  const detailsParts = (tx.details || '').split('\n');
+                                  const description = (detailsParts[0] || '').trim();
+                                  return (
+                                    <tr key={idx} className="hover:bg-zinc-900/50 transition-colors group">
+                                      <td className="px-6 py-3 text-zinc-300 whitespace-nowrap text-xs">{tx.date}</td>
+                                      <td className="px-6 py-3 text-zinc-200 text-xs">{description}</td>
+                                      <td className={`px-6 py-3 text-right font-mono font-medium text-xs ${isCredit ? 'text-[var(--color-success)]' : 'text-red-400'}`}>
+                                        {tx.amount}
+                                      </td>
+                                      <td className="px-6 py-3 text-right text-zinc-400 font-mono text-xs hidden sm:table-cell">{tx.runningBalance || '-'}</td>
+                                    </tr>
+                                  );
+                                })
                               ) : (
                                 <tr>
                                   <td colSpan={4} className="px-6 py-8 text-center text-zinc-500 italic">No transactions found in this snapshot.</td>
