@@ -4319,7 +4319,7 @@ function App() {
               };
 
               return (
-                <div className="w-full max-w-5xl mx-auto animate-fade-in flex flex-col gap-6 font-sans">
+                <div className="w-full max-w-7xl mx-auto animate-fade-in flex flex-col gap-6 font-sans">
                   {/* Top Header Section */}
                   <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-zinc-800/80 pb-6">
                     <div>
