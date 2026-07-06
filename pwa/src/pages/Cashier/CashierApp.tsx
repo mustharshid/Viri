@@ -674,6 +674,52 @@ function App() {
       return;
     }
 
+    let currentBal = parseFloat((cache.balance || '0').replace(/,/g, ''));
+    const rawTransactions = (cache.transactions || []).map((tx: any) => {
+      if (tx.runningBalance) return tx;
+      
+      const newTx = { ...tx, runningBalance: currentBal.toFixed(2) };
+      const amt = parseFloat((tx.amount || '0').replace(/,/g, '').replace('+', ''));
+      currentBal -= amt;
+      return newTx;
+    });
+    const filteredTransactionsForReport = rawTransactions.filter((tx: any) => {
+      const isCredit = (tx.amount || '').startsWith('+');
+
+      // 0. Permission Filter (Hide Outward / Debit)
+      if (!permissions.ledger_show_debit && !isCredit) return false;
+
+      // 1. Direction Filter
+      if (ledgerFilter === 'in' && !isCredit) return false;
+      if (ledgerFilter === 'out' && isCredit) return false;
+
+      // 2. Search Query Matching (description, details, date)
+      if (ledgerSearch.trim()) {
+        const query = ledgerSearch.toLowerCase();
+        const matchesDesc = (tx.details || '').toLowerCase().includes(query);
+        const matchesDate = (tx.date || '').toLowerCase().includes(query);
+        const matchesAmount = (tx.amount || '').toLowerCase().includes(query);
+        if (!(matchesDesc || matchesDate || matchesAmount)) return false;
+      }
+
+      // 3. Date Filter
+      if (ledgerDateFilter) {
+        // tx.date format: "Jul 5, 14:06" → match by "Jul D," prefix
+        const picked = new Date(ledgerDateFilter);
+        const monthShort = picked.toLocaleString('en-US', { month: 'short' });
+        const day = picked.getDate();
+        const prefix = `${monthShort} ${day},`;
+        if (!(tx.date || '').startsWith(prefix)) return false;
+      }
+
+      return true;
+    });
+
+    if (filteredTransactionsForReport.length === 0) {
+      alert("No transactions match the current filters. Cannot save an empty report.");
+      return;
+    }
+
     const reportPayload = {
       createdAt: new Date().toISOString(),
       bankName: activeLedgerAcc.bank_name,
@@ -681,7 +727,7 @@ function App() {
       accountNumber: activeLedgerAcc.account_number,
       currency: activeLedgerAcc.currency || 'MVR',
       balanceAtSave: cache.balance || '0.00',
-      transactions: cache.transactions,
+      transactions: filteredTransactionsForReport,
     };
 
     const payloadString = JSON.stringify(reportPayload);
