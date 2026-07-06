@@ -651,6 +651,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<'verify' | 'ledger' | 'reports' | 'checklist' | 'help'>('verify');
   const [helpSearchQuery, setHelpSearchQuery] = useState('');
   const [bankSearchQuery, setBankSearchQuery] = useState('');
+  const verifyAccountRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
   const helpContentRef = useRef<HTMLDivElement>(null);
   const carouselRef = useRef<HTMLDivElement>(null);
 
@@ -1609,6 +1610,15 @@ function App() {
       checkPendingRequestsRef.current = undefined;
     };
   }, [sessionStatus, hardwareId, backendUrl, sessionHolderAccountId, accountsCreds, delegatedFulfilling, extensionId, bankAccounts]);
+
+  useEffect(() => {
+    if (activeTab === 'verify' && selectedAccountId && verifyAccountRefs.current[selectedAccountId]) {
+      verifyAccountRefs.current[selectedAccountId]?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center'
+      });
+    }
+  }, [selectedAccountId, activeTab]);
 
   const resolveSessionStrategy = async (accountId: string) => {
     try {
@@ -3601,12 +3611,13 @@ function App() {
                               <button
                                 key={acc.id}
                                 type="button"
+                                ref={(el) => verifyAccountRefs.current[acc.id.toString()] = el}
                                 disabled={loading}
                                 onClick={() => setSelectedAccountId(acc.id.toString())}
                                 className={`w-full px-4 py-3 rounded-xl border text-left flex items-center gap-3 transition-all ${isSelected
-                                  ? isBml
-                                    ? 'bg-red-955/20 border-red-500/80 shadow-[0_0_12px_rgba(239,68,68,0.15)]'
-                                    : 'bg-emerald-955/20 border-emerald-500/80 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+                                  ? (isBml
+                                    ? 'bg-red-955/20 border-red-500/80 shadow-[0_0_12px_rgba(239,68,68,0.15)] animate-scale-bump'
+                                    : 'bg-emerald-955/20 border-emerald-500/80 shadow-[0_0_12px_rgba(16,185,129,0.15)] animate-scale-bump')
                                   : 'bg-zinc-950/40 border-zinc-800/80 hover:border-zinc-700'
                                   }`}
                               >
