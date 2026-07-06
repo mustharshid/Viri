@@ -24,6 +24,38 @@ class SessionFetchRequest extends Model
         'target_amount' => 'decimal:2',
     ];
 
+    protected static function booted()
+    {
+        static::updated(function ($request) {
+            if ($request->isDirty('status')) {
+                $requester = $request->requestingTerminal;
+                if ($requester) {
+                    if (in_array($request->status, ['fulfilled', 'failed'])) {
+                        TerminalEvent::create([
+                            'hardware_id' => $requester->hardware_id,
+                            'event_type'  => 'verify_request_completed',
+                            'payload'     => json_encode([
+                                'request_id'      => $request->id,
+                                'status'          => $request->status,
+                                'error'           => $request->error_message,
+                                'bank_account_id' => $request->bank_account_id,
+                            ])
+                        ]);
+                    } elseif ($request->status === 'syncing') {
+                        TerminalEvent::create([
+                            'hardware_id' => $requester->hardware_id,
+                            'event_type'  => 'verify_request_acknowledged',
+                            'payload'     => json_encode([
+                                'request_id'      => $request->id,
+                                'status'          => $request->status,
+                            ])
+                        ]);
+                    }
+                }
+            }
+        });
+    }
+
     public function bankAccount()
     {
         return $this->belongsTo(BankAccount::class);

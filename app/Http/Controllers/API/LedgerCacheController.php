@@ -219,14 +219,16 @@ class LedgerCacheController extends Controller
 
             // Fulfill the request if request_id is supplied
             if ($request->request_id) {
-                SessionFetchRequest::where('id', $request->request_id)
-                    ->update([
+                $fetchRequest = SessionFetchRequest::find($request->request_id);
+                if ($fetchRequest) {
+                    $fetchRequest->update([
                         'status' => 'fulfilled',
                         'result_json' => [
                             'balance' => $request->balance,
                             'transactions' => array_slice($merged, 0, 10), // return last 10 for quick verification
                         ]
                     ]);
+                }
             }
         });
 

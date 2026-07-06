@@ -592,6 +592,34 @@ function App() {
         }
       });
 
+      eventSource.addEventListener('verify_request_completed', (event: any) => {
+        try {
+          const payload = JSON.parse(event.data);
+          addLog(`> [SSE] Sync request ID ${payload.request_id} resolved with status: ${payload.status}`);
+          
+          const customEvent = new CustomEvent(`sync_request_${payload.request_id}`, {
+            detail: payload
+          });
+          window.dispatchEvent(customEvent);
+        } catch (err: any) {
+          console.error("SSE verify_request_completed processing failed:", err);
+        }
+      });
+
+      eventSource.addEventListener('verify_request_acknowledged', (event: any) => {
+        try {
+          const payload = JSON.parse(event.data);
+          addLog(`> [SSE] Sync request ID ${payload.request_id} acknowledged by leader.`);
+          
+          const customEvent = new CustomEvent(`sync_request_ack_${payload.request_id}`, {
+            detail: payload
+          });
+          window.dispatchEvent(customEvent);
+        } catch (err: any) {
+          console.error("SSE verify_request_acknowledged processing failed:", err);
+        }
+      });
+
       eventSource.onerror = (err) => {
         console.error("SSE EventSource error, reconnecting in 3s...", err);
         if (eventSource) {
@@ -1658,102 +1686,128 @@ function App() {
       const { request_id } = await reqRes.json();
       addLog(`> [Session] Request queued (ID: ${request_id}). Waiting for active session holder...`);
 
-      const maxPollAttempts = 15;
-      for (let attempt = 0; attempt < maxPollAttempts; attempt++) {
-        if (!isVerifyingRef.current) {
-          addLog("> [Session] Delegation cancelled by user.");
-          return;
-        }
+      // Wait for verify_request_completed event via custom event instead of polling!
+      const resultData = await new Promise<{status: string, result_json?: any, error_message?: string}>((resolve) => {
+        let resolved = false;
 
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        const eventHandler = (e: any) => {
+          const detail = e.detail;
+          cleanup({ status: detail.status, result_json: detail.result_json, error_message: detail.error });
+        };
 
-        const pollRes = await fetch(`${backendUrl}/terminal/session/result/${request_id}?hardware_id=${hardwareId}`);
-        if (pollRes.ok) {
-          const pollData = await pollRes.json();
-          if (pollData.status === 'fulfilled') {
-            const response = pollData.result_json;
-            addLog(`> [Session] Delegation fulfilled. Raw result_json: ${JSON.stringify(response)}`);
-            setProgress({
-              stage: 'success',
-              text: requestType === 'ledger' ? '✅ Ledger Synced!' : '✅ Transfer Verified!',
-              percent: 100,
-              isIndeterminate: false
+        const cleanup = (res: {status: string, result_json?: any, error_message?: string}) => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(timeoutId);
+          window.removeEventListener(`sync_request_${request_id}`, eventHandler);
+          resolve(res);
+        };
+
+        window.addEventListener(`sync_request_${request_id}`, eventHandler);
+
+        // Fallback timeout limit of 30 seconds
+        const timeoutId = setTimeout(async () => {
+          addLog("> [Session] SSE signal wait timed out. Checking server once before failure.");
+          try {
+            const pollRes = await fetch(`${backendUrl}/terminal/session/result/${request_id}?hardware_id=${hardwareId}`);
+            if (pollRes.ok) {
+              const pollData = await pollRes.json();
+              cleanup({ status: pollData.status, result_json: pollData.result_json, error_message: pollData.error_message });
+              return;
+            }
+          } catch (err) {}
+          cleanup({ status: 'timeout' });
+        }, 30000);
+      });
+
+      if (!isVerifyingRef.current) {
+        addLog("> [Session] Delegation cancelled by user.");
+        return;
+      }
+
+      if (resultData.status === 'fulfilled') {
+        const response = resultData.result_json;
+        addLog(`> [Session] Delegation fulfilled. Raw result_json: ${JSON.stringify(response)}`);
+        setProgress({
+          stage: 'success',
+          text: requestType === 'ledger' ? '✅ Ledger Synced!' : '✅ Transfer Verified!',
+          percent: 100,
+          isIndeterminate: false
+        });
+        setTimeout(() => {
+          setLoading(false);
+          setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+          setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
+          
+          const resData = response ? (response.data || null) : null;
+          setResult(resData);
+          const acc3 = bankAccounts.find(a => a.id.toString() === accountId);
+          const labelVal = acc3 ? `${acc3.bank_name} ${acc3.account_number}` : '';
+          
+          const getTxKey = (tx: any) => {
+            return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || ''}`;
+          };
+
+          const newTxs = response ? (response.transactions || []) : [];
+          addLog(`> [Session] Extracted transactions count: ${newTxs.length}`);
+          const currentKeys = new Set(
+            (requestType === 'ledger'
+              ? ledgerCache[accountId]?.transactions
+              : recentTxCache[accountId]?.transactions
+            )?.map((tx) => getTxKey(tx)) || []
+          );
+          
+          const incomingKeys = newTxs.map((tx: any) => getTxKey(tx));
+          const newlyAddedKeys = incomingKeys.filter((k: string) => !currentKeys.has(k));
+          
+          if (newlyAddedKeys.length > 0) {
+            setNewTransactionKeys(prev => {
+              const next = new Set(prev);
+              newlyAddedKeys.forEach((k: string) => next.add(k));
+              return next;
             });
-            setTimeout(() => {
-              setLoading(false);
-              setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
-              setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
-              
-              const resData = response ? (response.data || null) : null;
-              setResult(resData);
-              const acc3 = bankAccounts.find(a => a.id.toString() === accountId);
-              const labelVal = acc3 ? `${acc3.bank_name} ${acc3.account_number}` : '';
-              
-              const getTxKey = (tx: any) => {
-                return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || ''}`;
-              };
+          }
 
-              const newTxs = response ? (response.transactions || []) : [];
-              addLog(`> [Session] Extracted transactions count: ${newTxs.length}`);
-              const currentKeys = new Set(
-                (requestType === 'ledger'
-                  ? ledgerCache[accountId]?.transactions
-                  : recentTxCache[accountId]?.transactions
-                )?.map((tx) => getTxKey(tx)) || []
-              );
-              
-              const incomingKeys = newTxs.map((tx: any) => getTxKey(tx));
-              const newlyAddedKeys = incomingKeys.filter((k: string) => !currentKeys.has(k));
-              
-              if (newlyAddedKeys.length > 0) {
-                setNewTransactionKeys(prev => {
-                  const next = new Set(prev);
-                  newlyAddedKeys.forEach((k: string) => next.add(k));
-                  return next;
-                });
-              }
+          // Update recent transactions cache (only keeping the 3 most recent)
+          setRecentTxCache(prev => ({
+            ...prev,
+            [accountId]: {
+              transactions: newTxs.slice(0, 3),
+              label: labelVal,
+              lastUpdated: new Date().toLocaleTimeString(),
+              timestamp: Date.now()
+            }
+          }));
 
-              // Update recent transactions cache (only keeping the 3 most recent)
-              setRecentTxCache(prev => ({
+          // Update ledger cache
+          if (response.balance) {
+            setLedgerCache(prev => {
+              const prevAcc = prev[accountId] || {};
+              return {
                 ...prev,
                 [accountId]: {
-                  transactions: newTxs.slice(0, 3),
-                  label: labelVal,
+                  ...prevAcc,
+                  balance: response.balance,
                   lastUpdated: new Date().toLocaleTimeString(),
-                  timestamp: Date.now()
+                  lastUpdatedTimestamp: Date.now(),
+                  transactions: requestType === 'ledger' ? newTxs : (prevAcc.transactions || [])
                 }
-              }));
-
-              // Update ledger cache
-              if (response.balance) {
-                setLedgerCache(prev => {
-                  const prevAcc = prev[accountId] || {};
-                  return {
-                    ...prev,
-                    [accountId]: {
-                      ...prevAcc,
-                      balance: response.balance,
-                      lastUpdated: new Date().toLocaleTimeString(),
-                      lastUpdatedTimestamp: Date.now(),
-                      transactions: requestType === 'ledger' ? newTxs : (prevAcc.transactions || [])
-                    }
-                  };
-                });
-              }
-              if (requestType === 'search' && response.data) {
-                setAmount('');
-              }
-              releaseLock();
-              isVerifyingRef.current = false;
-              uploadLogsToServer();
-            }, 1500);
-            return;
-          } else if (pollData.status === 'failed') {
-            throw new Error(pollData.error_message || "Holder failed to fetch data.");
+              };
+            });
           }
-        }
+          if (requestType === 'search' && response.data) {
+            setAmount('');
+          }
+          releaseLock();
+          isVerifyingRef.current = false;
+          uploadLogsToServer();
+        }, 1500);
+        return;
+      } else if (resultData.status === 'failed') {
+        throw new Error(resultData.error_message || "Holder failed to fetch data.");
+      } else {
+        throw new Error("Request timed out. Active session holder did not respond.");
       }
-      throw new Error("Request timed out. Active session holder did not respond.");
     } catch (err: any) {
       setError(`Delegated Fetch Failed: ${err.message}`);
       setLoading(false);
@@ -2692,43 +2746,69 @@ function App() {
           isIndeterminate: true
         });
 
-        const startWait = Date.now();
-        let isAcknowledged = false;
-        let isCompleted = false;
+        // Wait for leader acknowledgment or completion via SSE custom window events
+        const waitResult = await new Promise<{ status: string, error?: string }>((resolve) => {
+          let resolved = false;
+          let isAcknowledged = false;
 
-        while (true) {
-          const elapsed = (Date.now() - startWait) / 1000;
-          if (elapsed >= 6.0) break; // 6s total timeout limit
+          const ackHandler = () => {
+            if (isAcknowledged || resolved) return;
+            isAcknowledged = true;
+            addLog("> [Cache Refresh] Leader acknowledged. Syncing bank data...");
+            setProgress({
+              stage: 'auth',
+              text: 'Active terminal is fetching new data...',
+              percent: 70,
+              isIndeterminate: true
+            });
+          };
 
-          await new Promise(resolve => setTimeout(resolve, 500));
+          const completionHandler = (e: any) => {
+            const detail = e.detail;
+            cleanup({ status: detail.status, error: detail.error });
+          };
 
-          const pollRes = await fetch(`${backendUrl}/terminal/session/result/${requestId}?hardware_id=${hardwareId}`);
-          if (pollRes.ok) {
-            const pollData = await pollRes.json();
-            if (pollData.status === 'syncing') {
-              if (!isAcknowledged) {
-                isAcknowledged = true;
-                addLog("> [Cache Refresh] Leader acknowledged. Syncing bank data...");
-                setProgress({
-                  stage: 'auth',
-                  text: 'Active terminal is fetching new data...',
-                  percent: 70,
-                  isIndeterminate: true
-                });
-              }
-            } else if (pollData.status === 'fulfilled') {
-              isCompleted = true;
-              break;
-            } else if (pollData.status === 'failed') {
-              addLog(`> [Cache Refresh] Leader reported sync error: ${pollData.error_message}`);
-              break;
+          const cleanup = (res: { status: string, error?: string }) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(ackTimeoutId);
+            clearTimeout(totalTimeoutId);
+            window.removeEventListener(`sync_request_ack_${requestId}`, ackHandler);
+            window.removeEventListener(`sync_request_${requestId}`, completionHandler);
+            resolve(res);
+          };
+
+          window.addEventListener(`sync_request_ack_${requestId}`, ackHandler);
+          window.addEventListener(`sync_request_${requestId}`, completionHandler);
+
+          // If no acknowledgment received in 3 seconds, promote immediately
+          const ackTimeoutId = setTimeout(() => {
+            if (!isAcknowledged && !resolved) {
+              addLog("> [Cache Refresh] Leader failed to acknowledge within 3 seconds.");
+              cleanup({ status: 'no_ack' });
             }
-          }
+          }, 3000);
 
-          if (!isAcknowledged && elapsed >= 3.0) {
-            addLog("> [Cache Refresh] Leader failed to acknowledge within 3 seconds.");
-            break;
-          }
+          // Total wait timeout of 6 seconds
+          const totalTimeoutId = setTimeout(async () => {
+            if (!resolved) {
+              addLog("> [Cache Refresh] SSE signal wait timed out. Checking server once before promotion.");
+              try {
+                const pollRes = await fetch(`${backendUrl}/terminal/session/result/${requestId}?hardware_id=${hardwareId}`);
+                if (pollRes.ok) {
+                  const pollData = await pollRes.json();
+                  cleanup({ status: pollData.status, error: pollData.error_message });
+                  return;
+                }
+              } catch (err) {}
+              cleanup({ status: 'timeout' });
+            }
+          }, 6000);
+        });
+
+        const isCompleted = waitResult.status === 'fulfilled';
+        if (waitResult.status === 'failed' && waitResult.error) {
+          addLog(`> [Cache Refresh] Leader reported sync error: ${waitResult.error}`);
         }
 
         if (isCompleted) {
