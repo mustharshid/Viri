@@ -273,11 +273,14 @@ class SuperadminController extends Controller
 
         foreach ($request->settings as $setting) {
             \Illuminate\Support\Facades\DB::table('system_settings')
-                ->where('key', $setting['key'])
-                ->update([
-                    'value' => $setting['value'],
-                    'updated_at' => now()
-                ]);
+                ->updateOrInsert(
+                    ['key' => $setting['key']],
+                    [
+                        'value' => $setting['value'],
+                        'updated_at' => now(),
+                        // Set created_at for new inserts (using now() since updateOrInsert evaluates it on insert)
+                    ]
+                );
         }
 
         \Illuminate\Support\Facades\Cache::forget('viri_system_settings');

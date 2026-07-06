@@ -148,6 +148,7 @@ Route::post('/verify-terminal', function (Request $request) {
         'credential_sync_poll_interval' => (int) ($settings['credential_sync_poll_interval'] ?? 60),
         'version_check_interval' => (int) ($settings['version_check_interval'] ?? 120),
         'active_session_heartbeat_interval' => (int) ($settings['active_session_heartbeat_interval'] ?? 5),
+        'realtime_event_poll_interval' => (int) ($settings['realtime_event_poll_interval'] ?? 3),
     ];
 
     return response()->json([

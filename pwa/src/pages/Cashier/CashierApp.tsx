@@ -164,7 +164,8 @@ function App() {
     session_status_poll_interval: 12,
     credential_sync_poll_interval: 60,
     version_check_interval: 120,
-    active_session_heartbeat_interval: 5
+    active_session_heartbeat_interval: 5,
+    realtime_event_poll_interval: 3
   });
   const [settingsPin, setSettingsPin] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<any>({
@@ -604,7 +605,7 @@ function App() {
     // Run initial poll immediately
     poll();
 
-    pollInterval = setInterval(poll, 3000);
+    pollInterval = setInterval(poll, (appConfig.realtime_event_poll_interval || 3) * 1000);
 
     return () => {
       clearInterval(pollInterval);
@@ -4224,12 +4225,6 @@ function App() {
                       ) : (
                         <div className="p-8 text-center text-zinc-500 italic flex flex-col gap-3">
                           <div>No recent history available.</div>
-                          {selectedAccountId && recentTxCache[selectedAccountId] && (
-                            <div className="text-left font-mono text-[10px] bg-zinc-950/80 border border-zinc-800/80 p-3 rounded-lg text-zinc-400 select-all max-h-48 overflow-auto leading-relaxed">
-                              <div className="text-[9px] uppercase font-bold text-zinc-600 mb-1">Local Cache Debug Info:</div>
-                              {JSON.stringify(recentTxCache[selectedAccountId], null, 2)}
-                            </div>
-                          )}
                         </div>
                       )}
                     </div>

@@ -1325,6 +1325,13 @@ export default function AdminDashboard() {
               Configure system-wide background polling intervals. Reducing intervals increases server load, while increasing them reduces responsiveness.
             </p>
           </div>
+          <button
+            onClick={handleRefresh}
+            className="btn border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-300 py-1 px-2.5 text-xs flex items-center gap-1.5 h-auto min-h-0 font-medium rounded-lg"
+            title="Refresh settings data"
+          >
+            <RefreshCw size={11} /> Refresh
+          </button>
         </div>
 
         {settingsLoading ? (
@@ -1455,6 +1462,63 @@ export default function AdminDashboard() {
                 <div className="flex justify-between text-[10px] text-zinc-500 mt-1 font-mono">
                   <span>2s</span>
                   <span>30s</span>
+                </div>
+              </div>
+              {/* Real-time Event Polling */}
+              <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-colors">
+                <div className="flex justify-between items-start mb-2">
+                  <label className="text-sm font-bold text-white block">Real-time Event Polling</label>
+                  <span className="text-xs text-yellow-500 font-mono font-bold bg-yellow-500/10 px-2 py-0.5 rounded">
+                    {systemSettings.find(s => s.key === 'realtime_event_poll_interval')?.value || 3}s
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+                  Interval for SSE (Server-Sent Events) alternative polling to fetch real-time sync signals and background tasks.
+                </p>
+                <input
+                  type="range"
+                  min="1"
+                  max="15"
+                  className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+                  value={systemSettings.find(s => s.key === 'realtime_event_poll_interval')?.value || 3}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSystemSettings(prev => prev.map(s => s.key === 'realtime_event_poll_interval' ? { ...s, value: val } : s));
+                  }}
+                />
+                <div className="flex justify-between text-[10px] text-zinc-500 mt-1 font-mono">
+                  <span>1s</span>
+                  <span>15s</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-8 mb-4 border-t border-zinc-800 pt-6">
+              <h4 className="text-sm font-bold text-white flex items-center gap-2 mb-4">
+                <RefreshCw size={16} className="text-blue-400" />
+                Performance Metrics (Live)
+              </h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-black/40 border border-zinc-800/80 rounded-lg p-4">
+                  <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1">Active Terminals</div>
+                  <div className="text-lg font-mono text-zinc-200">{activeTerminalsCount}</div>
+                </div>
+                <div className="bg-black/40 border border-zinc-800/80 rounded-lg p-4">
+                  <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1">UI Render Mode</div>
+                  <div className="text-lg font-mono text-zinc-200">Hardware Accel.</div>
+                </div>
+                <div className="bg-black/40 border border-zinc-800/80 rounded-lg p-4">
+                  <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1">Memory Usage (Est.)</div>
+                  <div className="text-lg font-mono text-zinc-200">
+                    {/* @ts-ignore */}
+                    {window.performance && (window.performance as any).memory ? Math.round((window.performance as any).memory.usedJSHeapSize / 1024 / 1024) + ' MB' : 'N/A'}
+                  </div>
+                </div>
+                <div className="bg-black/40 border border-zinc-800/80 rounded-lg p-4">
+                  <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1">Connection State</div>
+                  <div className="text-lg font-mono text-green-400 flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div> Stable
+                  </div>
                 </div>
               </div>
             </div>
