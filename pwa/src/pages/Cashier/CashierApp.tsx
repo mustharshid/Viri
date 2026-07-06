@@ -4698,16 +4698,7 @@ function App() {
                             );
                           })()}
 
-                          {/* Force Full Sync Button */}
-                          <button
-                            onClick={() => syncLedger(activeLedgerAcc.id.toString(), true)}
-                            disabled={isSyncing || isLockedByVerify || subscriptionExpired}
-                            className="bg-transparent hover:bg-zinc-800 text-zinc-400 hover:text-white font-semibold text-xs px-3.5 py-2 rounded-lg border border-zinc-800 hover:border-zinc-700 flex items-center gap-1.5 transition-all disabled:opacity-40"
-                            title="Bypass shared cache and force direct bank authentication sync"
-                          >
-                            <AlertTriangle size={13} className="text-amber-500/80" />
-                            <span>Force Sync</span>
-                          </button>
+
 
                           {/* Sync Button */}
                           <button
@@ -4855,6 +4846,16 @@ function App() {
                                   </select>
                                 </div>
 
+                                {/* Force Full Sync Button */}
+                                <button
+                                  onClick={() => syncLedger(activeLedgerAcc.id.toString(), true)}
+                                  disabled={isSyncing || isLockedByVerify || subscriptionExpired}
+                                  className="bg-transparent hover:bg-zinc-800 text-zinc-400 hover:text-white font-semibold text-[10px] px-2.5 py-1.5 rounded-md border border-zinc-800 hover:border-zinc-700 flex items-center gap-1.5 transition-all disabled:opacity-40"
+                                  title="Bypass shared cache and force direct bank authentication sync"
+                                >
+                                  <AlertTriangle size={12} className="text-amber-500/80" />
+                                  <span>Force Sync</span>
+                                </button>
                               </div>
                             </div>
                           </div>
