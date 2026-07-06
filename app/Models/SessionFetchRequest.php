@@ -34,21 +34,21 @@ class SessionFetchRequest extends Model
                         TerminalEvent::create([
                             'hardware_id' => $requester->hardware_id,
                             'event_type'  => 'verify_request_completed',
-                            'payload'     => json_encode([
+                            'payload'     => [
                                 'request_id'      => $request->id,
                                 'status'          => $request->status,
                                 'error'           => $request->error_message,
                                 'bank_account_id' => $request->bank_account_id,
-                            ])
+                            ]
                         ]);
                     } elseif ($request->status === 'syncing') {
                         TerminalEvent::create([
                             'hardware_id' => $requester->hardware_id,
                             'event_type'  => 'verify_request_acknowledged',
-                            'payload'     => json_encode([
+                            'payload'     => [
                                 'request_id'      => $request->id,
                                 'status'          => $request->status,
-                            ])
+                            ]
                         ]);
                     }
                 }
