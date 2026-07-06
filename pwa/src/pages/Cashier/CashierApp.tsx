@@ -457,7 +457,7 @@ function App() {
 
     const connectSSE = () => {
       // Build SSE URL
-      const sseUrl = `${backendUrl.replace(/\/api$/, '')}/terminal/events?hardware_id=${encodeURIComponent(hardwareId)}`;
+      const sseUrl = `${backendUrl}/terminal/events?hardware_id=${encodeURIComponent(hardwareId)}`;
       eventSource = new EventSource(sseUrl);
 
       eventSource.addEventListener('verify_request_queued', async () => {
