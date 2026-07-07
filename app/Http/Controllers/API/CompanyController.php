@@ -13,17 +13,62 @@ class CompanyController extends Controller
 {
     public function getSyncHealth(Request $request)
     {
-        $health = \Illuminate\Support\Facades\Cache::get('sync_health_summary') ?: [
-            'confidence_score' => 100,
-            'efficiency_score' => 100,
-            'status' => 'excellent',
-            'failures_24h' => 0,
+        $tenant = $request->user()->tenant;
+        if (!$tenant) {
+            return response()->json(['error' => 'Tenant not found'], 404);
+        }
+
+        $bankAccounts = $tenant->bankAccounts;
+        $totalConfidence = 0;
+        $totalEfficiency = 0;
+        $worstStatus = 'excellent';
+        $totalFailures = 0;
+        $totalRequests = 0;
+        $totalFetches = 0;
+        $totalBacklog = 0;
+        $count = count($bankAccounts);
+
+        foreach ($bankAccounts as $acct) {
+            $acctSummary = \Illuminate\Support\Facades\Cache::get("sync_health_summary_{$acct->id}") ?: [
+                'status' => 'healthy',
+                'sync_confidence_score' => 100,
+                'failed_today' => 0,
+                'pending_backlog' => 0,
+                'total_requests_count' => 0,
+                'actual_fetches_count' => 0,
+                'sync_efficiency' => 100,
+            ];
+            $totalConfidence += $acctSummary['sync_confidence_score'] ?? 100;
+            $totalEfficiency += $acctSummary['sync_efficiency'] ?? 100;
+            $totalFailures += $acctSummary['failed_today'] ?? 0;
+            $totalRequests += $acctSummary['total_requests_count'] ?? 0;
+            $totalFetches += $acctSummary['actual_fetches_count'] ?? 0;
+            $totalBacklog += $acctSummary['pending_backlog'] ?? 0;
+            
+            $acctStatus = $acctSummary['status'] ?? 'healthy';
+            if ($acctStatus === 'critical') {
+                $worstStatus = 'critical';
+            } elseif ($acctStatus === 'degraded' && $worstStatus !== 'critical') {
+                $worstStatus = 'degraded';
+            } elseif ($acctStatus === 'healthy' && $worstStatus === 'excellent') {
+                $worstStatus = 'stable';
+            }
+        }
+
+        $avgConfidence = $count > 0 ? (int) round($totalConfidence / $count) : 100;
+        $avgEfficiency = $count > 0 ? ($totalEfficiency / $count) / 100 : 1.0;
+        if ($avgEfficiency > 1.0) $avgEfficiency = 1.0;
+
+        return response()->json([
+            'confidence_score' => $avgConfidence,
+            'efficiency_score' => (float) $avgEfficiency,
+            'status' => $worstStatus,
+            'failures_24h' => $totalFailures,
             'avg_latency_ms' => 0,
-            'total_requests' => 0,
-            'total_fetches' => 0,
-            'backlog' => 0,
-        ];
-        return response()->json($health);
+            'total_requests' => $totalRequests,
+            'total_fetches' => $totalFetches,
+            'backlog' => $totalBacklog,
+        ]);
     }
     public function getAuditLogs(Request $request)
     {

@@ -948,6 +948,12 @@ function App() {
           if (data.sync_health_summary) {
             setSyncHealthSummary(data.sync_health_summary);
           }
+          if (data.operation_mode) {
+            setOperationMode(data.operation_mode);
+          }
+          if (data.active_terminals_count !== undefined) {
+            setActiveTerminalsCount(data.active_terminals_count);
+          }
           const accounts = data.tenant?.bank_accounts || [];
           setBankAccounts(accounts);
 
@@ -1088,6 +1094,8 @@ function App() {
 
   const activePortRef = useRef<chrome.runtime.Port | null>(null);
   const [initLoading, setInitLoading] = useState(false);
+  const [operationMode, setOperationMode] = useState<string>('Single Terminal');
+  const [activeTerminalsCount, setActiveTerminalsCount] = useState<number>(1);
   const [syncHealthSummary, setSyncHealthSummary] = useState<{
     confidence_score: number;
     efficiency_score: number;
@@ -1407,6 +1415,12 @@ function App() {
         }
         if (data.sync_health_summary) {
           setSyncHealthSummary(data.sync_health_summary);
+        }
+        if (data.operation_mode) {
+          setOperationMode(data.operation_mode);
+        }
+        if (data.active_terminals_count !== undefined) {
+          setActiveTerminalsCount(data.active_terminals_count);
         }
         const accounts = data.tenant?.bank_accounts || [];
         setBankAccounts(accounts);
@@ -4262,6 +4276,13 @@ function App() {
                             ) : (
                               <span className="text-zinc-500 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-zinc-600" /> Idle</span>
                             )}
+                          </div>
+
+                          <div className="flex justify-between items-center">
+                            <span className="text-zinc-400" title="The current active mode of the synchronization engine. Single Terminal = only one terminal is active. Multi-Terminal = multiple active terminals coordinating.">Operation Mode</span>
+                            <span className={`font-bold ${operationMode === 'Multi-Terminal' ? 'text-indigo-400' : 'text-zinc-300'}`}>
+                              {operationMode} {operationMode === 'Multi-Terminal' ? `(${activeTerminalsCount})` : ''}
+                            </span>
                           </div>
 
                           {syncHealthSummary && (

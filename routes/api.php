@@ -164,22 +164,73 @@ Route::post('/verify-terminal', function (Request $request) {
         'poll_interval_idle' => $idleInterval,
     ];
 
+    $activeTerminalsCount = Terminal::where('tenant_id', $tenant->id)
+        ->where('status', 'active')
+        ->where('last_active_at', '>=', now()->subSeconds(30))
+        ->count();
+    $operationMode = $activeTerminalsCount > 1 ? 'Multi-Terminal' : 'Single Terminal';
+
+    $bankAccounts = $tenant->bankAccounts;
+    $totalConfidence = 0;
+    $totalEfficiency = 0;
+    $worstStatus = 'excellent';
+    $totalFailures = 0;
+    $totalRequests = 0;
+    $totalFetches = 0;
+    $totalBacklog = 0;
+    $count = count($bankAccounts);
+
+    foreach ($bankAccounts as $acct) {
+        $acctSummary = \Illuminate\Support\Facades\Cache::get("sync_health_summary_{$acct->id}") ?: [
+            'status' => 'healthy',
+            'sync_confidence_score' => 100,
+            'failed_today' => 0,
+            'pending_backlog' => 0,
+            'total_requests_count' => 0,
+            'actual_fetches_count' => 0,
+            'sync_efficiency' => 100,
+        ];
+        $totalConfidence += $acctSummary['sync_confidence_score'] ?? 100;
+        $totalEfficiency += $acctSummary['sync_efficiency'] ?? 100;
+        $totalFailures += $acctSummary['failed_today'] ?? 0;
+        $totalRequests += $acctSummary['total_requests_count'] ?? 0;
+        $totalFetches += $acctSummary['actual_fetches_count'] ?? 0;
+        $totalBacklog += $acctSummary['pending_backlog'] ?? 0;
+        
+        $acctStatus = $acctSummary['status'] ?? 'healthy';
+        if ($acctStatus === 'critical') {
+            $worstStatus = 'critical';
+        } elseif ($acctStatus === 'degraded' && $worstStatus !== 'critical') {
+            $worstStatus = 'degraded';
+        } elseif ($acctStatus === 'healthy' && $worstStatus === 'excellent') {
+            $worstStatus = 'stable';
+        }
+    }
+
+    $avgConfidence = $count > 0 ? (int) round($totalConfidence / $count) : 100;
+    $avgEfficiency = $count > 0 ? ($totalEfficiency / $count) / 100 : 1.0;
+    if ($avgEfficiency > 1.0) $avgEfficiency = 1.0;
+
+    $syncHealthSummary = [
+        'confidence_score' => $avgConfidence,
+        'efficiency_score' => (float) $avgEfficiency,
+        'status' => $worstStatus,
+        'failures_24h' => $totalFailures,
+        'avg_latency_ms' => 0,
+        'total_requests' => $totalRequests,
+        'total_fetches' => $totalFetches,
+        'backlog' => $totalBacklog,
+    ];
+
     return response()->json([
         'status' => 'authorized',
         'terminal_id' => $terminal->id,
         'credits_exhausted' => $creditsExhausted,
         'subscription_expired' => $subscriptionExpired,
         'app_config' => $appConfig,
-        'sync_health_summary' => \Illuminate\Support\Facades\Cache::get('sync_health_summary') ?: [
-            'confidence_score' => 100,
-            'efficiency_score' => 100,
-            'status' => 'excellent',
-            'failures_24h' => 0,
-            'avg_latency_ms' => 0,
-            'total_requests' => 0,
-            'total_fetches' => 0,
-            'backlog' => 0,
-        ],
+        'sync_health_summary' => $syncHealthSummary,
+        'operation_mode' => $operationMode,
+        'active_terminals_count' => $activeTerminalsCount,
         'license_expires_at' => $tenant->license_expires_at ? $tenant->license_expires_at->toIso8601String() : null,
         'expiry_warning_days' => (int) ($tenant->features['expiry_warning_days'] ?? 7),
         'tenant' => [
