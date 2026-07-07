@@ -1147,19 +1147,21 @@ function parseProfilesFromHtml(html) {
   const profiles = [];
   
   // 1. Parse profile cards from elements with class="profile-card"
-  const cardPattern = /<[^>]+class="[^"]*profile-card[^"]*"[^>]*>/gi;
+  const cardPattern = /<[^>]+class="[^"]*profile-card[^"]*"[^>]*>([\s\S]{1,1000}?)(?=<div[^>]+class="[^"]*profile-card[^"]*"|$)/gi;
   let match;
   while ((match = cardPattern.exec(html)) !== null) {
-    const cardHtml = match[0];
-    const rtMatch = /data-rt=["']([^"']+)["']/i.exec(cardHtml);
-    const typeMatch = /data-profiletype\s*=\s*["']([^"']+)["']/i.exec(cardHtml);
-    const idMatch = /data-profileid=["']([^"']+)["']/i.exec(cardHtml);
+    const cardContent = match[0];
+    const rtMatch = /data-rt=["']([^"']+)["']/i.exec(cardContent);
+    const typeMatch = /data-profiletype\s*=\s*["']([^"']+)["']/i.exec(cardContent);
+    const idMatch = /data-profileid=["']([^"']+)["']/i.exec(cardContent);
+    const nameMatch = /class=["']profile-name["'][^>]*>([^<]+)/i.exec(cardContent);
     
     if (idMatch) {
       profiles.push({
         id: idMatch[1],
-        type: typeMatch ? typeMatch[1] : '0',
-        rTag: rtMatch ? rtMatch[1] : null
+        type: typeMatch ? typeMatch[1].trim() : '0',
+        rTag: rtMatch ? rtMatch[1] : null,
+        name: nameMatch ? nameMatch[1].trim() : (typeMatch ? typeMatch[1].trim() : 'unknown')
       });
     }
   }
@@ -1181,7 +1183,7 @@ function parseProfilesFromHtml(html) {
       }
     }
     for (const id of uniqueIds) {
-      profiles.push({ id, type: 'unknown', rTag: null });
+      profiles.push({ id, type: 'unknown', rTag: null, name: `ID: ${id}` });
     }
   }
   
@@ -1551,7 +1553,8 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
       throw e;
     }
     const profiles = parseProfilesFromHtml(profilesHtml);
-    emitLog(port, `> [MIB] Found ${profiles.length} profile(s).`);
+    const profileNames = profiles.map(p => p.name || 'Unknown').join(', ');
+    emitLog(port, `> [MIB] Found ${profiles.length} profile(s): [${profileNames}]`);
 
     // ═══════════════════════════════════════════════════════════════
     // STEP 7: Switch Profile — POST /aProfileHandler/switchProfile
