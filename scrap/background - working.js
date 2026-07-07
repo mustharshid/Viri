@@ -1142,6 +1142,62 @@ function generateClientSalt(length = 32) {
   return result;
 }
 
+function extractNameAroundId(html, id) {
+  const index = html.indexOf(id);
+  if (index === -1) return '';
+
+  const start = Math.max(0, index - 300);
+  const end = Math.min(html.length, index + 300);
+  const snippet = html.substring(start, end);
+
+  // 1. Try to find if it is inside a tag with text content:
+  // e.g. <a ...onclick="...ID...">Name</a>
+  const tagPattern = new RegExp(`<[^>]+(?:switchProfile|profileid|profile-id|value|id)[^>]*?${id}[^>]*>([^<]{2,100})<\/[a-z0-9]+>`, 'i');
+  const tagMatch = tagPattern.exec(snippet);
+  if (tagMatch && tagMatch[1]) {
+    const text = tagMatch[1].trim();
+    if (text && !/^(switch|select|go|click|here|view|details|active)$/i.test(text)) {
+      return text;
+    }
+  }
+
+  // 2. Try to find the closest text block of capitalized/alphanumeric words in the snippet
+  const cleanText = snippet
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, '\n')
+    .replace(/\s+/g, '\n');
+  
+  const lines = cleanText.split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 2);
+
+  const candidateNames = lines.filter(line => {
+    if (/^[0-9\s]+$/.test(line)) return false;
+    if (/(?:function|switchProfile|javascript|void|null|true|false|return|var|const|let|document|window)/i.test(line)) return false;
+    if (/^(switch|select|go|click|here|view|details|active|profile|type|id|rtag|tag)$/i.test(line)) return false;
+    return /^[a-z0-9\s,&.\'-]{3,50}$/i.test(line);
+  });
+
+  if (candidateNames.length > 0) {
+    let bestName = '';
+    let minDist = 999999;
+    for (const name of candidateNames) {
+      const nameIndex = snippet.indexOf(name);
+      if (nameIndex !== -1) {
+        const dist = Math.abs(nameIndex - 300);
+        if (dist < minDist) {
+          minDist = dist;
+          bestName = name;
+        }
+      }
+    }
+    if (bestName) return bestName;
+  }
+
+  return '';
+}
+
 /**
  * Parse profiles from MIB profiles HTML page
  */
@@ -1203,7 +1259,8 @@ function parseProfilesFromHtml(html) {
       }
     }
     for (const id of uniqueIds) {
-      profiles.push({ id, type: '1', rTag: null, name: `ID: ${id}` });
+      const name = extractNameAroundId(html, id) || `ID: ${id}`;
+      profiles.push({ id, type: '1', rTag: null, name });
     }
   }
   
