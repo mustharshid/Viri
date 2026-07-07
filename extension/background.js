@@ -1845,7 +1845,8 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
 
     const accountsHtml = await accountsRes.text();
     const parsedAccounts = parseAccountsFromHtml(accountsHtml);
-    emitLog(port, `> [MIB] Found ${parsedAccounts.length} account(s) in dashboard.`);
+    const foundAccNos = parsedAccounts.map(a => a.accountNo).join(', ');
+    emitLog(port, `> [MIB] Found ${parsedAccounts.length} account(s) in dashboard: [${foundAccNos}]`);
 
     // If fetch_only mode returned 0 accounts, the session has expired — fall back to fresh login
     if (sessionMode === 'fetch_only' && parsedAccounts.length === 0) {

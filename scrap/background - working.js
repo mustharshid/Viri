@@ -1617,7 +1617,8 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
 
     const accountsHtml = await accountsRes.text();
     const parsedAccounts = parseAccountsFromHtml(accountsHtml);
-    emitLog(port, `> [MIB] Found ${parsedAccounts.length} account(s) in dashboard.`);
+    const foundAccNos = parsedAccounts.map(a => a.accountNo).join(', ');
+    emitLog(port, `> [MIB] Found ${parsedAccounts.length} account(s) in dashboard: [${foundAccNos}]`);
 
     // Find the target account
     let matchedAccountNo = null;
