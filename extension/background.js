@@ -502,7 +502,7 @@ function normalizeTransactions(rawTxList, bankType, limit = 50) {
       }
     }
     
-    return { date, details, amount: formattedAmount, runningBalance: formattedRunningBal };
+    return { date, details, amount: formattedAmount, runningBalance: formattedRunningBal, reference: refTrimmed || '' };
   });
 }
 

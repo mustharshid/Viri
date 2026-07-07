@@ -166,7 +166,8 @@ function App() {
     credential_sync_poll_interval: 60,
     version_check_interval: 120,
     active_session_heartbeat_interval: 5,
-    realtime_event_poll_interval: 3
+    realtime_event_poll_interval: 3,
+    poll_interval_holder: 1
   });
   const [settingsPin, setSettingsPin] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<any>({
@@ -218,16 +219,25 @@ function App() {
   }, [recentTxCache]);
 
   const [isUserIdle, setIsUserIdle] = useState(false);
+  const [isUserDeepIdle, setIsUserDeepIdle] = useState(false);
 
   useEffect(() => {
     let idleTimeout: ReturnType<typeof setTimeout>;
+    let deepIdleTimeout: ReturnType<typeof setTimeout>;
 
     const resetIdleTimer = () => {
       setIsUserIdle(false);
+      setIsUserDeepIdle(false);
       clearTimeout(idleTimeout);
+      clearTimeout(deepIdleTimeout);
+
       idleTimeout = setTimeout(() => {
         setIsUserIdle(true);
       }, 180000); // 3 minutes of inactivity
+
+      deepIdleTimeout = setTimeout(() => {
+        setIsUserDeepIdle(true);
+      }, 1800000); // 30 minutes of inactivity
     };
 
     const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
@@ -237,9 +247,48 @@ function App() {
 
     return () => {
       clearTimeout(idleTimeout);
+      clearTimeout(deepIdleTimeout);
       events.forEach(event => window.removeEventListener(event, resetIdleTimer));
     };
   }, []);
+
+  const [visibility, setVisibility] = useState<DocumentVisibilityState>(typeof document !== 'undefined' ? document.visibilityState : 'visible');
+  useEffect(() => {
+    const handleVisibility = () => {
+      setVisibility(document.visibilityState);
+      if (document.visibilityState === 'visible') {
+        if (checkPendingRequestsRef.current) {
+          checkPendingRequestsRef.current();
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
+
+  const computeStatementFingerprint = async (
+    accountId: number,
+    bankName: string,
+    currency: string,
+    transactions: any[]
+  ): Promise<string> => {
+    const sorted = [...transactions].sort((a, b) => {
+      const keyA = `${a.date || ''}|${a.amount || ''}|${a.details || ''}`;
+      const keyB = `${b.date || ''}|${b.amount || ''}|${b.details || ''}`;
+      return keyA.localeCompare(keyB);
+    });
+
+    const txStr = sorted.map(t => `${t.date || ''}|${t.amount || ''}|${t.details || ''}`).join(';');
+    const dateStr = new Date().toISOString().split('T')[0]; // Statement date
+    const input = `${accountId}|${bankName}|${currency}|${dateStr}|${txStr}`;
+
+    const encoder = new TextEncoder();
+    const data = encoder.encode(input);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(hashBuffer))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+  };
 
   const [newTransactionKeys, setNewTransactionKeys] = useState<Set<string>>(new Set());
 
@@ -254,7 +303,7 @@ function App() {
   const [currentTick, setCurrentTick] = useState(Date.now());
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.1.1";
+  const LATEST_EXTENSION_VERSION = "1.1.2";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -877,6 +926,11 @@ function App() {
     let consecutiveFailures = 0;
 
     const poll = async () => {
+      if (visibility === 'hidden') {
+        timeoutId = setTimeout(poll, 60000);
+        return;
+      }
+
       let success = false;
       try {
         const response = await fetch(`${backendUrl}/verify-terminal`, {
@@ -890,6 +944,9 @@ function App() {
           const data = await response.json();
           if (data.app_config) {
             setAppConfig(data.app_config);
+          }
+          if (data.sync_health_summary) {
+            setSyncHealthSummary(data.sync_health_summary);
           }
           const accounts = data.tenant?.bank_accounts || [];
           setBankAccounts(accounts);
@@ -964,11 +1021,10 @@ function App() {
 
       // Calculate next dynamic delay based on idle state & failures
       const baseInterval = appConfig.session_status_poll_interval * 1000;
-      const idleMultiplier = isUserIdle ? 5 : 1;
+      const idleMultiplier = isUserDeepIdle ? 5 : (isUserIdle ? 2.5 : 1);
       const backoffMultiplier = Math.pow(2, Math.min(consecutiveFailures, 4));
 
-      const isTabHidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
-      const nextDelay = isTabHidden ? 60000 : Math.min(
+      const nextDelay = Math.min(
         baseInterval * idleMultiplier * backoffMultiplier,
         60000
       );
@@ -979,7 +1035,7 @@ function App() {
     poll();
 
     return () => clearTimeout(timeoutId);
-  }, [hardwareId, backendUrl, isSetupMode, appConfig.session_status_poll_interval, isUserIdle, sessionStatus]);
+  }, [hardwareId, backendUrl, isSetupMode, appConfig.session_status_poll_interval, isUserIdle, isUserDeepIdle, sessionStatus, visibility]);
 
   const syncCredentialsMapping = async (accountsList: BankAccount[]) => {
     if (!hardwareId || !backendUrl || accountsList.length === 0) return;
@@ -1032,6 +1088,25 @@ function App() {
 
   const activePortRef = useRef<chrome.runtime.Port | null>(null);
   const [initLoading, setInitLoading] = useState(false);
+  const [syncHealthSummary, setSyncHealthSummary] = useState<{
+    confidence_score: number;
+    efficiency_score: number;
+    status: string;
+    failures_24h: number;
+    avg_latency_ms: number;
+    total_requests: number;
+    total_fetches: number;
+    backlog: number;
+  }>({
+    confidence_score: 100,
+    efficiency_score: 100,
+    status: 'excellent',
+    failures_24h: 0,
+    avg_latency_ms: 0,
+    total_requests: 0,
+    total_fetches: 0,
+    backlog: 0,
+  });
   const [result, setResult] = useState<{
     status: string;
     reference: string;
@@ -1330,6 +1405,9 @@ function App() {
         if (data.app_config) {
           setAppConfig(data.app_config);
         }
+        if (data.sync_health_summary) {
+          setSyncHealthSummary(data.sync_health_summary);
+        }
         const accounts = data.tenant?.bank_accounts || [];
         setBankAccounts(accounts);
 
@@ -1627,10 +1705,43 @@ function App() {
   };
 
 
+  // Periodic Activity Heartbeat reporter (every 10 seconds, pause when hidden)
+  useEffect(() => {
+    if (!hardwareId || !backendUrl || isSetupMode) return;
+
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    const reportActivity = async () => {
+      if (visibility === 'hidden') {
+        timeoutId = setTimeout(reportActivity, 10000);
+        return;
+      }
+      try {
+        await fetch(`${backendUrl}/terminal/session/activity`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hardware_id: hardwareId,
+            bank_account_id: selectedAccountId ? parseInt(selectedAccountId) : null,
+          })
+        });
+      } catch (err) {
+        console.error("Activity report failed:", err);
+      }
+      timeoutId = setTimeout(reportActivity, 10000);
+    };
+
+    reportActivity();
+
+    return () => clearTimeout(timeoutId);
+  }, [hardwareId, backendUrl, isSetupMode, selectedAccountId, visibility]);
+
+  // Keep-alive bank session heartbeat loop (every 15s, pause when hidden)
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
     if (sessionStatus === 'holder' && hardwareId && backendUrl && sessionHolderAccountId) {
       interval = setInterval(async () => {
+        if (visibility === 'hidden') return;
         try {
           await fetch(`${backendUrl}/terminal/session/heartbeat`, {
             method: 'POST',
@@ -1648,18 +1759,27 @@ function App() {
         } catch (e) {
           console.error("PWA Heartbeat failed:", e);
         }
-      }, 20000);
+      }, 15000);
     }
     return () => clearInterval(interval);
-  }, [sessionStatus, hardwareId, backendUrl, sessionHolderAccountId, extensionId]);
+  }, [sessionStatus, hardwareId, backendUrl, sessionHolderAccountId, extensionId, visibility]);
 
+  // Pending queue checking loop (Holder mode)
   useEffect(() => {
     if (sessionStatus !== 'holder' || !hardwareId || !backendUrl || !sessionHolderAccountId) return;
 
-    let intervalId: ReturnType<typeof setInterval>;
+    let timeoutId: ReturnType<typeof setTimeout>;
 
     const checkPendingRequests = async () => {
-      if (delegatedFulfilling) return;
+      if (visibility === 'hidden') {
+        timeoutId = setTimeout(checkPendingRequests, 5000);
+        return;
+      }
+      if (delegatedFulfilling) {
+        timeoutId = setTimeout(checkPendingRequests, 1000);
+        return;
+      }
+
       try {
         const res = await fetch(`${backendUrl}/terminal/session/pending`, {
           method: 'POST',
@@ -1669,108 +1789,165 @@ function App() {
             bank_account_id: parseInt(sessionHolderAccountId)
           })
         });
-        if (!res.ok) return;
-        const resData = await res.json();
-        const requestsList = Array.isArray(resData) ? resData : (resData && Array.isArray(resData.requests) ? resData.requests : []);
-        if (requestsList.length > 0) {
-          for (const req of requestsList) {
-            setDelegatedFulfilling(true);
-            try {
-              addLog(`> [Session] Fulfilling delegated request ID ${req.id} (${req.request_type}) in background...`);
+        if (res.ok) {
+          const resData = await res.json();
+          const requestsList = Array.isArray(resData) ? resData : (resData && Array.isArray(resData.requests) ? resData.requests : []);
+          if (requestsList.length > 0) {
+            for (const req of requestsList) {
+              setDelegatedFulfilling(true);
+              const startTime = Date.now();
+              try {
+                addLog(`> [Session] Fulfilling delegated request ID ${req.id} (${req.request_type}) in background...`);
 
-              const activeCreds = accountsCreds[sessionHolderAccountId];
-              if (!activeCreds) {
-                throw new Error("No saved bank account credentials for session holder.");
-              }
+                const activeCreds = accountsCreds[sessionHolderAccountId];
+                if (!activeCreds) {
+                  throw new Error("No saved bank account credentials for session holder.");
+                }
 
-              if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
-                throw new Error("Local extension not connected/detected.");
-              }
+                if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
+                  throw new Error("Local extension not connected/detected.");
+                }
 
-              const port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
+                const port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
 
-              const responseData = await new Promise<any>((resolve, reject) => {
-                const disconnectHandler = () => reject(new Error("Extension port disconnected unexpectedly."));
-                port.onDisconnect.addListener(disconnectHandler);
+                const responseData = await new Promise<any>((resolve, reject) => {
+                  const disconnectHandler = () => reject(new Error("Extension port disconnected unexpectedly."));
+                  port.onDisconnect.addListener(disconnectHandler);
 
-                port.onMessage.addListener((msg) => {
-                  if (msg.type === 'log') {
-                    addLog(msg.message);
-                  } else if (msg.type === 'success') {
-                    port.onDisconnect.removeListener(disconnectHandler);
-                    addLog(`> [Session] Raw history size: ${msg.raw_history ? msg.raw_history.length : 0} items.`);
-                    if (msg.raw_history && msg.raw_history.length > 0) {
-                      addLog(`> [Session] Raw history sample: ${JSON.stringify(msg.raw_history.slice(0, 1))}`);
+                  port.onMessage.addListener((msg) => {
+                    if (msg.type === 'log') {
+                      addLog(msg.message);
+                    } else if (msg.type === 'success') {
+                      port.onDisconnect.removeListener(disconnectHandler);
+                      addLog(`> [Session] Raw history size: ${msg.raw_history ? msg.raw_history.length : 0} items.`);
+                      resolve(msg.payload || msg);
+                    } else if (msg.type === 'error') {
+                      port.onDisconnect.removeListener(disconnectHandler);
+                      reject(new Error(msg.error));
                     }
-                    resolve(msg.payload || msg);
-                  } else if (msg.type === 'error') {
-                    port.onDisconnect.removeListener(disconnectHandler);
-                    reject(new Error(msg.error));
-                  }
+                  });
+
+                  port.postMessage({
+                    action: 'FULFILL_DELEGATED_REQUEST',
+                    payload: {
+                      req,
+                      credentials: {
+                        username: activeCreds.username,
+                        password: activeCreds.password,
+                        totpSeed: activeCreds.totpSeed
+                      },
+                      bankName: bankAccounts.find(a => a.id.toString() === sessionHolderAccountId)?.bank_name || 'BML'
+                    }
+                  });
                 });
 
-                port.postMessage({
-                  action: 'FULFILL_DELEGATED_REQUEST',
-                  payload: {
-                    req,
-                    credentials: {
-                      username: activeCreds.username,
-                      password: activeCreds.password,
-                      totpSeed: activeCreds.totpSeed
-                    },
-                    bankName: bankAccounts.find(a => a.id.toString() === sessionHolderAccountId)?.bank_name || 'BML'
-                  }
+                port.disconnect();
+
+                // Generate fingerprint
+                const bankName = bankAccounts.find(a => a.id.toString() === sessionHolderAccountId)?.bank_name || 'BML';
+                const currency = bankAccounts.find(a => a.id.toString() === sessionHolderAccountId)?.currency || 'MVR';
+                const fingerprint = await computeStatementFingerprint(
+                  parseInt(sessionHolderAccountId),
+                  bankName,
+                  currency,
+                  responseData.transactions || []
+                );
+
+                addLog(`> [Session] Computed statement fingerprint: ${fingerprint}. Performing pre-check...`);
+                const checkRes = await fetch(`${backendUrl}/terminal/account/fingerprint-check`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    hardware_id: hardwareId,
+                    account_id: parseInt(sessionHolderAccountId),
+                    fingerprint: fingerprint,
+                  })
                 });
-              });
 
-              port.disconnect();
+                let txsToUpload = responseData.transactions || [];
+                if (checkRes.ok) {
+                  const checkData = await checkRes.json();
+                  if (checkData.status === 'no_change') {
+                    addLog(`> [Session] Fingerprint match (no change). Short-circuiting upload.`);
+                    txsToUpload = [];
+                  } else {
+                    addLog(`> [Session] Fingerprint mismatch. Uploading full transactions list.`);
+                  }
+                }
 
-              const fulfillRes = await fetch(`${backendUrl}/terminal/session/fulfill`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  hardware_id: hardwareId,
-                  request_id: req.id,
-                  status: 'fulfilled',
-                  result_json: responseData
-                })
-              });
-              if (!fulfillRes.ok) throw new Error("Fulfillment upload failed");
+                const durationMs = Date.now() - startTime;
 
-              addLog(`> [Session] Fulfilling delegated request ID ${req.id} succeeded. Uploaded: ${JSON.stringify(responseData)}`);
-            } catch (err: any) {
-              console.error("Failed to fulfill delegated request:", err);
-              addLog(`> [Session] Fulfilling delegated request ID ${req.id} failed: ${err.message}`);
+                const fulfillRes = await fetch(`${backendUrl}/terminal/ledger-cache/push`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    hardware_id: hardwareId,
+                    bank_account_id: parseInt(sessionHolderAccountId),
+                    balance: responseData.balance || '0.00',
+                    transactions: txsToUpload,
+                    request_id: req.id,
+                    fingerprint: fingerprint,
+                    duration_ms: durationMs,
+                    status: 'fulfilled'
+                  })
+                });
+                if (!fulfillRes.ok) throw new Error("Fulfillment upload failed");
 
-              await fetch(`${backendUrl}/terminal/session/fulfill`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  hardware_id: hardwareId,
-                  request_id: req.id,
-                  status: 'failed',
-                  error_message: err.message
-                })
-              }).catch(() => { });
-            } finally {
-              setDelegatedFulfilling(false);
+                addLog(`> [Session] Fulfilling delegated request ID ${req.id} succeeded.`);
+
+                // Proactively update local cache too!
+                setLedgerCache(prev => ({
+                  ...prev,
+                  [sessionHolderAccountId]: {
+                    balance: responseData.balance || '0.00',
+                    lastUpdated: new Date().toLocaleTimeString(),
+                    lastUpdatedTimestamp: Date.now(),
+                    transactions: responseData.transactions || [],
+                    isFromServerCache: true
+                  }
+                }));
+              } catch (err: any) {
+                console.error("Failed to fulfill delegated request:", err);
+                addLog(`> [Session] Fulfilling delegated request ID ${req.id} failed: ${err.message}`);
+
+                const durationMs = Date.now() - startTime;
+
+                await fetch(`${backendUrl}/terminal/ledger-cache/push`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    hardware_id: hardwareId,
+                    bank_account_id: parseInt(sessionHolderAccountId),
+                    balance: '0.00',
+                    transactions: [],
+                    request_id: req.id,
+                    status: 'failed',
+                    error_message: err.message,
+                    duration_ms: durationMs
+                  })
+                }).catch(() => { });
+              } finally {
+                setDelegatedFulfilling(false);
+              }
             }
           }
         }
       } catch (e) {
         console.error("Error polling delegated requests:", e);
       }
+
+      const holderInterval = (appConfig.poll_interval_holder || 1) * 1000;
+      timeoutId = setTimeout(checkPendingRequests, holderInterval);
     };
 
     checkPendingRequestsRef.current = checkPendingRequests;
+    timeoutId = setTimeout(checkPendingRequests, (appConfig.poll_interval_holder || 1) * 1000);
 
-    // Reduced polling interval to 3 seconds for faster detection
-    intervalId = setInterval(checkPendingRequests, 3000);
     return () => {
-      clearInterval(intervalId);
+      clearTimeout(timeoutId);
       checkPendingRequestsRef.current = undefined;
     };
-  }, [sessionStatus, hardwareId, backendUrl, sessionHolderAccountId, accountsCreds, delegatedFulfilling, extensionId, bankAccounts]);
+  }, [sessionStatus, hardwareId, backendUrl, sessionHolderAccountId, accountsCreds, delegatedFulfilling, extensionId, bankAccounts, appConfig.poll_interval_holder, visibility]);
 
   useEffect(() => {
     if (activeTab === 'verify' && selectedAccountId && verifyAccountRefs.current[selectedAccountId]) {
@@ -4086,6 +4263,38 @@ function App() {
                               <span className="text-zinc-500 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-zinc-600" /> Idle</span>
                             )}
                           </div>
+
+                          {syncHealthSummary && (
+                            <>
+                              <div className="flex justify-between items-center border-t border-zinc-800/60 pt-2 mt-1">
+                                <span className="text-zinc-400">Sync Confidence</span>
+                                <span className={`font-bold flex items-center gap-1.5 ${
+                                  syncHealthSummary.confidence_score >= 85 ? 'text-emerald-400' :
+                                  syncHealthSummary.confidence_score >= 60 ? 'text-amber-400' : 'text-red-400'
+                                }`}>
+                                  <div className={`w-1.5 h-1.5 rounded-full ${
+                                    syncHealthSummary.confidence_score >= 85 ? 'bg-emerald-400 animate-pulse-glow' :
+                                    syncHealthSummary.confidence_score >= 60 ? 'bg-amber-400 animate-pulse-glow' : 'bg-red-400 animate-pulse'
+                                  }`} />
+                                  {syncHealthSummary.confidence_score}%
+                                </span>
+                              </div>
+
+                              <div className="flex justify-between items-center">
+                                <span className="text-zinc-400">Sync Efficiency</span>
+                                <span className="text-zinc-300 font-bold">
+                                  {Math.round(syncHealthSummary.efficiency_score * 100)}%
+                                </span>
+                              </div>
+
+                              <div className="flex justify-between items-center">
+                                <span className="text-zinc-400">Sync Backlog</span>
+                                <span className={`font-bold ${syncHealthSummary.backlog > 0 ? 'text-amber-400 animate-pulse' : 'text-zinc-500'}`}>
+                                  {syncHealthSummary.backlog} request(s)
+                                </span>
+                              </div>
+                            </>
+                          )}
 
                           <div className="border-t border-zinc-800/60 mt-1 pt-2 flex flex-col gap-1.5">
                             <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">All Bank Sessions</span>

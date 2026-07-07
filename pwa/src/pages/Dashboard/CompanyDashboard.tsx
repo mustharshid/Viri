@@ -31,6 +31,7 @@ export default function CompanyDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [now, setNow] = useState(Date.now());
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [syncHealthSummary, setSyncHealthSummary] = useState<any>(null);
 
   // Credential Sync Wizard
   const [syncWizard, setSyncWizard] = useState<{
@@ -264,6 +265,15 @@ export default function CompanyDashboard() {
 
       const logsRes = await fetch('/api/company/audit-logs', { headers });
       setAuditLogs(await logsRes.json());
+
+      try {
+        const healthRes = await fetch('/api/company/sync-health', { headers });
+        if (healthRes.ok) {
+          setSyncHealthSummary(await healthRes.json());
+        }
+      } catch (e) {
+        console.error("Failed to fetch sync health:", e);
+      }
 
     } catch (err) {
       navigate('/login');
@@ -685,7 +695,7 @@ export default function CompanyDashboard() {
         {/* ─── TAB: DASHBOARD ─── */}
         {activeTab === 'dashboard' && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <div className="grid md:grid-cols-3 gap-6">
+            <div className="grid md:grid-cols-4 gap-6">
               
               {/* Subscription card with dynamic usage metrics */}
               <div className="glass-panel p-6 flex flex-col justify-between min-h-[220px]">
@@ -799,6 +809,59 @@ export default function CompanyDashboard() {
                 <div className="pt-3 border-t border-zinc-800/60 mt-4 text-xs text-zinc-500">
                   Secure local browser vault storage
                 </div>
+              </div>
+
+              {/* Synchronization Health summary card */}
+              <div className="glass-panel p-6 flex flex-col justify-between min-h-[220px]">
+                <div>
+                  <div className="flex justify-between items-start">
+                    <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Sync Engine</span>
+                    {syncHealthSummary && (
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize ${
+                        syncHealthSummary.confidence_score >= 85 ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20' :
+                        syncHealthSummary.confidence_score >= 60 ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20' :
+                        'text-red-400 bg-red-500/10 border border-red-500/20'
+                      }`}>
+                        {syncHealthSummary.status}
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="text-lg font-bold text-white mt-3">Sync Confidence</h3>
+                  {syncHealthSummary ? (
+                    <div className="mt-4 space-y-2">
+                      <div className="flex justify-between text-xs text-zinc-400 font-mono">
+                        <span>Confidence Score</span>
+                        <span className={`font-bold ${
+                          syncHealthSummary.confidence_score >= 85 ? 'text-emerald-400' :
+                          syncHealthSummary.confidence_score >= 60 ? 'text-amber-400' : 'text-red-400'
+                        }`}>{syncHealthSummary.confidence_score}%</span>
+                      </div>
+                      <div className="w-full bg-zinc-800/80 h-2 rounded-full overflow-hidden border border-zinc-700/30">
+                        <div 
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            syncHealthSummary.confidence_score >= 85 ? 'bg-gradient-to-r from-emerald-500 to-teal-400' :
+                            syncHealthSummary.confidence_score >= 60 ? 'bg-gradient-to-r from-amber-500 to-yellow-400' :
+                            'bg-gradient-to-r from-red-500 to-orange-400'
+                          }`}
+                          style={{ width: `${syncHealthSummary.confidence_score}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[11px] text-zinc-400 pt-1 border-t border-zinc-800/30">
+                        <span>Efficiency Ratio (KPI)</span>
+                        <span className="font-bold text-blue-400">{Math.round(syncHealthSummary.efficiency_score * 100)}%</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-4 text-xs text-zinc-500 font-mono">Loading telemetry...</div>
+                  )}
+                </div>
+                
+                {syncHealthSummary ? (
+                  <div className="pt-3 border-t border-zinc-800/60 mt-4 flex justify-between text-[10px] text-zinc-500 font-mono">
+                    <span>Backlog: {syncHealthSummary.backlog} reqs</span>
+                    <span>Failures (24h): {syncHealthSummary.failures_24h}</span>
+                  </div>
+                ) : null}
               </div>
 
             </div>

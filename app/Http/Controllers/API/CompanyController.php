@@ -11,6 +11,20 @@ use App\Models\AuditLog;
 
 class CompanyController extends Controller
 {
+    public function getSyncHealth(Request $request)
+    {
+        $health = \Illuminate\Support\Facades\Cache::get('sync_health_summary') ?: [
+            'confidence_score' => 100,
+            'efficiency_score' => 100,
+            'status' => 'excellent',
+            'failures_24h' => 0,
+            'avg_latency_ms' => 0,
+            'total_requests' => 0,
+            'total_fetches' => 0,
+            'backlog' => 0,
+        ];
+        return response()->json($health);
+    }
     public function getAuditLogs(Request $request)
     {
         $tenantId = $request->user()->tenant_id;

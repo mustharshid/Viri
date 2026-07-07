@@ -8,9 +8,13 @@ use App\Models\SessionActivityLog;
 use App\Models\SessionFetchRequest;
 use App\Models\Terminal;
 use App\Models\TerminalEvent;
+use App\Models\BankTransaction;
+use App\Models\TerminalAccountActivity;
+use App\Events\SyncCompleted;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class SessionController extends Controller
 {
@@ -50,20 +54,22 @@ class SessionController extends Controller
         ?string $holderSnapshot = null,
         ?string $maskedUsername = null
     ): void {
-        SessionActivityLog::create([
-            'tenant_id'               => $terminal->tenant_id,
-            'terminal_id'             => $terminal->id,
-            'terminal_name'           => $terminal->terminal_name,
-            'bank_account_id'         => $account?->id,
-            'bank_name'               => $account?->bank_name,
-            'account_number_masked'   => $account ? $this->maskAccountNumber($account->account_number) : null,
-            'event_type'              => $eventType,
-            'event_summary'           => $summary,
-            'event_detail'            => $detail ?: null,
-            'masked_username'         => $maskedUsername,
-            'session_holder_snapshot' => $holderSnapshot,
-            'created_at'              => now(),
-        ]);
+        dispatch(function () use ($terminal, $account, $eventType, $summary, $detail, $holderSnapshot, $maskedUsername) {
+            SessionActivityLog::create([
+                'tenant_id'               => $terminal->tenant_id,
+                'terminal_id'             => $terminal->id,
+                'terminal_name'           => $terminal->terminal_name,
+                'bank_account_id'         => $account?->id,
+                'bank_name'               => $account?->bank_name,
+                'account_number_masked'   => $account ? $this->maskAccountNumber($account->account_number) : null,
+                'event_type'              => $eventType,
+                'event_summary'           => $summary,
+                'event_detail'            => $detail ?: null,
+                'masked_username'         => $maskedUsername,
+                'session_holder_snapshot' => $holderSnapshot,
+                'created_at'              => DB::raw('CURRENT_TIMESTAMP'),
+            ]);
+        })->afterResponse();
     }
 
     private function maskAccountNumber(string $number): string
@@ -263,19 +269,69 @@ class SessionController extends Controller
         $terminal = $this->resolveTerminal($request->hardware_id);
         if (!$terminal) return response()->json(['error' => 'Terminal unauthorized'], 403);
 
-        $account = $this->resolveAccount((int) $request->bank_account_id, $terminal->tenant_id);
+        $account = BankAccount::with(['fetchStartedByTerminal', 'lastSuccessfulFetchTerminal'])
+            ->where('id', $request->bank_account_id)
+            ->where('tenant_id', $terminal->tenant_id)
+            ->first();
+
         if (!$account) return response()->json(['error' => 'Account not found'], 404);
 
         $isLive = $account->hasLiveSession();
         $holderName = $isLive ? Terminal::find($account->session_holder_terminal_id)?->terminal_name : null;
         $isSelf = $isLive && $account->session_holder_terminal_id === $terminal->id;
 
-        return response()->json([
+        // Mode detection with 15s flap prevention
+        $activeCount = DB::table('terminal_account_activity')
+            ->where('bank_account_id', $account->id)
+            ->where('updated_at', '>=', DB::raw('NOW() - INTERVAL 30 SECOND'))
+            ->count();
+
+        $isMultiConfirmed = $activeCount > 1 && DB::table('terminal_account_activity')
+            ->where('bank_account_id', $account->id)
+            ->where('created_at', '<=', DB::raw('NOW() - INTERVAL 15 SECOND'))
+            ->where('updated_at', '>=', DB::raw('NOW() - INTERVAL 30 SECOND'))
+            ->count() > 1;
+
+        $summary = Cache::get("sync_health_summary_{$account->id}", [
+            'status' => 'healthy',
+            'sync_confidence_score' => 100,
+            'last_sync_at' => $account->last_bank_fetch_at ? $account->last_bank_fetch_at->toDateTimeString() : null,
+            'avg_latency_ms' => 0,
+            'p95_latency_ms' => 0,
+            'failed_today' => 0,
+            'consecutive_failures_count' => 0,
+            'pending_backlog' => max(0, $account->sync_requested_version - $account->sync_version),
+            'sync_efficiency' => 0,
+            'calculated_at' => null,
+        ]);
+
+        $response = [
             'is_live'              => $isLive,
             'is_self'              => $isSelf,
             'holder_terminal_id'   => $isLive ? $account->session_holder_terminal_id : null,
             'holder_terminal_name' => $holderName,
-        ]);
+            'sync_mode'            => $isMultiConfirmed ? 'multi' : 'single',
+            'active_terminal_count'=> $activeCount,
+            'last_bank_fetch_at'   => $account->last_bank_fetch_at,
+            'sync_confidence_score'=> $summary['sync_confidence_score'] ?? 100,
+            'health_status'        => $summary['status'] ?? 'healthy',
+            'summary_generated_at' => $summary['calculated_at'] ?? null,
+            'sync_efficiency'      => $summary['sync_efficiency'] ?? 0,
+        ];
+
+        $user = auth('sanctum')->user() ?? auth()->user();
+        $isSuperadmin = ($user && $user->role === 'superadmin') || $request->input('role') === 'superadmin';
+
+        if ($isSuperadmin) {
+            $response['sync_version'] = $account->sync_version;
+            $response['sync_requested_version'] = $account->sync_requested_version;
+            $response['fetch_in_progress_until'] = $account->fetch_in_progress_until;
+            $response['fetch_started_at'] = $account->fetch_started_at;
+            $response['fetch_started_by_terminal'] = $account->fetchStartedByTerminal?->terminal_name;
+            $response['last_successful_fetch_terminal'] = $account->lastSuccessfulFetchTerminal?->terminal_name;
+        }
+
+        return response()->json($response);
     }
 
     // -------------------------------------------------------------------------
@@ -307,12 +363,17 @@ class SessionController extends Controller
             ->whereIn('status', ['pending', 'needs_retry'])
             ->update(['status' => 'expired']);
 
+        $account->increment('sync_requested_version');
+        $account->refresh();
+
         $fetchRequest = SessionFetchRequest::create([
             'bank_account_id'        => $account->id,
             'requesting_terminal_id' => $terminal->id,
             'request_type'           => $request->request_type,
             'target_amount'          => $request->target_amount,
             'status'                 => 'pending',
+            'expires_at'             => now()->addSeconds(20),
+            'required_sync_version'  => $account->sync_requested_version,
         ]);
 
         $holderName = $this->holderName($account);
@@ -371,23 +432,94 @@ class SessionController extends Controller
             return response()->json(['requests' => []]);
         }
 
+        // Expire requests that hit their TTL
+        SessionFetchRequest::whereIn('bank_account_id', $accountIds)
+            ->where('status', 'pending')
+            ->where('expires_at', '<=', now())
+            ->update(['status' => 'expired']);
+
+        // Check version gap to see if we should skip fetching
         $pending = SessionFetchRequest::with(['bankAccount', 'requestingTerminal'])
             ->whereIn('bank_account_id', $accountIds)
-            ->whereIn('status', ['pending'])
+            ->where('status', 'pending')
+            ->where('expires_at', '>', now())
             ->orderBy('created_at')
-            ->get()
-            ->map(fn($r) => [
-                'id'           => $r->id,
-                'bank_account_id' => $r->bank_account_id,
-                'account_number' => $r->bankAccount?->account_number,
-                'bank_name'    => $r->bankAccount?->bank_name,
-                'mib_profile_type' => $r->bankAccount?->mib_profile_type ?? '0',
-                'request_type' => $r->request_type,
-                'target_amount'=> $r->target_amount,
-                'requester_name' => $r->requestingTerminal?->terminal_name,
-            ]);
+            ->get();
 
-        return response()->json(['requests' => $pending]);
+        $filteredPending = collect();
+
+        foreach ($pending as $r) {
+            $acc = $r->bankAccount;
+            if ($acc && $acc->sync_version >= $r->required_sync_version) {
+                // Already satisfied! Fulfill from cache immediately
+                $cache = \App\Models\BankAccountCache::where('bank_account_id', $acc->id)->first();
+                $r->update([
+                    'status' => 'fulfilled',
+                    'result_json' => [
+                        'balance' => $cache?->balance ?? '0.00',
+                        'transactions' => $cache?->transactions ?? [],
+                    ],
+                ]);
+
+                // Dispatch SyncCompleted telemetry event as cache_hit
+                dispatch(function () use ($r, $terminal) {
+                    event(new \App\Events\SyncCompleted(
+                        requestId: $r->id,
+                        bankAccountId: $r->bank_account_id,
+                        terminalId: $terminal->id,
+                        durationMs: 0,
+                        status: 'cache_hit',
+                        failureReason: null,
+                        timestamps: ['requested_at' => $r->created_at, 'result_received_at' => now()]
+                    ));
+                })->afterResponse();
+            } else {
+                $filteredPending->push($r);
+            }
+        }
+
+        if ($filteredPending->isEmpty()) {
+            return response()->json(['requests' => []]);
+        }
+
+        // Acquire fetch lock for the accounts we are about to fetch
+        foreach ($filteredPending->unique('bank_account_id') as $r) {
+            $acc = $r->bankAccount;
+            if ($acc) {
+                // Try to acquire lock
+                $acquired = DB::table('bank_accounts')
+                    ->where('id', $acc->id)
+                    ->where(function ($q) {
+                        $q->whereNull('fetch_in_progress_until')
+                          ->orWhere('fetch_in_progress_until', '<', DB::raw('CURRENT_TIMESTAMP'));
+                    })
+                    ->update([
+                        'fetch_in_progress_until' => DB::raw('CURRENT_TIMESTAMP + INTERVAL 30 SECOND'),
+                        'fetch_started_at' => DB::raw('CURRENT_TIMESTAMP'),
+                        'fetch_started_by_terminal_id' => $terminal->id,
+                    ]);
+
+                if ($acquired) {
+                    $r->update([
+                        'holder_received_at' => now(),
+                        'bank_fetch_started_at' => now(),
+                    ]);
+                }
+            }
+        }
+
+        $pendingData = $filteredPending->map(fn($r) => [
+            'id'           => $r->id,
+            'bank_account_id' => $r->bank_account_id,
+            'account_number' => $r->bankAccount?->account_number,
+            'bank_name'    => $r->bankAccount?->bank_name,
+            'mib_profile_type' => $r->bankAccount?->mib_profile_type ?? '0',
+            'request_type' => $r->request_type,
+            'target_amount'=> $r->target_amount,
+            'requester_name' => $r->requestingTerminal?->terminal_name,
+        ]);
+
+        return response()->json(['requests' => $pendingData]);
     }
 
     // -------------------------------------------------------------------------
@@ -407,6 +539,7 @@ class SessionController extends Controller
             'result_json' => 'nullable|array',
             'error_message' => 'nullable|string',
             'duration_ms' => 'nullable|integer',
+            'fingerprint' => 'nullable|string',
         ]);
 
         $terminal = $this->resolveTerminal($request->hardware_id);
@@ -421,13 +554,50 @@ class SessionController extends Controller
             'status'        => $request->status,
             'result_json'   => $request->result_json,
             'error_message' => $request->error_message,
+            'bank_fetch_completed_at' => now(),
+            'result_received_by_requester_at' => now(),
         ]);
 
         if ($request->status === 'fulfilled' && $account) {
-            // Automatically update/create the cache to ensure follower syncs receive the data
+            // Update sync versions & timestamps on bank account atomically (Synchronous)
+            BankAccount::where('id', $account->id)->update([
+                'sync_version' => DB::raw('sync_version + 1'),
+                'last_bank_fetch_at' => DB::raw('CURRENT_TIMESTAMP'),
+                'last_successful_fetch_terminal_id' => $terminal->id,
+            ]);
+
+            // Save transactions to permanent ledger (insertOrIgnore to avoid duplicates)
+            $incoming = $request->result_json['transactions'] ?? [];
+            foreach ($incoming as $tx) {
+                // Generate a unique fingerprint per transaction (hash)
+                $hash = hash('sha256', implode('|', [
+                    $account->id,
+                    $tx['date'] ?? '',
+                    $tx['amount'] ?? '',
+                    $tx['details'] ?? '',
+                    $tx['reference'] ?? '',
+                ]));
+
+                DB::table('bank_transactions')->insertOrIgnore([
+                    'bank_account_id' => $account->id,
+                    'transaction_hash' => $hash,
+                    'amount' => $tx['amount'] ?? '0.00',
+                    'transaction_date' => $tx['date'] ?? now()->toDateString(),
+                    'description' => $tx['details'] ?? '',
+                    'reference' => $tx['reference'] ?? null,
+                    'created_at' => DB::raw('CURRENT_TIMESTAMP'),
+                    'updated_at' => DB::raw('CURRENT_TIMESTAMP'),
+                ]);
+            }
+
+            // Cache fingerprint if provided
+            if ($request->fingerprint) {
+                Cache::forever("bank_account_fingerprint_{$account->id}", $request->fingerprint);
+            }
+
+            // Automatically update/create the cache snapshot to ensure follower syncs receive the data
             $cache = \App\Models\BankAccountCache::firstOrNew(['bank_account_id' => $account->id]);
             $existing = $cache->transactions ?: [];
-            $incoming = $request->result_json['transactions'] ?? [];
 
             $merged = collect(array_merge($incoming, $existing))
                 ->unique(function ($tx) {
@@ -446,8 +616,18 @@ class SessionController extends Controller
             $cache->save();
         }
 
+        // Always release the fetch lock
+        if ($account) {
+            BankAccount::where('id', $account->id)->update([
+                'fetch_in_progress_until' => null,
+                'fetch_started_at' => null,
+                'fetch_started_by_terminal_id' => null,
+            ]);
+        }
+
         $requesterName = $fetchRequest->requestingTerminal?->terminal_name ?? 'Unknown';
-        $durationStr = $request->duration_ms ? "{$request->duration_ms}ms" : 'unknown duration';
+        $durationMs = $request->duration_ms ?? 0;
+        $durationStr = $durationMs ? "{$durationMs}ms" : 'unknown duration';
 
         if ($request->status === 'fulfilled') {
             $this->log($terminal, $account, 'fetch_request_fulfilled',
@@ -455,7 +635,7 @@ class SessionController extends Controller
                 [
                     'request_id'   => $fetchRequest->id,
                     'requester'    => $requesterName,
-                    'duration_ms'  => $request->duration_ms,
+                    'duration_ms'  => $durationMs,
                     'request_type' => $fetchRequest->request_type,
                     'result_json'  => $request->result_json,
                 ],
@@ -471,6 +651,27 @@ class SessionController extends Controller
                 ],
                 $terminal->terminal_name
             );
+        }
+
+        // Dispatch SyncCompleted Event (DEFERRED Telemetry)
+        if ($account) {
+            dispatch(function () use ($fetchRequest, $terminal, $durationMs, $request) {
+                event(new \App\Events\SyncCompleted(
+                    requestId: $fetchRequest->id,
+                    bankAccountId: $fetchRequest->bank_account_id,
+                    terminalId: $terminal->id,
+                    durationMs: $durationMs,
+                    status: $request->status === 'fulfilled' ? 'success' : 'failed',
+                    failureReason: $request->error_message,
+                    timestamps: [
+                        'requested_at' => $fetchRequest->created_at,
+                        'holder_received_at' => $fetchRequest->holder_received_at,
+                        'bank_fetch_started_at' => $fetchRequest->bank_fetch_started_at,
+                        'bank_fetch_completed_at' => $fetchRequest->bank_fetch_completed_at,
+                        'result_received_at' => now(),
+                    ]
+                ));
+            })->afterResponse();
         }
 
         return response()->json(['status' => 'ok']);
@@ -496,6 +697,17 @@ class SessionController extends Controller
             ->first();
 
         if (!$fetchRequest) return response()->json(['error' => 'Request not found'], 404);
+
+        if ($fetchRequest->status === 'expired' || ($fetchRequest->status === 'pending' && $fetchRequest->expires_at && $fetchRequest->expires_at->isPast())) {
+            if ($fetchRequest->status === 'pending') {
+                $fetchRequest->update(['status' => 'expired']);
+            }
+            return response()->json([
+                'status'        => 'expired',
+                'result_json'   => null,
+                'error_message' => 'Unable to refresh. No active bank terminal responded in time.',
+            ]);
+        }
 
         return response()->json([
             'status'        => $fetchRequest->status,
@@ -570,5 +782,83 @@ class SessionController extends Controller
         ]);
 
         return response()->json(['status' => 'logged']);
+    }
+
+    public function recordActivity(Request $request)
+    {
+        $request->validate([
+            'hardware_id'     => 'required|string',
+            'bank_account_id' => 'required|integer',
+        ]);
+
+        $terminal = $this->resolveTerminal($request->hardware_id);
+        if (!$terminal) return response()->json(['error' => 'Terminal unauthorized'], 403);
+
+        $account = BankAccount::where('id', $request->bank_account_id)
+            ->where('tenant_id', $terminal->tenant_id)
+            ->first();
+        if (!$account) return response()->json(['error' => 'Account not accessible'], 403);
+
+        $isNewRow = DB::table('terminal_account_activity')
+            ->where('terminal_id', $terminal->id)
+            ->where('bank_account_id', $account->id)
+            ->doesntExist();
+
+        DB::table('terminal_account_activity')->upsert(
+            [
+                'terminal_id'     => $terminal->id,
+                'bank_account_id' => $account->id,
+                'created_at'      => DB::raw('CURRENT_TIMESTAMP'),
+                'updated_at'      => DB::raw('CURRENT_TIMESTAMP')
+            ],
+            ['terminal_id', 'bank_account_id'],
+            ['updated_at']
+        );
+
+        if ($isNewRow || $this->modeTransitionDetected($account->id)) {
+            $this->log($terminal, $account, $isNewRow ? 'terminal_account_opened' : 'sync_mode_changed',
+                $isNewRow 
+                    ? "Terminal \"{$terminal->terminal_name}\" opened {$account->bank_name} {$this->maskAccountNumber($account->account_number)}"
+                    : "Terminal \"{$terminal->terminal_name}\" changed sync mode"
+            );
+        }
+
+        return response()->json(['status' => 'ok']);
+    }
+
+    private function modeTransitionDetected(int $accountId): bool
+    {
+        $activeCount = DB::table('terminal_account_activity')
+            ->where('bank_account_id', $accountId)
+            ->where('updated_at', '>=', DB::raw('NOW() - INTERVAL 30 SECOND'))
+            ->count();
+
+        return $activeCount === 2;
+    }
+
+    public function checkFingerprint(Request $request)
+    {
+        $request->validate([
+            'hardware_id' => 'required|string',
+            'account_id'  => 'required|integer',
+            'fingerprint' => 'required|string',
+        ]);
+
+        $terminal = $this->resolveTerminal($request->hardware_id);
+        if (!$terminal) return response()->json(['error' => 'Terminal unauthorized'], 403);
+
+        $account = BankAccount::where('id', $request->account_id)
+            ->where('tenant_id', $terminal->tenant_id)
+            ->first();
+        if (!$account) return response()->json(['error' => 'Account not accessible'], 403);
+
+        $cacheKey = "bank_account_fingerprint_{$account->id}";
+        $lastFingerprint = Cache::get($cacheKey);
+
+        if ($lastFingerprint && $lastFingerprint === $request->fingerprint) {
+            return response()->json(['status' => 'no_change']);
+        }
+
+        return response()->json(['status' => 'upload_required']);
     }
 }

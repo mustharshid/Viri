@@ -282,9 +282,21 @@ class SuperadminController extends Controller
             ]
         ];
 
+        $health = \Illuminate\Support\Facades\Cache::get('sync_health_summary') ?: [
+            'confidence_score' => 100,
+            'efficiency_score' => 100,
+            'status' => 'excellent',
+            'failures_24h' => 0,
+            'avg_latency_ms' => 0,
+            'total_requests' => 0,
+            'total_fetches' => 0,
+            'backlog' => 0,
+        ];
+
         return response()->json([
             'settings' => $settings,
-            'server_info' => $serverInfo
+            'server_info' => $serverInfo,
+            'sync_health_summary' => $health
         ]);
     }
 
@@ -301,13 +313,25 @@ class SuperadminController extends Controller
         ]);
 
         foreach ($request->settings as $setting) {
+            $key = $setting['key'];
+            $val = (int) $setting['value'];
+
+            if ($key === 'poll_interval_holder' && $val < 1) {
+                return response()->json(['error' => 'Holder interval must be at least 1 second'], 422);
+            }
+            if ($key === 'poll_interval_requesting' && $val < 1) {
+                return response()->json(['error' => 'Requesting interval must be at least 1 second'], 422);
+            }
+            if ($key === 'poll_interval_idle' && $val < 5) {
+                return response()->json(['error' => 'Idle interval must be at least 5 seconds'], 422);
+            }
+
             \Illuminate\Support\Facades\DB::table('system_settings')
                 ->updateOrInsert(
-                    ['key' => $setting['key']],
+                    ['key' => $key],
                     [
                         'value' => $setting['value'],
                         'updated_at' => now(),
-                        // Set created_at for new inserts (using now() since updateOrInsert evaluates it on insert)
                     ]
                 );
         }
@@ -402,6 +426,30 @@ class SuperadminController extends Controller
 
         return response()->json([
             'message' => 'Payment rejected and license expiry reverted if applicable.'
+        ]);
+    }
+
+    public function clearStuckLock(Request $request, $id)
+    {
+        if ($request->user()->role !== 'superadmin') {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        $bankAccount = \App\Models\BankAccount::findOrFail($id);
+        
+        // Clear bank account lock table record
+        \App\Models\BankAccountLock::where('bank_account_id', $id)->delete();
+        
+        // Also clear fetch-in-progress indicators
+        $bankAccount->update([
+            'fetch_in_progress_until' => null,
+            'fetch_started_at' => null,
+            'fetch_started_by_terminal_id' => null,
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Stuck fetch lock cleared successfully'
         ]);
     }
 }

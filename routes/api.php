@@ -65,6 +65,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/company/payments', [CompanyController::class, 'storePayment']);
     
     Route::get('/company/audit-logs', [CompanyController::class, 'getAuditLogs']);
+    Route::get('/company/sync-health', [CompanyController::class, 'getSyncHealth']);
 
     // Session activity logs for Superadmin
     Route::get('/admin/session-logs', [SuperadminController::class, 'getSessionLogs']);
@@ -73,6 +74,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/admin/payments', [SuperadminController::class, 'getPayments']);
     Route::post('/admin/payments/{id}/approve', [SuperadminController::class, 'approvePayment']);
     Route::post('/admin/payments/{id}/reject', [SuperadminController::class, 'rejectPayment']);
+    Route::post('/admin/bank-accounts/{id}/clear-lock', [SuperadminController::class, 'clearStuckLock']);
 
     // Credential Sync (Company Dashboard)
     Route::post('/company/credential-sync/initiate',            [CredentialSyncController::class, 'initiate']);
@@ -98,6 +100,8 @@ Route::post('/terminal/session/pending',    [\App\Http\Controllers\API\SessionCo
 Route::post('/terminal/session/fulfill',    [\App\Http\Controllers\API\SessionController::class, 'fulfillRequest']);
 Route::get('/terminal/session/result/{id}', [\App\Http\Controllers\API\SessionController::class, 'pollResult']);
 Route::post('/terminal/session/log',        [\App\Http\Controllers\API\SessionController::class, 'logEvent']);
+Route::post('/terminal/session/activity',   [\App\Http\Controllers\API\SessionController::class, 'recordActivity']);
+Route::post('/terminal/account/fingerprint-check', [\App\Http\Controllers\API\SessionController::class, 'checkFingerprint']);
 
 
 Route::post('/verify-terminal', function (Request $request) {
@@ -143,12 +147,21 @@ Route::post('/verify-terminal', function (Request $request) {
     $settings = \Illuminate\Support\Facades\Cache::remember('viri_system_settings', 300, function () {
         return DB::table('system_settings')->pluck('value', 'key')->all();
     });
+
+    $holderInterval = max(1, (int) ($settings['poll_interval_holder'] ?? 1));
+    $requestingInterval = max(1, (int) ($settings['poll_interval_requesting'] ?? 1));
+    $idleInterval = max(5, (int) ($settings['poll_interval_idle'] ?? 15));
+    $idleInterval = max($idleInterval, max($holderInterval, $requestingInterval) + 1);
+
     $appConfig = [
         'session_status_poll_interval' => (int) ($settings['session_status_poll_interval'] ?? 12),
         'credential_sync_poll_interval' => (int) ($settings['credential_sync_poll_interval'] ?? 60),
         'version_check_interval' => (int) ($settings['version_check_interval'] ?? 120),
         'active_session_heartbeat_interval' => (int) ($settings['active_session_heartbeat_interval'] ?? 5),
         'realtime_event_poll_interval' => (int) ($settings['realtime_event_poll_interval'] ?? 3),
+        'poll_interval_holder' => $holderInterval,
+        'poll_interval_requesting' => $requestingInterval,
+        'poll_interval_idle' => $idleInterval,
     ];
 
     return response()->json([
@@ -157,6 +170,16 @@ Route::post('/verify-terminal', function (Request $request) {
         'credits_exhausted' => $creditsExhausted,
         'subscription_expired' => $subscriptionExpired,
         'app_config' => $appConfig,
+        'sync_health_summary' => \Illuminate\Support\Facades\Cache::get('sync_health_summary') ?: [
+            'confidence_score' => 100,
+            'efficiency_score' => 100,
+            'status' => 'excellent',
+            'failures_24h' => 0,
+            'avg_latency_ms' => 0,
+            'total_requests' => 0,
+            'total_fetches' => 0,
+            'backlog' => 0,
+        ],
         'license_expires_at' => $tenant->license_expires_at ? $tenant->license_expires_at->toIso8601String() : null,
         'expiry_warning_days' => (int) ($tenant->features['expiry_warning_days'] ?? 7),
         'tenant' => [

@@ -17,11 +17,22 @@ class SessionFetchRequest extends Model
         'status',
         'result_json',
         'error_message',
+        'expires_at',
+        'required_sync_version',
+        'holder_received_at',
+        'bank_fetch_started_at',
+        'bank_fetch_completed_at',
+        'result_received_by_requester_at',
     ];
 
     protected $casts = [
         'result_json' => 'array',
         'target_amount' => 'decimal:2',
+        'expires_at' => 'datetime',
+        'holder_received_at' => 'datetime',
+        'bank_fetch_started_at' => 'datetime',
+        'bank_fetch_completed_at' => 'datetime',
+        'result_received_by_requester_at' => 'datetime',
     ];
 
     protected static function booted()

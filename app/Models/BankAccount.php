@@ -23,12 +23,22 @@ class BankAccount extends Model
         'session_holder_terminal_id',
         'session_claimed_at',
         'session_last_heartbeat_at',
+        'last_bank_fetch_at',
+        'sync_version',
+        'sync_requested_version',
+        'fetch_in_progress_until',
+        'fetch_started_at',
+        'fetch_started_by_terminal_id',
+        'last_successful_fetch_terminal_id',
     ];
 
     protected $casts = [
-        'is_default'              => 'boolean',
-        'session_claimed_at'      => 'datetime',
-        'session_last_heartbeat_at' => 'datetime',
+        'is_default'                         => 'boolean',
+        'session_claimed_at'                 => 'datetime',
+        'session_last_heartbeat_at'          => 'datetime',
+        'last_bank_fetch_at'                 => 'datetime',
+        'fetch_in_progress_until'            => 'datetime',
+        'fetch_started_at'                   => 'datetime',
     ];
 
     public function tenant()
@@ -39,6 +49,16 @@ class BankAccount extends Model
     public function sessionHolder()
     {
         return $this->belongsTo(Terminal::class, 'session_holder_terminal_id');
+    }
+
+    public function fetchStartedByTerminal()
+    {
+        return $this->belongsTo(Terminal::class, 'fetch_started_by_terminal_id');
+    }
+
+    public function lastSuccessfulFetchTerminal()
+    {
+        return $this->belongsTo(Terminal::class, 'last_successful_fetch_terminal_id');
     }
 
     /**

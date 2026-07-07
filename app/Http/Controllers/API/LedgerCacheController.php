@@ -11,6 +11,8 @@ use App\Models\Terminal;
 use App\Models\TerminalEvent;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
+use App\Events\SyncCompleted;
 
 class LedgerCacheController extends Controller
 {
@@ -203,6 +205,10 @@ class LedgerCacheController extends Controller
             'balance'         => 'required|string',
             'transactions'    => 'required|array',
             'request_id'      => 'nullable|integer',
+            'fingerprint'     => 'nullable|string',
+            'duration_ms'     => 'nullable|integer',
+            'status'          => 'nullable|string',
+            'error_message'   => 'nullable|string',
         ]);
 
         $terminal = $this->resolveTerminal($request->hardware_id);
@@ -215,13 +221,65 @@ class LedgerCacheController extends Controller
             return response()->json(['error' => 'Bank account not found'], 404);
         }
 
-        DB::transaction(function () use ($request, $account, $terminal) {
-            $cache = BankAccountCache::firstOrNew(['bank_account_id' => $account->id]);
-            
-            $existing = $cache->transactions ?: [];
-            $incoming = $request->transactions;
+        $status = $request->status ?? 'fulfilled';
 
-            // Merge & Deduplicate based on transaction date, amount, and details
+        $fetchRequest = null;
+        if ($request->request_id) {
+            $fetchRequest = SessionFetchRequest::find($request->request_id);
+            if ($fetchRequest) {
+                $fetchRequest->update([
+                    'status' => $status,
+                    'result_json' => [
+                        'balance' => $request->balance,
+                        'transactions' => $request->transactions,
+                    ],
+                    'error_message' => $request->error_message,
+                    'bank_fetch_completed_at' => now(),
+                    'result_received_by_requester_at' => now(),
+                ]);
+            }
+        }
+
+        if ($status === 'fulfilled') {
+            // Update sync versions & timestamps on bank account atomically (Synchronous)
+            BankAccount::where('id', $account->id)->update([
+                'sync_version' => DB::raw('sync_version + 1'),
+                'last_bank_fetch_at' => DB::raw('CURRENT_TIMESTAMP'),
+                'last_successful_fetch_terminal_id' => $terminal->id,
+            ]);
+
+            // Save transactions to permanent ledger (insertOrIgnore to avoid duplicates)
+            $incoming = $request->transactions;
+            foreach ($incoming as $tx) {
+                $hash = hash('sha256', implode('|', [
+                    $account->id,
+                    $tx['date'] ?? '',
+                    $tx['amount'] ?? '',
+                    $tx['details'] ?? '',
+                    $tx['reference'] ?? '',
+                ]));
+
+                DB::table('bank_transactions')->insertOrIgnore([
+                    'bank_account_id' => $account->id,
+                    'transaction_hash' => $hash,
+                    'amount' => $tx['amount'] ?? '0.00',
+                    'transaction_date' => $tx['date'] ?? now()->toDateString(),
+                    'description' => $tx['details'] ?? '',
+                    'reference' => $tx['reference'] ?? null,
+                    'created_at' => DB::raw('CURRENT_TIMESTAMP'),
+                    'updated_at' => DB::raw('CURRENT_TIMESTAMP'),
+                ]);
+            }
+
+            // Cache fingerprint if provided
+            if ($request->fingerprint) {
+                Cache::forever("bank_account_fingerprint_{$account->id}", $request->fingerprint);
+            }
+
+            // Automatically update/create the cache snapshot
+            $cache = BankAccountCache::firstOrNew(['bank_account_id' => $account->id]);
+            $existing = $cache->transactions ?: [];
+
             $merged = collect(array_merge($incoming, $existing))
                 ->unique(function ($tx) {
                     return trim($tx['date'] ?? '') . '-' . trim($tx['amount'] ?? '') . '-' . trim($tx['details'] ?? '');
@@ -237,21 +295,70 @@ class LedgerCacheController extends Controller
             $cache->cached_by_terminal_id = $terminal->id;
             $cache->cache_version += 1;
             $cache->save();
+        }
 
-            // Fulfill the request if request_id is supplied
-            if ($request->request_id) {
-                $fetchRequest = SessionFetchRequest::find($request->request_id);
-                if ($fetchRequest) {
-                    $fetchRequest->update([
-                        'status' => 'fulfilled',
-                        'result_json' => [
-                            'balance' => $request->balance,
-                            'transactions' => array_slice($merged, 0, 10), // return last 10 for quick verification
-                        ]
-                    ]);
-                }
+        // Always release the fetch lock
+        BankAccount::where('id', $account->id)->update([
+            'fetch_in_progress_until' => null,
+            'fetch_started_at' => null,
+            'fetch_started_by_terminal_id' => null,
+        ]);
+
+        $durationMs = $request->duration_ms ?? 0;
+        $durationStr = $durationMs ? "{$durationMs}ms" : 'unknown duration';
+
+        // Audit Logging (Deferred)
+        dispatch(function () use ($terminal, $account, $status, $durationStr, $request, $fetchRequest) {
+            $requesterName = $fetchRequest ? ($fetchRequest->requestingTerminal?->terminal_name ?? 'Unknown') : 'System';
+            if ($status === 'fulfilled') {
+                SessionActivityLog::create([
+                    'tenant_id' => $terminal->tenant_id,
+                    'terminal_id' => $terminal->id,
+                    'terminal_name' => $terminal->terminal_name,
+                    'bank_account_id' => $account->id,
+                    'bank_name' => $account->bank_name,
+                    'account_number_masked' => $account->account_number ? substr($account->account_number, 0, 4) . '...' : null,
+                    'event_type' => 'fetch_request_fulfilled',
+                    'event_summary' => "Holder \"{$terminal->terminal_name}\" fulfilled data request for Terminal \"{$requesterName}\" ({$account->bank_name}, {$durationStr})",
+                    'event_detail' => $request->all(),
+                    'created_at' => DB::raw('CURRENT_TIMESTAMP'),
+                ]);
+            } else {
+                SessionActivityLog::create([
+                    'tenant_id' => $terminal->tenant_id,
+                    'terminal_id' => $terminal->id,
+                    'terminal_name' => $terminal->terminal_name,
+                    'bank_account_id' => $account->id,
+                    'bank_name' => $account->bank_name,
+                    'account_number_masked' => $account->account_number ? substr($account->account_number, 0, 4) . '...' : null,
+                    'event_type' => 'fetch_request_failed',
+                    'event_summary' => "Holder \"{$terminal->terminal_name}\" failed to fulfil request for Terminal \"{$requesterName}\" — {$request->error_message}",
+                    'event_detail' => $request->all(),
+                    'created_at' => DB::raw('CURRENT_TIMESTAMP'),
+                ]);
             }
-        });
+        })->afterResponse();
+
+        // Dispatch SyncCompleted Event (DEFERRED Telemetry)
+        if ($fetchRequest) {
+            dispatch(function () use ($fetchRequest, $terminal, $durationMs, $status, $request) {
+                event(new \App\Events\SyncCompleted(
+                    requestId: $fetchRequest->id,
+                    bankAccountId: $fetchRequest->bank_account_id,
+                    terminalId: $terminal->id,
+                    durationMs: $durationMs,
+                    status: $status === 'fulfilled' ? 'success' : 'failed',
+                    failureReason: $request->error_message,
+                    timestamps: [
+                        'requested_at' => $fetchRequest->created_at,
+                        'holder_received_at' => $fetchRequest->holder_received_at,
+                        'bank_fetch_started_at' => $fetchRequest->bank_fetch_started_at,
+                        'bank_fetch_completed_at' => $fetchRequest->bank_fetch_completed_at,
+                        'result_received_at' => now(),
+                    ]
+                ));
+            })->afterResponse();
+        }
 
         return response()->json(['status' => 'ok']);
     }
