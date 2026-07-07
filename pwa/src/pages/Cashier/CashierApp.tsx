@@ -1726,7 +1726,7 @@ function App() {
     let timeoutId: ReturnType<typeof setTimeout>;
 
     const reportActivity = async () => {
-      if (visibility === 'hidden') {
+      if (visibility === 'hidden' && sessionStatus !== 'holder') {
         timeoutId = setTimeout(reportActivity, 10000);
         return;
       }
@@ -1755,7 +1755,6 @@ function App() {
     let interval: ReturnType<typeof setInterval>;
     if (sessionStatus === 'holder' && hardwareId && backendUrl && sessionHolderAccountId) {
       interval = setInterval(async () => {
-        if (visibility === 'hidden') return;
         try {
           await fetch(`${backendUrl}/terminal/session/heartbeat`, {
             method: 'POST',
@@ -1785,10 +1784,6 @@ function App() {
     let timeoutId: ReturnType<typeof setTimeout>;
 
     const checkPendingRequests = async () => {
-      if (visibility === 'hidden') {
-        timeoutId = setTimeout(checkPendingRequests, 5000);
-        return;
-      }
       if (delegatedFulfilling) {
         timeoutId = setTimeout(checkPendingRequests, 1000);
         return;

@@ -164,10 +164,13 @@ Route::post('/verify-terminal', function (Request $request) {
         'poll_interval_idle' => $idleInterval,
     ];
 
-    $activeTerminalsCount = Terminal::where('tenant_id', $tenant->id)
-        ->where('status', 'active')
-        ->where('last_active_at', '>=', now()->subSeconds(30))
-        ->count();
+    $activeTerminalsCount = DB::table('terminal_account_activity')
+        ->join('terminals', 'terminal_account_activity.terminal_id', '=', 'terminals.id')
+        ->where('terminals.tenant_id', $tenant->id)
+        ->where('terminal_account_activity.updated_at', '>=', DB::raw('NOW() - INTERVAL 30 SECOND'))
+        ->distinct()
+        ->count('terminal_account_activity.terminal_id');
+    $activeTerminalsCount = max(1, $activeTerminalsCount); // fallback to 1 as current terminal is active
     $operationMode = $activeTerminalsCount > 1 ? 'Multi-Terminal' : 'Single Terminal';
 
     $bankAccounts = $tenant->bankAccounts;
