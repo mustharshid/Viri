@@ -101,6 +101,7 @@ class SessionController extends Controller
         $request->validate([
             'hardware_id'     => 'required|string',
             'bank_account_id' => 'required|integer',
+            'force'           => 'nullable|boolean',
         ]);
 
         $terminal = $this->resolveTerminal($request->hardware_id);
@@ -113,10 +114,12 @@ class SessionController extends Controller
             return response()->json(['error' => 'Bank account not found'], 404);
         }
 
-        $result = DB::transaction(function () use ($account, $terminal) {
+        $force = (bool) $request->input('force', false);
+
+        $result = DB::transaction(function () use ($account, $terminal, $force) {
             $acc = BankAccount::where('id', $account->id)->lockForUpdate()->first();
             $now = now();
-            $isLive = $acc->hasLiveSession();
+            $isLive = $force ? false : $acc->hasLiveSession();
 
             // Already the holder and still live
             if ($isLive && $acc->session_holder_terminal_id === $terminal->id) {

@@ -252,19 +252,7 @@ function App() {
     };
   }, []);
 
-  const [visibility, setVisibility] = useState<DocumentVisibilityState>(typeof document !== 'undefined' ? document.visibilityState : 'visible');
-  useEffect(() => {
-    const handleVisibility = () => {
-      setVisibility(document.visibilityState);
-      if (document.visibilityState === 'visible') {
-        if (checkPendingRequestsRef.current) {
-          checkPendingRequestsRef.current();
-        }
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, []);
+
 
   const computeStatementFingerprint = async (
     accountId: number,
@@ -290,6 +278,7 @@ function App() {
       .join('');
   };
 
+  const [visibility, setVisibility] = useState<DocumentVisibilityState>(typeof document !== 'undefined' ? document.visibilityState : 'visible');
   const [newTransactionKeys, setNewTransactionKeys] = useState<Set<string>>(new Set());
 
   // Derived state for the selected account's recent transactions
@@ -1284,6 +1273,33 @@ function App() {
     localStorage.setItem('viri_accounts_creds', JSON.stringify(accountsCreds));
   }, [accountsCreds]);
 
+  useEffect(() => {
+    const handleVisibility = () => {
+      setVisibility(document.visibilityState);
+      if (document.visibilityState === 'hidden') {
+        if (sessionStatus === 'holder' && sessionHolderAccountId) {
+          addLog(`> [Session] Tab backgrounded. Proactively releasing session lock for account ID ${sessionHolderAccountId}...`);
+          fetch(`${backendUrl}/terminal/session/release`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              hardware_id: hardwareId,
+              bank_account_id: parseInt(sessionHolderAccountId)
+            })
+          }).catch(() => {});
+          setSessionStatus('idle');
+          setSessionHolderAccountId(null);
+        }
+      } else if (document.visibilityState === 'visible') {
+        if (checkPendingRequestsRef.current) {
+          checkPendingRequestsRef.current();
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [sessionStatus, sessionHolderAccountId, hardwareId, backendUrl]);
+
   // ---------------------------------------------------------------------------
   // Zero-Knowledge Credential Sync (background, no admin terminal interaction)
   // ---------------------------------------------------------------------------
@@ -1726,7 +1742,7 @@ function App() {
     let timeoutId: ReturnType<typeof setTimeout>;
 
     const reportActivity = async () => {
-      if (visibility === 'hidden' && sessionStatus !== 'holder') {
+      if (visibility === 'hidden') {
         timeoutId = setTimeout(reportActivity, 10000);
         return;
       }
@@ -1755,6 +1771,7 @@ function App() {
     let interval: ReturnType<typeof setInterval>;
     if (sessionStatus === 'holder' && hardwareId && backendUrl && sessionHolderAccountId) {
       interval = setInterval(async () => {
+        if (visibility === 'hidden') return;
         try {
           await fetch(`${backendUrl}/terminal/session/heartbeat`, {
             method: 'POST',
@@ -1784,6 +1801,10 @@ function App() {
     let timeoutId: ReturnType<typeof setTimeout>;
 
     const checkPendingRequests = async () => {
+      if (visibility === 'hidden') {
+        timeoutId = setTimeout(checkPendingRequests, 5000);
+        return;
+      }
       if (delegatedFulfilling) {
         timeoutId = setTimeout(checkPendingRequests, 1000);
         return;
@@ -2138,7 +2159,27 @@ function App() {
       } else if (resultData.status === 'failed') {
         throw new Error(resultData.error_message || "Holder failed to fetch data.");
       } else {
-        throw new Error("Request timed out. Active session holder did not respond.");
+        addLog("> [Session] Active holder did not respond. Releasing current holder and claiming session lock...");
+        const claimRes = await fetch(`${backendUrl}/terminal/session/claim`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hardware_id: hardwareId,
+            bank_account_id: parseInt(accountId),
+            force: true
+          })
+        });
+        if (claimRes.ok) {
+          addLog("> [Session] Reclaimed session successfully. Re-running transaction sync locally...");
+          setSessionStatus('holder');
+          setSessionHolderAccountId(accountId);
+          setTimeout(() => {
+            handleVerify(requestType === 'ledger' || requestType === 'history' ? 'history' : 'search');
+          }, 500);
+          return;
+        } else {
+          throw new Error("Request timed out. Active session holder did not respond, and reclamation failed.");
+        }
       }
     } catch (err: any) {
       setError(`Delegated Fetch Failed: ${err.message}`);
