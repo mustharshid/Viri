@@ -416,6 +416,7 @@ class LedgerCacheController extends Controller
                 'bank_account_id' => $account->id,
                 'bank_name'       => $account->bank_name,
                 'account_number'  => $account->account_number,
+                'account_name'    => $account->account_name,
                 'mib_profile_type'=> $account->mib_profile_type ?? '0',
                 'requester_name'  => $terminal->terminal_name,
             ]

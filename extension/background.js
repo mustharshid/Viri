@@ -218,7 +218,11 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         const sessionMode = payload.sessionMode || 'fresh_login';
         try {
           if (payload.bank === 'MIB') {
-            await runMibFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode, sessionMode);
+            if (payload.mibProfileType === '1') {
+              await runMibMultiProfileFlow(payload.credentials, targetAcc, payload.accountName, port, payload.amount, mode, sessionMode);
+            } else {
+              await runMibFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode, sessionMode);
+            }
           } else {
             await runBmlFlow(payload.credentials, targetAcc, port, payload.amount, mode, sessionMode);
           }
@@ -232,7 +236,11 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         const targetAcc = heldSession ? heldSession.accountId : req.bank_account_id;
         try {
           if (payload.bankName === 'MIB') {
-            await runMibFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', '0', req.request_type, 'fetch_only');
+            if (req.mib_profile_type === '1') {
+              await runMibMultiProfileFlow(payload.credentials, targetAcc, req.account_name, port, req.target_amount || '1.00', req.request_type, 'fetch_only');
+            } else {
+              await runMibFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', '0', req.request_type, 'fetch_only');
+            }
           } else {
             await runBmlFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', req.request_type, 'fetch_only');
           }
@@ -2132,6 +2140,633 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
       try {
         port.postMessage({ type: 'error', error: error.message, transactions: last3Txs || [] });
       } catch (e) { /* port might already be dead */ }
+    }
+  }
+}
+
+function findMostSimilarProfile(profiles, targetName) {
+  if (!profiles || profiles.length === 0) return null;
+  if (!targetName) return profiles[0];
+
+  const normalize = (str) => {
+    return str.toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .replace(/\b(pvt|ltd|co|private|limited|investments|holdings|group|company)\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const normTarget = normalize(targetName);
+  const targetTokens = normTarget.split(' ').filter(t => t.length > 0);
+
+  let bestProfile = profiles[0];
+  let maxScore = -1;
+
+  for (const profile of profiles) {
+    const profileName = profile.name || '';
+    const normProfile = normalize(profileName);
+    const profileTokens = normProfile.split(' ').filter(t => t.length > 0);
+
+    let score = 0;
+    for (const t of targetTokens) {
+      if (profileTokens.includes(t)) {
+        score += 2;
+      } else if (profileTokens.some(pt => pt.includes(t) || t.includes(pt))) {
+        score += 1;
+      }
+    }
+
+    const lengthDiff = Math.abs(normTarget.length - normProfile.length);
+    score -= lengthDiff * 0.05;
+
+    if (score > maxScore) {
+      maxScore = score;
+      bestProfile = profile;
+    }
+  }
+
+  return bestProfile;
+}
+
+async function runMibMultiProfileFlow(credentials, targetAccount, targetAccountName, port, targetAmount, mode = 'search', sessionMode = 'fresh_login') {
+  emitLog(port, `> [MIB] Starting MIB Faisanet Multi-Profile Auth Flow (sessionMode: ${sessionMode}, targetAccountName: "${targetAccountName}")...`);
+  let last3Txs = [];
+
+  const mibHeaders = {
+    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+    'X-Requested-With': 'XMLHttpRequest',
+    'User-Agent': USER_AGENT
+  };
+
+  function isMibSuccess(status) { return status === 200 || status === 203; }
+
+  let rTag = null;
+  if (sessionMode !== 'fresh_login' && sessionMode !== 'claim_and_login') {
+    if (currentMibRTag) {
+      rTag = currentMibRTag;
+    } else {
+      const res = await chrome.storage.local.get(['viri_mib_rtag']);
+      if (res.viri_mib_rtag) {
+        currentMibRTag = res.viri_mib_rtag;
+        rTag = currentMibRTag;
+      }
+    }
+  }
+  
+  function updateRTag(newTag) {
+    if (newTag) {
+      rTag = newTag;
+      currentMibRTag = newTag;
+      chrome.storage.local.set({ viri_mib_rtag: newTag });
+    }
+  }
+
+  let mibClockOffset = 0;
+
+  try {
+    if (sessionMode === 'fresh_login' || sessionMode === 'claim_and_login') {
+      emitLog(port, `> [MIB] Step 0: Clearing previous MIB session cookies...`);
+      const mibCookies = await chrome.cookies.getAll({ domain: "mib.com.mv" });
+      for (const cookie of mibCookies) {
+        const protocol = cookie.secure ? "https://" : "http://";
+        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+        const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
+        await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
+      }
+      emitLog(port, `> [MIB] Cleared ${mibCookies.length} MIB cookies.`);
+
+      emitLog(port, `> [MIB] Step 1: Initializing session...`);
+      const t0 = Date.now();
+      const authPageRes = await mibFetch(`${MIB_BASE_URL}/auth`, {
+        headers: { 'User-Agent': USER_AGENT }
+      }, port);
+      const t3 = Date.now();
+
+      if (!authPageRes.ok) {
+        throw new Error(`MIB auth page load failed: HTTP ${authPageRes.status}`);
+      }
+
+      mibClockOffset = 0;
+      const serverDateHeader = authPageRes.headers.get('date');
+      if (serverDateHeader) {
+        const rtt = t3 - t0;
+        const serverTime = new Date(serverDateHeader).getTime() + Math.round(rtt / 2);
+        mibClockOffset = serverTime - t3;
+        emitLog(port, `> [MIB] Calculated MIB server clock offset (RTT-aware): ${mibClockOffset}ms (RTT: ${rtt}ms)`);
+      }
+
+      const authPageHtml = await authPageRes.text();
+      updateRTag(extractRTag(authPageHtml));
+      emitLog(port, `> [MIB] ✓ Session initialized. rTag: ${rTag.substring(0, 8)}...`);
+
+      emitLog(port, `> [MIB] Step 2: Checking auth type for user...`);
+      const authTypeRes = await mibFetch(`${MIB_BASE_URL}/aAuth/getAuthType`, {
+        method: 'POST',
+        headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth` },
+        body: buildFormBody({ rTag, pgf01: credentials.username, retain: '1' })
+      }, port);
+
+      if (!authTypeRes.ok) {
+        const errText = await authTypeRes.text().catch(() => "");
+        emitLog(port, `> [MIB] getAuthType error body: ${errText}`);
+        throw new Error(`MIB getAuthType failed: HTTP ${authTypeRes.status}. Details: ${errText.substring(0, 200)}`);
+      }
+
+      let authTypeData;
+      try {
+        authTypeData = await authTypeRes.json();
+      } catch (e) {
+        const text = await authTypeRes.clone().text();
+        emitLog(port, `> [MIB] Auth type response (non-JSON): ${text.substring(0, 200)}`);
+        authTypeData = { status: 'success' };
+      }
+
+      if (authTypeData.status === 'error') {
+        throw new Error(`MIB auth type error: ${authTypeData.message || 'Unknown error'}`);
+      }
+      emitLog(port, `> [MIB] ✓ Auth type confirmed: ${JSON.stringify(authTypeData)}`);
+
+      const loginTypeParams = authTypeData?.data?.[0] || {};
+      const loginType = loginTypeParams.loginType;
+      const userSalt = loginTypeParams.userSalt;
+
+      let xAuthRes;
+      if (loginType === 0) {
+        emitLog(port, `> [MIB] Step 3: Submitting primary credentials (simple auth)...`);
+        xAuthRes = await mibFetch(`${MIB_BASE_URL}/aAuth`, {
+          method: 'POST',
+          headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth` },
+          body: buildFormBody({
+            rTag,
+            pgf01: credentials.username,
+            pgf02: credentials.password,
+            retain: '1'
+          })
+        }, port);
+      } else {
+        emitLog(port, `> [MIB] Step 3: Submitting primary credentials (salted auth)...`);
+        emitLog(port, `> [MIB] Plain credentials validation: username="${maskString(credentials.username)}", password="${maskString(credentials.password)}"`);
+        const clientSalt = generateClientSalt(32);
+        
+        const passHash = await hashPasswordSHA256(credentials.password);
+        const saltedHash = await hashPasswordSHA256(passHash + (userSalt || ""));
+        const clientSaltedHash = await hashPasswordSHA256(clientSalt + saltedHash);
+        
+        emitLog(port, `> [MIB] Computed Client Salt: "${clientSalt}"`);
+        emitLog(port, `> [MIB] Computed SHA-256 Pass Hash: "${passHash}"`);
+        emitLog(port, `> [MIB] Computed Salted Hash: "${saltedHash}"`);
+        emitLog(port, `> [MIB] Computed pgf03 Hash: "${clientSaltedHash}"`);
+
+        xAuthRes = await mibFetch(`${MIB_BASE_URL}/aAuth/xAuth`, {
+          method: 'POST',
+          headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth` },
+          body: buildFormBody({
+            rTag,
+            pgf01: credentials.username,
+            retain: '1',
+            pgf03: clientSaltedHash,
+            clientSalt: clientSalt
+          })
+        }, port);
+      }
+
+      if (!xAuthRes.ok) {
+        const errText = await xAuthRes.text().catch(() => "");
+        emitLog(port, `> [MIB] xAuth failed: HTTP ${xAuthRes.status}. Details: ${errText}`);
+        throw new Error(`MIB xAuth failed: HTTP ${xAuthRes.status}. Details: ${errText.substring(0, 200)}`);
+      }
+
+      let xAuthData;
+      try {
+        xAuthData = await xAuthRes.json();
+      } catch (e) {
+        const text = await xAuthRes.clone().text();
+        emitLog(port, `> [MIB] xAuth response (non-JSON): ${text.substring(0, 200)}`);
+        if (text.includes('dashboard') || text.includes('2FA') || text.includes('redirect') || text.includes('success')) {
+          xAuthData = { status: 'success', redirect: '/dashboard' };
+        } else {
+          throw new Error(`MIB xAuth response not parseable: ${text.substring(0, 100)}`);
+        }
+      }
+
+      if (xAuthData && (xAuthData.success === false || xAuthData.status === 'error')) {
+        throw new Error(`MIB authentication failed: ${xAuthData.reasonText || xAuthData.message || 'Invalid credentials'}`);
+      }
+      emitLog(port, `> [MIB] ✓ Primary authentication successful.`);
+
+      emitLog(port, `> [MIB] Step 4: Loading dashboard...`);
+      const dashboardPageRes = await mibFetch(`${MIB_BASE_URL}/dashboard`, {
+        headers: {
+          'Referer': `${MIB_BASE_URL}/auth`,
+          'User-Agent': USER_AGENT
+        }
+      }, port);
+
+      if (!dashboardPageRes.ok) {
+        throw new Error(`MIB dashboard page load failed: HTTP ${dashboardPageRes.status}`);
+      }
+
+      const dashHtml = await dashboardPageRes.text();
+      try { updateRTag(extractRTag(dashHtml)); } catch (e) {
+        emitLog(port, `> [MIB] Could not extract rTag from dashboard — keeping previous.`);
+      }
+
+      emitLog(port, `> [MIB] Step 4.5: Loading 2FA page...`);
+      const auth2faRes = await mibFetch(`${MIB_BASE_URL}/auth2FA`, {
+        headers: {
+          'Referer': `${MIB_BASE_URL}/dashboard`,
+          'User-Agent': USER_AGENT
+        }
+      }, port);
+
+      if (!auth2faRes.ok) {
+        throw new Error(`MIB 2FA page load failed: HTTP ${auth2faRes.status}`);
+      }
+
+      const auth2faHtml = await auth2faRes.text();
+      try { updateRTag(extractRTag(auth2faHtml)); } catch (e) {
+        emitLog(port, `> [MIB] Could not extract rTag from auth2FA — keeping previous.`);
+      }
+      emitLog(port, `> [MIB] ✓ 2FA page loaded. rTag: ${rTag ? rTag.substring(0, 8) + '...' : 'none'}`);
+
+      const msInWindow = (Date.now() + mibClockOffset) % 30000;
+      const msRemaining = 30000 - msInWindow;
+      if (msRemaining < 4000) {
+        emitLog(port, `> [MIB] OTP window boundary safety: only ${Math.round(msRemaining / 100) / 10}s remaining in epoch. Waiting for next window...`);
+        await new Promise(resolve => setTimeout(resolve, msRemaining + 500));
+      }
+
+      emitLog(port, `> [MIB] Step 5: Generating and submitting TOTP...`);
+      const otpCode = await generateTOTP(credentials.totpSeed, mibClockOffset);
+      emitLog(port, `> [MIB] Generated OTP Code: "${maskString(otpCode)}"`);
+
+      const otpRes = await mibFetch(`${MIB_BASE_URL}/aAuth2FA/verifyOTP`, {
+        method: 'POST',
+        headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth2FA` },
+        body: buildFormBody({ otpType: '3', otp: otpCode })
+      }, port);
+
+      if (!isMibSuccess(otpRes.status)) {
+        throw new Error(`MIB OTP verification request failed: HTTP ${otpRes.status}`);
+      }
+
+      let otpData;
+      try {
+        otpData = await otpRes.json();
+      } catch (e) {
+        if (otpRes.status === 203) {
+          otpData = { status: 'success', redirect: '/profiles' };
+        } else {
+          const text = await otpRes.clone().text();
+          if (text.includes('/profiles') || text.includes('success')) {
+            otpData = { status: 'success', redirect: '/profiles' };
+          } else {
+            throw new Error(`MIB OTP response not parseable (HTTP ${otpRes.status}): ${text.substring(0, 100)}`);
+          }
+        }
+      }
+
+      if (otpData.status === 'error') {
+        throw new Error(`MIB OTP verification failed: ${otpData.message || 'Invalid OTP'}`);
+      }
+      emitLog(port, `> [MIB] ✓ OTP verified successfully (HTTP ${otpRes.status}).`);
+
+      emitLog(port, `> [MIB] Step 6: Loading profiles page...`);
+      const profilesRes = await mibFetch(`${MIB_BASE_URL}/profiles`, {
+        headers: {
+          'Referer': `${MIB_BASE_URL}/auth2FA`,
+          'User-Agent': USER_AGENT
+        }
+      }, port);
+
+      if (!profilesRes.ok) {
+        throw new Error(`MIB profiles page load failed: HTTP ${profilesRes.status}`);
+      }
+
+      const profilesHtml = await profilesRes.text();
+      await saveScrap('profiles_page', profilesHtml);
+      try {
+        rTag = extractRTag(profilesHtml);
+      } catch (e) {
+        throw e;
+      }
+      const profiles = parseProfilesFromHtml(profilesHtml);
+      const profileNames = profiles.map(p => p.name || 'Unknown').join(', ');
+      emitLog(port, `> [MIB] Found ${profiles.length} profile(s): [${profileNames}]`);
+
+      if (profiles.length > 0) {
+        const selectedProfile = findMostSimilarProfile(profiles, targetAccountName) || profiles[0];
+        const activeRTag = selectedProfile.rTag || rTag;
+        emitLog(port, `> [MIB] Step 7: Selecting profile "${selectedProfile.name}" (ID: ${selectedProfile.id}, type: ${selectedProfile.type}) matching Viri account name "${targetAccountName}"...`);
+
+        const switchRes = await mibFetch(`${MIB_BASE_URL}/aProfileHandler/switchProfile`, {
+          method: 'POST',
+          headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/profiles` },
+          body: buildFormBody({
+            rTag: activeRTag,
+            profileId: selectedProfile.id,
+            profileType: selectedProfile.type || '1'
+          })
+        }, port);
+
+        if (!isMibSuccess(switchRes.status)) {
+          throw new Error(`MIB profile switch failed: HTTP ${switchRes.status}`);
+        }
+
+        let switchData;
+        try {
+          switchData = await switchRes.json();
+        } catch (e) {
+          if (switchRes.status === 203) {
+            switchData = { status: 'success', redirect: '/accounts' };
+          } else {
+            switchData = { status: 'success' };
+          }
+        }
+
+        if (switchData.status === 'error') {
+          throw new Error(`MIB profile switch failed: ${switchData.message || 'Unknown error'}`);
+        }
+        emitLog(port, `> [MIB] ✓ Profile switched successfully (HTTP ${switchRes.status}).`);
+      } else {
+        emitLog(port, `> [MIB] No profiles found. Proceeding with default profile...`);
+      }
+    }
+
+    emitLog(port, `> [MIB] Step 8: Loading accounts dashboard...`);
+    const accountsRes = await mibFetch(`${MIB_BASE_URL}/accounts`, {
+      headers: {
+        'Referer': `${MIB_BASE_URL}/profiles`,
+        'User-Agent': USER_AGENT
+      }
+    }, port);
+
+    if (!accountsRes.ok) {
+      throw new Error(`MIB accounts page load failed: HTTP ${accountsRes.status}`);
+    }
+
+    const accountsHtml = await accountsRes.text();
+    const parsedAccounts = parseAccountsFromHtml(accountsHtml);
+    const foundAccNos = parsedAccounts.map(a => a.accountNo).join(', ');
+    emitLog(port, `> [MIB] Found ${parsedAccounts.length} account(s) in dashboard: [${foundAccNos}]`);
+
+    if (sessionMode === 'fetch_only' && parsedAccounts.length === 0) {
+      emitLog(port, `> [MIB] ⚠ Session appears expired (0 accounts in fetch_only mode). Falling back to fresh_login...`);
+      return await runMibMultiProfileFlow(credentials, targetAccount, targetAccountName, port, targetAmount, mode, 'fresh_login');
+    }
+
+    if (!rTag) {
+      try {
+        updateRTag(extractRTag(accountsHtml));
+        emitLog(port, `> [MIB] ✓ Extracted rTag from accounts page: ${rTag.substring(0, 8)}...`);
+      } catch (e) {
+        emitLog(port, `> [MIB] ⚠ Could not extract rTag from accounts page.`);
+      }
+    }
+
+    let matchedAccountNo = null;
+    for (const acc of parsedAccounts) {
+      if (acc.accountNo === targetAccount || acc.accountNo.includes(targetAccount) || targetAccount.includes(acc.accountNo)) {
+        matchedAccountNo = acc.accountNo;
+        break;
+      }
+    }
+
+    if (!matchedAccountNo) {
+      emitLog(port, `> [MIB] Target account ${targetAccount} not found in parsed accounts. Using directly...`);
+      matchedAccountNo = targetAccount;
+    } else {
+      emitLog(port, `> [MIB] ✓ Matched account: ${matchedAccountNo}`);
+    }
+
+    let dashboardBalance = null;
+    try {
+      const accountIndex = accountsHtml.indexOf(matchedAccountNo);
+      if (accountIndex !== -1) {
+        const start = Math.max(0, accountIndex - 800);
+        const end = Math.min(accountsHtml.length, accountIndex + 800);
+        const section = accountsHtml.substring(start, end);
+        const balMatch = section.match(/Available\s+Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
+                      || section.match(/Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
+                      || section.match(/(?:MVR|USD)\s*(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
+                      || section.match(/(\b\d+(?:,\d{3})*\.\d{2}\b)/);
+        if (balMatch) {
+          dashboardBalance = balMatch[1];
+          emitLog(port, `> [MIB] ✓ Extracted balance from dashboard card for ${matchedAccountNo}: ${dashboardBalance} MVR`);
+        }
+      }
+    } catch (err) {
+      emitLog(port, `> [MIB] Error extracting balance from dashboard HTML: ${err.message}`);
+    }
+
+    emitLog(port, `> [MIB] Step 8B: Loading account details page...`);
+    const accDetailsRes = await mibFetch(`${MIB_BASE_URL}/accountDetails?accountNo=${matchedAccountNo}`, {
+      headers: {
+        'Referer': `${MIB_BASE_URL}/accounts`,
+        'User-Agent': USER_AGENT
+      }
+    }, port);
+
+    let mibBalance = dashboardBalance || "Not found";
+    if (!accDetailsRes.ok) {
+      emitLog(port, `> [MIB] Account details returned ${accDetailsRes.status}. Continuing anyway...`);
+    } else {
+      emitLog(port, `> [MIB] ✓ Account details page loaded.`);
+      try {
+        const detailsHtml = await accDetailsRes.clone().text();
+        const balanceMatch = detailsHtml.match(/Available\s+Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
+                          || detailsHtml.match(/Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
+                          || detailsHtml.match(/(?:MVR|USD)\s*(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
+                          || detailsHtml.match(/(\b\d+(?:,\d{3})*\.\d{2}\b)/);
+        if (balanceMatch) {
+          mibBalance = balanceMatch[1];
+          emitLog(port, `> [MIB] 💰 Balance parsed from details page: ${mibBalance} MVR`);
+        } else {
+          emitLog(port, `> [MIB] No balance parsed from details page. Available fallback: ${mibBalance}`);
+        }
+        if (!rTag) {
+          try {
+            updateRTag(extractRTag(detailsHtml));
+            emitLog(port, `> [MIB] ✓ Refreshed rTag from details page: ${rTag.substring(0, 8)}...`);
+          } catch (e) {
+            emitLog(port, `> [MIB] Could not extract rTag from details page — keeping previous.`);
+          }
+        }
+      } catch (err) {
+        emitLog(port, `> [MIB] Error parsing balance: ${err.message}`);
+      }
+    }
+
+    emitLog(port, `> [MIB] Step 9: Fetching transaction history for ${matchedAccountNo}...`);
+
+    const historyRes = await mibFetch(`${MIB_BASE_URL}/ajaxAccounts/trxHistory`, {
+      method: 'POST',
+      headers: {
+        ...mibHeaders,
+        'Referer': `${MIB_BASE_URL}/accountDetails?accountNo=${matchedAccountNo}`
+      },
+      body: buildFormBody({
+        accountNo: matchedAccountNo,
+        trxNo: '',
+        trxType: '0',
+        sortTrx: 'date',
+        sortDir: 'desc',
+        fromDate: '',
+        toDate: '',
+        start: '1',
+        end: '10',
+        includeCount: '1'
+      })
+    }, port);
+
+    if (!historyRes.ok) {
+      throw new Error(`MIB transaction history failed: HTTP ${historyRes.status}`);
+    }
+
+    let historyData;
+    try {
+      historyData = await historyRes.json();
+    } catch (e) {
+      const text = await historyRes.clone().text();
+      emitLog(port, `> [MIB] Transaction history response (non-JSON): ${text.substring(0, 300)}`);
+      throw new Error('MIB transaction history response was not valid JSON');
+    }
+
+    emitLog(port, `> [MIB] Raw history response: ${JSON.stringify(historyData)}`);
+
+    let transactions = [];
+    if (historyData) {
+      if (Array.isArray(historyData.data)) {
+        transactions = historyData.data;
+      } else if (historyData.data && Array.isArray(historyData.data.transactions)) {
+        transactions = historyData.data.transactions;
+      } else if (Array.isArray(historyData.transactions)) {
+        transactions = historyData.transactions;
+      } else if (Array.isArray(historyData)) {
+        transactions = historyData;
+      }
+    }
+
+    const targetAmtNum = parseFloat(targetAmount) || 0;
+
+    let matchFound = null;
+    if (mode === 'search') {
+      emitLog(port, `> [MIB] Found ${transactions.length} transaction(s). Searching for ${targetAmount} MVR credit...`);
+      const matchingTxs = transactions.filter(tx => {
+        const rawAmt = (tx.foreignAmount !== undefined && tx.foreignAmount !== null && tx.curCodeDesc && tx.curCodeDesc !== 'MVR')
+          ? parseFloat(tx.foreignAmount) || 0
+          : parseFloat(tx.amount || tx.baseAmount) || 0;
+        const txAmount = Math.abs(rawAmt);
+        const isCredit = rawAmt > 0 || tx.type === 'credit' || tx.credit || tx.trxType === 'credit';
+        return targetAmtNum > 0 && Math.abs(txAmount - targetAmtNum) < 0.01 && isCredit;
+      });
+      last3Txs = normalizeTransactions(matchingTxs, 'MIB', 3);
+      if (matchingTxs.length > 0) {
+        matchFound = matchingTxs[0];
+        emitLog(port, `> [MIB] ✓ MATCH FOUND: ${matchFound.description || matchFound.descr1 || matchFound.reference || 'Transaction'} — ${matchFound.amount || matchFound.baseAmount}`);
+      }
+    } else if (mode === 'ledger') {
+      emitLog(port, `> [MIB] Found ${transactions.length} transaction(s). Fetching ledger history...`);
+      last3Txs = normalizeTransactions(transactions, 'MIB', 50);
+    } else {
+      emitLog(port, `> [MIB] Found ${transactions.length} transaction(s). Fetching recent history...`);
+      last3Txs = normalizeTransactions(transactions, 'MIB', 3);
+    }
+
+    if (!heldSession && sessionMode !== 'claim_and_login') {
+      emitLog(port, `> [MIB] Step 10: Logging out and cleaning up...`);
+      try {
+        await mibFetch(`${MIB_BASE_URL}/aAuth/logout`, {
+          method: 'POST',
+          headers: {
+            ...mibHeaders,
+            'Referer': `${MIB_BASE_URL}/accountDetails?accountNo=${matchedAccountNo}`
+          },
+          body: ''
+        }, port);
+        emitLog(port, `> [MIB] ✓ Session destroyed.`);
+      } catch (e) {
+        emitLog(port, `> [MIB] Session destruction failed: ${e.message}`);
+      }
+
+      const postLogoutCookies = await chrome.cookies.getAll({ domain: "mib.com.mv" });
+      for (const cookie of postLogoutCookies) {
+        const protocol = cookie.secure ? "https://" : "http://";
+        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+        const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
+        await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
+      }
+    } else {
+      emitLog(port, `> [MIB] Session holder mode active: keeping MIB session alive.`);
+    }
+
+    if (mode === 'history' || mode === 'ledger') {
+      emitLog(port, `> [Viri Bridge] MIB ${mode.toUpperCase()} FETCH SUCCESS.`);
+      port.postMessage({
+        type: 'success',
+        data: null,
+        balance: mibBalance,
+        transactions: last3Txs,
+        raw_history: transactions
+      });
+    } else {
+      if (matchFound) {
+        emitLog(port, `> [Viri Bridge] MIB VERIFICATION SUCCESS: ${matchFound.reference || matchFound.description || 'Transaction matched'}`);
+        const normalizedMatch = normalizeTransactions([matchFound], 'MIB', 1)[0];
+        port.postMessage({
+          type: 'success',
+          data: {
+            status: 'CREDITED',
+            reference: matchFound.reference || matchFound.descr1 || matchFound.description || 'MIB-MATCH',
+            amount: Math.abs(parseFloat(
+              (matchFound.foreignAmount !== undefined && matchFound.foreignAmount !== null && matchFound.curCodeDesc && matchFound.curCodeDesc !== 'MVR')
+                ? matchFound.foreignAmount
+                : (matchFound.amount || matchFound.baseAmount)
+            )).toFixed(2),
+            timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString(),
+            transaction: normalizedMatch
+          },
+          balance: mibBalance,
+          transactions: last3Txs,
+          raw_history: transactions
+        });
+      } else {
+        throw new Error(`Verification Failed: No recent credit transaction found for ${targetAmount} MVR on MIB account ${targetAccount}.`);
+      }
+    }
+
+  } catch (error) {
+    if (port) {
+      emitLog(port, `> [MIB] FATAL ERROR: ${error.message}`);
+    }
+
+    try {
+      await fetch(`${MIB_BASE_URL}/aAuth/logout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'X-Requested-With': 'XMLHttpRequest',
+          'User-Agent': USER_AGENT
+        },
+        body: '',
+        credentials: 'include'
+      });
+    } catch (e) { }
+
+    try {
+      const errorCookies = await chrome.cookies.getAll({ domain: "mib.com.mv" });
+      for (const cookie of errorCookies) {
+        const protocol = cookie.secure ? "https://" : "http://";
+        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+        const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
+        await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
+      }
+    } catch (e) { }
+
+    if (port) {
+      try {
+        port.postMessage({ type: 'error', error: error.message, transactions: last3Txs || [] });
+      } catch (e) { }
     }
   }
 }

@@ -292,7 +292,7 @@ function App() {
   const [currentTick, setCurrentTick] = useState(Date.now());
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.1.4";
+  const LATEST_EXTENSION_VERSION = "1.1.5";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -503,7 +503,7 @@ function App() {
             await checkPendingRequestsRef.current();
           }
         } else if (eventType === 'cache_refresh_requested') {
-          const { request_id, bank_account_id, bank_name, account_number, mib_profile_type, requester_name } = payload;
+          const { request_id, bank_account_id, bank_name, account_number, account_name, mib_profile_type, requester_name } = payload;
 
           addLog(`> [Realtime] Received cache refresh request ID ${request_id} from counter "${requester_name}". Acknowledging...`);
 
@@ -557,6 +557,7 @@ function App() {
                   bank_account_id,
                   bank_name,
                   account_number,
+                  account_name,
                   mib_profile_type,
                   request_type: 'ledger'
                 },
@@ -2682,6 +2683,7 @@ function App() {
           bank: selectedBankName,
           accountId: selectedAccountId,
           accountNumber: selectedAccount ? selectedAccount.account_number : '',
+          accountName: selectedAccount ? selectedAccount.account_name : '',
           mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
           credentials: activeCreds
         }
@@ -2965,6 +2967,7 @@ function App() {
           bank: selectedBankName,
           accountId: targetAccountId,
           accountNumber: selectedAccount ? selectedAccount.account_number : '',
+          accountName: selectedAccount ? selectedAccount.account_name : '',
           mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
           credentials: activeCreds
         }

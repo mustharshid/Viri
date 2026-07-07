@@ -515,6 +515,7 @@ class SessionController extends Controller
             'id'           => $r->id,
             'bank_account_id' => $r->bank_account_id,
             'account_number' => $r->bankAccount?->account_number,
+            'account_name'   => $r->bankAccount?->account_name,
             'bank_name'    => $r->bankAccount?->bank_name,
             'mib_profile_type' => $r->bankAccount?->mib_profile_type ?? '0',
             'request_type' => $r->request_type,
