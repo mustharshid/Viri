@@ -1410,10 +1410,12 @@ function extractNameAroundId(html, id) {
  * Parse profiles from MIB profiles HTML page
  */
 function parseProfilesFromHtml(html) {
+  // Strip img tags to remove massive base64 inline images that break regex lookaheads
+  html = html.replace(/<img[^>]*>/gi, '');
   const profiles = [];
   
   // 1. Parse profile cards from elements with class="profile-card"
-  const cardPattern = /<[^>]+class="[^"]*profile-card[^"]*"[^>]*>([\s\S]{1,1000}?)(?=<div[^>]+class="[^"]*profile-card[^"]*"|$)/gi;
+  const cardPattern = /<[^>]+class="[^"]*profile-card[^"]*"[^>]*>([\s\S]{1,1000}?)(?=<[a-z0-9]+[^>]+class="[^"]*profile-card[^"]*"|$)/gi;
   let match;
   while ((match = cardPattern.exec(html)) !== null) {
     const cardContent = match[0];
