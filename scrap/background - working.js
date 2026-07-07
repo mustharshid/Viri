@@ -1168,6 +1168,24 @@ function parseProfilesFromHtml(html) {
     }
   }
   
+  // 1.5 Parse option elements (e.g. select dropdown options)
+  if (profiles.length === 0) {
+    const optionPattern = /<option[^>]+value=["'](\d+)["'][^>]*>([\s\S]*?)<\/option>/gi;
+    let optMatch;
+    while ((optMatch = optionPattern.exec(html)) !== null) {
+      const id = optMatch[1];
+      const name = optMatch[2].replace(/<[^>]+>/g, '').trim();
+      if (name && !name.toLowerCase().includes('select')) {
+        profiles.push({
+          id,
+          type: '1',
+          rTag: null,
+          name
+        });
+      }
+    }
+  }
+  
   // 2. Fallback for other structures
   if (profiles.length === 0) {
     const patterns = [
@@ -1185,7 +1203,7 @@ function parseProfilesFromHtml(html) {
       }
     }
     for (const id of uniqueIds) {
-      profiles.push({ id, type: 'unknown', rTag: null, name: `ID: ${id}` });
+      profiles.push({ id, type: '1', rTag: null, name: `ID: ${id}` });
     }
   }
   
