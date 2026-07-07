@@ -28,7 +28,7 @@ class RouteServiceProvider extends ServiceProvider
             $key = $request->input('hardware_id') 
                 ?: $request->user()?->id 
                 ?: $request->ip();
-            return Limit::perMinute(120)->by($key);
+            return Limit::perMinute(1000)->by($key);
         });
 
         $this->routes(function () {
