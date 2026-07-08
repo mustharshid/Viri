@@ -1439,7 +1439,7 @@ function parseProfilesFromHtml(html) {
     const idMatch = /data-profileid=["']([^"']+)["']/i.exec(startTag);
     
     if (idMatch) {
-      const windowContent = html.substring(startIndex, startIndex + 1000);
+      const windowContent = html.substring(startIndex, startIndex + 2000);
       const nameMatch = /class=["']profile-name["'][^>]*>([^<]+)/i.exec(windowContent);
       
       profiles.push({
