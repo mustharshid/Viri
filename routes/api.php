@@ -162,6 +162,7 @@ Route::post('/verify-terminal', function (Request $request) {
         'poll_interval_holder' => $holderInterval,
         'poll_interval_requesting' => $requestingInterval,
         'poll_interval_idle' => $idleInterval,
+        'debug_log_mib_html' => (bool) ($settings['debug_log_mib_html'] ?? false),
     ];
 
     $activeTerminalsCount = DB::table('terminal_account_activity')

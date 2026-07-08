@@ -1862,6 +1862,65 @@ export default function AdminDashboard() {
                   <span>120s</span>
                 </div>
               </div>
+
+              {/* Debug MIB Profile HTML */}
+              <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-colors">
+                <div className="flex justify-between items-start mb-2">
+                  <label className="text-sm font-bold text-white block">Debug MIB Profile HTML</label>
+                  <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
+                    (systemSettings.find(s => s.key === 'debug_log_mib_html')?.value === '1' || systemSettings.find(s => s.key === 'debug_log_mib_html')?.value === true) 
+                      ? 'text-emerald-400 bg-emerald-500/10' 
+                      : 'text-zinc-400 bg-zinc-800'
+                  }`}>
+                    {(systemSettings.find(s => s.key === 'debug_log_mib_html')?.value === '1' || systemSettings.find(s => s.key === 'debug_log_mib_html')?.value === true) ? 'ENABLED' : 'DISABLED'}
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+                  When enabled, the companion browser extension will output the raw, cleaned HTML of the MIB profiles page into the superadmin logs chunk-by-chunk for debugging purposes.
+                </p>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-zinc-300 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="debug_log_mib_html"
+                      value="1"
+                      className="accent-yellow-500"
+                      checked={systemSettings.find(s => s.key === 'debug_log_mib_html')?.value === '1' || systemSettings.find(s => s.key === 'debug_log_mib_html')?.value === true || systemSettings.find(s => s.key === 'debug_log_mib_html')?.value === 1}
+                      onChange={() => {
+                        setSystemSettings(prev => {
+                          const exists = prev.some(s => s.key === 'debug_log_mib_html');
+                          if (exists) {
+                            return prev.map(s => s.key === 'debug_log_mib_html' ? { ...s, value: '1' } : s);
+                          } else {
+                            return [...prev, { key: 'debug_log_mib_html', value: '1' }];
+                          }
+                        });
+                      }}
+                    />
+                    Enable
+                  </label>
+                  <label className="flex items-center gap-2 text-xs font-semibold text-zinc-300 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="debug_log_mib_html"
+                      value="0"
+                      className="accent-yellow-500"
+                      checked={systemSettings.find(s => s.key === 'debug_log_mib_html')?.value === '0' || systemSettings.find(s => s.key === 'debug_log_mib_html')?.value === false || systemSettings.find(s => s.key === 'debug_log_mib_html')?.value === 0 || !systemSettings.find(s => s.key === 'debug_log_mib_html') || systemSettings.find(s => s.key === 'debug_log_mib_html')?.value === '0'}
+                      onChange={() => {
+                        setSystemSettings(prev => {
+                          const exists = prev.some(s => s.key === 'debug_log_mib_html');
+                          if (exists) {
+                            return prev.map(s => s.key === 'debug_log_mib_html' ? { ...s, value: '0' } : s);
+                          } else {
+                            return [...prev, { key: 'debug_log_mib_html', value: '0' }];
+                          }
+                        });
+                      }}
+                    />
+                    Disable
+                  </label>
+                </div>
+              </div>
             </div>
 
 

@@ -167,7 +167,8 @@ function App() {
     version_check_interval: 120,
     active_session_heartbeat_interval: 5,
     realtime_event_poll_interval: 3,
-    poll_interval_holder: 1
+    poll_interval_holder: 1,
+    debug_log_mib_html: false
   });
   const [settingsPin, setSettingsPin] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<any>({
@@ -292,7 +293,7 @@ function App() {
   const [currentTick, setCurrentTick] = useState(Date.now());
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.1";
+  const LATEST_EXTENSION_VERSION = "1.2.2";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -572,7 +573,8 @@ function App() {
                   password: activeCreds.password,
                   totpSeed: activeCreds.totpSeed
                 },
-                bankName: bank_name
+                bankName: bank_name,
+                debugLogMibHtml: appConfig.debug_log_mib_html
               }
             });
           });
@@ -1933,7 +1935,8 @@ function App() {
                         password: activeCreds.password,
                         totpSeed: activeCreds.totpSeed
                       },
-                      bankName: bankAccounts.find(a => a.id.toString() === sessionHolderAccountId)?.bank_name || 'BML'
+                      bankName: bankAccounts.find(a => a.id.toString() === sessionHolderAccountId)?.bank_name || 'BML',
+                      debugLogMibHtml: appConfig.debug_log_mib_html
                     }
                   });
                 });
@@ -2751,7 +2754,8 @@ function App() {
           accountNumber: selectedAccount ? selectedAccount.account_number : '',
           accountName: selectedAccount ? selectedAccount.account_name : '',
           mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
-          credentials: activeCreds
+          credentials: activeCreds,
+          debugLogMibHtml: appConfig.debug_log_mib_html
         }
       });
     } catch (msgErr: any) {
@@ -2955,7 +2959,8 @@ function App() {
                   bankName: selectedBankName,
                   backendUrl: backendUrl,
                   hardwareId: hardwareId,
-                  credentials: activeCreds
+                  credentials: activeCreds,
+                  debugLogMibHtml: appConfig.debug_log_mib_html
                 }
               });
               setSessionStatus('holder');
@@ -3035,7 +3040,8 @@ function App() {
           accountNumber: selectedAccount ? selectedAccount.account_number : '',
           accountName: selectedAccount ? selectedAccount.account_name : '',
           mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
-          credentials: activeCreds
+          credentials: activeCreds,
+          debugLogMibHtml: appConfig.debug_log_mib_html
         }
       });
     } catch (msgErr: any) {

@@ -46,16 +46,25 @@ async function saveScrap(stepName, content) {
 }
 
 function logHtmlDebug(port, html) {
-  try {
-    const cleanHtml = html.replace(/<img[^>]*>/gi, '');
-    emitLog(port, `> [MIB] DEBUG: profilesHtml clean length: ${cleanHtml.length}`);
-    const chunkSize = 1000;
-    for (let i = 0; i < cleanHtml.length; i += chunkSize) {
-      emitLog(port, `[HTML-DEBUG] ${cleanHtml.substring(i, i + chunkSize)}`);
+  chrome.storage.local.get(['viri_debug_log_mib_html'], (result) => {
+    const enabled = result.viri_debug_log_mib_html || debugLogMibHtml;
+    if (!enabled) {
+      emitLog(port, `> [MIB] HTML debug logging is disabled. Enable "Debug MIB Profile HTML" in Superadmin Settings to output raw HTML.`);
+      return;
     }
-  } catch (e) {
-    emitLog(port, `> [MIB] DEBUG: failed to output profiles HTML: ${e.message}`);
-  }
+    try {
+      const cleanHtml = html.replace(/<img[^>]*>/gi, '');
+      emitLog(port, `> [MIB] DEBUG: profilesHtml clean length: ${cleanHtml.length}`);
+      emitLog(port, `[HTML-DEBUG-START]`);
+      const chunkSize = 1000;
+      for (let i = 0; i < cleanHtml.length; i += chunkSize) {
+        emitLog(port, `[HTML-DEBUG] ${cleanHtml.substring(i, i + chunkSize)}`);
+      }
+      emitLog(port, `[HTML-DEBUG-END]`);
+    } catch (e) {
+      emitLog(port, `> [MIB] DEBUG: failed to output profiles HTML: ${e.message}`);
+    }
+  });
 }
 
 async function enableBankLockdown() {
@@ -129,13 +138,18 @@ let activePort = null;
 let heldSession = null;
 let heartbeatInterval = null;
 let pollInterval = null;
+let debugLogMibHtml = false;
 
 // Restore session state on worker wake up
-chrome.storage.local.get(['viri_held_session'], (result) => {
+chrome.storage.local.get(['viri_held_session', 'viri_debug_log_mib_html'], (result) => {
   if (result.viri_held_session) {
     heldSession = result.viri_held_session;
     startHeartbeat();
     console.log("[Viri Bridge] Restored heldSession from storage.");
+  }
+  if (result.viri_debug_log_mib_html !== undefined) {
+    debugLogMibHtml = !!result.viri_debug_log_mib_html;
+    console.log("[Viri Bridge] Restored debugLogMibHtml from storage:", debugLogMibHtml);
   }
 });
 
@@ -223,6 +237,12 @@ chrome.runtime.onConnectExternal.addListener((port) => {
     enableBankLockdown();
 
     port.onMessage.addListener(async (msg) => {
+      // Set the debug mode flag if passed in payload
+      if (msg.payload && msg.payload.debugLogMibHtml !== undefined) {
+        debugLogMibHtml = !!msg.payload.debugLogMibHtml;
+        chrome.storage.local.set({ viri_debug_log_mib_html: debugLogMibHtml });
+      }
+
       // Handle the new frontend structure
       if (msg.action === 'VERIFY_TRANSFER') {
         const payload = msg.payload;

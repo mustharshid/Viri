@@ -45,13 +45,19 @@ async function saveScrap(stepName, content) {
 }
 
 function logHtmlDebug(port, html) {
+  if (!debugLogMibHtml) {
+    emitLog(port, `> [MIB] HTML debug logging is disabled. Enable "Debug MIB Profile HTML" in Superadmin Settings to output raw HTML.`);
+    return;
+  }
   try {
     const cleanHtml = html.replace(/<img[^>]*>/gi, '');
     emitLog(port, `> [MIB] DEBUG: profilesHtml clean length: ${cleanHtml.length}`);
+    emitLog(port, `[HTML-DEBUG-START]`);
     const chunkSize = 1000;
     for (let i = 0; i < cleanHtml.length; i += chunkSize) {
       emitLog(port, `[HTML-DEBUG] ${cleanHtml.substring(i, i + chunkSize)}`);
     }
+    emitLog(port, `[HTML-DEBUG-END]`);
   } catch (e) {
     emitLog(port, `> [MIB] DEBUG: failed to output profiles HTML: ${e.message}`);
   }
@@ -125,6 +131,7 @@ clearBankSessions();
 
 // Global active port
 let activePort = null;
+let debugLogMibHtml = false;
 
 chrome.runtime.onConnectExternal.addListener((port) => {
   console.log("[Viri Bridge] PWA Connected via Port:", port.name);
@@ -133,6 +140,11 @@ chrome.runtime.onConnectExternal.addListener((port) => {
     enableBankLockdown();
 
     port.onMessage.addListener(async (msg) => {
+      // Set the debug mode flag if passed in payload
+      if (msg.payload && msg.payload.debugLogMibHtml !== undefined) {
+        debugLogMibHtml = !!msg.payload.debugLogMibHtml;
+      }
+
       // Handle the new frontend structure
       if (msg.action === 'VERIFY_TRANSFER') {
         const payload = msg.payload;
