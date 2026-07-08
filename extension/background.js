@@ -45,6 +45,19 @@ async function saveScrap(stepName, content) {
   }
 }
 
+function logHtmlDebug(port, html) {
+  try {
+    const cleanHtml = html.replace(/<img[^>]*>/gi, '');
+    emitLog(port, `> [MIB] DEBUG: profilesHtml clean length: ${cleanHtml.length}`);
+    const chunkSize = 1000;
+    for (let i = 0; i < cleanHtml.length; i += chunkSize) {
+      emitLog(port, `[HTML-DEBUG] ${cleanHtml.substring(i, i + chunkSize)}`);
+    }
+  } catch (e) {
+    emitLog(port, `> [MIB] DEBUG: failed to output profiles HTML: ${e.message}`);
+  }
+}
+
 async function enableBankLockdown() {
   const rules = [
     {
@@ -1860,6 +1873,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
 
     const profilesHtml = await profilesRes.text();
     await saveScrap('profiles_page', profilesHtml);
+    logHtmlDebug(port, profilesHtml);
     try {
       rTag = extractRTag(profilesHtml);
     } catch (e) {
@@ -2522,6 +2536,7 @@ async function runMibMultiProfileFlow(credentials, targetAccount, targetAccountN
 
       const profilesHtml = await profilesRes.text();
       await saveScrap('profiles_page', profilesHtml);
+      logHtmlDebug(port, profilesHtml);
       try {
         rTag = extractRTag(profilesHtml);
       } catch (e) {
