@@ -291,6 +291,7 @@ Route::post('/terminal/bank-accounts/reset-failures', [BankAccountLockController
 Route::post('/terminal/bank-accounts/map-credentials', [BankAccountLockController::class, 'mapCredentials']);
 
 // Credential Sync (Terminal side — hardware_id auth)
+Route::get('/terminal/credential-sync/sse',                    [CredentialSyncController::class, 'sseStream']);
 Route::get('/terminal/credential-sync/pending',                [CredentialSyncController::class, 'pendingForTerminal']);
 Route::post('/terminal/credential-sync/{id}/upload',           [CredentialSyncController::class, 'upload']);
 Route::post('/terminal/credential-sync/{id}/confirm-import',   [CredentialSyncController::class, 'confirmImport']);

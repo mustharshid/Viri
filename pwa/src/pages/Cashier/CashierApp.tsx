@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, Terminal, Activity, Sun, Moon, ExternalLink, Trash2 } from 'lucide-react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, KeyRound, Download } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import CryptoJS from 'crypto-js';
 
@@ -450,6 +450,12 @@ function App() {
   const [tempPassword, setTempPassword] = useState('');
   const [tempTotpSeed, setTempTotpSeed] = useState('');
   const [expandedCredsAccountId, setExpandedCredsAccountId] = useState<string | null>(null);
+
+  // Standalone/On-demand Credential Sync States
+  const [importPending, setImportPending] = useState(false);
+  const [importSyncId, setImportSyncId] = useState<string | null>(null);
+  const [importCountdown, setImportCountdown] = useState<number>(300);
+  const [importStatus, setImportStatus] = useState<'idle' | 'connecting' | 'done' | 'error'>('idle');
 
 
 
@@ -1320,11 +1326,12 @@ function App() {
     }, autoDismissMs);
   };
 
+  // Standalone/On-demand Sync Poll (Runs only when settings panel is open)
   useEffect(() => {
-    if (!hardwareId || !backendUrl || isSetupMode) return;
+    if (!hardwareId || !backendUrl || isSetupMode || !showSettings) return;
 
     const poll = async () => {
-      if (credSyncStatus !== 'idle') return; // already handling one
+      if (credSyncStatus === 'exporting' || importStatus === 'connecting') return;
       try {
         const res = await fetch(`${backendUrl}/terminal/credential-sync/pending?hardware_id=${hardwareId}`);
         if (!res.ok) return;
@@ -1342,33 +1349,92 @@ function App() {
             body: JSON.stringify({ hardware_id: hardwareId, ...pkg })
           });
           if (!uploadRes.ok) throw new Error('Upload failed');
-          showCredSyncMsg('export_done', '✅ Credentials encrypted and exported. Select a target terminal in Company Dashboard.', 12000);
+          showCredSyncMsg('export_done', '✅ Credentials encrypted and uploaded successfully!', 8000);
         }
 
         if (data.action === 'import') {
-          setCredSyncStatus('importing');
-          setCredSyncMsg('🔐 Decrypting and importing credentials...');
-          const decrypted = await decryptCredentialsFromSync(data.payload);
-          setAccountsCreds(decrypted);
-          const confirmRes = await fetch(`${backendUrl}/terminal/credential-sync/${data.sync_id}/confirm-import`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ hardware_id: hardwareId })
-          });
-          if (!confirmRes.ok) throw new Error('Confirm failed');
-          showCredSyncMsg('import_done', '✅ Credentials imported successfully!', 8000);
+          if (importSyncId !== data.sync_id) {
+            setImportPending(true);
+            setImportSyncId(data.sync_id);
+            setImportCountdown(300);
+            setImportStatus('idle');
+          }
         }
       } catch (e: any) {
-        showCredSyncMsg('error', `❌ Credential sync failed: ${e.message}`, 12000);
+        showCredSyncMsg('error', `❌ Sync check failed: ${e.message}`, 8000);
       }
     };
 
-    const intervalId = setInterval(poll, appConfig.credential_sync_poll_interval * 1000);
-    return () => {
-      clearInterval(intervalId);
-      if (credSyncTimerRef.current) clearTimeout(credSyncTimerRef.current);
+    poll();
+    const intervalId = setInterval(poll, 5000);
+    return () => clearInterval(intervalId);
+  }, [hardwareId, backendUrl, isSetupMode, showSettings, credSyncStatus, importStatus, accountsCreds, importSyncId]);
+
+  // Countdown timer for pending imports
+  useEffect(() => {
+    if (!importPending || importCountdown <= 0) {
+      if (importCountdown <= 0) {
+        setImportPending(false);
+        setImportSyncId(null);
+      }
+      return;
+    }
+    const timer = setInterval(() => {
+      setImportCountdown(prev => prev - 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [importPending, importCountdown]);
+
+  const handleImportCredentials = async () => {
+    if (!importSyncId) return;
+    setImportStatus('connecting');
+    
+    const sseUrl = `${backendUrl}/terminal/credential-sync/sse?hardware_id=${hardwareId}`;
+    const sse = new EventSource(sseUrl);
+
+    sse.addEventListener('import_ready', async (e: any) => {
+      try {
+        const payload = JSON.parse(e.data);
+        const decrypted = await decryptCredentialsFromSync(payload);
+        setAccountsCreds(decrypted);
+        localStorage.setItem('viri_accounts_creds', JSON.stringify(decrypted));
+
+        const confirmRes = await fetch(`${backendUrl}/terminal/credential-sync/${payload.sync_id}/confirm-import`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hardware_id: hardwareId })
+        });
+        if (!confirmRes.ok) throw new Error('Confirmation failed on server');
+
+        setImportStatus('done');
+        setImportPending(false);
+        setImportSyncId(null);
+        showCredSyncMsg('import_done', '✅ Credentials imported successfully!', 8000);
+      } catch (err: any) {
+        setImportStatus('error');
+        showCredSyncMsg('error', `❌ Decryption or confirmation failed: ${err.message}`, 12000);
+      } finally {
+        sse.close();
+      }
+    });
+
+    sse.addEventListener('not_ready', (e: any) => {
+      setImportStatus('error');
+      try {
+        const d = JSON.parse(e.data);
+        showCredSyncMsg('error', `❌ Sync not ready: ${d.message}`, 8000);
+      } catch {
+        showCredSyncMsg('error', '❌ Sync data not ready. Please try again.', 8000);
+      }
+      sse.close();
+    });
+
+    sse.onerror = () => {
+      setImportStatus('error');
+      showCredSyncMsg('error', '❌ Connection error during import.', 8000);
+      sse.close();
     };
-  }, [hardwareId, backendUrl, isSetupMode, credSyncStatus, accountsCreds, appConfig.credential_sync_poll_interval]);
+  };
 
   // Synchronize isDefault check box with selectedAccountId and defaultAccountId
   useEffect(() => {
@@ -3744,6 +3810,40 @@ function App() {
                         All bank login credentials (usernames, passwords, and 2FA seeds) are encrypted locally in your browser storage and never transmitted to Viri servers.
                       </p>
                     </div>
+
+                    {importPending && (
+                      <div className="mt-4 p-5 bg-emerald-950/20 border border-emerald-500/30 rounded-xl text-center space-y-4 animate-pulse">
+                        <KeyRound size={28} className="mx-auto text-emerald-400" />
+                        <div>
+                          <h5 className="text-xs font-bold text-white uppercase tracking-wider mb-1">Credential Sync Ready</h5>
+                          <p className="text-[11px] text-zinc-300">
+                            Another terminal's bank credentials are ready to be copied to this machine.
+                          </p>
+                        </div>
+                        <div className="flex items-center justify-center gap-3">
+                          <button
+                            onClick={handleImportCredentials}
+                            disabled={importStatus === 'connecting'}
+                            className="btn btn-success text-black py-2 px-4 text-xs font-bold flex items-center gap-1.5 shadow-md rounded-xl disabled:opacity-50"
+                          >
+                            {importStatus === 'connecting' ? (
+                              <>
+                                <span className="h-3.5 w-3.5 rounded-full border-2 border-black border-t-transparent animate-spin shrink-0"></span>
+                                Importing...
+                              </>
+                            ) : (
+                              <>
+                                <Download size={13} />
+                                Import Credentials
+                              </>
+                            )}
+                          </button>
+                          <span className="text-xs font-mono text-emerald-400 bg-emerald-950/50 border border-emerald-500/20 px-2 py-1 rounded">
+                            {String(Math.floor(importCountdown / 60)).padStart(2, '0')}:{String(importCountdown % 60).padStart(2, '0')}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

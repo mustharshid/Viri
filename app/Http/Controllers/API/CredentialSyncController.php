@@ -22,6 +22,7 @@ class CredentialSyncController extends Controller
     {
         $request->validate([
             'source_terminal_id' => 'required|integer',
+            'target_terminal_id' => 'required|integer',
         ]);
 
         $tenantId = $request->user()->tenant_id;
@@ -35,7 +36,20 @@ class CredentialSyncController extends Controller
             return response()->json(['error' => 'Source terminal not found or inactive.'], 404);
         }
 
-        // Expire any existing active sync for this source terminal to avoid orphans
+        $target = Terminal::where('id', $request->target_terminal_id)
+            ->where('tenant_id', $tenantId)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$target) {
+            return response()->json(['error' => 'Target terminal not found or inactive.'], 404);
+        }
+
+        if ($target->id === $source->id) {
+            return response()->json(['error' => 'Source and target terminals must be different.'], 422);
+        }
+
+        // Expire any existing active syncs for this source terminal
         CredentialSyncRequest::where('source_terminal_id', $source->id)
             ->active()
             ->update(['status' => 'expired']);
@@ -43,8 +57,9 @@ class CredentialSyncController extends Controller
         $sync = CredentialSyncRequest::create([
             'tenant_id'           => $tenantId,
             'source_terminal_id'  => $source->id,
+            'target_terminal_id'  => $target->id,
             'status'              => 'pending_export',
-            'expires_at'          => now()->addMinutes(30),
+            'expires_at'          => now()->addMinutes(5),
         ]);
 
         AuditLog::create([
@@ -55,10 +70,14 @@ class CredentialSyncController extends Controller
             'metadata'   => [
                 'sync_id'              => $sync->id,
                 'source_terminal_name' => $source->terminal_name,
+                'target_terminal_name' => $target->terminal_name,
             ],
         ]);
 
-        return response()->json(['sync_id' => $sync->id]);
+        return response()->json([
+            'sync_id'    => $sync->id,
+            'expires_at' => $sync->expires_at->toIso8601String(),
+        ]);
     }
 
     /**
@@ -178,6 +197,78 @@ class CredentialSyncController extends Controller
     // =========================================================================
 
     /**
+     * GET /api/terminal/credential-sync/sse?hardware_id=X
+     * Target terminal opens this SSE connection only when the cashier presses
+     * "Import Credentials". Server pushes the encrypted payload immediately if
+     * ready, or waits up to 30 seconds before sending a not_ready event.
+     */
+    public function sseStream(Request $request)
+    {
+        $request->validate(['hardware_id' => 'required|string']);
+
+        $terminal = Terminal::where('hardware_id', $request->hardware_id)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$terminal) {
+            return response()->json(['error' => 'Terminal unauthorized'], 403);
+        }
+
+        $headers = [
+            'Content-Type'                => 'text/event-stream',
+            'Cache-Control'               => 'no-cache',
+            'Connection'                  => 'keep-alive',
+            'X-Accel-Buffering'           => 'no',
+            'Access-Control-Allow-Origin' => '*',
+        ];
+
+        return response()->stream(function () use ($terminal) {
+            if (ob_get_level() > 0) {
+                ob_end_clean();
+            }
+
+            $maxWait  = 30;  // seconds before sending not_ready
+            $elapsed  = 0;
+            $interval = 2;   // poll interval in seconds
+
+            while ($elapsed < $maxWait) {
+                // Re-query each iteration to get latest status
+                $sync = CredentialSyncRequest::where('target_terminal_id', $terminal->id)
+                    ->where('status', 'pending_import')
+                    ->active()
+                    ->first();
+
+                if ($sync) {
+                    $payload = [
+                        'sync_id'        => $sync->id,
+                        'passphrase'     => $sync->passphrase,
+                        'encrypted_blob' => $sync->encrypted_blob,
+                        'wrapped_dek'    => $sync->wrapped_dek,
+                        'kdf_salt'       => $sync->kdf_salt,
+                        'gcm_iv'         => $sync->gcm_iv,
+                    ];
+                    echo 'event: import_ready' . PHP_EOL;
+                    echo 'data: ' . json_encode($payload) . PHP_EOL . PHP_EOL;
+                    flush();
+                    return;
+                }
+
+                // Send a keep-alive comment to prevent timeout
+                echo ': ping' . PHP_EOL . PHP_EOL;
+                flush();
+
+                sleep($interval);
+                $elapsed += $interval;
+            }
+
+            // Timed out — tell client to stop
+            echo 'event: not_ready' . PHP_EOL;
+            echo 'data: ' . json_encode(['message' => 'Sync data not ready. Please try again.']) . PHP_EOL . PHP_EOL;
+            flush();
+        }, 200, $headers);
+    }
+
+    /**
      * GET /api/terminal/credential-sync/pending?hardware_id=X
      * Terminal polls for its pending sync task (export or import).
      */
@@ -263,7 +354,7 @@ class CredentialSyncController extends Controller
         }
 
         $sync->update([
-            'status'         => 'ready',
+            'status'         => $sync->target_terminal_id ? 'pending_import' : 'ready',
             'passphrase'     => $request->passphrase,
             'encrypted_blob' => $request->encrypted_blob,
             'wrapped_dek'    => $request->wrapped_dek,
@@ -271,7 +362,7 @@ class CredentialSyncController extends Controller
             'gcm_iv'         => $request->gcm_iv,
         ]);
 
-        return response()->json(['status' => 'ready']);
+        return response()->json(['status' => $sync->target_terminal_id ? 'pending_import' : 'ready']);
     }
 
     /**

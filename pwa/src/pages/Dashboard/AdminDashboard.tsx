@@ -39,6 +39,7 @@ export default function AdminDashboard() {
   const [logsPage, setLogsPage] = useState(1);
   const [logsTotalPages, setLogsTotalPages] = useState(1);
   const [logRefreshCountdown, setLogRefreshCountdown] = useState<number | null>(null);
+  const [logRefreshInterval, setLogRefreshInterval] = useState<number>(15);
 
   // Payments State
   const [payments, setPayments] = useState<any[]>([]);
@@ -267,6 +268,7 @@ export default function AdminDashboard() {
     
     const intervalStr = systemSettings.find(s => s.key === 'session_log_poll_interval')?.value || '15';
     const intervalValue = parseInt(intervalStr, 10);
+    setLogRefreshInterval(intervalValue);
     setLogRefreshCountdown(intervalValue);
 
     const timer = setInterval(() => {
@@ -1905,7 +1907,9 @@ export default function AdminDashboard() {
                 onClick={() => {
                   handleRefresh();
                   const intervalStr = systemSettings.find(s => s.key === 'session_log_poll_interval')?.value || '15';
-                  setLogRefreshCountdown(parseInt(intervalStr, 10));
+                  const iv = parseInt(intervalStr, 10);
+                  setLogRefreshInterval(iv);
+                  setLogRefreshCountdown(iv);
                 }}
                 className="btn border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-300 py-1 px-2.5 text-xs flex items-center gap-1.5 h-auto min-h-0 font-medium rounded-lg"
                 title="Refresh logs data"
@@ -1913,10 +1917,16 @@ export default function AdminDashboard() {
                 <RefreshCw size={11} /> Refresh Logs
               </button>
               {logRefreshCountdown !== null && (
-                <span className="text-[10px] text-zinc-500 font-mono flex items-center gap-1.5 bg-black/40 px-2 py-1 rounded border border-zinc-800/50">
-                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
-                  Refresh in {logRefreshCountdown}s
-                </span>
+                <div className="flex items-center gap-2 bg-black/40 px-2.5 py-1.5 rounded-lg border border-zinc-800/50" title={`Auto-refreshes in ${logRefreshCountdown}s`}>
+                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0"></div>
+                  <div className="w-24 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-blue-500 rounded-full transition-all duration-1000 ease-linear"
+                      style={{ width: `${Math.max(0, (logRefreshCountdown / logRefreshInterval) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-zinc-500 font-mono w-6 text-right">{logRefreshCountdown}s</span>
+                </div>
               )}
             </div>
           </div>

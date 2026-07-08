@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ShieldCheck, ArrowRight, Loader2 } from 'lucide-react';
+import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 
 const Tooltip = ({ text, onClick }: { text: string; onClick?: () => void }) => (
@@ -33,94 +33,111 @@ export default function CompanyDashboard() {
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [syncHealthSummary, setSyncHealthSummary] = useState<any>(null);
 
-  // Credential Sync Wizard
-  const [syncWizard, setSyncWizard] = useState<{
-    open: boolean;
-    step: 'confirm_source' | 'waiting_export' | 'select_target' | 'waiting_import' | 'done' | 'error';
+  // ── Credential Sync (Standalone Page) ──────────────────────────────────────
+  const [credSync, setCredSync] = useState<{
+    state: 'idle' | 'syncing' | 'done' | 'error';
     syncId: string | null;
-    sourceTerminalId: string | null;
-    targetTerminalId: string | null;
+    sourceTerminalId: string;
+    targetTerminalId: string;
+    syncStartedAt: number | null;
+    sourceReady: boolean;  // source has encrypted & uploaded
     error: string | null;
   }>({
-    open: false,
-    step: 'confirm_source',
+    state: 'idle',
     syncId: null,
-    sourceTerminalId: null,
-    targetTerminalId: null,
+    sourceTerminalId: '',
+    targetTerminalId: '',
+    syncStartedAt: null,
+    sourceReady: false,
     error: null,
   });
+  const credSyncCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [credSyncSecondsLeft, setCredSyncSecondsLeft] = useState(300);
 
-  const openSyncWizard = (terminalId: string) => {
-    setSyncWizard({ open: true, step: 'confirm_source', syncId: null, sourceTerminalId: terminalId, targetTerminalId: null, error: null });
-  };
-
-  const closeSyncWizard = async () => {
-    // Cancel any active sync on the server
-    if (syncWizard.syncId && !['done'].includes(syncWizard.step)) {
-      const token = localStorage.getItem('viri_token');
-      await fetch(`/api/company/credential-sync/${syncWizard.syncId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      }).catch(() => {});
-    }
-    setSyncWizard({ open: false, step: 'confirm_source', syncId: null, sourceTerminalId: null, targetTerminalId: null, error: null });
-  };
-
-  const startSync = async () => {
+  const startCredSync = async () => {
+    if (!credSync.sourceTerminalId || !credSync.targetTerminalId) return;
     const token = localStorage.getItem('viri_token');
     const res = await fetch('/api/company/credential-sync/initiate', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ source_terminal_id: parseInt(syncWizard.sourceTerminalId!) })
+      body: JSON.stringify({
+        source_terminal_id: parseInt(credSync.sourceTerminalId),
+        target_terminal_id: parseInt(credSync.targetTerminalId),
+      })
     });
     const data = await res.json();
     if (!res.ok) {
-      setSyncWizard(prev => ({ ...prev, step: 'error', error: data.error || 'Failed to start sync.' }));
+      setCredSync(prev => ({ ...prev, state: 'error', error: data.error || 'Failed to start sync.' }));
       return;
     }
-    setSyncWizard(prev => ({ ...prev, step: 'waiting_export', syncId: data.sync_id }));
+    setCredSync(prev => ({
+      ...prev,
+      state: 'syncing',
+      syncId: data.sync_id,
+      syncStartedAt: Date.now(),
+      sourceReady: false,
+      error: null,
+    }));
+    setCredSyncSecondsLeft(300);
   };
 
-  const triggerImport = async () => {
-    if (!syncWizard.targetTerminalId) return;
-    const token = localStorage.getItem('viri_token');
-    const res = await fetch(`/api/company/credential-sync/${syncWizard.syncId}/trigger-import`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target_terminal_id: parseInt(syncWizard.targetTerminalId) })
-    });
-    if (!res.ok) {
-      const d = await res.json();
-      setSyncWizard(prev => ({ ...prev, step: 'error', error: d.error || 'Failed to trigger import.' }));
-      return;
+  const cancelCredSync = async () => {
+    if (credSync.syncId) {
+      const token = localStorage.getItem('viri_token');
+      await fetch(`/api/company/credential-sync/${credSync.syncId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).catch(() => {});
     }
-    setSyncWizard(prev => ({ ...prev, step: 'waiting_import' }));
+    setCredSync({ state: 'idle', syncId: null, sourceTerminalId: '', targetTerminalId: '', syncStartedAt: null, sourceReady: false, error: null });
+    if (credSyncCountdownRef.current) clearInterval(credSyncCountdownRef.current);
   };
 
-  // Poll sync status while wizard is in waiting states
+  // Countdown timer while syncing
   useEffect(() => {
-    if (!syncWizard.syncId || !['waiting_export', 'waiting_import'].includes(syncWizard.step)) return;
+    if (credSync.state !== 'syncing' || !credSync.syncStartedAt) {
+      if (credSyncCountdownRef.current) clearInterval(credSyncCountdownRef.current);
+      return;
+    }
+    credSyncCountdownRef.current = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - credSync.syncStartedAt!) / 1000);
+      const left = Math.max(0, 300 - elapsed);
+      setCredSyncSecondsLeft(left);
+      if (left === 0) {
+        clearInterval(credSyncCountdownRef.current!);
+        setCredSync(prev => ({ ...prev, state: 'error', error: 'Sync session expired (5 min timeout). Please start again.' }));
+      }
+    }, 1000);
+    return () => { if (credSyncCountdownRef.current) clearInterval(credSyncCountdownRef.current); };
+  }, [credSync.state, credSync.syncStartedAt]);
+
+  // Poll status while syncing
+  useEffect(() => {
+    if (credSync.state !== 'syncing' || !credSync.syncId) return;
     const token = localStorage.getItem('viri_token');
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/company/credential-sync/${syncWizard.syncId}/status`, {
+        const res = await fetch(`/api/company/credential-sync/${credSync.syncId}/status`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (!res.ok) return;
         const data = await res.json();
-        if (syncWizard.step === 'waiting_export' && data.status === 'ready') {
-          setSyncWizard(prev => ({ ...prev, step: 'select_target' }));
+        if (data.status === 'ready' || data.status === 'pending_import') {
+          setCredSync(prev => ({ ...prev, sourceReady: true }));
         }
-        if (syncWizard.step === 'waiting_import' && data.status === 'completed') {
-          setSyncWizard(prev => ({ ...prev, step: 'done' }));
+        if (data.status === 'completed') {
+          setCredSync(prev => ({ ...prev, state: 'done' }));
+          if (credSyncCountdownRef.current) clearInterval(credSyncCountdownRef.current);
         }
         if (data.status === 'expired') {
-          setSyncWizard(prev => ({ ...prev, step: 'error', error: 'Sync request expired. Please try again.' }));
+          setCredSync(prev => ({ ...prev, state: 'error', error: 'Sync session expired on the server. Please start again.' }));
+          if (credSyncCountdownRef.current) clearInterval(credSyncCountdownRef.current);
         }
       } catch { /* ignore */ }
     }, 3000);
     return () => clearInterval(interval);
-  }, [syncWizard.syncId, syncWizard.step]);
+  }, [credSync.state, credSync.syncId]);
+
 
   const navigateToHelp = (sectionId: string) => {
     setActiveTab('help');
@@ -625,6 +642,9 @@ export default function CompanyDashboard() {
             <button onClick={() => setActiveTab('activity')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'activity' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
               <Clock size={18} /> Activity Logs
             </button>
+            <button onClick={() => setActiveTab('credential-sync')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'credential-sync' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
+              <KeyRound size={18} /> Credential Sync
+            </button>
             <button onClick={() => setActiveTab('plans')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'plans' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
               <CreditCard size={18} /> Plans & Pricing
             </button>
@@ -956,13 +976,9 @@ export default function CompanyDashboard() {
                             </button>
 
                             {terminals.filter(t => t.id !== term.id && !t.pairing_code).length > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => openSyncWizard(term.id.toString())}
-                                className="w-full border border-emerald-500/30 hover:border-emerald-500 text-emerald-400 hover:bg-emerald-600 hover:text-white py-2.5 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all font-semibold shadow-sm"
-                              >
-                                <ShieldCheck size={12} /> Sync Credentials
-                              </button>
+                              <div className="text-[10px] text-zinc-600 text-center py-1">
+                                Use <button onClick={() => setActiveTab('credential-sync')} className="text-emerald-500 hover:underline">Credential Sync</button> to copy credentials to this terminal.
+                              </div>
                             )}
 
                             {term.allow_debug_until && new Date(term.allow_debug_until).getTime() > now && term.debug_one_time_code ? (
@@ -1718,6 +1734,186 @@ export default function CompanyDashboard() {
           </div>
         )}
 
+        {/* --- TAB: CREDENTIAL SYNC --- */}
+        {activeTab === 'credential-sync' && (() => {
+          const pairedTerminals = terminals.filter(t => !t.pairing_code && t.status === 'active');
+          const mins = String(Math.floor(credSyncSecondsLeft / 60)).padStart(2, '0');
+          const secs = String(credSyncSecondsLeft % 60).padStart(2, '0');
+          return (
+            <div className="glass-panel p-8 max-w-2xl animate-fade-in">
+              {/* Header */}
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 rounded-xl bg-emerald-900/50 border border-emerald-600/30 flex items-center justify-center">
+                  <KeyRound size={18} className="text-emerald-400" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-white">Credential Sync</h2>
+                  <p className="text-xs text-zinc-400 mt-0.5">Securely copy bank credentials from one terminal to another using AES-256 encryption.</p>
+                </div>
+              </div>
+
+              {/* Security note */}
+              <div className="bg-emerald-950/30 border border-emerald-800/30 rounded-xl p-4 text-xs text-emerald-300 space-y-1.5 mb-6">
+                <div className="flex gap-2"><span>🔐</span><span>Credentials are encrypted on the source terminal before leaving the device</span></div>
+                <div className="flex gap-2"><span>🗑️</span><span>The encrypted package is permanently deleted from Viri servers after import</span></div>
+                <div className="flex gap-2"><span>👤</span><span>The target cashier must actively press "Import Credentials" to accept the transfer</span></div>
+              </div>
+
+              {/* IDLE STATE: select terminals */}
+              {credSync.state === 'idle' && (
+                <div className="space-y-5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="input-group">
+                      <label className="input-label flex items-center gap-1.5"><MonitorSmartphone size={13} /> Source Terminal <span className="text-zinc-500">(has credentials)</span></label>
+                      <select
+                        className="input-field w-full"
+                        value={credSync.sourceTerminalId}
+                        onChange={e => setCredSync(prev => ({ ...prev, sourceTerminalId: e.target.value, targetTerminalId: prev.targetTerminalId === e.target.value ? '' : prev.targetTerminalId }))}
+                      >
+                        <option value="">Select source terminal...</option>
+                        {pairedTerminals.map(t => (
+                          <option key={t.id} value={t.id.toString()}>{t.terminal_name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label flex items-center gap-1.5"><MonitorSmartphone size={13} /> Target Terminal <span className="text-zinc-500">(needs credentials)</span></label>
+                      <select
+                        className="input-field w-full"
+                        value={credSync.targetTerminalId}
+                        onChange={e => setCredSync(prev => ({ ...prev, targetTerminalId: e.target.value }))}
+                      >
+                        <option value="">Select target terminal...</option>
+                        {pairedTerminals.filter(t => t.id.toString() !== credSync.sourceTerminalId).map(t => (
+                          <option key={t.id} value={t.id.toString()}>{t.terminal_name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  {pairedTerminals.length < 2 && (
+                    <p className="text-xs text-amber-400 bg-amber-950/30 border border-amber-700/30 rounded-lg p-3">
+                      ⚠️ You need at least 2 active paired terminals to use Credential Sync.
+                    </p>
+                  )}
+                  <button
+                    onClick={startCredSync}
+                    disabled={!credSync.sourceTerminalId || !credSync.targetTerminalId || credSync.sourceTerminalId === credSync.targetTerminalId}
+                    className="btn btn-success w-full py-3 flex items-center justify-center gap-2 font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Start Sync <ArrowRight size={16} />
+                  </button>
+                </div>
+              )}
+
+              {/* SYNCING STATE: progress steps + countdown */}
+              {credSync.state === 'syncing' && (() => {
+                const srcTerm = pairedTerminals.find(t => t.id.toString() === credSync.sourceTerminalId);
+                const tgtTerm = pairedTerminals.find(t => t.id.toString() === credSync.targetTerminalId);
+                return (
+                  <div className="space-y-6">
+                    {/* Countdown */}
+                    <div className="flex items-center justify-between bg-black/30 border border-zinc-800 rounded-xl px-4 py-3">
+                      <span className="text-xs text-zinc-400">Session expires in</span>
+                      <span className={`font-mono font-bold text-lg ${credSyncSecondsLeft < 60 ? 'text-red-400 animate-pulse' : 'text-emerald-400'}`}>{mins}:{secs}</span>
+                    </div>
+
+                    {/* Steps */}
+                    <div className="space-y-3">
+                      {/* Step 1 */}
+                      <div className="flex items-start gap-3 p-3 rounded-xl bg-emerald-950/20 border border-emerald-800/30">
+                        <CheckCircle2 size={18} className="text-emerald-400 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="text-sm font-semibold text-white">Sync initiated</p>
+                          <p className="text-xs text-zinc-400">Source: <span className="text-white">{srcTerm?.terminal_name}</span> → Target: <span className="text-white">{tgtTerm?.terminal_name}</span></p>
+                        </div>
+                      </div>
+
+                      {/* Step 2 */}
+                      <div className={`flex items-start gap-3 p-3 rounded-xl border transition-all ${
+                        credSync.sourceReady
+                          ? 'bg-emerald-950/20 border-emerald-800/30'
+                          : 'bg-zinc-900/30 border-zinc-800'
+                      }`}>
+                        {credSync.sourceReady
+                          ? <CheckCircle2 size={18} className="text-emerald-400 mt-0.5 shrink-0" />
+                          : <Loader2 size={18} className="text-zinc-400 mt-0.5 shrink-0 animate-spin" />}
+                        <div>
+                          <p className="text-sm font-semibold text-white">Source terminal encrypting</p>
+                          <p className="text-xs text-zinc-400">
+                            {credSync.sourceReady
+                              ? 'Credentials encrypted and uploaded — ready for import.'
+                              : `Waiting for ${srcTerm?.terminal_name} to encrypt credentials in the background...`}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Step 3 */}
+                      <div className={`flex items-start gap-3 p-3 rounded-xl border transition-all ${
+                        !credSync.sourceReady ? 'opacity-40 bg-zinc-900/20 border-zinc-800/40' : 'bg-zinc-900/30 border-zinc-700'
+                      }`}>
+                        <Loader2 size={18} className="text-zinc-400 mt-0.5 shrink-0 animate-spin" />
+                        <div>
+                          <p className="text-sm font-semibold text-white">Waiting for target cashier</p>
+                          <p className="text-xs text-zinc-400">
+                            Tell the cashier at <span className="text-white">{tgtTerm?.terminal_name}</span> to open Settings and press <strong className="text-emerald-400">"Import Credentials"</strong>.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={cancelCredSync}
+                      className="btn btn-outline border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white w-full py-2.5 text-sm"
+                    >
+                      Cancel Sync
+                    </button>
+                  </div>
+                );
+              })()}
+
+              {/* DONE STATE */}
+              {credSync.state === 'done' && (
+                <div className="text-center space-y-5 py-4">
+                  <div className="w-16 h-16 rounded-full bg-emerald-900/50 border-2 border-emerald-500 flex items-center justify-center mx-auto">
+                    <CheckCircle2 size={32} className="text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-white font-bold text-lg">Sync Complete!</p>
+                    <p className="text-zinc-400 text-sm mt-1">Credentials synchronized successfully.</p>
+                    <p className="text-zinc-600 text-xs mt-2">The encrypted package and passphrase have been permanently deleted from Viri's servers.</p>
+                  </div>
+                  <button
+                    onClick={() => setCredSync({ state: 'idle', syncId: null, sourceTerminalId: '', targetTerminalId: '', syncStartedAt: null, sourceReady: false, error: null })}
+                    className="btn btn-success w-full py-3 font-semibold"
+                  >
+                    Start Another Sync
+                  </button>
+                </div>
+              )}
+
+              {/* ERROR STATE */}
+              {credSync.state === 'error' && (
+                <div className="text-center space-y-5 py-4">
+                  <div className="w-14 h-14 rounded-full bg-red-950/50 border-2 border-red-500 flex items-center justify-center mx-auto">
+                    <X size={28} className="text-red-400" />
+                  </div>
+                  <div>
+                    <p className="text-red-300 font-semibold">Sync Failed</p>
+                    <p className="text-zinc-400 text-sm mt-1">{credSync.error}</p>
+                  </div>
+                  <button
+                    onClick={() => setCredSync({ state: 'idle', syncId: null, sourceTerminalId: '', targetTerminalId: '', syncStartedAt: null, sourceReady: false, error: null })}
+                    className="btn btn-outline border-zinc-600 text-zinc-300 hover:bg-zinc-800 w-full py-2.5 font-semibold"
+                  >
+                    Try Again
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+
         {/* --- TAB: SETTINGS --- */}
         {activeTab === 'settings' && (
           <div className="glass-panel p-8 max-w-xl animate-fade-in">
@@ -1796,153 +1992,7 @@ export default function CompanyDashboard() {
 
       </main>
 
-      {/* ── Credential Sync Wizard Modal ── */}
-      {syncWizard.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-          <div className="bg-zinc-900 border border-zinc-700/80 rounded-2xl max-w-lg w-full p-7 shadow-2xl relative">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-emerald-900/60 border border-emerald-600/40 flex items-center justify-center">
-                  <ShieldCheck size={16} className="text-emerald-400" />
-                </div>
-                <h2 className="text-lg font-bold text-white">Secure Credential Sync</h2>
-              </div>
-              <button onClick={closeSyncWizard} className="text-zinc-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5">
-                <X size={18} />
-              </button>
-            </div>
 
-            {/* Step indicators */}
-            <div className="flex items-center gap-1.5 mb-6">
-              {(['confirm_source', 'waiting_export', 'select_target', 'waiting_import', 'done'] as const).map((s, i) => (
-                <div key={s} className={`h-1 rounded-full flex-1 transition-all ${
-                  ['confirm_source', 'waiting_export', 'select_target', 'waiting_import', 'done'].indexOf(syncWizard.step) >= i
-                    ? 'bg-emerald-500'
-                    : 'bg-zinc-700'
-                }`} />
-              ))}
-            </div>
-
-            {/* Step 1 — Confirm Source */}
-            {syncWizard.step === 'confirm_source' && (() => {
-              const srcTerm = terminals.find(t => t.id.toString() === syncWizard.sourceTerminalId);
-              return (
-                <div className="space-y-4">
-                  <p className="text-zinc-300 text-sm leading-relaxed">
-                    This will securely copy all bank credentials from <strong className="text-white">{srcTerm?.terminal_name}</strong> to another terminal using AES-256 encryption. The process runs automatically in the background — no action required on the terminal devices.
-                  </p>
-                  <div className="bg-emerald-950/40 border border-emerald-800/40 rounded-xl p-4 text-xs text-emerald-300 space-y-1">
-                    <div className="flex gap-2"><span>🔐</span><span>Credentials are encrypted on the source terminal before leaving the device</span></div>
-                    <div className="flex gap-2"><span>⚡</span><span>The entire process takes ~30 seconds with no terminal interaction needed</span></div>
-                    <div className="flex gap-2"><span>🗑️</span><span>The encrypted package is permanently deleted from Viri servers after import</span></div>
-                  </div>
-                  <button onClick={startSync} className="btn btn-success w-full py-3 flex items-center justify-center gap-2 font-semibold">
-                    Start Sync <ArrowRight size={16} />
-                  </button>
-                </div>
-              );
-            })()}
-
-            {/* Step 2 — Waiting for export */}
-            {syncWizard.step === 'waiting_export' && (() => {
-              const srcTerm = terminals.find(t => t.id.toString() === syncWizard.sourceTerminalId);
-              return (
-                <div className="space-y-5 text-center">
-                  <Loader2 size={40} className="animate-spin text-emerald-400 mx-auto" />
-                  <p className="text-white font-semibold">Waiting for <span className="text-emerald-400">{srcTerm?.terminal_name}</span> to encrypt...</p>
-                  <p className="text-zinc-400 text-sm">The terminal is working in the background. No action required there.</p>
-                  <p className="text-zinc-500 text-xs">This usually takes 10–15 seconds.</p>
-                </div>
-              );
-            })()}
-
-            {/* Step 3 — Select target */}
-            {syncWizard.step === 'select_target' && (() => {
-              const otherTerminals = terminals.filter(t => t.id.toString() !== syncWizard.sourceTerminalId && !t.pairing_code);
-              return (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm">
-                    <CheckCircle2 size={16} /> Encrypted package ready
-                  </div>
-                  <p className="text-zinc-300 text-sm">Select the terminal that should receive the credentials:</p>
-                  <div className="space-y-2">
-                    {otherTerminals.map(t => (
-                      <label key={t.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                        syncWizard.targetTerminalId === t.id.toString()
-                          ? 'border-emerald-500 bg-emerald-950/30'
-                          : 'border-zinc-700 hover:border-zinc-500 bg-zinc-800/40'
-                      }`}>
-                        <input
-                          type="radio"
-                          name="target_terminal"
-                          value={t.id.toString()}
-                          checked={syncWizard.targetTerminalId === t.id.toString()}
-                          onChange={() => setSyncWizard(prev => ({ ...prev, targetTerminalId: t.id.toString() }))}
-                          className="accent-emerald-500"
-                        />
-                        <MonitorSmartphone size={16} className="text-zinc-400" />
-                        <span className="text-white text-sm font-medium">{t.terminal_name}</span>
-                      </label>
-                    ))}
-                  </div>
-                  <button
-                    onClick={triggerImport}
-                    disabled={!syncWizard.targetTerminalId}
-                    className="btn btn-success w-full py-3 flex items-center justify-center gap-2 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Import to Selected Terminal <ArrowRight size={16} />
-                  </button>
-                </div>
-              );
-            })()}
-
-            {/* Step 4 — Waiting for import */}
-            {syncWizard.step === 'waiting_import' && (() => {
-              const tgtTerm = terminals.find(t => t.id.toString() === syncWizard.targetTerminalId);
-              return (
-                <div className="space-y-5 text-center">
-                  <Loader2 size={40} className="animate-spin text-emerald-400 mx-auto" />
-                  <p className="text-white font-semibold">Waiting for <span className="text-emerald-400">{tgtTerm?.terminal_name}</span> to decrypt...</p>
-                  <p className="text-zinc-400 text-sm">The target terminal is decrypting and saving credentials in the background. No action required there.</p>
-                  <p className="text-zinc-500 text-xs">This usually takes 10–15 seconds.</p>
-                </div>
-              );
-            })()}
-
-            {/* Step 5 — Done */}
-            {syncWizard.step === 'done' && (
-              <div className="space-y-5 text-center">
-                <div className="w-16 h-16 rounded-full bg-emerald-900/50 border-2 border-emerald-500 flex items-center justify-center mx-auto">
-                  <CheckCircle2 size={32} className="text-emerald-400" />
-                </div>
-                <div>
-                  <p className="text-white font-bold text-lg">Sync Complete!</p>
-                  <p className="text-zinc-400 text-sm mt-1">Credentials synchronized successfully.</p>
-                  <p className="text-zinc-600 text-xs mt-2">The encrypted package and passphrase have been permanently deleted from Viri's servers.</p>
-                </div>
-                <button onClick={closeSyncWizard} className="btn btn-success w-full py-3 font-semibold">
-                  Close
-                </button>
-              </div>
-            )}
-
-            {/* Error step */}
-            {syncWizard.step === 'error' && (
-              <div className="space-y-4 text-center">
-                <div className="w-14 h-14 rounded-full bg-red-950/50 border-2 border-red-500 flex items-center justify-center mx-auto">
-                  <X size={28} className="text-red-400" />
-                </div>
-                <p className="text-red-300 font-semibold">Sync Failed</p>
-                <p className="text-zinc-400 text-sm">{syncWizard.error}</p>
-                <button onClick={closeSyncWizard} className="btn btn-outline border-red-500/50 text-red-400 hover:bg-red-500 hover:text-white w-full py-2.5 font-semibold">
-                  Dismiss
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {isTerminalModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
