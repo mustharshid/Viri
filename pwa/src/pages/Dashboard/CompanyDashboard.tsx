@@ -23,6 +23,7 @@ const Tooltip = ({ text, onClick }: { text: string; onClick?: () => void }) => (
 );
 
 export default function CompanyDashboard() {
+  const LATEST_EXTENSION_VERSION = "1.2.2";
   const [theme, toggleTheme] = useTheme();
   const [user, setUser] = useState<any>(null);
   const [terminals, setTerminals] = useState<any[]>([]);
@@ -789,7 +790,7 @@ export default function CompanyDashboard() {
                 </div>
                 
                 <div className="pt-3 border-t border-zinc-800/60 mt-4 flex justify-between items-center">
-                  <a href="/viri/viri-bridge.zip" download className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 hover:underline">
+                  <a href={`/viri/viri-bridge.zip?v=${LATEST_EXTENSION_VERSION}`} download className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 hover:underline">
                     <Download size={13} /> Download Extension
                   </a>
                 </div>

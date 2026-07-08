@@ -3571,7 +3571,7 @@ function App() {
       {/* Bottom section: Settings & Locking */}
       <div className={`w-full px-2 space-y-2 flex flex-col items-center transition-all ${isSidebarCollapsed ? 'md:items-center' : 'md:items-stretch'}`}>
         <div className={`mt-auto mb-2 transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:block'}`}>
-          <a href="/viri/viri-bridge.zip" download className="text-[10px] font-bold text-blue-400 hover:text-blue-300 underline flex items-center justify-center w-full">
+          <a href={`/viri/viri-bridge.zip?v=${LATEST_EXTENSION_VERSION}`} download className="text-[10px] font-bold text-blue-400 hover:text-blue-300 underline flex items-center justify-center w-full">
             Download latest browser extension {LATEST_EXTENSION_VERSION}
           </a>
         </div>
@@ -5559,7 +5559,7 @@ function App() {
 
                       {/* Download Button */}
                       <a
-                        href="/viri/viri-bridge.zip"
+                        href={`/viri/viri-bridge.zip?v=${LATEST_EXTENSION_VERSION}`}
                         download
                         className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-lg transition-colors mb-6 shadow-lg shadow-emerald-900/30"
                       >
@@ -5707,7 +5707,7 @@ function App() {
                             The Viri Bridge extension is required to establish a secure local connection between your device and the bank's servers.
                           </p>
                           <div className="mb-6 flex justify-start">
-                            <a href="/viri/viri-bridge.zip" download className="btn btn-success flex items-center gap-2">
+                            <a href={`/viri/viri-bridge.zip?v=${LATEST_EXTENSION_VERSION}`} download className="btn btn-success flex items-center gap-2">
                               <MonitorSmartphone size={18} /> Download Viri Extension (.zip)
                             </a>
                           </div>
