@@ -1220,16 +1220,20 @@ function parseProfilesFromHtml(html) {
   const profiles = [];
   
   // 1. Parse profile cards from elements with class="profile-card"
-  const cardPattern = /<[^>]+class="[^"]*profile-card[^"]*"[^>]*>([\s\S]{1,1000}?)(?=<[a-z0-9]+[^>]+class="[^"]*profile-card[^"]*"|$)/gi;
+  const cardTagPattern = /<[^>]+class=["'][^"']*profile-card[^"']*["'][^>]*>/gi;
   let match;
-  while ((match = cardPattern.exec(html)) !== null) {
-    const cardContent = match[0];
-    const rtMatch = /data-rt=["']([^"']+)["']/i.exec(cardContent);
-    const typeMatch = /data-profiletype\s*=\s*["']([^"']+)["']/i.exec(cardContent);
-    const idMatch = /data-profileid=["']([^"']+)["']/i.exec(cardContent);
-    const nameMatch = /class=["']profile-name["'][^>]*>([^<]+)/i.exec(cardContent);
+  while ((match = cardTagPattern.exec(html)) !== null) {
+    const startTag = match[0];
+    const startIndex = match.index + startTag.length;
+    
+    const rtMatch = /data-rt=["']([^"']+)["']/i.exec(startTag);
+    const typeMatch = /data-profiletype\s*=\s*["']([^"']+)["']/i.exec(startTag);
+    const idMatch = /data-profileid=["']([^"']+)["']/i.exec(startTag);
     
     if (idMatch) {
+      const windowContent = html.substring(startIndex, startIndex + 1000);
+      const nameMatch = /class=["']profile-name["'][^>]*>([^<]+)/i.exec(windowContent);
+      
       profiles.push({
         id: idMatch[1],
         type: typeMatch ? typeMatch[1].trim() : '0',
