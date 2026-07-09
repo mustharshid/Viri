@@ -4058,7 +4058,7 @@ function App() {
           <>
             {/* View Tab 1: Verification */}
             {activeTab === 'verify' && (
-              <div className="w-full max-w-xl lg:max-w-full grid grid-cols-1 lg:grid-cols-12 gap-8 items-start animate-fade-in animate-duration-500">
+              <div className="w-full max-w-xl lg:max-w-full flex flex-col lg:grid lg:grid-cols-12 gap-8 items-start animate-fade-in animate-duration-500">
                 {/* Header */}
                 <div className="w-full flex justify-between items-center lg:col-span-12 border-b border-[var(--border-color)] pb-4">
                   <div>
@@ -4107,9 +4107,17 @@ function App() {
                   </div>
                 </div>
 
-                {/* Left Column: Form Inputs (lg:col-span-4) */}
-                <div className="lg:col-span-4 w-full space-y-6">
-                  <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col gap-5">
+                {/* Form Card for Verify Transfer */}
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const canVerify = !loading && isCredentialsComplete && amount && !isNaN(Number(amount)) && Number(amount) > 0 && !creditsExhausted && !isSelectedAccountLocked && !subscriptionExpired;
+                    if (canVerify) {
+                      handleVerify('search');
+                    }
+                  }}
+                  className="w-full glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col gap-5 order-1 lg:col-span-4 lg:order-1"
+                >
                     <div className="flex items-center justify-between">
                       <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-1.5">Verify Transfer <Tooltip text="Input details from the customer's transfer receipt to programmatically confirm funds arrival." helpSectionId="transfer-verification" /></h2>
                       <div className="flex items-center gap-2">
@@ -4241,6 +4249,7 @@ function App() {
                               )}
                             </button>
                             <button
+                              type="button"
                               onClick={() => handleVerify('history')}
                               disabled={loading || !isCredentialsComplete || creditsExhausted || isSelectedAccountLocked || subscriptionExpired}
                               className={`w-full btn btn-outline py-3 text-sm justify-center gap-2 font-semibold rounded-xl transition-all border border-zinc-800 hover:border-zinc-700 bg-transparent text-zinc-300 hover:text-white ${loading || !isCredentialsComplete || creditsExhausted || isSelectedAccountLocked || subscriptionExpired ? 'opacity-50 cursor-not-allowed' : ''
@@ -4301,10 +4310,10 @@ function App() {
                         </div>
                       </div>
                     )}
-                  </div>
+                </form>
 
                   {/* System Health Status Panel */}
-                  <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col gap-3.5 shadow-sm animate-fade-in">
+                  <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col gap-3.5 shadow-sm animate-fade-in order-6 lg:col-span-4 lg:order-4">
                     <h4 className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest flex items-center gap-1.5">
                       <Activity size={12} className="text-zinc-400" /> System Health
                     </h4>
@@ -4483,15 +4492,9 @@ function App() {
                       </div>
                     </div>
                   </div>
-                </div>
-
-                {/* Right Column: Stepper, Logs and Recent Transactions (lg:col-span-8) */}
-                <div className="lg:col-span-8 space-y-6 w-full">
-                  {/* Top Row: Progress/Status & Active Account Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
 
                     {/* Progress / Status Card */}
-                    <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col justify-between min-h-[175px] shadow-sm animate-fade-in">
+                    <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col justify-between min-h-[175px] shadow-sm animate-fade-in order-2 lg:col-span-4 lg:order-2">
                       <div className="flex justify-between items-start gap-4">
                         <div>
                           <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
@@ -4622,7 +4625,7 @@ function App() {
                     </div>
 
                     {/* Active Account & Balance Summary Card */}
-                    <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col justify-between min-h-[175px] relative overflow-hidden group shadow-sm">
+                    <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col justify-between min-h-[175px] relative overflow-hidden group shadow-sm order-5 lg:col-span-4 lg:order-3">
                       {/* Subtle background glow */}
                       <div className="absolute -top-10 -right-10 w-32 h-32 bg-blue-500/5 rounded-full blur-2xl group-hover:bg-blue-500/10 transition-colors" />
 
@@ -4674,11 +4677,9 @@ function App() {
                       </div>
                     </div>
 
-                  </div>
-
                   {/* Verification Log Panel (only shows verification flow logs) */}
                   {permissions.show_vbtl && activeTab === 'verify' && (
-                    <div className="w-full bg-black border border-zinc-800 rounded-lg overflow-hidden animate-fade-in shadow-2xl">
+                    <div className="w-full bg-black border border-zinc-800 rounded-lg overflow-hidden animate-fade-in shadow-2xl order-3 lg:col-span-8 lg:order-5">
                       <div className="bg-zinc-900 px-4 py-2 border-b border-zinc-800 flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full bg-red-500"></div>
                         <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
@@ -4721,7 +4722,7 @@ function App() {
                   )}
 
                   {/* Recent Transactions Table */}
-                  <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl w-full flex flex-col gap-4">
+                  <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl w-full flex flex-col gap-4 order-4 lg:col-span-8 lg:order-6">
                     <div className="flex justify-between items-center border-b border-zinc-800/80 pb-3">
                       <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-1.5">
                         Recent Transactions {lastTransactionsLabel ? `- ${lastTransactionsLabel}` : ''} <Tooltip text="The last few statement entries cached/fetched from the bank's database." helpSectionId="transaction-ledger" />
@@ -4848,7 +4849,6 @@ function App() {
                       })()}
                     </div>
                   </div>
-                </div>
               </div>
             )}
 
