@@ -19,3 +19,6 @@ yarn-error.log
 /.vscode
 /pwa/node_modules
 /pwa/dist
+
+# BML Login – local-only, not for version control
+/bml-login

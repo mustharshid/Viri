@@ -12,18 +12,18 @@ Core Operating Principle
 The synchronization mode should NOT be manually configured.
 The system should automatically determine the appropriate mode based on active terminals. The mode of operation should be visible in the System Health card in PWA terminal.
 Mode Decision Logic
-Active terminals using bank account = 1          ↓  Single Terminal Mode
-Active terminals using bank account > 1          ↓  Multi-Terminal Mode
+Active terminals using bank account = 1        ↓Single Terminal Mode
+Active terminals using bank account > 1        ↓Multi-Terminal Mode
 
 Mode 1: Automatic Single Terminal Mode
 Scenario
 Only one cashier terminal is currently using a bank account.
 Example:
-Bank Account AC1  Active terminals: C1 only
+Bank Account AC1Active terminals:C1 only
 The system should operate exactly as the current implementation.
 
 Flow
-Cashier Terminal C1          |         |         v  Viri PWA          |         |         v  Browser Extension          |         |         v  Bank Website          |         |         v  Bank Statement JSON          |         |         v  Display Transactions
+Cashier Terminal C1        |        |        vViri PWA        |        |        vBrowser Extension        |        |        vBank Website        |        |        vBank Statement JSON        |        |        vDisplay Transactions
 
 Requirements
 Maintain existing behaviour:
@@ -43,28 +43,28 @@ Mode 2: Automatic Multi-Terminal Mode
 Scenario
 More than one terminal is actively using the same bank account.
 Example:
-Bank Account AC1  Active terminals:  C1 C2 C3
+Bank Account AC1Active terminals:C1C2C3
 The system automatically switches to shared synchronization mode.
 
 Terminal Activity Detection
 Each terminal should periodically announce:
 I am active and using account AC1
 The server maintains:
-Account AC1  Active terminals:  C1 C2 C3  Last heartbeat:  10:05:20
+Account AC1Active terminals:C1C2C3Last heartbeat:10:05:20
 A terminal is considered active if:
 Last heartbeat < configured timeout
 Example:
-Active timeout: 30 seconds
+Active timeout:30 seconds
 
 Automatic Mode Switching
 Single → Multi
 Example:
 Initially:
-AC1  Active terminals: C1
+AC1Active terminals:C1
 C1 operates normally.
 Then C2 opens AC1.
 System detects:
-Active terminals: C1 C2
+Active terminals:C1C2
 Automatically switches to:
 Multi-Terminal Mode
 No user action required.
@@ -73,7 +73,7 @@ Multi → Single
 Example:
 C2 closes.
 After timeout:
-Active terminals: C1
+Active terminals:C1
 System automatically returns to:
 Single Terminal Mode
 
@@ -81,12 +81,12 @@ Multi-Terminal Synchronization Architecture
 When multiple terminals are active:
 One terminal becomes the temporary bank synchronization holder.
 Example:
-                 Viri Server            Transaction Coordination                      |                     |          Active Bank Holder Terminal                      |                     |               Browser Extension                      |                     |                Bank Website
+                 Viri Server          Transaction Coordination                    |                    |        Active Bank Holder Terminal                    |                    |             Browser Extension                    |                    |              Bank Website
 
 Active Terminal Lease System
 Each bank account has a synchronization lease.
 Example:
-Account: AC1  Active Holder: C1  Lease expires: 10 seconds
+Account:AC1Active Holder:C1Lease expires:10 seconds
 Only the active holder communicates with the bank.
 
 Sync Request Flow
@@ -107,7 +107,7 @@ available transaction data
 Step 3
 If data is fresh:
 Example:
-Last bank refresh: 10:05:20  Current time: 10:05:25  Age: 5 seconds
+Last bank refresh:10:05:20Current time:10:05:25Age:5 seconds
 Return:
 latest transactions
 No bank access required.
@@ -115,19 +115,19 @@ No bank access required.
 Step 4
 If data is stale:
 Example:
-Last refresh: 10:03:00  Age: 2 minutes
+Last refresh:10:03:00Age:2 minutes
 Server sends refresh command:
-C1 extension:  Refresh AC1
+C1 extension:Refresh AC1
 
 Step 5
 Active holder:
-Browser Extension          |  Bank Login          |  Download JSON          |  Extract Transactions          |  Upload New Transactions
+Browser Extension        |Bank Login        |Download JSON        |Extract Transactions        |Upload New Transactions
 
 Transaction Synchronization
 Only new transaction records should be transferred.
 Never send full bank statements repeatedly.
 Each terminal maintains:
-last_sync_timestamp  last_transaction_id  last_transaction_fingerprint
+last_sync_timestamplast_transaction_idlast_transaction_fingerprint
 Server returns:
 Only transactions after last known record
 
@@ -170,12 +170,12 @@ Communication Architecture
 Single Terminal Mode
 No persistent connections.
 Use:
-User presses Sync  ↓  REST request  ↓  Browser Extension  ↓  Bank  ↓  Display
+User presses Sync↓REST request↓Browser Extension↓Bank↓Display
 
 Multi-Terminal Mode
 Initial implementation:
 Use:
-REST API  +  Short Polling
+REST API+Short Polling
 Do NOT use persistent SSE connections under current hosting limitations.
 Polling should only occur when:
 terminal is waiting for refresh command
@@ -186,7 +186,7 @@ Recommended interval:
 Future Scaling Option
 If Viri grows beyond current hosting limits:
 Use:
-Laravel       |  Redis/Event Bus       |  Node.js Socket Server       |  Terminals
+Laravel     |Redis/Event Bus     |Node.js Socket Server     |Terminals
 Use WebSockets only for the communication layer.
 Do not move banking logic into WebSockets.
 
