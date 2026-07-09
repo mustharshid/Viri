@@ -4108,7 +4108,7 @@ function App() {
                 </div>
 
                 {/* Left Column: Form Inputs (lg:col-span-4) */}
-                <div className="lg:col-span-4 w-full">
+                <div className="lg:col-span-4 w-full space-y-6">
                   <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col gap-5">
                     <div className="flex items-center justify-between">
                       <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-1.5">Verify Transfer <Tooltip text="Input details from the customer's transfer receipt to programmatically confirm funds arrival." helpSectionId="transfer-verification" /></h2>
@@ -4298,384 +4298,382 @@ function App() {
                         <AlertTriangle size={16} className="shrink-0 mt-0.5" />
                         <div>
                           <strong className="block font-bold mb-0.5">Subscription Expiring Soon</strong>
-                          Your subscription is set to expire on <strong>{new Date(licenseExpiresAt).toLocaleDateString()}</strong>. Please contact your company administrator to submit renewal payment details to avoid service interruptions.
                         </div>
                       </div>
                     )}
+                  </div>
+
+                  {/* System Health Status Panel */}
+                  <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col gap-3.5 shadow-sm animate-fade-in">
+                    <h4 className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest flex items-center gap-1.5">
+                      <Activity size={12} className="text-zinc-400" /> System Health
+                    </h4>
+                    
+                    <div className="flex flex-col gap-3 font-mono text-[11px] mt-1">
+                      <div className="flex justify-between items-center">
+                        <span className="text-zinc-400">Bridge Extension <span className="text-zinc-600 text-[9px] ml-1">[latest {LATEST_EXTENSION_VERSION}]</span></span>
+                        {extensionVersion ? (
+                          (() => {
+                            const normExt = extensionVersion.replace(/^v/, '');
+                            const normLatest = LATEST_EXTENSION_VERSION.replace(/^v/, '');
+                            const isOutdated = normExt !== normLatest;
+                            return (
+                              <span
+                                className={`${isOutdated ? 'text-red-400 animate-pulse' : 'text-emerald-400'} flex items-center gap-1.5 font-bold`}
+                                title={isOutdated ? `Extension update available (latest is ${LATEST_EXTENSION_VERSION})` : undefined}
+                              >
+                                <div className={`w-1.5 h-1.5 rounded-full ${isOutdated ? 'bg-red-400' : 'bg-emerald-400'} animate-pulse-glow`} />
+                                Connected &rarr; {extensionVersion}
+                              </span>
+                            );
+                          })()
+                        ) : extensionId ? (
+                          <span className="text-amber-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse-glow" /> Disconnected</span>
+                        ) : (
+                          <span className="text-red-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-red-400" /> Missing ID</span>
+                        )}
+                      </div>
+
+                      <div className="flex justify-between items-center">
+                        <span className="text-zinc-400" title="The bank session role this terminal is currently playing. Active Holder = this terminal owns the live bank session. Delegating = another terminal requested this session. Claiming = this terminal is trying to acquire a session.">Session Role</span>
+                        {sessionStatus === 'holder' ? (() => {
+                          // Find which account this terminal is holding based on extension's report
+                          const held = bankAccounts.find(a => a.id.toString() === sessionHolderAccountId);
+                          return (
+                            <span className="text-emerald-400 flex items-center gap-1.5 font-bold">
+                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" />
+                              {held ? `Holding ${held.bank_name} (${held.account_number.slice(-4)})` : 'Active Holder'}
+                            </span>
+                          );
+                        })() : sessionStatus === 'claiming' ? (
+                          <span className="text-blue-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse-glow" /> Claiming</span>
+                        ) : sessionStatus === 'delegating' ? (
+                          <span className="text-purple-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse-glow" /> Delegating</span>
+                        ) : (
+                          <span className="text-zinc-500 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-zinc-600" /> Idle</span>
+                        )}
+                      </div>
+
+                      <div className="flex justify-between items-center">
+                        <span className="text-zinc-400" title="The current active mode of the synchronization engine. Single Terminal = only one terminal is active. Multi-Terminal = multiple active terminals coordinating.">Operation Mode</span>
+                        <span className={`font-bold ${operationMode === 'Multi-Terminal' ? 'text-indigo-400' : 'text-zinc-300'}`}>
+                          {operationMode} {operationMode === 'Multi-Terminal' ? `(${activeTerminalsCount})` : ''}
+                        </span>
+                      </div>
+
+                      {syncHealthSummary && (
+                        <>
+                          <div className="flex justify-between items-center border-t border-zinc-800/60 pt-2 mt-1">
+                            <span className="text-zinc-400">Sync Confidence</span>
+                            <span className={`font-bold flex items-center gap-1.5 ${
+                              syncHealthSummary.confidence_score >= 85 ? 'text-emerald-400' :
+                              syncHealthSummary.confidence_score >= 60 ? 'text-amber-400' : 'text-red-400'
+                            }`}>
+                              <div className={`w-1.5 h-1.5 rounded-full ${
+                                syncHealthSummary.confidence_score >= 85 ? 'bg-emerald-400 animate-pulse-glow' :
+                                syncHealthSummary.confidence_score >= 60 ? 'bg-amber-400 animate-pulse-glow' : 'bg-red-400 animate-pulse'
+                              }`} />
+                              {syncHealthSummary.confidence_score}%
+                            </span>
+                          </div>
+
+                          <div className="flex justify-between items-center">
+                            <span className="text-zinc-400">Sync Efficiency</span>
+                            <span className="text-zinc-300 font-bold">
+                              {Math.round(syncHealthSummary.efficiency_score * 100)}%
+                            </span>
+                          </div>
+
+                          <div className="flex justify-between items-center">
+                            <span className="text-zinc-400">Sync Backlog</span>
+                            <span className={`font-bold ${syncHealthSummary.backlog > 0 ? 'text-amber-400 animate-pulse' : 'text-zinc-500'}`}>
+                              {syncHealthSummary.backlog} request(s)
+                            </span>
+                          </div>
+                        </>
+                      )}
+
+                      <div className="border-t border-zinc-800/60 mt-1 pt-2 flex flex-col gap-1.5">
+                        <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">All Bank Sessions</span>
+                        <div className={`grid gap-x-4 gap-y-1.5 ${bankAccounts.length > 3 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                          {bankAccounts.map((account) => {
+                            const accountIdStr = account.id.toString();
+                            const isLocalHolder = sessionStatus === 'holder' && sessionHolderAccountId === accountIdStr;
+                            const isServerHolder = terminalId !== null && account.session_holder_terminal_id === terminalId;
+                            const isOwnSession = isLocalHolder || isServerHolder;
+
+                            let isActive = false;
+                            let elapsedMs: number | null = null;
+                            let heartbeatTime: number | undefined;
+                            let claimedTime: number | undefined;
+
+                            if (account.session_claimed_at) {
+                              try {
+                                claimedTime = new Date(account.session_claimed_at).getTime();
+                              } catch (e) { }
+                            }
+
+                            if (!account.session_holder_terminal_id) {
+                              isActive = false;
+                            } else if (isLocalHolder) {
+                              isActive = true;
+                              if (account.session_last_heartbeat_at) {
+                                try {
+                                  heartbeatTime = new Date(account.session_last_heartbeat_at).getTime();
+                                } catch (e) { }
+                              }
+                            } else if (account.session_last_heartbeat_at) {
+                              try {
+                                heartbeatTime = new Date(account.session_last_heartbeat_at).getTime();
+                                const idleMs = Math.max(0, currentTick - heartbeatTime);
+                                isActive = idleMs <= 90000;
+                              } catch (e) {
+                                isActive = false;
+                              }
+                            }
+
+                            if (isActive) {
+                              if (claimedTime) {
+                                elapsedMs = Math.max(0, currentTick - claimedTime);
+                              } else {
+                                elapsedMs = 0;
+                              }
+                            } else {
+                              if (heartbeatTime && claimedTime && heartbeatTime >= claimedTime) {
+                                elapsedMs = Math.max(0, heartbeatTime - claimedTime);
+                              } else {
+                                elapsedMs = null;
+                              }
+                            }
+
+                            const accountLabel = `${account.bank_name} (${account.account_number.slice(-4)})`;
+                            let timeStr = '';
+                            if (elapsedMs !== null && elapsedMs >= 0) {
+                              const totalSeconds = Math.floor(elapsedMs / 1000);
+                              const m = Math.floor(totalSeconds / 60);
+                              const s = totalSeconds % 60;
+                              timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}s`;
+                            }
+
+                            return (
+                              <div key={account.id} className="flex justify-between items-center min-w-0">
+                                <span className="text-zinc-400 truncate text-[10px]" title={account.label || account.account_number}>
+                                  {accountLabel}
+                                </span>
+                                {isActive ? (
+                                  <span className="text-emerald-400 flex items-center gap-1 font-bold text-[10px] shrink-0 ml-1" title={isOwnSession ? 'This terminal' : (account.session_holder_name || undefined)}>
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" />
+                                    Active {timeStr}
+                                  </span>
+                                ) : (
+                                  <span className="text-zinc-500 flex items-center gap-1 font-bold text-[10px] shrink-0 ml-1">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
+                                    Idle {timeStr}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between items-center mt-1 pt-2 border-t border-zinc-800/60">
+                        <span className="text-zinc-500">Last Fetch</span>
+                        <span className="text-zinc-400 font-bold">{lastPopulatedTime || 'Never'}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 {/* Right Column: Stepper, Logs and Recent Transactions (lg:col-span-8) */}
                 <div className="lg:col-span-8 space-y-6 w-full">
-                  {/* Multi-stage Progress Stepper Panel */}
-                  <div className="p-6 rounded-2xl border border-zinc-800/80 bg-zinc-950/20 animate-fade-in flex flex-col gap-6">
-                    <div className="flex justify-between items-start gap-4">
-                      <div>
-                        <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-                          {activeStepIndex === 5 ? (
-                            <>
-                              <span>Last Credit: {selectedAccountCurrency} {formatAmount(result?.amount)}</span>
-                              <Tooltip text="The payment has been confirmed as received on your bank account." helpSectionId="transfer-verification" />
-                              <span className="px-2 py-0.5 bg-emerald-955/50 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold tracking-wider rounded uppercase">
-                                Success
-                              </span>
-                            </>
-                          ) : progress.stage === 'error' ? (
-                            /No recent credit transaction found|Search not found/i.test(error || '') ? (
+                  {/* Top Row: Progress/Status & Active Account Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+
+                    {/* Progress / Status Card */}
+                    <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col justify-between min-h-[175px] shadow-sm animate-fade-in">
+                      <div className="flex justify-between items-start gap-4">
+                        <div>
+                          <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                            {activeStepIndex === 5 ? (
                               <>
-                                <span>Search not found</span>
-                                <Tooltip text="The banking session successfully completed, but no transaction matching the exact searched amount was found." helpSectionId="transfer-verification" />
+                                <span>Last Credit: {selectedAccountCurrency} {formatAmount(result?.amount)}</span>
+                                <Tooltip text="The payment has been confirmed as received on your bank account." helpSectionId="transfer-verification" />
                                 <span className="px-2 py-0.5 bg-emerald-955/50 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold tracking-wider rounded uppercase">
-                                  Search not found
+                                  Success
                                 </span>
                               </>
-                            ) : (
+                            ) : progress.stage === 'error' ? (
+                              /No recent credit transaction found|Search not found/i.test(error || '') ? (
+                                <>
+                                  <span>Search not found</span>
+                                  <Tooltip text="The banking session successfully completed, but no transaction matching the exact searched amount was found." helpSectionId="transfer-verification" />
+                                  <span className="px-2 py-0.5 bg-emerald-955/50 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold tracking-wider rounded uppercase">
+                                    Search not found
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <span>Verification Failed</span>
+                                  <Tooltip text="The program failed to verify this transfer. Please review logs or try again." helpSectionId="transfer-verification" />
+                                  <span className="px-2 py-0.5 bg-red-955/50 border border-red-500/20 text-red-400 text-[10px] font-bold tracking-wider rounded uppercase">
+                                    Failed
+                                  </span>
+                                </>
+                              )
+                            ) : loading ? (
                               <>
-                                <span>Verification Failed</span>
-                                <Tooltip text="The program failed to verify this transfer. Please review logs or try again." helpSectionId="transfer-verification" />
-                                <span className="px-2 py-0.5 bg-red-955/50 border border-red-500/20 text-red-400 text-[10px] font-bold tracking-wider rounded uppercase">
-                                  Failed
-                                </span>
+                                <span>{progress.text || "Verifying Transfer..."}</span>
+                                <Tooltip text="Active scraping session running in companion browser extension." helpSectionId="extension-installation" />
+                                {progress.stage === 'lock' && (
+                                  <span className="px-2 py-0.5 bg-amber-955/50 border border-amber-500/20 text-amber-400 text-[10px] font-bold tracking-wider rounded uppercase animate-pulse">
+                                    Locking
+                                  </span>
+                                )}
                               </>
-                            )
-                          ) : loading ? (
-                            <>
-                              <span>{progress.text || "Verifying Transfer..."}</span>
-                              <Tooltip text="Active scraping session running in companion browser extension." helpSectionId="extension-installation" />
-                              {progress.stage === 'lock' && (
-                                <span className="px-2 py-0.5 bg-amber-955/50 border border-amber-500/20 text-amber-400 text-[10px] font-bold tracking-wider rounded uppercase animate-pulse">
-                                  Locking
-                                </span>
-                              )}
-                            </>
-                          ) : (() => {
-                            const lastCreditTx = lastTransactions.find(tx => tx.amount.startsWith('+'));
-                            const lastCreditAmount = lastCreditTx
-                              ? formatAmount(lastCreditTx.amount).replace('+', '')
-                              : '00.00';
-                            return (
-                              <>
-                                <span>Last Credit: {selectedAccountCurrency} {lastCreditAmount}</span>
-                                <Tooltip text="The most recent credit transaction detected on this account." helpSectionId="transfer-verification" />
-                              </>
-                            );
-                          })()}
-                        </h2>
-                        {activeStepIndex === 5 && result ? (() => {
-                          const successTx = result.transaction || lastTransactions.find(tx => {
-                            if (!result.reference) return false;
-                            const refClean = String(result.reference).trim().toLowerCase();
-                            const detailsClean = String(tx.details).toLowerCase();
-                            return detailsClean.includes(refClean) || (tx.amount && tx.amount.includes(result.amount));
-                          });
-                          return (
-                            <div className="space-y-1 font-mono text-[11px] mt-1.5 text-zinc-300">
-                              <div className="font-bold flex items-center gap-1.5">
-                                <span>Date: {successTx?.date || new Date(result.timestamp).toLocaleString()}</span>
-                              </div>
-                              {successTx?.details ? (() => {
-                                const detailsSingleLine = String(successTx.details).replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
-                                const truncated = detailsSingleLine.length > 30 ? detailsSingleLine.substring(0, 30) + '...' : detailsSingleLine;
-                                return (
-                                  <div className="text-zinc-400 truncate" title={successTx.details}>
-                                    {truncated}
-                                  </div>
-                                );
-                              })() : (
-                                <div className="text-zinc-500 italic">No additional transaction details.</div>
-                              )}
-                            </div>
-                          );
-                        })() : progress.stage === 'error' ? (
-                          <p className={`text-xs mt-1 font-medium leading-relaxed ${/No recent credit transaction found|Search not found/i.test(error || '') ? 'text-emerald-400/90' : 'text-[var(--text-secondary)]'}`}>
-                            {error || "An error occurred during verification."}
-                          </p>
-                        ) : loading ? (
-                          <p className="text-xs text-[var(--text-secondary)] mt-1 font-medium leading-relaxed">
-                            {timeLeft !== null ? `Estimated remaining: ~${timeLeft}s` : "Contacting banking server..."}
-                          </p>
-                        ) : (() => {
-                          const lastCreditTx = lastTransactions.find(tx => tx.amount.startsWith('+'));
-                          if (lastCreditTx) {
+                            ) : (() => {
+                              const lastCreditTx = lastTransactions.find(tx => tx.amount.startsWith('+'));
+                              const lastCreditAmount = lastCreditTx
+                                ? formatAmount(lastCreditTx.amount).replace('+', '')
+                                : '00.00';
+                              return (
+                                <>
+                                  <span>Last Credit: {selectedAccountCurrency} {lastCreditAmount}</span>
+                                  <Tooltip text="The most recent credit transaction detected on this account." helpSectionId="transfer-verification" />
+                                </>
+                              );
+                            })()}
+                          </h2>
+                          {activeStepIndex === 5 && result ? (() => {
+                            const successTx = result.transaction || lastTransactions.find(tx => {
+                              if (!result.reference) return false;
+                              const refClean = String(result.reference).trim().toLowerCase();
+                              const detailsClean = String(tx.details).toLowerCase();
+                              return detailsClean.includes(refClean) || (tx.amount && tx.amount.includes(result.amount));
+                            });
                             return (
                               <div className="space-y-1 font-mono text-[11px] mt-1.5 text-zinc-300">
                                 <div className="font-bold flex items-center gap-1.5">
-                                  <span>Date: {lastCreditTx.date}</span>
+                                  <span>Date: {successTx?.date || new Date(result.timestamp).toLocaleString()}</span>
                                 </div>
-                                {(() => {
-                                  const detailsSingleLine = String(lastCreditTx.details).replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+                                {successTx?.details ? (() => {
+                                  const detailsSingleLine = String(successTx.details).replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
                                   const truncated = detailsSingleLine.length > 30 ? detailsSingleLine.substring(0, 30) + '...' : detailsSingleLine;
                                   return (
-                                    <div className="text-zinc-400 truncate" title={lastCreditTx.details}>
+                                    <div className="text-zinc-400 truncate" title={successTx.details}>
                                       {truncated}
                                     </div>
                                   );
-                                })()}
+                                })() : (
+                                  <div className="text-zinc-500 italic">No additional transaction details.</div>
+                                )}
                               </div>
                             );
-                          }
-                          return (
-                            <p className="text-xs text-[var(--text-secondary)] mt-1 font-medium leading-relaxed">
-                              Enter transfer details on the left and click Verify to start.
+                          })() : progress.stage === 'error' ? (
+                            <p className={`text-xs mt-1 font-medium leading-relaxed ${/No recent credit transaction found|Search not found/i.test(error || '') ? 'text-emerald-400/90' : 'text-[var(--text-secondary)]'}`}>
+                              {error || "An error occurred during verification."}
                             </p>
-                          );
-                        })()}
-                      </div>
-
-
-                    </div>
-
-                    {/* Status & Account Dashboard (Replaces Stepper) */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 mb-2">
-
-                      {/* Terminal Health & Connection Status */}
-                      <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-xl p-4 flex flex-col gap-3 shadow-sm">
-                        <h4 className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest flex items-center gap-1.5">
-                          <Activity size={12} className="text-zinc-400" /> System Health
-                        </h4>
-                        <div className="flex flex-col gap-2.5 font-mono text-[11px] mt-1">
-                          <div className="flex justify-between items-center">
-                            <span className="text-zinc-400">Bridge Extension <span className="text-zinc-600 text-[9px] ml-1">[latest {LATEST_EXTENSION_VERSION}]</span></span>
-                            {extensionVersion ? (
-                              (() => {
-                                const normExt = extensionVersion.replace(/^v/, '');
-                                const normLatest = LATEST_EXTENSION_VERSION.replace(/^v/, '');
-                                const isOutdated = normExt !== normLatest;
-                                return (
-                                  <span
-                                    className={`${isOutdated ? 'text-red-400 animate-pulse' : 'text-emerald-400'} flex items-center gap-1.5 font-bold`}
-                                    title={isOutdated ? `Extension update available (latest is ${LATEST_EXTENSION_VERSION})` : undefined}
-                                  >
-                                    <div className={`w-1.5 h-1.5 rounded-full ${isOutdated ? 'bg-red-400' : 'bg-emerald-400'} animate-pulse-glow`} />
-                                    Connected &rarr; {extensionVersion}
-                                  </span>
-                                );
-                              })()
-                            ) : extensionId ? (
-                              <span className="text-amber-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse-glow" /> Disconnected</span>
-                            ) : (
-                              <span className="text-red-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-red-400" /> Missing ID</span>
-                            )}
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-zinc-400" title="The bank session role this terminal is currently playing. Active Holder = this terminal owns the live bank session. Delegating = another terminal requested this session. Claiming = this terminal is trying to acquire a session.">Session Role</span>
-                            {sessionStatus === 'holder' ? (() => {
-                              // Find which account this terminal is holding based on extension's report
-                              const held = bankAccounts.find(a => a.id.toString() === sessionHolderAccountId);
+                          ) : loading ? (
+                            <p className="text-xs text-[var(--text-secondary)] mt-1 font-medium leading-relaxed">
+                              {timeLeft !== null ? `Estimated remaining: ~${timeLeft}s` : "Contacting banking server..."}
+                            </p>
+                          ) : (() => {
+                            const lastCreditTx = lastTransactions.find(tx => tx.amount.startsWith('+'));
+                            if (lastCreditTx) {
                               return (
-                                <span className="text-emerald-400 flex items-center gap-1.5 font-bold">
-                                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" />
-                                  {held ? `Holding ${held.bank_name} (${held.account_number.slice(-4)})` : 'Active Holder'}
-                                </span>
-                              );
-                            })() : sessionStatus === 'claiming' ? (
-                              <span className="text-blue-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse-glow" /> Claiming</span>
-                            ) : sessionStatus === 'delegating' ? (
-                              <span className="text-purple-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse-glow" /> Delegating</span>
-                            ) : (
-                              <span className="text-zinc-500 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-zinc-600" /> Idle</span>
-                            )}
-                          </div>
-
-                          <div className="flex justify-between items-center">
-                            <span className="text-zinc-400" title="The current active mode of the synchronization engine. Single Terminal = only one terminal is active. Multi-Terminal = multiple active terminals coordinating.">Operation Mode</span>
-                            <span className={`font-bold ${operationMode === 'Multi-Terminal' ? 'text-indigo-400' : 'text-zinc-300'}`}>
-                              {operationMode} {operationMode === 'Multi-Terminal' ? `(${activeTerminalsCount})` : ''}
-                            </span>
-                          </div>
-
-                          {syncHealthSummary && (
-                            <>
-                              <div className="flex justify-between items-center border-t border-zinc-800/60 pt-2 mt-1">
-                                <span className="text-zinc-400">Sync Confidence</span>
-                                <span className={`font-bold flex items-center gap-1.5 ${
-                                  syncHealthSummary.confidence_score >= 85 ? 'text-emerald-400' :
-                                  syncHealthSummary.confidence_score >= 60 ? 'text-amber-400' : 'text-red-400'
-                                }`}>
-                                  <div className={`w-1.5 h-1.5 rounded-full ${
-                                    syncHealthSummary.confidence_score >= 85 ? 'bg-emerald-400 animate-pulse-glow' :
-                                    syncHealthSummary.confidence_score >= 60 ? 'bg-amber-400 animate-pulse-glow' : 'bg-red-400 animate-pulse'
-                                  }`} />
-                                  {syncHealthSummary.confidence_score}%
-                                </span>
-                              </div>
-
-                              <div className="flex justify-between items-center">
-                                <span className="text-zinc-400">Sync Efficiency</span>
-                                <span className="text-zinc-300 font-bold">
-                                  {Math.round(syncHealthSummary.efficiency_score * 100)}%
-                                </span>
-                              </div>
-
-                              <div className="flex justify-between items-center">
-                                <span className="text-zinc-400">Sync Backlog</span>
-                                <span className={`font-bold ${syncHealthSummary.backlog > 0 ? 'text-amber-400 animate-pulse' : 'text-zinc-500'}`}>
-                                  {syncHealthSummary.backlog} request(s)
-                                </span>
-                              </div>
-                            </>
-                          )}
-
-                          <div className="border-t border-zinc-800/60 mt-1 pt-2 flex flex-col gap-1.5">
-                            <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">All Bank Sessions</span>
-                            <div className={`grid gap-x-4 gap-y-1.5 ${bankAccounts.length > 3 ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                              {bankAccounts.map((account) => {
-                                const accountIdStr = account.id.toString();
-
-                                // Only trust local state as the ground truth for OWN live session.
-                                // If we know *locally* we are the active holder, that's definitive.
-                                const isLocalHolder = sessionStatus === 'holder' && sessionHolderAccountId === accountIdStr;
-                                // Server says this terminal holds the account — but validate with heartbeat, don't blindly trust.
-                                const isServerHolder = terminalId !== null && account.session_holder_terminal_id === terminalId;
-
-                                const isOwnSession = isLocalHolder || isServerHolder;
-
-                                let isActive = false; // default to inactive; only set true with real evidence
-                                let elapsedMs: number | null = null;
-                                let heartbeatTime: number | undefined;
-                                let claimedTime: number | undefined;
-
-                                if (account.session_claimed_at) {
-                                  try {
-                                    claimedTime = new Date(account.session_claimed_at).getTime();
-                                  } catch (e) { }
-                                }
-
-                                if (!account.session_holder_terminal_id) {
-                                  // No holder at all — definitely idle
-                                  isActive = false;
-                                } else if (isLocalHolder) {
-                                  // We are the holder locally right now — we are active
-                                  isActive = true;
-                                  if (account.session_last_heartbeat_at) {
-                                    try {
-                                      heartbeatTime = new Date(account.session_last_heartbeat_at).getTime();
-                                    } catch (e) { }
-                                  }
-                                } else if (account.session_last_heartbeat_at) {
-                                  // For any other terminal's session (or our server-listed session without local confirmation),
-                                  // validate recency of heartbeat
-                                  try {
-                                    heartbeatTime = new Date(account.session_last_heartbeat_at).getTime();
-                                    const idleMs = Math.max(0, currentTick - heartbeatTime);
-                                    isActive = idleMs <= 90000;
-                                  } catch (e) {
-                                    isActive = false;
-                                  }
-                                }
-
-                                // Determine what to show in the timer
-                                if (isActive) {
-                                  // If active, show duration since claimed
-                                  if (claimedTime) {
-                                    elapsedMs = Math.max(0, currentTick - claimedTime);
-                                  } else {
-                                    elapsedMs = 0;
-                                  }
-                                } else {
-                                  // If idle, show total active duration (time from claimed until last heartbeat)
-                                  if (heartbeatTime && claimedTime && heartbeatTime >= claimedTime) {
-                                    elapsedMs = Math.max(0, heartbeatTime - claimedTime);
-                                  } else {
-                                    elapsedMs = null;
-                                  }
-                                }
-
-                                const accountLabel = `${account.bank_name} (${account.account_number.slice(-4)})`;
-
-                                // Format elapsed time
-                                let timeStr = '';
-                                if (elapsedMs !== null && elapsedMs >= 0) {
-                                  const totalSeconds = Math.floor(elapsedMs / 1000);
-                                  const m = Math.floor(totalSeconds / 60);
-                                  const s = totalSeconds % 60;
-                                  timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}s`;
-                                }
-
-                                return (
-                                  <div key={account.id} className="flex justify-between items-center min-w-0">
-                                    <span className="text-zinc-400 truncate text-[10px]" title={account.label || account.account_number}>
-                                      {accountLabel}
-                                    </span>
-                                    {isActive ? (
-                                      <span className="text-emerald-400 flex items-center gap-1 font-bold text-[10px] shrink-0 ml-1" title={isOwnSession ? 'This terminal' : (account.session_holder_name || undefined)}>
-                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-glow" />
-                                        Active {timeStr}
-                                      </span>
-                                    ) : (
-                                      <span className="text-zinc-500 flex items-center gap-1 font-bold text-[10px] shrink-0 ml-1">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
-                                        Idle {timeStr}
-                                      </span>
-                                    )}
+                                <div className="space-y-1 font-mono text-[11px] mt-1.5 text-zinc-300">
+                                  <div className="font-bold flex items-center gap-1.5">
+                                    <span>Date: {lastCreditTx.date}</span>
                                   </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          <div className="flex justify-between items-center mt-1 pt-2 border-t border-zinc-800/60">
-                            <span className="text-zinc-500">Last Fetch</span>
-                            <span className="text-zinc-400 font-bold">{lastPopulatedTime || 'Never'}</span>
-                          </div>
+                                  {(() => {
+                                    const detailsSingleLine = String(lastCreditTx.details).replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+                                    const truncated = detailsSingleLine.length > 30 ? detailsSingleLine.substring(0, 30) + '...' : detailsSingleLine;
+                                    return (
+                                      <div className="text-zinc-400 truncate" title={lastCreditTx.details}>
+                                        {truncated}
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              );
+                            }
+                            return (
+                              <p className="text-xs text-[var(--text-secondary)] mt-1 font-medium leading-relaxed">
+                                Enter transfer details on the left and click Verify to start.
+                              </p>
+                            );
+                          })()}
                         </div>
                       </div>
 
-                      {/* Active Account & Balance Summary */}
-                      <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-xl p-4 flex flex-col gap-3 relative overflow-hidden group shadow-sm">
-                        {/* Subtle background glow */}
-                        <div className="absolute -top-10 -right-10 w-32 h-32 bg-blue-500/5 rounded-full blur-2xl group-hover:bg-blue-500/10 transition-colors" />
-
-                        <h4 className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest flex items-center gap-1.5 z-10">
-                          <BookOpen size={12} className="text-zinc-400" /> Active Account
-                        </h4>
-
-                        <div className="flex items-center gap-3 z-10 mt-1">
-                          {selectedAccount ? (
-                            <>
-                              <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800/80 p-1 flex items-center justify-center shrink-0">
-                                <img src={selectedAccount.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt="" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className={`text-[10px] uppercase font-bold tracking-wider ${selectedAccount.bank_name === 'BML' ? 'text-red-400' : 'text-emerald-400'
-                                    }`}>
-                                    {selectedAccount.bank_name}
-                                  </span>
-                                  {selectedAccount.label && (
-                                    <span className="text-[10px] bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded font-bold">
-                                      {selectedAccount.label}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="text-[13px] font-bold text-white truncate mt-0.5">{selectedAccount.account_name}</div>
-                                <div className="text-[11px] font-mono text-[var(--text-secondary)] mt-0.5">
-                                  {selectedAccount.account_number}
-                                </div>
-                              </div>
-                            </>
-                          ) : (
-                            <div className="text-zinc-500 text-sm">No Account Selected</div>
-                          )}
+                      {/* Small inline status/timer indicator */}
+                      {(loading || progress.stage === 'error' || activeStepIndex === 5) && (
+                        <div className="flex items-center gap-2 mt-4 text-[10px] text-zinc-500 font-mono border-t border-zinc-800/40 pt-2 mt-auto">
+                          <span>Status:</span>
+                          <span className={`${
+                            activeStepIndex === 5 ? 'text-emerald-400 font-bold' :
+                            progress.stage === 'error' ? (/No recent credit transaction found|Search not found/i.test(error || '') ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold') :
+                            'text-zinc-400 animate-pulse'
+                          }`}>
+                            {progress.text || (activeStepIndex === 5 ? 'Success' : 'Active')}
+                          </span>
                         </div>
-
-                        <div className="mt-auto flex justify-between items-end z-10 pt-2 border-t border-zinc-800/60">
-                          <span className="text-zinc-500 text-[10px] uppercase tracking-wider font-bold">Balance</span>
-                          <div className="text-right">
-                            <span className="text-[10px] text-emerald-500/70 mr-1 font-bold">{selectedAccountCurrency}</span>
-                            <span className="text-sm font-bold font-mono text-emerald-400">
-                              {(() => {
-                                const verifyCache = selectedAccount ? (ledgerCache[selectedAccount.id.toString()] || { balance: 'Not synced' }) : { balance: 'Not synced' };
-                                return permissions.ledger_show_balance ? (
-                                  verifyCache.balance !== 'Not synced' && verifyCache.balance !== 'Not found' ? formatAmount(verifyCache.balance) : '0.00'
-                                ) : '[hidden]';
-                              })()}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
+                      )}
                     </div>
+
+                    {/* Active Account & Balance Summary Card */}
+                    <div className="glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col justify-between min-h-[175px] relative overflow-hidden group shadow-sm">
+                      {/* Subtle background glow */}
+                      <div className="absolute -top-10 -right-10 w-32 h-32 bg-blue-500/5 rounded-full blur-2xl group-hover:bg-blue-500/10 transition-colors" />
+
+                      <h4 className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest flex items-center gap-1.5 z-10">
+                        <BookOpen size={12} className="text-zinc-400" /> Active Account
+                      </h4>
+
+                      <div className="flex items-center gap-3 z-10 my-2">
+                        {selectedAccount ? (
+                          <>
+                            <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800/80 p-1 flex items-center justify-center shrink-0">
+                              <img src={selectedAccount.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt="" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className={`text-[10px] uppercase font-bold tracking-wider ${selectedAccount.bank_name === 'BML' ? 'text-red-400' : 'text-emerald-400'}`}>
+                                  {selectedAccount.bank_name}
+                                </span>
+                                {selectedAccount.label && (
+                                  <span className="text-[10px] bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded font-bold">
+                                    {selectedAccount.label}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[13px] font-bold text-white truncate mt-0.5">{selectedAccount.account_name}</div>
+                              <div className="text-[11px] font-mono text-[var(--text-secondary)] mt-0.5">
+                                {selectedAccount.account_number}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-zinc-500 text-sm">No Account Selected</div>
+                        )}
+                      </div>
+
+                      <div className="flex justify-between items-end z-10 pt-2 border-t border-zinc-800/60 mt-auto">
+                        <span className="text-zinc-500 text-[10px] uppercase tracking-wider font-bold">Balance</span>
+                        <div className="text-right">
+                          <span className="text-[10px] text-emerald-500/70 mr-1 font-bold">{selectedAccountCurrency}</span>
+                          <span className="text-sm font-bold font-mono text-emerald-400">
+                            {(() => {
+                              const verifyCache = selectedAccount ? (ledgerCache[selectedAccount.id.toString()] || { balance: 'Not synced' }) : { balance: 'Not synced' };
+                              return permissions.ledger_show_balance ? (
+                                verifyCache.balance !== 'Not synced' && verifyCache.balance !== 'Not found' ? formatAmount(verifyCache.balance) : '0.00'
+                              ) : '[hidden]';
+                            })()}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
                   </div>
 
                   {/* Verification Log Panel (only shows verification flow logs) */}
