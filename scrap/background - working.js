@@ -514,6 +514,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
     return token;
   }
 
+  let loginSuccess = false;
   try {
     // ═══════════════════════════════════════════════════════════════
     // STEP 0: Clear Previous Session State
@@ -1073,7 +1074,14 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
 
   } catch (error) {
     emitLog(port, `> [BML] FATAL ERROR: ${error.message}`);
-    port.postMessage({ type: "error", error: error.message, transactions: last3Txs || [] });
+    const isAuth = !!error.auth_failed || /invalid credentials|mfa failed|incorrect|unauthorized|auth/i.test(error.message);
+    port.postMessage({ 
+      type: "error", 
+      error: error.message, 
+      transactions: last3Txs || [],
+      login_success: loginSuccess,
+      auth_failed: isAuth
+    });
   }
 }
 
@@ -1382,6 +1390,7 @@ function buildFormBody(params) {
 async function runMibFlow(credentials, targetAccount, port, targetAmount, profileType = '0', mode = 'search') {
   emitLog(port, `> [MIB] Starting MIB Faisanet auth flow...`);
   let last3Txs = [];
+  let loginSuccess = false;
 
   const mibHeaders = {
     'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
@@ -1970,7 +1979,14 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
 
     if (port) {
       try {
-        port.postMessage({ type: 'error', error: error.message, transactions: last3Txs || [] });
+        const isAuth = !!error.auth_failed || /auth failed|otp verification failed|invalid credentials/i.test(error.message);
+        port.postMessage({ 
+          type: 'error', 
+          error: error.message, 
+          transactions: last3Txs || [],
+          login_success: loginSuccess,
+          auth_failed: isAuth
+        });
       } catch (e) { /* port might already be dead */ }
     }
   }
@@ -2021,6 +2037,7 @@ function findMostSimilarProfile(profiles, targetName) {
 }
 
 async function runMibMultiProfileFlow(credentials, targetAccount, targetAccountName, port, targetAmount, mode = 'search', sessionMode = 'fresh_login') {
+  let loginSuccess = sessionMode === 'fetch_only';
   emitLog(port, `> [MIB] Starting MIB Faisanet Multi-Profile Auth Flow (sessionMode: ${sessionMode}, targetAccountName: "${targetAccountName}")...`);
   let last3Txs = [];
 
@@ -2598,7 +2615,14 @@ async function runMibMultiProfileFlow(credentials, targetAccount, targetAccountN
 
     if (port) {
       try {
-        port.postMessage({ type: 'error', error: error.message, transactions: last3Txs || [] });
+        const isAuth = !!error.auth_failed || /auth failed|otp verification failed|invalid credentials/i.test(error.message);
+        port.postMessage({ 
+          type: 'error', 
+          error: error.message, 
+          transactions: last3Txs || [],
+          login_success: loginSuccess,
+          auth_failed: isAuth
+        });
       } catch (e) { }
     }
   }

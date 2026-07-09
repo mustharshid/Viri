@@ -701,6 +701,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
     return token;
   }
 
+  let loginSuccess = sessionMode === 'fetch_only';
   try {
     if (sessionMode === 'fresh_login' || sessionMode === 'claim_and_login') {
     // ═══════════════════════════════════════════════════════════════
@@ -912,6 +913,8 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
       await saveScrap(`mfa_failed_${mfaRes.status}`, mfaBody);
       throw new Error(`MFA failed with HTTP ${mfaRes.status}`);
     }
+
+    loginSuccess = true;
 
     // ═══════════════════════════════════════════════════════════════
     // STEP 4: Fetch and Select Profile
@@ -1289,7 +1292,14 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
 
   } catch (error) {
     emitLog(port, `> [BML] FATAL ERROR: ${error.message}`);
-    port.postMessage({ type: "error", error: error.message, transactions: last3Txs || [] });
+    const isAuth = !!error.auth_failed || /invalid credentials|mfa failed|incorrect|unauthorized|auth/i.test(error.message);
+    port.postMessage({ 
+      type: "error", 
+      error: error.message, 
+      transactions: last3Txs || [],
+      login_success: loginSuccess,
+      auth_failed: isAuth
+    });
   }
 }
 
@@ -1634,6 +1644,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
   }
 
   let mibClockOffset = 0;
+  let loginSuccess = sessionMode === 'fetch_only';
 
   try {
     if (sessionMode === 'fresh_login' || sessionMode === 'claim_and_login') {
@@ -1782,7 +1793,9 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     }
 
     if (xAuthData && (xAuthData.success === false || xAuthData.status === 'error')) {
-      throw new Error(`MIB authentication failed: ${xAuthData.reasonText || xAuthData.message || 'Invalid credentials'}`);
+      const err = new Error(`MIB authentication failed: ${xAuthData.reasonText || xAuthData.message || 'Invalid credentials'}`);
+      err.auth_failed = true;
+      throw err;
     }
     emitLog(port, `> [MIB] ✓ Primary authentication successful.`);
 
@@ -1875,9 +1888,12 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     }
 
     if (otpData.status === 'error') {
-      throw new Error(`MIB OTP verification failed: ${otpData.message || 'Invalid OTP'}`);
+      const err = new Error(`MIB OTP verification failed: ${otpData.message || 'Invalid OTP'}`);
+      err.auth_failed = true;
+      throw err;
     }
     emitLog(port, `> [MIB] ✓ OTP verified successfully (HTTP ${otpRes.status}).`);
+    loginSuccess = true;
 
     // ═══════════════════════════════════════════════════════════════
     // STEP 6: Load Profiles — GET /profiles
@@ -2253,7 +2269,14 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
 
     if (port) {
       try {
-        port.postMessage({ type: 'error', error: error.message, transactions: last3Txs || [] });
+        const isAuth = !!error.auth_failed || /auth failed|otp verification failed|invalid credentials/i.test(error.message);
+        port.postMessage({ 
+          type: 'error', 
+          error: error.message, 
+          transactions: last3Txs || [],
+          login_success: loginSuccess,
+          auth_failed: isAuth
+        });
       } catch (e) { /* port might already be dead */ }
     }
   }
@@ -2306,6 +2329,7 @@ function findMostSimilarProfile(profiles, targetName) {
 async function runMibMultiProfileFlow(credentials, targetAccount, targetAccountName, port, targetAmount, mode = 'search', sessionMode = 'fresh_login') {
   emitLog(port, `> [MIB] Starting MIB Faisanet Multi-Profile Auth Flow (sessionMode: ${sessionMode}, targetAccountName: "${targetAccountName}")...`);
   let last3Txs = [];
+  let loginSuccess = sessionMode === 'fetch_only';
 
   const mibHeaders = {
     'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
@@ -2465,7 +2489,9 @@ async function runMibMultiProfileFlow(credentials, targetAccount, targetAccountN
       }
 
       if (xAuthData && (xAuthData.success === false || xAuthData.status === 'error')) {
-        throw new Error(`MIB authentication failed: ${xAuthData.reasonText || xAuthData.message || 'Invalid credentials'}`);
+        const err = new Error(`MIB authentication failed: ${xAuthData.reasonText || xAuthData.message || 'Invalid credentials'}`);
+        err.auth_failed = true;
+        throw err;
       }
       emitLog(port, `> [MIB] ✓ Primary authentication successful.`);
 
@@ -2542,9 +2568,12 @@ async function runMibMultiProfileFlow(credentials, targetAccount, targetAccountN
       }
 
       if (otpData.status === 'error') {
-        throw new Error(`MIB OTP verification failed: ${otpData.message || 'Invalid OTP'}`);
+        const err = new Error(`MIB OTP verification failed: ${otpData.message || 'Invalid OTP'}`);
+        err.auth_failed = true;
+        throw err;
       }
       emitLog(port, `> [MIB] ✓ OTP verified successfully (HTTP ${otpRes.status}).`);
+      loginSuccess = true;
 
       emitLog(port, `> [MIB] Step 6: Loading profiles page...`);
       const profilesRes = await mibFetch(`${MIB_BASE_URL}/profiles`, {
@@ -2881,7 +2910,14 @@ async function runMibMultiProfileFlow(credentials, targetAccount, targetAccountN
 
     if (port) {
       try {
-        port.postMessage({ type: 'error', error: error.message, transactions: last3Txs || [] });
+        const isAuth = !!error.auth_failed || /auth failed|otp verification failed|invalid credentials/i.test(error.message);
+        port.postMessage({ 
+          type: 'error', 
+          error: error.message, 
+          transactions: last3Txs || [],
+          login_success: loginSuccess,
+          auth_failed: isAuth
+        });
       } catch (e) { }
     }
   }

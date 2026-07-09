@@ -179,7 +179,8 @@ class BankAccountLockController extends Controller
                 'event_summary'         => 'Bank login failed on terminal ' . $terminal->terminal_name,
                 'event_detail'          => [
                     'login_failures' => $bankAccount->fresh()->login_failures,
-                    'pwa_logs' => $request->input('pwa_logs', [])
+                    'pwa_logs' => $request->input('pwa_logs', []),
+                    'extension_version' => $request->input('extension_version')
                 ],
                 'ip_address'            => $request->ip(),
                 'created_at'            => now(),
@@ -225,7 +226,8 @@ class BankAccountLockController extends Controller
                 'event_type'            => 'session_login_success',
                 'event_summary'         => 'Bank login succeeded on terminal ' . $terminal->terminal_name,
                 'event_detail'          => [
-                    'pwa_logs' => $request->input('pwa_logs', [])
+                    'pwa_logs' => $request->input('pwa_logs', []),
+                    'extension_version' => $request->input('extension_version')
                 ],
                 'ip_address'            => $request->ip(),
                 'created_at'            => now(),

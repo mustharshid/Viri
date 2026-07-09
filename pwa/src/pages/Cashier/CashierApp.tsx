@@ -293,7 +293,7 @@ function App() {
   const [currentTick, setCurrentTick] = useState(Date.now());
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.2";
+  const LATEST_EXTENSION_VERSION = "1.2.3";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -305,10 +305,11 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           hardware_id: hardwareId || localStorage.getItem('viri_hardware_id'),
-          event_type: 'session_login_failed',
+          event_type: 'fetch_request_failed',
           bank_account_id: accId,
           event_summary: errorMsg,
-          pwa_logs: logsRef.current || []
+          pwa_logs: logsRef.current || [],
+          extension_version: extensionVersion || LATEST_EXTENSION_VERSION
         })
       }).catch(e => console.error("Failed to log system error:", e));
     }
@@ -2650,7 +2651,13 @@ function App() {
             await fetch(`${backendUrl}/terminal/bank-accounts/reset-failures`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(selectedAccountId), credentials_hash: hash, pwa_logs: logsRef.current })
+              body: JSON.stringify({ 
+                hardware_id: hardwareId, 
+                bank_account_id: parseInt(selectedAccountId), 
+                credentials_hash: hash, 
+                pwa_logs: logsRef.current,
+                extension_version: extensionVersion || LATEST_EXTENSION_VERSION
+              })
             });
             fetchAccounts();
           } catch (e) {
@@ -2658,20 +2665,21 @@ function App() {
           }
         }, 1500); // 1.5s reinforcement checkmark flash
       } else if (response.type === 'error') {
+        const isSearchNotFound = /No recent credit transaction found/i.test(response.error || '');
         setProgress({
           stage: 'error',
-          text: mode === 'history' ? 'Fetch failed' : 'Verification failed',
+          text: isSearchNotFound ? 'Search not found' : (mode === 'history' ? 'Fetch failed' : 'Verification failed'),
           percent: 100,
           isIndeterminate: false
         });
         setTimeLeft(null);
         setLoading(false);
         setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
-        setError(response.error || (mode === 'history' ? "Failed to fetch history." : "Verification failed."));
+        setError(isSearchNotFound ? "Search not found" : (response.error || (mode === 'history' ? "Failed to fetch history." : "Verification failed.")));
 
         // Track consecutive failures
-        const isAuthError = progress.stage === 'init' || progress.stage === 'auth' ||
-          /login|credential|auth|password|seed|incorrect|invalid/i.test(response.error || '');
+        const isAuthError = !response.login_success && (response.auth_failed || (progress.stage === 'init' || progress.stage === 'auth' ||
+          /login|credential|auth|password|seed|incorrect|invalid/i.test(response.error || '')));
         if (isAuthError) {
           addLog("> [System] Invalid bank credentials detected. Incrementing failure count...");
           const currentCreds = accountsCreds[selectedAccountId] || {};
@@ -2681,7 +2689,13 @@ function App() {
               await fetch(`${backendUrl}/terminal/bank-accounts/increment-failures`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(selectedAccountId), credentials_hash: hash, pwa_logs: logsRef.current })
+                body: JSON.stringify({ 
+                  hardware_id: hardwareId, 
+                  bank_account_id: parseInt(selectedAccountId), 
+                  credentials_hash: hash, 
+                  pwa_logs: logsRef.current,
+                  extension_version: extensionVersion || LATEST_EXTENSION_VERSION
+                })
               });
               fetchAccounts();
             } catch (e) {
@@ -2690,15 +2704,21 @@ function App() {
           });
         } else {
           // Log non-auth errors (HTTP failures, timeouts, etc.) to session activity
+          const eventType = isSearchNotFound ? 'search_not_found' : 'fetch_request_failed';
+          const eventSummary = isSearchNotFound 
+            ? `No recent credit transaction found for ${amount || '0.00'} MVR.` 
+            : `${response.error || 'Unknown error'}`;
+
           fetch(`${backendUrl}/terminal/session/log`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               hardware_id: hardwareId,
-              event_type: 'session_login_failed',
+              event_type: eventType,
               bank_account_id: parseInt(selectedAccountId),
-              event_summary: `${response.error || 'Unknown error'}`,
-              pwa_logs: logsRef.current
+              event_summary: eventSummary,
+              pwa_logs: logsRef.current,
+              extension_version: extensionVersion || LATEST_EXTENSION_VERSION
             })
           }).catch(e => console.error("Failed to log session error:", e));
         }
@@ -2949,7 +2969,13 @@ function App() {
             await fetch(`${backendUrl}/terminal/bank-accounts/reset-failures`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(targetAccountId), credentials_hash: hash, pwa_logs: logsRef.current })
+              body: JSON.stringify({ 
+                hardware_id: hardwareId, 
+                bank_account_id: parseInt(targetAccountId), 
+                credentials_hash: hash, 
+                pwa_logs: logsRef.current,
+                extension_version: extensionVersion || LATEST_EXTENSION_VERSION
+              })
             });
             if (sessionStatus === 'claiming' || claimSuccess) {
               port.postMessage({
@@ -2971,21 +2997,27 @@ function App() {
           }
         }, 1500);
       } else if (response.type === 'error') {
-        setError(response.error || "An unknown error occurred during sync.");
-        setProgress({ stage: 'error', text: 'Sync failed', percent: 100, isIndeterminate: false });
+        const isSearchNotFound = /No recent credit transaction found/i.test(response.error || '');
+        setError(isSearchNotFound ? "Search not found" : (response.error || "An unknown error occurred during sync."));
+        setProgress({ 
+          stage: 'error', 
+          text: isSearchNotFound ? 'Search not found' : 'Sync failed', 
+          percent: 100, 
+          isIndeterminate: false 
+        });
         setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
         setTimeLeft(null);
         setLedgerCache(prev => ({
           ...prev,
           [targetAccountId]: {
             ...(prev[targetAccountId] || {}),
-            error: response.error || "An unknown error occurred during sync."
+            error: isSearchNotFound ? "Search not found" : (response.error || "An unknown error occurred during sync.")
           }
         }));
 
         // Track consecutive failures
-        const isAuthError = progress.stage === 'init' || progress.stage === 'auth' ||
-          /login|credential|auth|password|seed|incorrect|invalid/i.test(response.error || '');
+        const isAuthError = !response.login_success && (response.auth_failed || (progress.stage === 'init' || progress.stage === 'auth' ||
+          /login|credential|auth|password|seed|incorrect|invalid/i.test(response.error || '')));
         if (isAuthError) {
           const currentCreds = accountsCreds[targetAccountId] || {};
           const activeUsername = currentCreds.username || '';
@@ -2994,7 +3026,13 @@ function App() {
               await fetch(`${backendUrl}/terminal/bank-accounts/increment-failures`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(targetAccountId), credentials_hash: hash, pwa_logs: logsRef.current })
+                body: JSON.stringify({ 
+                  hardware_id: hardwareId, 
+                  bank_account_id: parseInt(targetAccountId), 
+                  credentials_hash: hash, 
+                  pwa_logs: logsRef.current,
+                  extension_version: extensionVersion || LATEST_EXTENSION_VERSION
+                })
               });
               fetchAccounts();
             } catch (e) {
@@ -3003,15 +3041,21 @@ function App() {
           });
         } else {
           // Log non-auth errors (HTTP failures, timeouts, etc.) to session activity
+          const eventType = isSearchNotFound ? 'search_not_found' : 'fetch_request_failed';
+          const eventSummary = isSearchNotFound 
+            ? `No recent credit transaction found for ledger sync.` 
+            : `${response.error || 'Unknown error'}`;
+
           fetch(`${backendUrl}/terminal/session/log`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               hardware_id: hardwareId,
-              event_type: 'session_login_failed',
+              event_type: eventType,
               bank_account_id: parseInt(targetAccountId),
-              event_summary: `${response.error || 'Unknown error'}`,
-              pwa_logs: logsRef.current
+              event_summary: eventSummary,
+              pwa_logs: logsRef.current,
+              extension_version: extensionVersion || LATEST_EXTENSION_VERSION
             })
           }).catch(e => console.error("Failed to log session error:", e));
         }
@@ -4277,13 +4321,23 @@ function App() {
                               </span>
                             </>
                           ) : progress.stage === 'error' ? (
-                            <>
-                              <span>Verification Failed</span>
-                              <Tooltip text="The program failed to verify this transfer. Please review logs or try again." helpSectionId="transfer-verification" />
-                              <span className="px-2 py-0.5 bg-red-955/50 border border-red-500/20 text-red-400 text-[10px] font-bold tracking-wider rounded uppercase">
-                                Failed
-                              </span>
-                            </>
+                            /No recent credit transaction found|Search not found/i.test(error || '') ? (
+                              <>
+                                <span>Search not found</span>
+                                <Tooltip text="The banking session successfully completed, but no transaction matching the exact searched amount was found." helpSectionId="transfer-verification" />
+                                <span className="px-2 py-0.5 bg-emerald-955/50 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold tracking-wider rounded uppercase">
+                                  Search not found
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <span>Verification Failed</span>
+                                <Tooltip text="The program failed to verify this transfer. Please review logs or try again." helpSectionId="transfer-verification" />
+                                <span className="px-2 py-0.5 bg-red-955/50 border border-red-500/20 text-red-400 text-[10px] font-bold tracking-wider rounded uppercase">
+                                  Failed
+                                </span>
+                              </>
+                            )
                           ) : loading ? (
                             <>
                               <span>{progress.text || "Verifying Transfer..."}</span>
@@ -4333,7 +4387,7 @@ function App() {
                             </div>
                           );
                         })() : progress.stage === 'error' ? (
-                          <p className="text-xs text-[var(--text-secondary)] mt-1 font-medium leading-relaxed">
+                          <p className={`text-xs mt-1 font-medium leading-relaxed ${/No recent credit transaction found|Search not found/i.test(error || '') ? 'text-emerald-400/90' : 'text-[var(--text-secondary)]'}`}>
                             {error || "An error occurred during verification."}
                           </p>
                         ) : loading ? (
@@ -4683,7 +4737,7 @@ function App() {
                         <div className="w-24 sm:w-40 bg-zinc-800 h-3 rounded-full overflow-hidden relative shadow-inner shrink-0">
                           <div
                             className={`h-full transition-all duration-300 rounded-full ${progress.stage === 'error'
-                              ? 'bg-red-500'
+                              ? (/No recent credit transaction found|Search not found/i.test(error || '') ? 'bg-emerald-400' : 'bg-red-500')
                               : ((loading && loadingMode === 'history')
                                 ? 'bg-gradient-to-r from-emerald-400 to-cyan-500'
                                 : 'bg-emerald-400')
@@ -5270,7 +5324,7 @@ function App() {
                           <div className="w-24 sm:w-40 bg-zinc-800 h-3 rounded-full overflow-hidden relative shadow-inner shrink-0">
                             <div
                               className={`h-full transition-all duration-300 rounded-full ${progress.stage === 'error'
-                                ? 'bg-red-500'
+                                ? (/No recent credit transaction found|Search not found/i.test(error || '') ? 'bg-emerald-400' : 'bg-red-500')
                                 : (isSyncing
                                   ? 'bg-gradient-to-r from-emerald-400 to-cyan-500'
                                   : 'bg-emerald-400')

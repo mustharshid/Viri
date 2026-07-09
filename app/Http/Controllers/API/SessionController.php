@@ -768,6 +768,9 @@ class SessionController extends Controller
         if ($request->has('pwa_logs')) {
             $eventDetail['pwa_logs'] = $request->pwa_logs;
         }
+        if ($request->has('extension_version')) {
+            $eventDetail['extension_version'] = $request->extension_version;
+        }
 
         SessionActivityLog::create([
             'tenant_id'               => $terminal->tenant_id,

@@ -2085,11 +2085,11 @@ export default function AdminDashboard() {
                   {sessionLogs.map((log: any) => {
                     const dateStr = new Date(log.created_at).toLocaleString();
                     let badgeClass = "bg-zinc-800 text-zinc-400 border border-zinc-700";
-                    if (['session_login_success', 'session_claimed', 'fetch_request_fulfilled'].includes(log.event_type)) {
+                    if (['session_login_success', 'session_claimed', 'fetch_request_fulfilled', 'search_not_found'].includes(log.event_type)) {
                       badgeClass = "bg-green-950/40 text-green-400 border border-green-500/20";
-                    } else if (['session_login_failed', 'fetch_request_failed'].includes(log.event_type)) {
+                    } else if (['session_login_failed'].includes(log.event_type)) {
                       badgeClass = "bg-red-950/40 text-red-400 border border-red-500/20";
-                    } else if (['session_heartbeat_lost', 'session_released'].includes(log.event_type)) {
+                    } else if (['session_heartbeat_lost', 'session_released', 'fetch_request_failed'].includes(log.event_type)) {
                       badgeClass = "bg-orange-950/40 text-orange-400 border border-orange-500/20";
                     }
                     const isExpanded = expandedLogId === log.id;
@@ -2102,6 +2102,11 @@ export default function AdminDashboard() {
                           <td className="py-3 pr-4 font-mono text-zinc-400">{dateStr}</td>
                           <td className="py-3 pr-4 font-medium text-white">
                             {log.terminal_name || "System"} 
+                            {log.event_detail?.extension_version && (
+                              <span className="text-[9px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-mono font-bold ml-1.5 align-middle">
+                                v{log.event_detail.extension_version}
+                              </span>
+                            )}
                             <span className="text-[10px] text-zinc-500 block">{log.tenant?.name}</span>
                           </td>
                           <td className="py-3 pr-4 font-mono text-zinc-400">
@@ -2110,7 +2115,7 @@ export default function AdminDashboard() {
                           </td>
                           <td className="py-3 pr-4">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${badgeClass}`}>
-                              {log.event_type.replace(/_/g, ' ').toUpperCase()}
+                              {log.event_type === 'search_not_found' ? 'SEARCH NOT FOUND!' : log.event_type.replace(/_/g, ' ').toUpperCase()}
                             </span>
                           </td>
                           <td className="py-3 pr-4 text-zinc-300 font-medium">
