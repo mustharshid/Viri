@@ -3972,6 +3972,19 @@ function App() {
                               }`}>
                               {isApiManaged ? 'API Session Managed' : (hasCreds ? 'Credentials Configured' : 'No Credentials')}
                             </span>
+                            {!isExpanded && isApiManaged && (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  className={`btn text-xs py-1.5 px-3 font-semibold border border-emerald-500 hover:bg-emerald-950/50 text-emerald-400`}
+                                  onClick={() => {
+                                    syncLedgerLocally(acc.id.toString(), acc, acc.bank_name, null);
+                                  }}
+                                  disabled={loading}
+                                >
+                                  {loading ? 'Opening...' : 'Login (Browser)'}
+                                </button>
+                              </div>
+                            )}
                             {!isExpanded && !isApiManaged && (
                               <div className="flex items-center gap-2">
                                 <button
