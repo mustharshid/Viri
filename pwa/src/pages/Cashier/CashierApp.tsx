@@ -2751,7 +2751,9 @@ function App() {
       totpSeed: currentCreds.totpSeed || ''
     };
 
-    if (!activeCreds.username || !activeCreds.password) {
+    const isApiManaged = selectedAccount?.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
+
+    if (!isApiManaged && (!activeCreds.username || !activeCreds.password)) {
       setError("Credentials missing for this account. Please re-pair the terminal or check account settings.");
       addLog("> [System] Missing credentials. Aborting verification request.");
       setLoading(false);
@@ -2875,7 +2877,9 @@ function App() {
       totpSeed: currentCreds.totpSeed || ''
     };
 
-    if (!activeCreds.username || !activeCreds.password) {
+    const isApiManaged = selectedAccount?.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
+
+    if (!isApiManaged && (!activeCreds.username || !activeCreds.password)) {
       setError("Credentials missing for this account. Please re-pair the terminal or check account settings.");
       addLog("> [System] Missing credentials. Aborting sync.");
       setLoading(false);
@@ -3386,9 +3390,12 @@ function App() {
   const selectedAccountCurrency = selectedAccount ? (selectedAccount.currency || 'MVR') : 'MVR';
 
   const selectedAccountCreds = selectedAccountId ? (accountsCreds[selectedAccountId] || {}) : {};
-  const isCredentialsComplete = !!selectedAccountCreds.username?.trim() &&
+  const isSelectedApiManaged = selectedAccount?.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
+  const isCredentialsComplete = isSelectedApiManaged || (
+    !!selectedAccountCreds.username?.trim() &&
     !!selectedAccountCreds.password?.trim() &&
-    !!selectedAccountCreds.totpSeed?.trim();
+    !!selectedAccountCreds.totpSeed?.trim()
+  );
 
   const isSelectedAccountLocked = selectedAccount ? (selectedAccount.login_failures || 0) >= 2 : false;
 
@@ -3921,7 +3928,8 @@ function App() {
                   bankAccounts.map(acc => {
                     const failures = acc.login_failures || 0;
                     const isLocked = failures >= 2;
-                    const hasCreds = !!(accountsCreds[acc.id.toString()]?.username);
+                    const isApiManaged = acc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
+                    const hasCreds = isApiManaged || !!(accountsCreds[acc.id.toString()]?.username);
                     const isExpanded = expandedCredsAccountId === acc.id.toString();
 
                     return (
@@ -3962,9 +3970,9 @@ function App() {
                               ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-500/10'
                               : 'bg-zinc-800 text-zinc-400'
                               }`}>
-                              {hasCreds ? 'Credentials Configured' : 'No Credentials'}
+                              {isApiManaged ? 'API Session Managed' : (hasCreds ? 'Credentials Configured' : 'No Credentials')}
                             </span>
-                            {!isExpanded && (
+                            {!isExpanded && !isApiManaged && (
                               <div className="flex items-center gap-2">
                                 <button
                                   className={`btn text-xs py-1.5 px-3 font-semibold ${hasCreds
