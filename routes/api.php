@@ -164,6 +164,7 @@ Route::post('/verify-terminal', function (Request $request) {
         'poll_interval_requesting' => $requestingInterval,
         'poll_interval_idle' => $idleInterval,
         'debug_log_mib_html' => (bool) ($settings['debug_log_mib_html'] ?? false),
+        'bml_login_procedure' => $settings['bml_login_procedure'] ?? 'legacy',
     ];
 
     $activeTerminalsCount = DB::table('terminal_account_activity')
