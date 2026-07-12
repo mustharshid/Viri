@@ -11,7 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        \Illuminate\Support\Facades\DB::table('system_settings')->insert([
+        \Illuminate\Support\Facades\DB::table('system_settings')->insertOrIgnore([
             [
                 'key' => 'bml_login_procedure',
                 'value' => 'legacy',
