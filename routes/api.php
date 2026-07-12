@@ -101,6 +101,7 @@ Route::post('/terminal/session/fulfill',    [\App\Http\Controllers\API\SessionCo
 Route::get('/terminal/session/result/{id}', [\App\Http\Controllers\API\SessionController::class, 'pollResult']);
 Route::post('/terminal/session/log',        [\App\Http\Controllers\API\SessionController::class, 'logEvent']);
 Route::post('/terminal/session/activity',   [\App\Http\Controllers\API\SessionController::class, 'recordActivity']);
+Route::post('/terminal/session/bml-auth',   [\App\Http\Controllers\API\SessionController::class, 'updateBmlAuth']);
 Route::post('/terminal/account/fingerprint-check', [\App\Http\Controllers\API\SessionController::class, 'checkFingerprint']);
 
 

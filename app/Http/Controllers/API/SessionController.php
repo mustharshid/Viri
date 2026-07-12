@@ -518,6 +518,8 @@ class SessionController extends Controller
             'account_name'   => $r->bankAccount?->account_name,
             'bank_name'    => $r->bankAccount?->bank_name,
             'mib_profile_type' => $r->bankAccount?->mib_profile_type ?? '0',
+            'bml_profile_type' => $r->bankAccount?->bml_profile_type ?? '0',
+            'bml_auth_state'   => $r->bankAccount?->bml_auth_state,
             'request_type' => $r->request_type,
             'target_amount'=> $r->target_amount,
             'requester_name' => $r->requestingTerminal?->terminal_name,
@@ -867,5 +869,31 @@ class SessionController extends Controller
         }
 
         return response()->json(['status' => 'upload_required']);
+    }
+
+    public function updateBmlAuth(Request $request)
+    {
+        $request->validate([
+            'hardware_id' => 'required|string',
+            'bank_account_id' => 'required|integer',
+            'bml_auth_state' => 'required|json',
+        ]);
+
+        $terminal = $this->resolveTerminal($request->hardware_id);
+        if (!$terminal) return response()->json(['error' => 'Terminal unauthorized'], 403);
+
+        $account = BankAccount::where('id', $request->bank_account_id)
+            ->where('tenant_id', $terminal->tenant_id)
+            ->first();
+
+        if (!$account) {
+            return response()->json(['error' => 'Account not accessible'], 403);
+        }
+
+        $account->update([
+            'bml_auth_state' => $request->bml_auth_state
+        ]);
+
+        return response()->json(['status' => 'success']);
     }
 }

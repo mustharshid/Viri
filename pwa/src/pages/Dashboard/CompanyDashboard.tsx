@@ -175,6 +175,7 @@ export default function CompanyDashboard() {
   const [accountNumber, setAccountNumber] = useState('');
   const [accountLabel, setAccountLabel] = useState('');
   const [mibProfileType, setMibProfileType] = useState('0');
+  const [bmlProfileType, setBmlProfileType] = useState('0');
   const [currency, setCurrency] = useState('MVR');
 
   // Settings Form States
@@ -577,6 +578,7 @@ export default function CompanyDashboard() {
         account_name: accountName, 
         account_number: accountNumber, 
         mib_profile_type: bankName === 'MIB' ? mibProfileType : '0',
+        bml_profile_type: bankName === 'BML' ? bmlProfileType : '0',
         label: accountLabel,
         currency: currency
       })
@@ -590,6 +592,7 @@ export default function CompanyDashboard() {
       setAccountNumber('');
       setAccountLabel('');
       setMibProfileType('0');
+      setBmlProfileType('0');
       setCurrency('MVR');
       fetchData();
     }
@@ -674,7 +677,7 @@ export default function CompanyDashboard() {
             <h1 className="text-2xl font-bold text-white tracking-tight capitalize flex items-center gap-2">
               {activeTab === 'dashboard' ? 'Overview' : activeTab}
             </h1>
-            <p className="text-zinc-400 text-xs mt-0.5">Manage and monitor cashier terminals and local banking setups</p>
+            <p className="text-zinc-400 text-xs mt-0.5">Manage and monitor cashier counters and local banking setups</p>
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2.5 bg-zinc-900/60 border border-zinc-800/80 px-4 py-2 rounded-xl">
@@ -762,12 +765,12 @@ export default function CompanyDashboard() {
               <div className="glass-panel p-6 flex flex-col justify-between min-h-[220px]">
                 <div>
                   <div className="flex justify-between items-start">
-                    <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Device Limits</span>
+                    <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Counter Limits</span>
                     <span className="text-xs font-bold text-zinc-300 bg-zinc-800/60 border border-zinc-700/60 px-2 py-0.5 rounded-full">
                       {terminals.length} / {user?.tenant?.max_terminals ?? 1} Used
                     </span>
                   </div>
-                  <h3 className="text-lg font-bold text-white mt-3">Cashier Terminals</h3>
+                  <h3 className="text-lg font-bold text-white mt-3">Cashier Counters</h3>
                   {(() => {
                     const limit = user?.tenant?.max_terminals ?? 1;
                     const used = terminals.length;
@@ -775,7 +778,7 @@ export default function CompanyDashboard() {
                     return (
                       <div className="mt-4">
                         <div className="flex justify-between text-xs text-zinc-400 mb-1.5 font-mono">
-                          <span>{used} / {limit} Devices</span>
+                          <span>{used} / {limit} Counters</span>
                           <span>{Math.round(percent)}%</span>
                         </div>
                         <div className="w-full bg-zinc-800/80 h-2 rounded-full overflow-hidden border border-zinc-700/30">
@@ -789,10 +792,21 @@ export default function CompanyDashboard() {
                   })()}
                 </div>
                 
-                <div className="pt-3 border-t border-zinc-800/60 mt-4 flex justify-between items-center">
-                  <a href={`/viri/viri-bridge-${LATEST_EXTENSION_VERSION}.zip`} download className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 hover:underline">
+                <div className="pt-3 border-t border-zinc-800/60 mt-4 flex justify-between items-center text-xs">
+                  <a href={`/viri/viri-bridge-${LATEST_EXTENSION_VERSION}.zip`} download className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1 hover:underline">
                     <Download size={13} /> Download Extension
                   </a>
+                  <button 
+                    onClick={() => {
+                      const el = document.getElementById('cashier-counters-section');
+                      if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }
+                    }} 
+                    className="text-blue-400 hover:text-blue-300 flex items-center gap-0.5 hover:underline"
+                  >
+                    Setup <ArrowRight size={12} />
+                  </button>
                 </div>
               </div>
 
@@ -891,10 +905,10 @@ export default function CompanyDashboard() {
             <div className="grid lg:grid-cols-3 gap-8">
               
               {/* Terminals list & creation (2/3 width) */}
-              <div className="lg:col-span-2 space-y-6">
+              <div id="cashier-counters-section" className="lg:col-span-2 space-y-6">
                 <div className="flex justify-between items-center">
                   <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                    Terminal Devices
+                    Cashier Counters
                     <Tooltip text="Create and configure cashier counter device IDs. Edit permissions or allow debugging. Click to learn more." onClick={() => navigateToHelp('help-terminals')} />
                   </h2>
                 </div>
@@ -903,7 +917,7 @@ export default function CompanyDashboard() {
                   <input 
                     type="text" 
                     required 
-                    placeholder="Terminal name (e.g. Counter 1, Shop Front)" 
+                    placeholder="Counter name (e.g. Counter 1, Shop Front)" 
                     className="input-field border-transparent bg-transparent focus:ring-0 focus:border-transparent flex-1 py-2" 
                     value={newTerminalName} 
                     onChange={e => setNewTerminalName(e.target.value)} 
@@ -1031,7 +1045,7 @@ export default function CompanyDashboard() {
                   })}
                   {terminals.length === 0 && (
                     <div className="col-span-2 text-center py-10 bg-zinc-900/10 border border-zinc-800/40 rounded-2xl">
-                      <p className="text-sm text-zinc-500">No cashier terminals configured.</p>
+                      <p className="text-sm text-zinc-500">No cashier counters configured.</p>
                     </div>
                   )}
                 </div>
@@ -1041,7 +1055,7 @@ export default function CompanyDashboard() {
               <div className="space-y-6">
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
                   Linked Accounts
-                  <Tooltip text="Link bank accounts here. The cashier terminals use these to scan bank transaction statements dynamically." onClick={() => navigateToHelp('help-banks')} />
+                  <Tooltip text="Link bank accounts here. The cashier counters use these to scan bank transaction statements dynamically." onClick={() => navigateToHelp('help-banks')} />
                 </h2>
 
                 <form onSubmit={createBankAccount} className="bg-zinc-900/30 border border-zinc-850 p-5 rounded-2xl space-y-4 shadow-xl">
@@ -1089,6 +1103,20 @@ export default function CompanyDashboard() {
                           Personal
                         </button>
                         <button type="button" onClick={() => setMibProfileType('1')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${mibProfileType === '1' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-transparent border-zinc-800 text-zinc-400 hover:border-emerald-500/40'}`}>
+                          Business
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {bankName === 'BML' && (
+                    <div className="bg-rose-950/20 border border-rose-500/25 p-3 rounded-xl space-y-2">
+                      <label className="text-[9px] font-bold text-rose-400 uppercase tracking-widest block">BML Profile Type</label>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setBmlProfileType('0')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${bmlProfileType === '0' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-transparent border-zinc-800 text-zinc-400 hover:border-rose-500/40'}`}>
+                          Personal
+                        </button>
+                        <button type="button" onClick={() => setBmlProfileType('1')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${bmlProfileType === '1' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-transparent border-zinc-800 text-zinc-400 hover:border-rose-500/40'}`}>
                           Business
                         </button>
                       </div>
@@ -2007,13 +2035,13 @@ export default function CompanyDashboard() {
             </button>
 
             <h2 className="text-xl font-bold text-white mb-6">
-              {editingTerminal ? 'Edit Cashier Terminal' : 'Configure Terminal Permissions'}
+              {editingTerminal ? 'Edit Cashier Counter' : 'Configure Counter Permissions'}
             </h2>
 
             <form onSubmit={saveTerminal} className="space-y-6">
               <div>
                 <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">
-                  Terminal Name
+                  Counter Name
                 </label>
                 <input 
                   type="text" 
@@ -2047,7 +2075,7 @@ export default function CompanyDashboard() {
               <div>
                 <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2 flex items-center gap-2">
                   PWA Lockout PIN / Password (Optional)
-                  <Tooltip text="A 4-digit PIN to lock/unlock the cashier terminal screen. Leave blank to disable or clear/unlock." />
+                  <Tooltip text="A 4-digit PIN to lock/unlock the cashier counter screen. Leave blank to disable or clear/unlock." />
                 </label>
                 <div className="flex gap-2">
                   <input 

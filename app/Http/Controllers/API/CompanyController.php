@@ -306,6 +306,7 @@ class CompanyController extends Controller
             'account_name' => 'required|string',
             'account_number' => 'required|string',
             'mib_profile_type' => 'nullable|string|in:0,1',
+            'bml_profile_type' => 'nullable|string|in:0,1',
             'label' => 'nullable|string',
             'currency' => 'nullable|string|in:MVR,USD',
         ]);
@@ -316,6 +317,7 @@ class CompanyController extends Controller
             'account_name' => $request->account_name,
             'account_number' => $request->account_number,
             'mib_profile_type' => $request->mib_profile_type ?? '0',
+            'bml_profile_type' => $request->bml_profile_type ?? '0',
             'label' => $request->label,
             'currency' => $request->currency ?? 'MVR',
         ]);

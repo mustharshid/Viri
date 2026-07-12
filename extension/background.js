@@ -257,7 +257,11 @@ chrome.runtime.onConnectExternal.addListener((port) => {
               await runMibFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode, sessionMode);
             }
           } else {
-            await runBmlFlow(payload.credentials, targetAcc, port, payload.amount, mode, sessionMode);
+            if (payload.bmlLoginProcedure === 'api') {
+              await runBmlApiFlow(payload.credentials, targetAcc, payload.accountName, port, payload.amount, payload.bmlProfileType || '0', mode, sessionMode, payload.bmlAuthState);
+            } else {
+              await runBmlFlow(payload.credentials, targetAcc, port, payload.amount, mode, sessionMode);
+            }
           }
         } catch (error) {
           port.postMessage({ type: 'error', error: error.message });
@@ -275,7 +279,14 @@ chrome.runtime.onConnectExternal.addListener((port) => {
               await runMibFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', '0', req.request_type, 'fetch_only');
             }
           } else {
-            await runBmlFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', req.request_type, 'fetch_only');
+            const bmlLoginProcedure = heldSession ? (heldSession.bmlLoginProcedure || 'legacy') : (req.bmlLoginProcedure || 'legacy');
+            if (bmlLoginProcedure === 'api') {
+              const bmlAuthState = heldSession ? heldSession.bmlAuthState : req.bmlAuthState;
+              const bmlProfileType = heldSession ? (heldSession.bmlProfileType || '0') : (req.bmlProfileType || '0');
+              await runBmlApiFlow(payload.credentials, targetAcc, req.account_name, port, req.target_amount || '1.00', bmlProfileType, req.request_type, 'fetch_only', bmlAuthState);
+            } else {
+              await runBmlFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', req.request_type, 'fetch_only');
+            }
           }
         } catch (error) {
           port.postMessage({ type: 'error', error: error.message });
@@ -287,7 +298,10 @@ chrome.runtime.onConnectExternal.addListener((port) => {
           bankName: msg.payload.bankName,
           backendUrl: msg.payload.backendUrl,
           hardwareId: msg.payload.hardwareId,
-          credentials: msg.payload.credentials
+          credentials: msg.payload.credentials,
+          bmlLoginProcedure: msg.payload.bmlLoginProcedure || 'legacy',
+          bmlAuthState: msg.payload.bmlAuthState || null,
+          bmlProfileType: msg.payload.bmlProfileType || '0'
         };
         chrome.storage.local.set({ viri_held_session: heldSession });
         startHeartbeat();
@@ -2911,6 +2925,297 @@ async function runMibMultiProfileFlow(credentials, targetAccount, targetAccountN
     if (port) {
       try {
         const isAuth = !!error.auth_failed || /auth failed|otp verification failed|invalid credentials/i.test(error.message);
+        port.postMessage({ 
+          type: 'error', 
+          error: error.message, 
+          transactions: last3Txs || [],
+          login_success: loginSuccess,
+          auth_failed: isAuth
+        });
+      } catch (e) { }
+    }
+  }
+}
+
+// -------------------------------------------------------------
+// BML API Background Flow (Browser OTP + Persistent Session)
+// -------------------------------------------------------------
+async function runBmlApiFlow(credentials, targetAccount, accountName, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', bmlAuthState = null) {
+  emitLog(port, `> [BML-API] Starting API auth flow (sessionMode: ${sessionMode}, profileType: ${profileType})...`);
+  let last3Txs = [];
+  let loginSuccess = false;
+  const BASE_URL = 'https://www.bankofmaldives.com.mv/internetbanking';
+
+  async function checkProfileActive() {
+    try {
+      const res = await fetch(`${BASE_URL}/api/profile`, {
+        headers: { 'Accept': 'application/json' }
+      });
+      if (res.status === 200) {
+        return true;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return false;
+  }
+
+  async function extractAndSaveCookies() {
+    const cookies = await chrome.cookies.getAll({ domain: "bankofmaldives.com.mv" });
+    const authStateStr = JSON.stringify(cookies);
+    // Send to backend
+    if (heldSession && heldSession.backendUrl) {
+      await fetch(`${heldSession.backendUrl}/terminal/session/bml-auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hardware_id: heldSession.hardwareId,
+          bank_account_id: heldSession.accountId,
+          bml_auth_state: authStateStr
+        })
+      }).catch(() => {});
+    }
+    return cookies;
+  }
+
+  async function injectCookies(authStateStr) {
+    if (!authStateStr) return;
+    try {
+      const cookies = JSON.parse(authStateStr);
+      for (const cookie of cookies) {
+        const protocol = cookie.secure ? "https://" : "http://";
+        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+        let url = `${protocol}${cleanDomain}${cookie.path}`;
+        
+        let newCookie = {
+          url: url,
+          name: cookie.name,
+          value: cookie.value,
+          domain: cookie.domain,
+          path: cookie.path,
+          secure: cookie.secure,
+          httpOnly: cookie.httpOnly,
+          expirationDate: cookie.expirationDate,
+          sameSite: cookie.sameSite
+        };
+        await chrome.cookies.set(newCookie);
+      }
+    } catch (e) {
+      console.error("Error injecting BML cookies:", e);
+    }
+  }
+
+  try {
+    // 1. Inject saved cookies if available and not fresh_login
+    if (sessionMode !== 'fresh_login' && bmlAuthState) {
+      emitLog(port, `> [BML-API] Injecting saved persistent session cookies...`);
+      await injectCookies(bmlAuthState);
+    }
+
+    // 2. Check if we are already authenticated
+    let isAuthenticated = await checkProfileActive();
+
+    // 3. If not authenticated, we must do browser login
+    if (!isAuthenticated) {
+      emitLog(port, `> [BML-API] Session expired or not present. Initiating browser login for OTP...`);
+      
+      // Clear old cookies to ensure clean login
+      const oldCookies = await chrome.cookies.getAll({ domain: "bankofmaldives.com.mv" });
+      for (const cookie of oldCookies) {
+        const protocol = cookie.secure ? "https://" : "http://";
+        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+        await chrome.cookies.remove({ url: `${protocol}${cleanDomain}${cookie.path}`, name: cookie.name });
+      }
+
+      // Open popup window
+      const win = await chrome.windows.create({
+        url: `${BASE_URL}/login`,
+        type: 'popup',
+        width: 400,
+        height: 600,
+        focused: true
+      });
+
+      emitLog(port, `> [BML-API] Please complete the login and OTP verification in the popup window.`);
+      
+      // Wait for dashboard URL
+      isAuthenticated = await new Promise((resolve, reject) => {
+        let isResolved = false;
+
+        const tabUpdateListener = async (tabId, changeInfo, tab) => {
+          if (tab.windowId === win.id && tab.url && tab.url.includes('/dashboard')) {
+            if (!isResolved) {
+              isResolved = true;
+              chrome.tabs.onUpdated.removeListener(tabUpdateListener);
+              chrome.windows.onRemoved.removeListener(windowRemoveListener);
+              emitLog(port, `> [BML-API] Login successful! Capturing session cookies...`);
+              await extractAndSaveCookies();
+              setTimeout(() => {
+                chrome.windows.remove(win.id).catch(() => {});
+                resolve(true);
+              }, 1000);
+            }
+          }
+        };
+
+        const windowRemoveListener = (windowId) => {
+          if (windowId === win.id && !isResolved) {
+            isResolved = true;
+            chrome.tabs.onUpdated.removeListener(tabUpdateListener);
+            chrome.windows.onRemoved.removeListener(windowRemoveListener);
+            reject(new Error("Login window was closed before completing authentication."));
+          }
+        };
+
+        chrome.tabs.onUpdated.addListener(tabUpdateListener);
+        chrome.windows.onRemoved.addListener(windowRemoveListener);
+      });
+    } else {
+      emitLog(port, `> [BML-API] Existing session is valid. Using persistent session.`);
+    }
+
+    loginSuccess = true;
+
+    if (sessionMode === 'claim_and_login') {
+      emitLog(port, `> [BML-API] Session claimed. Auth sequence complete.`);
+      port.postMessage({ type: 'success', match: null, login_success: true, transactions: [] });
+      return;
+    }
+
+    // --- FETCH DATA ---
+    emitLog(port, `> [BML-API] Fetching dashboard data...`);
+    const dashboardRes = await fetch(`${BASE_URL}/api/dashboard`, {
+      headers: { 'Accept': 'application/json' }
+    });
+    
+    if (dashboardRes.status !== 200) {
+      throw new Error(`Dashboard API returned ${dashboardRes.status}. Session might be dropped.`);
+    }
+    
+    const dashboardData = await dashboardRes.json();
+    if (!dashboardData.payload || !dashboardData.payload.dashboard) {
+      throw new Error("Invalid dashboard payload from BML API.");
+    }
+    
+    // Find account
+    const accounts = dashboardData.payload.dashboard;
+    const accountObj = accounts.find(a => a.account === targetAccount);
+    
+    if (!accountObj) {
+      throw new Error(`Target account ${targetAccount} not found on this BML profile.`);
+    }
+    
+    const accountInternalId = accountObj.id;
+    emitLog(port, `> [BML-API] Found account ${targetAccount} (ID: ${accountInternalId}). Current balance: ${accountObj.current_balance}`);
+
+    // Fetch history
+    emitLog(port, `> [BML-API] Fetching today's history...`);
+    const historyRes = await fetch(`${BASE_URL}/api/account/${accountInternalId}/history/today`, {
+      headers: { 'Accept': 'application/json' }
+    });
+    
+    let pendingData = null;
+    try {
+      // Also fetch pending if available (not strictly in API doc, but good practice)
+      const pendingRes = await fetch(`${BASE_URL}/api/account/${accountInternalId}/history/pending`, {
+        headers: { 'Accept': 'application/json' }
+      });
+      if (pendingRes.status === 200) {
+        pendingData = await pendingRes.json();
+      }
+    } catch(e) {}
+
+    const historyData = await historyRes.json();
+    if (!historyData.payload || !historyData.payload.history) {
+      throw new Error("Invalid history payload from BML API.");
+    }
+    
+    let allTxs = [];
+    if (pendingData && pendingData.payload && Array.isArray(pendingData.payload.history)) {
+      allTxs = allTxs.concat(pendingData.payload.history);
+    }
+    if (Array.isArray(historyData.payload.history)) {
+      allTxs = allTxs.concat(historyData.payload.history);
+    }
+
+    // Format txs exactly like runBmlFlow format
+    const formattedTxs = allTxs.map(tx => {
+      let date = (tx.bookingDate || tx.date || '').replace(/\s+/g, ' ').trim();
+      let details = (tx.narrative || tx.description || '').replace(/\s+/g, ' ').trim();
+      let refTrimmed = details.match(/(?:REF|RRN|FT|TR)\s*[:#\-]?\s*([A-Za-z0-9]+)/i);
+      refTrimmed = refTrimmed ? refTrimmed[1] : '';
+
+      let formattedAmount = '';
+      if (tx.amount) {
+        const amtNum = parseFloat(tx.amount);
+        if (!isNaN(amtNum)) {
+          formattedAmount = amtNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          if (tx.drCr === 'DR' || amtNum < 0) {
+            formattedAmount = '-' + formattedAmount.replace('-', '');
+          }
+        }
+      }
+
+      const runningBal = tx.runningBalance || tx.balance;
+      let formattedRunningBal = '';
+      if (runningBal !== undefined && runningBal !== null) {
+        const balNum = parseFloat(runningBal);
+        if (!isNaN(balNum)) {
+          formattedRunningBal = balNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+      }
+      
+      return { date, details, amount: formattedAmount, runningBalance: formattedRunningBal, reference: refTrimmed };
+    });
+
+    last3Txs = formattedTxs.slice(0, 3);
+    emitLog(port, `> [BML-API] Found ${formattedTxs.length} transactions today.`);
+
+    if (mode === 'fetch_only') {
+      port.postMessage({
+        type: 'success',
+        match: null,
+        transactions: formattedTxs,
+        balance: accountObj.current_balance,
+        login_success: true
+      });
+      return;
+    }
+
+    // Find match for search mode
+    let match = null;
+    const targetAmtClean = targetAmount.replace(/,/g, '');
+    for (const tx of formattedTxs) {
+      if (tx.amount.replace(/,/g, '') === targetAmtClean && !tx.amount.startsWith('-')) {
+        match = tx;
+        break;
+      }
+    }
+
+    if (match) {
+      emitLog(port, `> [BML-API] MATCH FOUND! Amount: ${match.amount}, Ref: ${match.reference}`);
+      port.postMessage({
+        type: 'success',
+        match: match,
+        transactions: formattedTxs,
+        balance: accountObj.current_balance,
+        login_success: true
+      });
+    } else {
+      emitLog(port, `> [BML-API] No exact match found for amount ${targetAmount}.`);
+      port.postMessage({
+        type: 'not_found',
+        message: 'No matching transaction found',
+        transactions: formattedTxs,
+        balance: accountObj.current_balance,
+        login_success: true
+      });
+    }
+  } catch (error) {
+    emitLog(port, `> [BML-API] ERROR: ${error.message}`);
+    if (port) {
+      try {
+        const isAuth = /login window was closed|invalid payload|401/i.test(error.message);
         port.postMessage({ 
           type: 'error', 
           error: error.message, 

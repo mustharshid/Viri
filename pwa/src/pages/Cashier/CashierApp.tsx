@@ -125,6 +125,8 @@ interface BankAccount {
   account_name: string;
   account_number: string;
   mib_profile_type?: string;
+  bml_profile_type?: string;
+  bml_auth_state?: any;
   is_default: boolean;
   label?: string;
   currency?: string;
@@ -168,7 +170,8 @@ function App() {
     active_session_heartbeat_interval: 5,
     realtime_event_poll_interval: 3,
     poll_interval_holder: 1,
-    debug_log_mib_html: false
+    debug_log_mib_html: false,
+    bml_login_procedure: 'legacy'
   });
   const [settingsPin, setSettingsPin] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<any>({
@@ -293,7 +296,7 @@ function App() {
   const [currentTick, setCurrentTick] = useState(Date.now());
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.3";
+  const LATEST_EXTENSION_VERSION = "1.2.4";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -1597,12 +1600,9 @@ function App() {
           });
         }
       } else {
-        // Only clear data and trigger setup mode if backend explicitly rejects the terminal with 403 or 404
-        if (response.status === 403 || response.status === 404) {
-          clearTerminalData();
-        } else {
-          console.error(`Verification server returned non-ok status during loading: ${response.status}`);
-        }
+        // We do not clear terminal credentials immediately on 403 or 404 to protect local credentials
+        // from being wiped due to transient network issues, reboots, or temporary server status codes.
+        console.error(`Verification server returned non-ok status during loading: ${response.status}`);
       }
     } catch (err) {
       console.error("Failed to fetch initial terminal data", err);
@@ -2631,7 +2631,9 @@ function App() {
                 bankName: selectedBankName,
                 backendUrl: backendUrl,
                 hardwareId: hardwareId,
-                credentials: activeCreds
+                credentials: activeCreds,
+                bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
+                bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null
               }
             });
             setSessionStatus('holder');
@@ -2774,8 +2776,11 @@ function App() {
           accountNumber: selectedAccount ? selectedAccount.account_number : '',
           accountName: selectedAccount ? selectedAccount.account_name : '',
           mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
+          bmlProfileType: selectedAccount ? (selectedAccount.bml_profile_type || '0') : '0',
+          bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
           credentials: activeCreds,
-          debugLogMibHtml: appConfig.debug_log_mib_html
+          debugLogMibHtml: appConfig.debug_log_mib_html,
+          bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy'
         }
       });
     } catch (msgErr: any) {
@@ -2986,6 +2991,8 @@ function App() {
                   backendUrl: backendUrl,
                   hardwareId: hardwareId,
                   credentials: activeCreds,
+                  bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
+                  bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
                   debugLogMibHtml: appConfig.debug_log_mib_html
                 }
               });
@@ -3084,8 +3091,11 @@ function App() {
           accountNumber: selectedAccount ? selectedAccount.account_number : '',
           accountName: selectedAccount ? selectedAccount.account_name : '',
           mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
+          bmlProfileType: selectedAccount ? (selectedAccount.bml_profile_type || '0') : '0',
+          bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
           credentials: activeCreds,
-          debugLogMibHtml: appConfig.debug_log_mib_html
+          debugLogMibHtml: appConfig.debug_log_mib_html,
+          bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy'
         }
       });
     } catch (msgErr: any) {

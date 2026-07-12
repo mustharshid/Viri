@@ -1670,6 +1670,34 @@ export default function AdminDashboard() {
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* BML Login Procedure */}
+              <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-colors">
+                <div className="flex justify-between items-start mb-2">
+                  <label className="text-sm font-bold text-white block">BML Login Procedure</label>
+                  <span className="text-xs text-yellow-500 font-mono font-bold bg-yellow-500/10 px-2 py-0.5 rounded uppercase">
+                    {systemSettings.find(s => s.key === 'bml_login_procedure')?.value || 'legacy'}
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+                  Toggle between the legacy browser automation script and the new persistent API session with OTP flow.
+                </p>
+                <select
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-yellow-500"
+                  value={systemSettings.find(s => s.key === 'bml_login_procedure')?.value || 'legacy'}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (!systemSettings.find(s => s.key === 'bml_login_procedure')) {
+                        setSystemSettings(prev => [...prev, { id: Date.now(), key: 'bml_login_procedure', value: val, type: 'string' }]);
+                    } else {
+                        setSystemSettings(prev => prev.map(s => s.key === 'bml_login_procedure' ? { ...s, value: val } : s));
+                    }
+                  }}
+                >
+                  <option value="legacy">Legacy (V1 Script)</option>
+                  <option value="api">API (Browser + Persistent Session)</option>
+                </select>
+              </div>
+
               {/* Session Status Poll */}
               <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-colors">
                 <div className="flex justify-between items-start mb-2">

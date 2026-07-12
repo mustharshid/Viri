@@ -418,6 +418,8 @@ class LedgerCacheController extends Controller
                 'account_number'  => $account->account_number,
                 'account_name'    => $account->account_name,
                 'mib_profile_type'=> $account->mib_profile_type ?? '0',
+                'bml_profile_type'=> $account->bml_profile_type ?? '0',
+                'bml_auth_state'  => $account->bml_auth_state,
                 'requester_name'  => $terminal->terminal_name,
             ]
         ]);
