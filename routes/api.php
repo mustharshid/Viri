@@ -174,7 +174,15 @@ Route::post('/verify-terminal', function (Request $request) {
         ->distinct()
         ->count('terminal_account_activity.terminal_id');
     $activeTerminalsCount = max(1, $activeTerminalsCount); // fallback to 1 as current terminal is active
-    $operationMode = $activeTerminalsCount > 1 ? 'Multi-Terminal' : 'Single Terminal';
+    
+    $forcedMode = $settings['terminal_operation_mode'] ?? 'auto';
+    if ($forcedMode === 'single') {
+        $operationMode = 'Single Terminal';
+    } elseif ($forcedMode === 'multi') {
+        $operationMode = 'Multi-Terminal';
+    } else {
+        $operationMode = $activeTerminalsCount > 1 ? 'Multi-Terminal' : 'Single Terminal';
+    }
 
     $bankAccounts = $tenant->bankAccounts;
     $totalConfidence = 0;
