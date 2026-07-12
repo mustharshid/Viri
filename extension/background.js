@@ -68,17 +68,23 @@ function logHtmlDebug(port, html) {
 }
 
 async function enableBankLockdown() {
-  const rules = [
-    {
-      id: 10,
-      priority: 1,
-      action: { type: "block" },
-      condition: {
-        urlFilter: "bankofmaldives.com.mv",
-        resourceTypes: ["main_frame", "sub_frame"]
-      }
-    },
-    {
+  chrome.storage.local.get(['viri_bml_login_procedure'], async (res) => {
+    const procedure = res.viri_bml_login_procedure || 'legacy';
+    const rules = [];
+    
+    if (procedure !== 'api') {
+      rules.push({
+        id: 10,
+        priority: 1,
+        action: { type: "block" },
+        condition: {
+          urlFilter: "bankofmaldives.com.mv",
+          resourceTypes: ["main_frame", "sub_frame"]
+        }
+      });
+    }
+
+    rules.push({
       id: 11,
       priority: 1,
       action: { type: "block" },
@@ -86,18 +92,18 @@ async function enableBankLockdown() {
         urlFilter: "mib.com.mv",
         resourceTypes: ["main_frame", "sub_frame"]
       }
-    }
-  ];
-
-  try {
-    await chrome.declarativeNetRequest.updateDynamicRules({
-      removeRuleIds: [10, 11],
-      addRules: rules
     });
-    console.log("[Viri Bridge] Bank lockdown rules activated.");
-  } catch (err) {
-    console.error("[Viri Bridge] Failed to activate lockdown rules:", err);
-  }
+
+    try {
+      await chrome.declarativeNetRequest.updateDynamicRules({
+        removeRuleIds: [10, 11],
+        addRules: rules
+      });
+      console.log("[Viri Bridge] Bank lockdown rules activated. BML procedure:", procedure);
+    } catch (err) {
+      console.error("[Viri Bridge] Failed to activate lockdown rules:", err);
+    }
+  });
 }
 
 async function disableBankLockdown() {
@@ -237,10 +243,19 @@ chrome.runtime.onConnectExternal.addListener((port) => {
     enableBankLockdown();
 
     port.onMessage.addListener(async (msg) => {
-      // Set the debug mode flag if passed in payload
       if (msg.payload && msg.payload.debugLogMibHtml !== undefined) {
         debugLogMibHtml = !!msg.payload.debugLogMibHtml;
         chrome.storage.local.set({ viri_debug_log_mib_html: debugLogMibHtml });
+      }
+
+      if (msg.payload && msg.payload.bmlLoginProcedure) {
+        chrome.storage.local.set({ viri_bml_login_procedure: msg.payload.bmlLoginProcedure }, () => {
+          enableBankLockdown();
+        });
+      }
+
+      if (msg.action === 'UPDATE_CONFIG') {
+        return; // Already handled by the generic blocks above
       }
 
       // Handle the new frontend structure

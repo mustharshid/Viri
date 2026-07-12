@@ -296,7 +296,7 @@ function App() {
   const [currentTick, setCurrentTick] = useState(Date.now());
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.4";
+  const LATEST_EXTENSION_VERSION = "1.2.5";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -1863,6 +1863,23 @@ function App() {
     }
     return () => clearInterval(interval);
   }, [sessionStatus, hardwareId, backendUrl, sessionHolderAccountId, extensionId, visibility]);
+
+  useEffect(() => {
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.connect) {
+      try {
+        const port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
+        port.postMessage({
+          action: 'UPDATE_CONFIG',
+          payload: {
+            bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy'
+          }
+        });
+        port.disconnect();
+      } catch (err) {
+        console.error("Failed to push config to extension", err);
+      }
+    }
+  }, [appConfig.bml_login_procedure, extensionId]);
 
   // Pending queue checking loop (Holder mode)
   useEffect(() => {

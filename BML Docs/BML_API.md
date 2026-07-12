@@ -1,6 +1,5 @@
 # BML Internet Banking API — Persistent Session Integration
 
-**Package**: `viri/bml`  
 **Base domain**: `www.bankofmaldives.com.mv`  
 **API base**: `https://www.bankofmaldives.com.mv/internetbanking/api/`  
 **Web base**: `https://www.bankofmaldives.com.mv/internetbanking/web/`  
