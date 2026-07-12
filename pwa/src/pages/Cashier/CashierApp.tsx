@@ -296,7 +296,7 @@ function App() {
   const [currentTick, setCurrentTick] = useState(Date.now());
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.5";
+  const LATEST_EXTENSION_VERSION = "1.2.6";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -1096,7 +1096,7 @@ function App() {
 
   const activePortRef = useRef<chrome.runtime.Port | null>(null);
   const [initLoading, setInitLoading] = useState(false);
-  const [operationMode, setOperationMode] = useState<string>('Single Terminal');
+  const [operationMode, setOperationMode] = useState<string>('Single Counter');
   const [activeTerminalsCount, setActiveTerminalsCount] = useState<number>(1);
   const [syncHealthSummary, setSyncHealthSummary] = useState<{
     confidence_score: number;
@@ -2104,7 +2104,7 @@ function App() {
     try {
       setProgress({
         stage: 'init',
-        text: 'Another terminal has active session. Routing request...',
+        text: 'Another cashier counter has active session. Routing request...',
         percent: 30,
         isIndeterminate: true
       });
@@ -2453,7 +2453,7 @@ function App() {
           }
         } else if (lockRes.status === 409) {
           const lockData = await lockRes.json().catch(() => ({}));
-          const heldBy = lockData.held_by ? `terminal ${lockData.held_by.substring(0, 8)}...` : "another terminal";
+          const heldBy = lockData.held_by ? `cashier counter ${lockData.held_by.substring(0, 8)}...` : "another cashier counter";
           const expiresSeconds = lockData.expires_in ?? "?";
 
           attempts++;
@@ -2467,7 +2467,7 @@ function App() {
           } else {
             setProgress({
               stage: 'lock',
-              text: 'Another terminal is currently using this account. You are next in line...',
+              text: 'Another cashier counter is currently using this account. You are next in line...',
               percent: 15,
               isIndeterminate: true
             });
@@ -2489,7 +2489,7 @@ function App() {
     }
 
     if (!lockAcquired) {
-      setErrorAndLog("Bank session busy: Held by another terminal. Please try again later.");
+      setErrorAndLog("Bank session busy: Held by another cashier counter. Please try again later.");
       addLog("> [Lock] Timeout: Could not acquire bank session lock.");
       setLoading(false);
       lockedAccountIdRef.current = null;
@@ -2771,7 +2771,7 @@ function App() {
     const isApiManaged = selectedAccount?.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
 
     if (!isApiManaged && (!activeCreds.username || !activeCreds.password)) {
-      setError("Credentials missing for this account. Please re-pair the terminal or check account settings.");
+      setError("Credentials missing for this account. Please re-pair the cashier counter or check account settings.");
       addLog("> [System] Missing credentials. Aborting verification request.");
       setLoading(false);
       isVerifyingRef.current = false;
@@ -2845,7 +2845,7 @@ function App() {
       addLog("> [Session] Session claim failed (network error), proceeding with fresh login.");
     }
 
-    addLog("> [System] Validating terminal license...");
+    addLog("> [System] Validating cashier counter license...");
     if (subscriptionExpired) {
       setErrorAndLog("Subscription Expired - contact your admin!", targetAccountId);
       addLog("> [System] License validation FAILED: Subscription Expired.");
@@ -2897,7 +2897,7 @@ function App() {
     const isApiManaged = selectedAccount?.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
 
     if (!isApiManaged && (!activeCreds.username || !activeCreds.password)) {
-      setError("Credentials missing for this account. Please re-pair the terminal or check account settings.");
+      setError("Credentials missing for this account. Please re-pair the cashier counter or check account settings.");
       addLog("> [System] Missing credentials. Aborting sync.");
       setLoading(false);
       isVerifyingRef.current = false;
@@ -3264,7 +3264,7 @@ function App() {
         addLog(`> [Cache Refresh] Request ID ${requestId} submitted. Waiting for leader acknowledgment...`);
         setProgress({
           stage: 'init',
-          text: 'Waiting for active terminal to respond...',
+          text: 'Waiting for active cashier counter to respond...',
           percent: 45,
           isIndeterminate: true
         });
@@ -3379,10 +3379,10 @@ function App() {
           }, 1000);
         } else {
           // Timeout fallback: Promote this counter and sync locally
-          addLog("> [Cache Refresh] Fallback triggered. Promoting this terminal to Leader...");
+          addLog("> [Cache Refresh] Fallback triggered. Promoting this cashier counter to Leader...");
           setProgress({
             stage: 'init',
-            text: 'Active terminal busy. Promoting this terminal to sync...',
+            text: 'Active terminal busy. Promoting this cashier counter to sync...',
             percent: 50,
             isIndeterminate: true
           });
@@ -3400,7 +3400,7 @@ function App() {
     }
   };
 
-  const companyName = tenantName || "Unregistered Terminal";
+  const companyName = tenantName || "Unregistered Cashier Counter";
   const planName = subscriptionTier === 'free' ? 'Free Trial' : (subscriptionTier === '499' ? 'Standard' : (subscriptionTier === '999' ? 'Pro' : ''));
 
   const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
@@ -3472,8 +3472,8 @@ function App() {
       <div className="min-h-screen bg-[var(--bg-base)] flex flex-col items-center justify-center p-4">
         <div className="glass-panel p-8 max-w-sm w-full text-center animate-fade-in shadow-2xl">
           <img src="/logo_en.png" alt="Viri Logo" className="h-48 mx-auto mb-6 object-contain" />
-          <h2 className="text-2xl font-bold mb-2">Terminal Setup</h2>
-          <p className="text-[var(--text-secondary)] text-sm mb-6">Enter the 6-digit pairing code from your Company Dashboard to link this terminal.</p>
+          <h2 className="text-2xl font-bold mb-2">Cashier Counter Setup</h2>
+          <p className="text-[var(--text-secondary)] text-sm mb-6">Enter the 6-digit pairing code from your Company Dashboard to link this cashier counter.</p>
 
           {setupError && (
             <div className="text-red-400 text-sm mb-4 bg-red-900/20 p-3 rounded border border-red-500/30">
@@ -3506,7 +3506,7 @@ function App() {
       <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center p-4">
         <div className="glass-panel p-8 max-w-sm w-full text-center animate-fade-in shadow-2xl">
           <Lock className="mx-auto mb-6 text-[var(--color-success)]" size={56} />
-          <h2 className="text-2xl font-bold mb-2">Terminal Locked</h2>
+          <h2 className="text-2xl font-bold mb-2">Cashier Counter Locked</h2>
           <p className="text-[var(--text-secondary)] text-sm mb-8">Enter your 4-digit PIN to unlock.</p>
           <input
             type="password"
@@ -3580,9 +3580,9 @@ function App() {
           {companyName}
         </span>
 
-        {/* Terminal PWA Subtitle */}
+        {/* Cashier Counter PWA Subtitle */}
         <span className={`text-[10px] text-emerald-500/80 font-mono font-bold tracking-widest mt-0.5 uppercase transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:block'}`}>
-          Terminal PWA
+          Cashier Counter PWA
         </span>
       </div>
 
@@ -3681,10 +3681,10 @@ function App() {
             onClick={() => setIsLocked(true)}
             className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold hover:bg-red-955/20 text-red-400 hover:text-red-300 border border-transparent hover:border-red-900/30 ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
               }`}
-            title="Lock Terminal"
+            title="Lock Cashier Counter"
           >
             <Lock size={16} className="shrink-0" />
-            <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Lock Terminal</span>
+            <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Lock Cashier Counter</span>
           </button>
         )}
 
@@ -3707,7 +3707,7 @@ function App() {
               setShowSettings(false);
             } else {
               if (settingsPin) {
-                const check = prompt("Enter Terminal Settings PIN to open settings:");
+                const check = prompt("Enter Cashier Counter Settings PIN to open settings:");
                 if (check !== settingsPin) {
                   alert("Incorrect PIN");
                   return;
@@ -3783,7 +3783,7 @@ function App() {
             <div className="border-b border-zinc-800 pb-4 mb-6 flex justify-between items-start">
               <div>
                 <h3 className="text-xl font-bold flex items-center gap-2 text-white">
-                  <Settings size={22} className="text-zinc-400" /> Viri Admin Panel <Tooltip text="System settings, terminal registration, lock PIN, and bank credentials." helpSectionId="admin-panel" />
+                  <Settings size={22} className="text-zinc-400" /> Viri Admin Panel <Tooltip text="System settings, cashier counter registration, lock PIN, and bank credentials." helpSectionId="admin-panel" />
                 </h3>
                 <p className="text-xs text-[var(--text-secondary)] mt-1">
                   System configuration, lock PIN security, and local bank account credentials.
@@ -3801,12 +3801,12 @@ function App() {
               {/* Left Column: System & Security Settings (5 cols) */}
               <div className="lg:col-span-5 space-y-5">
                 <div className="p-4 bg-zinc-950/40 border border-zinc-850 rounded-xl">
-                  <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">Terminal Status <Tooltip text="Shows pairing state and company connection details." helpSectionId="terminal-pairing" /></h4>
+                  <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">Cashier Counter Status <Tooltip text="Shows pairing state and company connection details." helpSectionId="terminal-pairing" /></h4>
                   <div className="p-3 bg-black/30 border border-zinc-850 rounded-lg text-sm text-[var(--color-success)] font-mono flex items-center justify-between">
                     <span className="truncate pr-2">Connected to {companyName}</span>
                     <button
                       onClick={() => {
-                        if (confirm("Are you sure you want to unlink this terminal? You will need a new pairing code to use it again.")) {
+                        if (confirm("Are you sure you want to unlink this cashier counter? You will need a new pairing code to use it again.")) {
                           clearTerminalData();
                         }
                       }}
@@ -3821,7 +3821,7 @@ function App() {
                   <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Security & API</h4>
 
                   <div className="input-group">
-                    <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">Terminal Lock PIN (Optional) <Tooltip text="A local cashier PIN to lock/unlock this terminal." helpSectionId="admin-panel" /></label>
+                    <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">Cashier Counter Lock PIN (Optional) <Tooltip text="A local cashier PIN to lock/unlock this cashier counter." helpSectionId="admin-panel" /></label>
                     <input
                       type="password"
                       className="input-field text-transparent bg-zinc-950/50 border-zinc-800 focus:border-[var(--color-success)] rounded-lg text-sm px-3 py-2"
@@ -3884,7 +3884,7 @@ function App() {
                       Local Bank Credentials <Tooltip text="Local bank login credentials used strictly by the browser extension." helpSectionId="bank-credentials" />
                     </h4>
                     <p className="text-xs text-[var(--text-secondary)] mb-4">
-                      Configure individual login credentials for each bank account paired with this terminal.
+                      Configure individual login credentials for each bank account paired with this cashier counter.
                     </p>
 
                     <div className="bg-black/25 border border-zinc-800 rounded-xl p-5 text-center leading-relaxed">
@@ -3901,7 +3901,7 @@ function App() {
                         <div>
                           <h5 className="text-xs font-bold text-white uppercase tracking-wider mb-1">Credential Sync Ready</h5>
                           <p className="text-[11px] text-zinc-300">
-                            Another terminal's bank credentials are ready to be copied to this machine.
+                            Another cashier counter's bank credentials are ready to be copied to this machine.
                           </p>
                         </div>
                         <div className="flex items-center justify-center gap-3">
@@ -3935,7 +3935,7 @@ function App() {
 
             {/* Bank Accounts Manager */}
             <div className="mt-6 pt-6 border-t border-[var(--border-color)]">
-              <h4 className="text-sm font-semibold mb-3 flex items-center gap-1.5">Managed Bank Accounts & Login Safety Status <Tooltip text="Lock status of bank accounts under this terminal. If failures >= 2, functions are disabled." helpSectionId="bank-credentials" /></h4>
+              <h4 className="text-sm font-semibold mb-3 flex items-center gap-1.5">Managed Bank Accounts & Login Safety Status <Tooltip text="Lock status of bank accounts under this cashier counter. If failures >= 2, functions are disabled." helpSectionId="bank-credentials" /></h4>
               <p className="text-xs text-[var(--text-secondary)] mb-4">Accounts are synced from company dashboard. Reset failed logins in the Company Admin Panel to unlock terminal operations.</p>
 
               <div className="space-y-3 mb-4">
@@ -4394,9 +4394,9 @@ function App() {
                       </div>
 
                       <div className="flex justify-between items-center">
-                        <span className="text-zinc-400" title="The bank session role this terminal is currently playing. Active Holder = this terminal owns the live bank session. Delegating = another terminal requested this session. Claiming = this terminal is trying to acquire a session.">Session Role</span>
+                        <span className="text-zinc-400" title="The bank session role this cashier counter is currently playing. Active Holder = this cashier counter owns the live bank session. Delegating = another cashier counter requested this session. Claiming = this cashier counter is trying to acquire a session.">Session Role</span>
                         {sessionStatus === 'holder' ? (() => {
-                          // Find which account this terminal is holding based on extension's report
+                          // Find which account this cashier counter is holding based on extension's report
                           const held = bankAccounts.find(a => a.id.toString() === sessionHolderAccountId);
                           return (
                             <span className="text-emerald-400 flex items-center gap-1.5 font-bold">
@@ -4414,9 +4414,9 @@ function App() {
                       </div>
 
                       <div className="flex justify-between items-center">
-                        <span className="text-zinc-400" title="The current active mode of the synchronization engine. Single Terminal = only one terminal is active. Multi-Terminal = multiple active terminals coordinating.">Operation Mode</span>
-                        <span className={`font-bold ${operationMode === 'Multi-Terminal' ? 'text-indigo-400' : 'text-zinc-300'}`}>
-                          {operationMode} {operationMode === 'Multi-Terminal' ? `(${activeTerminalsCount})` : ''}
+                        <span className="text-zinc-400" title="The current active mode of the synchronization engine. Single Counter = only one terminal is active. Multi-Counter = multiple active cashier counters coordinating.">Operation Mode</span>
+                        <span className={`font-bold ${operationMode === 'Multi-Counter' ? 'text-indigo-400' : 'text-zinc-300'}`}>
+                          {operationMode} {operationMode === 'Multi-Counter' ? `(${activeTerminalsCount})` : ''}
                         </span>
                       </div>
 
@@ -4740,7 +4740,7 @@ function App() {
                         <div className="w-3 h-3 rounded-full bg-red-500"></div>
                         <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
                         <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                        <span className="text-xs text-zinc-400 ml-2 font-mono flex items-center gap-1">Viri Bridge Terminal Logs <Tooltip text="Real-time network crawler debugging logs execution stream." helpSectionId="extension-installation" /></span>
+                        <span className="text-xs text-zinc-400 ml-2 font-mono flex items-center gap-1">Viri Bridge Cashier Counter Logs <Tooltip text="Real-time network crawler debugging logs execution stream." helpSectionId="extension-installation" /></span>
                         {loading && <Loader2 size={12} className="text-[var(--color-success)] animate-spin ml-2" />}
 
                         <div className="ml-auto flex items-center gap-2">
@@ -4992,7 +4992,7 @@ function App() {
                         </span>
                       </div>
                       <h1 className="text-3xl font-extrabold text-white tracking-tight">Transaction Ledger</h1>
-                      <p className="text-sm text-zinc-400 mt-1">Real-time terminal view for authenticated accounts</p>
+                      <p className="text-sm text-zinc-400 mt-1">Real-time cashier counter view for authenticated accounts</p>
                     </div>
 
                     {/* Total Position widget */}
@@ -5650,7 +5650,7 @@ function App() {
                     </div>
                     <div>
                       <h2 className="text-2xl font-bold text-white tracking-tight">Getting Started</h2>
-                      <p className="text-sm text-[var(--text-secondary)] mt-0.5">Complete these steps before using the Cashier Terminal.</p>
+                      <p className="text-sm text-[var(--text-secondary)] mt-0.5">Complete these steps before using the Cashier Counter.</p>
                     </div>
                   </div>
                   <div className="mt-4 w-full h-px bg-zinc-800" />
@@ -5663,7 +5663,7 @@ function App() {
                     <div className="flex-1">
                       <h3 className="text-lg font-bold text-white mb-1">Download &amp; Install the Browser Extension</h3>
                       <p className="text-sm text-[var(--text-secondary)] leading-relaxed mb-5">
-                        The <strong className="text-white">Viri Bridge</strong> browser extension is required. It acts as a secure local bridge between the Cashier Terminal and your bank's portal — without exposing your credentials to any server.
+                        The <strong className="text-white">Viri Bridge</strong> browser extension is required. It acts as a secure local bridge between the Cashier Counter and your bank's portal — without exposing your credentials to any server.
                       </p>
 
                       {/* Download Button */}
@@ -5700,7 +5700,7 @@ function App() {
                           <p className="text-xs text-yellow-500 mb-3">Standard Chrome for Android does not support extensions. Use Kiwi Browser instead.</p>
                           <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-yellow-400">
                             <li>Install <strong className="text-zinc-300">Kiwi Browser</strong> from the Google Play Store.</li>
-                            <li>Open this Cashier Terminal page inside Kiwi Browser.</li>
+                            <li>Open this Cashier Counter page inside Kiwi Browser.</li>
                             <li>Download the <strong className="text-zinc-300">.zip</strong> file using the button above.</li>
                             <li>In Kiwi, tap the <strong className="text-zinc-300">⋮ menu → Extensions</strong> and enable Developer mode.</li>
                             <li>Tap <strong className="text-zinc-300">+ (from .zip / .crx)</strong> and select the downloaded file.</li>
@@ -5729,7 +5729,7 @@ function App() {
                           <span className="text-base">📍</span> Where to enter credentials
                         </h4>
                         <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-blue-400">
-                          <li>Go to the <strong className="text-zinc-300">Settings</strong> tab (the bottom tab in the left sidebar) of this Terminal PWA.</li>
+                          <li>Go to the <strong className="text-zinc-300">Settings</strong> tab (the bottom tab in the left sidebar) of this Cashier Counter PWA.</li>
                           <li>Scroll to the bottom of the page and look for the section labelled <strong className="text-zinc-300">"Managed Bank Accounts &amp; Login Safety Status"</strong>.</li>
                           <li>If any account already shows <strong className="text-zinc-300">Credentials Configured</strong>, it is ready to use. Otherwise, click the <strong className="text-zinc-300">EDIT</strong> button next to the account and enter your internet banking username, password, and TOTP seed.</li>
                           <li>Click <strong className="text-zinc-300">Save</strong>. You only need to do this once per account.</li>
@@ -5747,7 +5747,7 @@ function App() {
                             <ul className="text-sm text-blue-200/70 space-y-2 leading-relaxed">
                               <li>🔒 <strong className="text-blue-200">Stored only on your device</strong> — credentials are saved inside an encrypted browser storage container that lives exclusively on this computer.</li>
                               <li>🚫 <strong className="text-blue-200">Never sent to Viri</strong> — at no point are your credentials transmitted to Viri's servers or any third party. Viri has zero access to your banking passwords.</li>
-                              <li>👁️ <strong className="text-blue-200">Not visible to other terminal users</strong> — even if another user opens the Cashier Terminal on a different device, they cannot see or access credentials saved here.</li>
+                              <li>👁️ <strong className="text-blue-200">Not visible to other cashier counter users</strong> — even if another user opens the Cashier Counter on a different device, they cannot see or access credentials saved here.</li>
                               <li>🛡️ <strong className="text-blue-200">Isolated by browser profile</strong> — the data is scoped to your browser profile. Switching profiles or browsers means starting fresh.</li>
                             </ul>
                           </div>
@@ -5782,7 +5782,7 @@ function App() {
                     <HelpCircle size={32} className="text-blue-400" />
                   </div>
                   <h2 className="text-3xl font-bold text-white tracking-tight">Help & Support</h2>
-                  <p className="text-[var(--text-secondary)]">Learn how to install the extension and use the Terminal PWA.</p>
+                  <p className="text-[var(--text-secondary)]">Learn how to install the extension and use the Cashier Counter PWA.</p>
                 </div>
 
                 {/* Search Bar */}
@@ -5836,7 +5836,7 @@ function App() {
                               <p className="text-xs text-yellow-500 mb-2">Note: Standard Google Chrome for Android does not support extensions.</p>
                               <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-2 marker:text-[var(--color-success)]">
                                 <li>Download <strong>Kiwi Browser</strong> from the Google Play Store.</li>
-                                <li>Open the Cashier Terminal inside Kiwi Browser.</li>
+                                <li>Open the Cashier Counter inside Kiwi Browser.</li>
                                 <li>Download the extension <strong>.zip</strong> file above.</li>
                                 <li>In Kiwi Browser, tap the 3-dot menu and select <strong>Extensions</strong>.</li>
                                 <li>Turn on <strong>Developer mode</strong>.</li>
@@ -5849,19 +5849,19 @@ function App() {
                     },
                     {
                       id: 'terminal-pairing',
-                      title: '2. Terminal Pairing',
+                      title: '2. Cashier Counter Pairing',
                       icon: <Lock className="text-blue-400" />,
-                      tags: 'pairing code link terminal company admin',
+                      tags: 'pairing code link cashier counter company admin',
                       body: (
                         <>
                           <p className="text-sm text-[var(--text-secondary)] mb-6 leading-relaxed">
-                            Link this browser to your company's Viri account by pairing the terminal.
+                            Link this browser to your company's Viri account by pairing the cashier counter.
                           </p>
                           <ol className="list-decimal pl-5 text-sm text-[var(--text-secondary)] space-y-4 marker:text-blue-400">
-                            <li>Set up the terminal from the <strong>Company Admin Panel</strong>.</li>
+                            <li>Set up the cashier counter from the <strong>Company Admin Panel</strong>.</li>
                             <li>Get the generated <strong>6-digit Pairing Code</strong>.</li>
                             <li>Go to <strong>https://viri.thinksafe.mv/cashier</strong> on the target device.</li>
-                            <li>Enter the pairing code to securely link the terminal.</li>
+                            <li>Enter the pairing code to securely link the cashier counter.</li>
                           </ol>
                         </>
                       )
