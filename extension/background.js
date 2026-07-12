@@ -3186,7 +3186,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     last3Txs = formattedTxs.slice(0, 3);
     emitLog(port, `> [BML-API] Found ${formattedTxs.length} transactions today.`);
 
-    if (mode === 'fetch_only') {
+    if (mode === 'ledger') {
       port.postMessage({
         type: 'success',
         match: null,
