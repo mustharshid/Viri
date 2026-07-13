@@ -2969,13 +2969,27 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
 
   async function checkProfileActive() {
     try {
-      const res = await fetch(`${BASE_URL}/api/profile`, {
-        headers: { 'Accept': 'application/json' }
+      let xsrfToken = null;
+      await new Promise((resolve) => {
+        chrome.cookies.get({ url: "https://www.bankofmaldives.com.mv", name: "XSRF-TOKEN" }, (cookie) => {
+          xsrfToken = cookie ? decodeURIComponent(cookie.value) : null;
+          resolve();
+        });
       });
+      const res = await fetch(`${BASE_URL}/api/profile`, {
+        headers: { 
+          'Accept': 'application/json, text/plain, */*',
+          'Authorization': 'Bearer',
+          'X-XSRF-TOKEN': xsrfToken || '',
+          'User-Agent': USER_AGENT
+        }
+      });
+      emitLog(port, `> [BML-API] checkProfileActive returned HTTP ${res.status}`);
       if (res.status === 200) {
         return true;
       }
     } catch (e) {
+      emitLog(port, `> [BML-API] checkProfileActive threw error: ${e.message}`);
       console.error(e);
     }
     return false;
@@ -3038,6 +3052,11 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
 
     // 3. If not authenticated, we must do browser login
     if (!isAuthenticated) {
+      if (sessionMode === 'fetch_only') {
+        heldSession = null;
+        chrome.storage.local.remove('viri_held_session');
+        throw new Error("Session expired. Please click Sync again to inject fresh tokens or re-authenticate.");
+      }
       emitLog(port, `> [BML-API] Session expired or not present. Initiating browser login for OTP...`);
       
       // Clear old cookies to ensure clean login
