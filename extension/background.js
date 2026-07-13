@@ -329,6 +329,12 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         chrome.storage.local.remove('viri_held_session');
         emitLog(port, `> [Session] Session holder status released.`);
       }
+      else if (msg.action === 'CHECK_SESSION') {
+        port.postMessage({
+          type: 'session_status',
+          hasSession: heldSession !== null
+        });
+      }
       else if (msg.action === 'PING_BANK') {
         if (heldSession) {
           const url = heldSession.bankName === 'MIB' ? "https://faisanet.mib.com.mv/accounts" : "https://www.bankofmaldives.com.mv/internetbanking/api/dashboard";
@@ -3058,7 +3064,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
         let isResolved = false;
 
         const tabUpdateListener = async (tabId, changeInfo, tab) => {
-          if (tab.windowId === win.id && tab.url && tab.url.includes('/dashboard')) {
+          if (tab.windowId === win.id && tab.url && (tab.url.includes('/dashboard') || tab.url.includes('vf/accounts/overview'))) {
             if (!isResolved) {
               isResolved = true;
               chrome.tabs.onUpdated.removeListener(tabUpdateListener);

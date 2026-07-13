@@ -296,7 +296,7 @@ function App() {
   const [currentTick, setCurrentTick] = useState(Date.now());
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.7";
+  const LATEST_EXTENSION_VERSION = "1.2.9";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -2819,30 +2819,33 @@ function App() {
     let claimSuccess = false;
     let strategy = 'CLAIM_AND_LOGIN';
 
-    addLog("> [Session] Claiming session on backend...");
-    try {
-      const claimRes = await fetch(`${backendUrl}/terminal/session/claim`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hardware_id: hardwareId,
-          bank_account_id: parseInt(targetAccountId)
-        })
-      });
-      if (claimRes.ok) {
-        const claimData = await claimRes.json();
-        if (claimData.status === 'delegating') {
-          // If we somehow get delegated again, raise error
-          throw new Error("Active session claimed by another counter. Try again.");
+    if (operationMode === 'Single Counter') {
+      addLog("> [Session] Single Terminal Mode - skipping session claim.");
+    } else {
+      addLog("> [Session] Claiming session on backend...");
+      try {
+        const claimRes = await fetch(`${backendUrl}/terminal/session/claim`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hardware_id: hardwareId,
+            bank_account_id: parseInt(targetAccountId)
+          })
+        });
+        if (claimRes.ok) {
+          const claimData = await claimRes.json();
+          if (claimData.status === 'delegating') {
+            throw new Error("Active session claimed by another counter. Try again.");
+          }
+          claimSuccess = true;
+          addLog("> [Session] Session claim succeeded.");
+        } else {
+          addLog(`> [Session] Session claim returned HTTP ${claimRes.status}, proceeding with fresh login.`);
         }
-        claimSuccess = true;
-        addLog("> [Session] Session claim succeeded.");
-      } else {
-        addLog(`> [Session] Session claim returned HTTP ${claimRes.status}, proceeding with fresh login.`);
+      } catch (err) {
+        console.error("Failed to claim session:", err);
+        addLog("> [Session] Session claim failed (network error), proceeding with fresh login.");
       }
-    } catch (err) {
-      console.error("Failed to claim session:", err);
-      addLog("> [Session] Session claim failed (network error), proceeding with fresh login.");
     }
 
     addLog("> [System] Validating cashier counter license...");
@@ -2947,23 +2950,27 @@ function App() {
           }
 
           // Push the newly scraped data to the server cache (ZK compliance: credentials never sent)
-          try {
-            addLog("> [System] Pushing scraped transactions to Viri shared cache...");
-            await fetch(`${backendUrl}/terminal/ledger-cache/push`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                hardware_id: hardwareId,
-                bank_account_id: parseInt(targetAccountId),
-                balance: response.balance || 'Not found',
-                transactions: newTxs,
-                request_id: requestId
-              })
-            });
-            addLog("> [System] Shared cache push succeeded.");
-          } catch (pushErr: any) {
-            console.error("Failed to push cache to server:", pushErr);
-            addLog(`> [System] Shared cache push failed: ${pushErr.message}`);
+          if (operationMode === 'Single Counter') {
+            addLog("> [System] Single Terminal Mode - skipping shared cache push.");
+          } else {
+            try {
+              addLog("> [System] Pushing scraped transactions to Viri shared cache...");
+              await fetch(`${backendUrl}/terminal/ledger-cache/push`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  hardware_id: hardwareId,
+                  bank_account_id: parseInt(targetAccountId),
+                  balance: response.balance || 'Not found',
+                  transactions: newTxs,
+                  request_id: requestId
+                })
+              });
+              addLog("> [System] Shared cache push succeeded.");
+            } catch (pushErr: any) {
+              console.error("Failed to push cache to server:", pushErr);
+              addLog(`> [System] Shared cache push failed: ${pushErr.message}`);
+            }
           }
 
           // Update local state ledger cache
@@ -3096,37 +3103,86 @@ function App() {
           isVerifyingRef.current = false;
           uploadLogsToServer();
         }, 1500);
+      } else if (response.type === 'session_status') {
+        const finalSessionMode = response.hasSession ? 'fetch_only' : 'claim_and_login';
+        if (!response.hasSession) {
+          addLog("> [System] Local session not found. Injecting server tokens...");
+        } else {
+          addLog("> [System] Valid local session detected. Proceeding...");
+        }
+        try {
+          port.postMessage({
+            action: 'VERIFY_TRANSFER',
+            payload: {
+              mode: 'ledger',
+              sessionMode: finalSessionMode,
+              amount: '0.00',
+              bank: selectedBankName,
+              accountId: targetAccountId,
+              accountNumber: selectedAccount ? selectedAccount.account_number : '',
+              accountName: selectedAccount ? selectedAccount.account_name : '',
+              mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
+              bmlProfileType: selectedAccount ? (selectedAccount.bml_profile_type || '0') : '0',
+              bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
+              credentials: activeCreds,
+              debugLogMibHtml: appConfig.debug_log_mib_html,
+              bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy'
+            }
+          });
+        } catch (msgErr: any) {
+          setError(`Failed to start sync: ${msgErr.message}`);
+          addLog(`> [System] Failed to send message to extension: ${msgErr.message}`);
+          setLoading(false);
+          port.disconnect();
+          activePortRef.current = null;
+          releaseLock();
+          isVerifyingRef.current = false;
+        }
       }
     });
 
-    addLog("> [System] Sending VERIFY_TRANSFER (ledger mode) to extension...");
-    try {
-      port.postMessage({
-        action: 'VERIFY_TRANSFER',
-        payload: {
-          mode: 'ledger',
-          sessionMode: strategy === 'FETCH_ONLY' ? 'fetch_only' : (claimSuccess ? 'claim_and_login' : 'fresh_login'),
-          amount: '0.00',
-          bank: selectedBankName,
-          accountId: targetAccountId,
-          accountNumber: selectedAccount ? selectedAccount.account_number : '',
-          accountName: selectedAccount ? selectedAccount.account_name : '',
-          mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
-          bmlProfileType: selectedAccount ? (selectedAccount.bml_profile_type || '0') : '0',
-          bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
-          credentials: activeCreds,
-          debugLogMibHtml: appConfig.debug_log_mib_html,
-          bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy'
-        }
-      });
-    } catch (msgErr: any) {
-      setError(`Failed to start sync: ${msgErr.message}`);
-      addLog(`> [System] Failed to send message to extension: ${msgErr.message}`);
-      setLoading(false);
-      port.disconnect();
-      activePortRef.current = null;
-      releaseLock();
-      isVerifyingRef.current = false;
+    if (operationMode === 'Single Counter') {
+      addLog("> [System] Checking extension for active session...");
+      try {
+        port.postMessage({ action: 'CHECK_SESSION' });
+      } catch (msgErr: any) {
+        setError(`Failed to check session: ${msgErr.message}`);
+        setLoading(false);
+        port.disconnect();
+        activePortRef.current = null;
+        releaseLock();
+        isVerifyingRef.current = false;
+      }
+    } else {
+      addLog("> [System] Sending VERIFY_TRANSFER (ledger mode) to extension...");
+      try {
+        port.postMessage({
+          action: 'VERIFY_TRANSFER',
+          payload: {
+            mode: 'ledger',
+            sessionMode: strategy === 'FETCH_ONLY' ? 'fetch_only' : (claimSuccess ? 'claim_and_login' : 'fresh_login'),
+            amount: '0.00',
+            bank: selectedBankName,
+            accountId: targetAccountId,
+            accountNumber: selectedAccount ? selectedAccount.account_number : '',
+            accountName: selectedAccount ? selectedAccount.account_name : '',
+            mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
+            bmlProfileType: selectedAccount ? (selectedAccount.bml_profile_type || '0') : '0',
+            bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
+            credentials: activeCreds,
+            debugLogMibHtml: appConfig.debug_log_mib_html,
+            bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy'
+          }
+        });
+      } catch (msgErr: any) {
+        setError(`Failed to start sync: ${msgErr.message}`);
+        addLog(`> [System] Failed to send message to extension: ${msgErr.message}`);
+        setLoading(false);
+        port.disconnect();
+        activePortRef.current = null;
+        releaseLock();
+        isVerifyingRef.current = false;
+      }
     }
   };
 
