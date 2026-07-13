@@ -3084,7 +3084,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
         let isResolved = false;
 
         const tabUpdateListener = async (tabId, changeInfo, tab) => {
-          if (tab.windowId === win.id && tab.url && (tab.url.includes('/web/profile') || tab.url.includes('/vf/accounts/overview'))) {
+          if (tab.windowId === win.id && tab.url && tab.url.includes('/vf/accounts/overview')) {
             if (!isResolved) {
               isResolved = true;
               chrome.tabs.onUpdated.removeListener(tabUpdateListener);
