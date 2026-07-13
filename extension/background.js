@@ -3065,11 +3065,12 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
         const protocol = cookie.secure ? "https://" : "http://";
         const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
         await chrome.cookies.remove({ url: `${protocol}${cleanDomain}${cookie.path}`, name: cookie.name });
+        await chrome.cookies.remove({ url: `${protocol}www.${cleanDomain}${cookie.path}`, name: cookie.name });
       }
 
       // Open popup window
       const win = await chrome.windows.create({
-        url: `${BASE_URL}/login`,
+        url: `${BASE_URL}/web/login`,
         type: 'popup',
         width: 400,
         height: 600,
