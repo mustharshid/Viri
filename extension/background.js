@@ -2976,15 +2976,20 @@ async function runMibMultiProfileFlow(credentials, targetAccount, targetAccountN
 // BML OAuth Persistence Helpers
 // -------------------------------------------------------------
 async function generatePKCE() {
-    const codeVerifier = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-        .map(b => b.toString(16).padStart(2, '0')).join('');
-    const buffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(codeVerifier));
-    const codeChallenge = btoa(String.fromCharCode(...new Uint8Array(buffer)))
+    const verifier = new Uint8Array(72);
+    crypto.getRandomValues(verifier);
+    const codeVerifier = btoa(String.fromCharCode(...verifier))
         .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    const state = crypto.randomUUID();
+    const challengeBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(codeVerifier));
+    const codeChallenge = btoa(String.fromCharCode(...new Uint8Array(challengeBuf)))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const state = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(12))))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     const deviceId = Array.from(crypto.getRandomValues(new Uint8Array(8)))
         .map(b => b.toString(16).padStart(2, '0')).join('');
-    return { codeVerifier, codeChallenge, state, deviceId };
+    return { codeVerifier, codeChallenge, state, nonce, deviceId };
 }
 
 async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken) {
@@ -3036,8 +3041,30 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                     try {
                         const pkce = await generatePKCE();
                         
-                        const authRes = await fetch('https://www.bankofmaldives.com.mv/internetbanking/oauth/authorize?response_type=code&client_id=98C83590-513F-4716-B02B-EC68B7D9E7E7&redirect_uri=https://www.bankofmaldives.com.mv/internetbanking/oauth/callback&scope=openid&state=' + pkce.state + '&code_challenge=' + pkce.codeChallenge + '&code_challenge_method=S256', {
-                            redirect: 'manual'
+                        const cookies = await chrome.cookies.getAll({ domain: "bankofmaldives.com.mv" });
+                        const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+                        
+                        const authUrl = 'https://www.bankofmaldives.com.mv/internetbanking/oauth/authorize?' + new URLSearchParams({
+                            redirect_uri: 'https://app.bankofmaldives.com.mv/oauth/mobile-callback',
+                            client_id: '98C83590-513F-4716-B02B-EC68B7D9E7E7',
+                            response_type: 'code',
+                            state: pkce.state,
+                            nonce: pkce.nonce,
+                            code_challenge: pkce.codeChallenge,
+                            code_challenge_method: 'S256',
+                            'Device-ID': pkce.deviceId,
+                            'User-Agent': 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)',
+                            'x-app-version': '2.1.44.348'
+                        }).toString();
+                        
+                        const authRes = await fetch(authUrl, {
+                            redirect: 'manual',
+                            headers: {
+                                'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0',
+                                'Cookie': cookieStr,
+                                'Origin': 'https://app.bankofmaldives.com.mv',
+                                'Referer': 'https://app.bankofmaldives.com.mv/'
+                            }
                         });
                         
                         let authCode = null;
@@ -3049,14 +3076,14 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                             }
                         }
                         
-                        if (!authCode) throw new Error("Failed to get auth code from BML.");
+                        if (!authCode) throw new Error("Failed to get auth code from BML. HTTP Status: " + authRes.status);
                         
                         const tokenBody = new URLSearchParams({
                             'grant_type': 'authorization_code',
                             'code': authCode,
-                            'redirect_uri': 'https://www.bankofmaldives.com.mv/internetbanking/oauth/callback',
-                            'client_id': '98C83590-513F-4716-B02B-EC68B7D9E7E7',
                             'code_verifier': pkce.codeVerifier,
+                            'client_id': '98C83590-513F-4716-B02B-EC68B7D9E7E7',
+                            'redirect_uri': 'https://app.bankofmaldives.com.mv/oauth/mobile-callback',
                             'Device-ID': pkce.deviceId,
                             'User-Agent': 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)',
                             'x-app-version': '2.1.44.348'
@@ -3066,7 +3093,9 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/x-www-form-urlencoded',
-                                'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0'
+                                'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0',
+                                'Accept': 'application/json',
+                                'X-Device-ID': pkce.deviceId
                             },
                             body: tokenBody.toString()
                         });
