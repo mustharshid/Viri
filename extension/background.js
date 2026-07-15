@@ -287,7 +287,7 @@ chrome.runtime.onConnectExternal.addListener((port) => {
             }
           } else {
             if (payload.bmlLoginProcedure === 'api') {
-              await runBmlApiFlow(payload.credentials, targetAcc, payload.accountName, port, payload.amount, payload.bmlProfileType || '0', mode, sessionMode, payload.bmlAuthState);
+              await runBmlApiFlow(payload.credentials, targetAcc, payload.accountName, port, payload.amount, payload.bmlProfileType || '0', mode, sessionMode, payload.bmlAuthState, payload.hardwareId, payload.backendUrl);
             } else {
               await runBmlFlow(payload.credentials, targetAcc, port, payload.amount, mode, sessionMode);
             }
@@ -312,7 +312,7 @@ chrome.runtime.onConnectExternal.addListener((port) => {
             if (bmlLoginProcedure === 'api') {
               const bmlAuthState = heldSession ? heldSession.bmlAuthState : req.bmlAuthState;
               const bmlProfileType = heldSession ? (heldSession.bmlProfileType || '0') : (req.bmlProfileType || '0');
-              await runBmlApiFlow(payload.credentials, targetAcc, req.account_name, port, req.target_amount || '1.00', bmlProfileType, req.request_type, 'fetch_only', bmlAuthState);
+              await runBmlApiFlow(payload.credentials, targetAcc, req.account_name, port, req.target_amount || '1.00', bmlProfileType, req.request_type, 'fetch_only', bmlAuthState, req.hardware_id || payload.hardwareId, req.backend_url || payload.backendUrl);
             } else {
               await runBmlFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', req.request_type, 'fetch_only');
             }
@@ -3137,7 +3137,7 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                                 'Authorization': `Bearer ${sanctumToken}`
                             },
                             body: JSON.stringify({
-                                terminal_id: terminalId,
+                                hardware_id: terminalId,
                                 bank_account_id: bankAccountId,
                                 bml_username: bmlUsername,
                                 profile_type: profileType,
@@ -3186,7 +3186,7 @@ async function getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bml
     } else {
         // Fetch from server
         try {
-            const res = await fetch(`${backendUrl}/api/bml/oauth/tokens?terminal_id=${terminalId}&bank_account_id=${bankAccountId}`, {
+            const res = await fetch(`${backendUrl}/api/bml/oauth/tokens?hardware_id=${terminalId}&bank_account_id=${bankAccountId}`, {
                 headers: {
                     'Accept': 'application/json',
                     'Authorization': `Bearer ${sanctumToken}`
@@ -3244,7 +3244,7 @@ async function getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bml
                     'Authorization': `Bearer ${sanctumToken}`
                 },
                 body: JSON.stringify({
-                    terminal_id: terminalId,
+                    hardware_id: terminalId,
                     bank_account_id: bankAccountId,
                     access_token: tokens.access_token,
                     refresh_token: tokens.refresh_token,
@@ -3263,15 +3263,15 @@ async function getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bml
 // -------------------------------------------------------------
 // BML API Background Flow (Browser OTP + Persistent Session)
 // -------------------------------------------------------------
-async function runBmlApiFlow(credentials, targetAccount, accountName, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', bmlAuthState = null) {
+async function runBmlApiFlow(credentials, targetAccount, accountName, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', bmlAuthState = null, payloadHardwareId = '', payloadBackendUrl = '') {
   emitLog(port, `> [BML-API] Starting API auth flow (sessionMode: ${sessionMode}, profileType: ${profileType})...`);
   let last3Txs = [];
   let loginSuccess = false;
   const BASE_URL = 'https://www.bankofmaldives.com.mv/internetbanking';
 
   try {
-    const backendUrl = heldSession ? heldSession.backendUrl : (credentials.backendUrl || '');
-    const terminalId = heldSession ? heldSession.hardwareId : (credentials.terminalId || '');
+    const backendUrl = heldSession ? heldSession.backendUrl : (payloadBackendUrl || credentials.backendUrl || '');
+    const terminalId = heldSession ? heldSession.hardwareId : (payloadHardwareId || credentials.terminalId || '');
     const bankAccountId = heldSession ? heldSession.accountId : (credentials.bankAccountId || '');
     const bmlUsername = credentials.username || '';
     const sanctumToken = credentials.token || ''; // Assuming the PWA passes sanctum token in credentials if needed
@@ -3404,12 +3404,16 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     last3Txs = formattedTxs.slice(0, 3);
     emitLog(port, `> [BML-API] Found ${formattedTxs.length} transactions today.`);
 
+    const currentBalance = formattedTxs.length > 0 && formattedTxs[0].runningBalance
+      ? formattedTxs[0].runningBalance 
+      : (accountObj.workingBalance || accountObj.availableBalance || accountObj.balance || '0.00');
+
     if (mode === 'ledger' || mode === 'history') {
       port.postMessage({
         type: 'success',
         match: null,
         transactions: formattedTxs,
-        balance: accountObj.current_balance,
+        balance: currentBalance,
         login_success: true
       });
       return;
@@ -3431,7 +3435,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
         type: 'success',
         match: match,
         transactions: formattedTxs,
-        balance: accountObj.current_balance,
+        balance: currentBalance,
         login_success: true
       });
     } else {

@@ -21,9 +21,53 @@ const Tooltip = ({ text, onClick }: { text: string; onClick?: () => void }) => (
     </div>
   </div>
 );
+const DeleteConfirmModal = ({ isOpen, onClose, onConfirm, title, message, itemName }: any) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl w-full max-w-md shadow-2xl p-6 relative animate-in zoom-in-95 duration-200">
+        <button onClick={onClose} className="absolute top-4 right-4 text-[var(--text-secondary)] hover:text-white transition-colors">
+          <X size={20} />
+        </button>
+        
+        <div className="flex items-center gap-4 mb-4">
+          <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 shrink-0">
+            <Trash2 size={24} />
+          </div>
+          <div>
+            <h3 className="text-xl font-medium text-white">{title}</h3>
+            <p className="text-[var(--text-secondary)] text-sm mt-1">{message}</p>
+          </div>
+        </div>
+        
+        {itemName && (
+          <div className="bg-[var(--bg-dark)] border border-red-500/20 rounded-lg p-3 mb-6 flex items-center gap-2 text-red-100">
+            <Info size={16} className="text-red-400" />
+            <span className="font-mono text-sm break-all">{itemName}</span>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-3 mt-6">
+          <button 
+            onClick={onClose}
+            className="px-5 py-2.5 rounded-xl bg-[var(--bg-dark)] border border-[var(--border-subtle)] text-white hover:bg-zinc-800 transition-colors font-medium"
+          >
+            Cancel
+          </button>
+          <button 
+            onClick={() => { onConfirm(); onClose(); }}
+            className="px-5 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white font-medium transition-colors shadow-lg shadow-red-500/20"
+          >
+            Yes, delete it
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default function CompanyDashboard() {
-  const LATEST_EXTENSION_VERSION = "1.2.2";
+  const LATEST_EXTENSION_VERSION = "1.2.27";
   const [theme, toggleTheme] = useTheme();
   const [user, setUser] = useState<any>(null);
   const [terminals, setTerminals] = useState<any[]>([]);
@@ -33,6 +77,8 @@ export default function CompanyDashboard() {
   const [now, setNow] = useState(Date.now());
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [syncHealthSummary, setSyncHealthSummary] = useState<any>(null);
+
+  const [deleteConfirm, setDeleteConfirm] = useState<{isOpen: boolean, type: 'terminal' | 'account' | null, id: number | null, name: string}>({isOpen: false, type: null, id: null, name: ''});
 
   // ── Credential Sync (Standalone Page) ──────────────────────────────────────
   const [credSync, setCredSync] = useState<{
@@ -630,6 +676,21 @@ export default function CompanyDashboard() {
 
   return (
     <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)] flex font-sans antialiased">
+      <DeleteConfirmModal 
+        isOpen={deleteConfirm.isOpen}
+        onClose={() => setDeleteConfirm({isOpen: false, type: null, id: null, name: ''})}
+        onConfirm={() => {
+          if (deleteConfirm.type === 'terminal' && deleteConfirm.id) {
+            deleteTerminal(deleteConfirm.id);
+          } else if (deleteConfirm.type === 'account' && deleteConfirm.id) {
+            deleteBankAccount(deleteConfirm.id);
+          }
+        }}
+        title={deleteConfirm.type === 'terminal' ? 'Delete Terminal' : 'Delete Bank Account'}
+        message={`Are you sure you want to delete this ${deleteConfirm.type === 'terminal' ? 'terminal' : 'bank account'}? This action cannot be undone and will immediately revoke access.`}
+        itemName={deleteConfirm.name}
+      />
+      
       {/* ── Sidebar Navigation ── */}
       <aside className="w-64 border-r border-zinc-800/60 bg-zinc-950/40 backdrop-blur-xl p-6 hidden md:flex flex-col justify-between h-screen sticky top-0 shrink-0">
         <div>
@@ -950,7 +1011,7 @@ export default function CompanyDashboard() {
                           </div>
                           <div className="flex items-center gap-1">
                             <button onClick={() => editTerminal(term)} className="p-1 text-zinc-500 hover:text-zinc-200 transition-colors rounded-md hover:bg-white/5" title="Edit Terminal"><Edit size={14}/></button>
-                            <button onClick={() => deleteTerminal(term.id)} className="p-1 text-red-500/60 hover:text-red-400 transition-colors rounded-md hover:bg-red-500/5" title="Delete Terminal"><Trash2 size={14}/></button>
+                            <button onClick={() => setDeleteConfirm({isOpen: true, type: 'terminal', id: term.id, name: term.name})} className="p-1 text-red-500/60 hover:text-red-400 transition-colors rounded-md hover:bg-red-500/5" title="Delete Terminal"><Trash2 size={14}/></button>
                           </div>
                         </div>
 
@@ -1171,7 +1232,7 @@ export default function CompanyDashboard() {
                             Reset
                           </button>
                         )}
-                        <button onClick={() => deleteBankAccount(acc.id)} className="p-2 text-zinc-500 hover:text-red-400 hover:bg-red-500/5 rounded-lg transition-colors"><Trash2 size={16}/></button>
+                        <button onClick={() => setDeleteConfirm({isOpen: true, type: 'account', id: acc.id, name: `${acc.bank_name} - ${acc.account_name} (${acc.account_number})`})} className="p-2 text-zinc-500 hover:text-red-400 hover:bg-red-500/5 rounded-lg transition-colors"><Trash2 size={16}/></button>
                       </div>
                     </div>
                   ))}

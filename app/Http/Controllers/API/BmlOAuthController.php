@@ -13,7 +13,7 @@ class BmlOAuthController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'terminal_id' => 'required|integer',
+            'hardware_id' => 'required|string',
             'bank_account_id' => 'required|integer',
             'bml_username' => 'required|string',
             'profile_type' => 'required|in:personal,business',
@@ -23,11 +23,14 @@ class BmlOAuthController extends Controller
             'expires_in' => 'required|integer',
         ]);
 
+        $terminal = \App\Models\Terminal::where('hardware_id', $validated['hardware_id'])->first();
+        if (!$terminal) return response()->json(['error' => 'Unauthorized terminal'], 403);
+
         $expiresAt = Carbon::now()->addSeconds($validated['expires_in']);
 
         BmlOAuthToken::updateOrCreate(
             [
-                'terminal_id' => $validated['terminal_id'],
+                'terminal_id' => $terminal->id,
                 'bml_username' => $validated['bml_username'],
                 'profile_type' => $validated['profile_type'],
             ],
@@ -48,10 +51,13 @@ class BmlOAuthController extends Controller
     public function getTokens(Request $request)
     {
         $request->validate([
-            'terminal_id' => 'required|integer',
+            'hardware_id' => 'required|string',
         ]);
 
-        $query = BmlOAuthToken::where('terminal_id', $request->terminal_id);
+        $terminal = \App\Models\Terminal::where('hardware_id', $request->hardware_id)->first();
+        if (!$terminal) return response()->json(['error' => 'Unauthorized terminal'], 403);
+
+        $query = BmlOAuthToken::where('terminal_id', $terminal->id);
         
         if ($request->has('bml_username') && $request->has('profile_type')) {
             $query->where('bml_username', $request->bml_username)
@@ -80,14 +86,17 @@ class BmlOAuthController extends Controller
     public function updateTokens(Request $request)
     {
         $validated = $request->validate([
-            'terminal_id' => 'required|integer',
+            'hardware_id' => 'required|string',
             'bank_account_id' => 'required|integer',
             'access_token' => 'required|string',
             'refresh_token' => 'required|string',
             'expires_in' => 'sometimes|integer',
         ]);
 
-        $token = BmlOAuthToken::where('terminal_id', $validated['terminal_id'])
+        $terminal = \App\Models\Terminal::where('hardware_id', $validated['hardware_id'])->first();
+        if (!$terminal) return response()->json(['error' => 'Unauthorized terminal'], 403);
+
+        $token = BmlOAuthToken::where('terminal_id', $terminal->id)
             ->where('bank_account_id', $validated['bank_account_id'])
             ->first();
 

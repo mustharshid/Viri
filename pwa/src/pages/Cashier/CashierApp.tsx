@@ -297,7 +297,7 @@ function App() {
   const [currentTick, setCurrentTick] = useState(Date.now());
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.25";
+  const LATEST_EXTENSION_VERSION = "1.2.27";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -1855,7 +1855,11 @@ function App() {
 
           // Wake up the extension to ping the bank and keep the bank's own idle timer alive
           if (typeof chrome !== 'undefined' && chrome.runtime && extensionId) {
-            chrome.runtime.sendMessage(extensionId, { action: 'PING_BANK' }).catch(() => { });
+            const heldBankAcc = bankAccounts.find(a => a.id.toString() === sessionHolderAccountId);
+            const isApi = heldBankAcc?.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
+            if (!isApi) {
+              chrome.runtime.sendMessage(extensionId, { action: 'PING_BANK' }).catch(() => { });
+            }
           }
         } catch (e) {
           console.error("PWA Heartbeat failed:", e);
@@ -2800,7 +2804,9 @@ function App() {
           bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
           credentials: activeCreds,
           debugLogMibHtml: appConfig.debug_log_mib_html,
-          bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy'
+          bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
+          backendUrl: backendUrl,
+          hardwareId: hardwareId
         }
       });
     } catch (msgErr: any) {

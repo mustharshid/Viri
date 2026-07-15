@@ -82,11 +82,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/company/credential-sync/{id}/status',          [CredentialSyncController::class, 'status']);
     Route::post('/company/credential-sync/{id}/trigger-import', [CredentialSyncController::class, 'triggerImport']);
     Route::delete('/company/credential-sync/{id}',              [CredentialSyncController::class, 'cancel']);
-
-    // BML OAuth Routes
-    Route::post('/bml/oauth/store', [BmlOAuthController::class, 'store']);
-    Route::get('/bml/oauth/tokens', [BmlOAuthController::class, 'getTokens']);
-    Route::post('/bml/oauth/update', [BmlOAuthController::class, 'updateTokens']);
 });
 
 /*
@@ -109,6 +104,12 @@ Route::post('/terminal/session/log',        [\App\Http\Controllers\API\SessionCo
 Route::post('/terminal/session/activity',   [\App\Http\Controllers\API\SessionController::class, 'recordActivity']);
 Route::post('/terminal/session/bml-auth',   [\App\Http\Controllers\API\SessionController::class, 'updateBmlAuth']);
 Route::post('/terminal/account/fingerprint-check', [\App\Http\Controllers\API\SessionController::class, 'checkFingerprint']);
+
+
+// BML OAuth Routes (Terminal API)
+Route::post('/bml/oauth/store', [BmlOAuthController::class, 'store']);
+Route::get('/bml/oauth/tokens', [BmlOAuthController::class, 'getTokens']);
+Route::post('/bml/oauth/update', [BmlOAuthController::class, 'updateTokens']);
 
 
 Route::post('/verify-terminal', function (Request $request) {
