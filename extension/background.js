@@ -3079,7 +3079,6 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                         });
                         
                         const authRes = await fetch(authUrl, {
-                            redirect: 'manual',
                             headers: {
                                 'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0'
                             }
@@ -3088,12 +3087,9 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                         await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [ruleId] });
                         
                         let authCode = null;
-                        if (authRes.status === 302 || authRes.status === 301) {
-                            const location = authRes.headers.get('location');
-                            if (location) {
-                                const url = new URL(location);
-                                authCode = url.searchParams.get('code');
-                            }
+                        if (authRes.url && authRes.url.includes('/oauth/mobile-callback')) {
+                            const finalUrl = new URL(authRes.url);
+                            authCode = finalUrl.searchParams.get('code');
                         }
                         
                         if (!authCode) throw new Error("Failed to get auth code from BML. HTTP Status: " + authRes.status);
@@ -3156,6 +3152,7 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                         setTimeout(() => chrome.tabs.remove(tab.id).catch(() => {}), 1000);
                         resolve(true);
                     } catch (e) {
+                        chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [9999] }).catch(() => {});
                         if(port) emitLog(port, '> [BML-OAuth] Error during PKCE exchange: ' + e.message);
                         setTimeout(() => chrome.tabs.remove(tab.id).catch(() => {}), 1000);
                         reject(e);
