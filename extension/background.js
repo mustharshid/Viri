@@ -3041,9 +3041,6 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                     try {
                         const pkce = await generatePKCE();
                         
-                        const cookies = await chrome.cookies.getAll({ domain: "bankofmaldives.com.mv" });
-                        const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-                        
                         const authUrl = 'https://www.bankofmaldives.com.mv/internetbanking/oauth/authorize?' + new URLSearchParams({
                             redirect_uri: 'https://app.bankofmaldives.com.mv/oauth/mobile-callback',
                             client_id: '98C83590-513F-4716-B02B-EC68B7D9E7E7',
@@ -3059,11 +3056,9 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                         
                         const authRes = await fetch(authUrl, {
                             redirect: 'manual',
+                            credentials: 'include',
                             headers: {
-                                'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0',
-                                'Cookie': cookieStr,
-                                'Origin': 'https://app.bankofmaldives.com.mv',
-                                'Referer': 'https://app.bankofmaldives.com.mv/'
+                                'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0'
                             }
                         });
                         
