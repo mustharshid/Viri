@@ -207,6 +207,20 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === 'START_BML_AUTH') {
+    startBmlOAuthFlow(msg.payload.terminalId, msg.payload.bankAccountId, msg.payload.backendUrl, msg.payload.bmlUsername, msg.payload.profileType, msg.payload.sanctumToken)
+      .then(() => sendResponse({ success: true }))
+      .catch(e => sendResponse({ success: false, error: e.message }));
+    return true;
+  }
+
+  if (msg.action === 'CHECK_BML_TOKENS') {
+    getValidBmlAccessToken(msg.payload.terminalId, msg.payload.bankAccountId, msg.payload.backendUrl, msg.payload.bmlUsername, msg.payload.profileType, msg.payload.sanctumToken)
+      .then(token => sendResponse({ hasTokens: !!token }))
+      .catch(() => sendResponse({ hasTokens: false }));
+    return true;
+  }
+
   if (msg.action === 'PING_BANK') {
     const doPing = (session) => {
       if (session) {
@@ -2959,6 +2973,239 @@ async function runMibMultiProfileFlow(credentials, targetAccount, targetAccountN
 }
 
 // -------------------------------------------------------------
+// BML OAuth Persistence Helpers
+// -------------------------------------------------------------
+async function generatePKCE() {
+    const codeVerifier = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+    const buffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(codeVerifier));
+    const codeChallenge = btoa(String.fromCharCode(...new Uint8Array(buffer)))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const state = crypto.randomUUID();
+    const deviceId = Array.from(crypto.getRandomValues(new Uint8Array(8)))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+    return { codeVerifier, codeChallenge, state, deviceId };
+}
+
+async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken) {
+    const port = activePort;
+    if(port) emitLog(port, '> [BML-OAuth] Initiating new tab login flow...');
+    
+    const oldCookies = await chrome.cookies.getAll({ domain: "bankofmaldives.com.mv" });
+    for (const cookie of oldCookies) {
+      const protocol = cookie.secure ? "https://" : "http://";
+      const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+      await chrome.cookies.remove({ url: `${protocol}${cleanDomain}${cookie.path}`, name: cookie.name });
+      await chrome.cookies.remove({ url: `${protocol}www.${cleanDomain}${cookie.path}`, name: cookie.name });
+    }
+
+    const tab = await chrome.tabs.create({
+      url: 'https://www.bankofmaldives.com.mv/internetbanking/web/login',
+      active: true
+    });
+
+    if(port) emitLog(port, '> [BML-OAuth] Please complete the login and OTP verification in the new tab.');
+
+    return new Promise((resolve, reject) => {
+        let isResolved = false;
+        
+        const tabUpdateListener = async (tabId, changeInfo, updatedTab) => {
+            let isSuccessUrl = false;
+            if (updatedTab.url) {
+                try {
+                    const u = new URL(updatedTab.url);
+                    if (u.pathname.endsWith('/vf/accounts/overview')) {
+                        isSuccessUrl = true;
+                    }
+                } catch(e) {}
+            }
+            
+            if (tabId === tab.id && isSuccessUrl) {
+                if (!isResolved) {
+                    isResolved = true;
+                    chrome.tabs.onUpdated.removeListener(tabUpdateListener);
+                    chrome.tabs.onRemoved.removeListener(tabRemoveListener);
+                    if(port) emitLog(port, '> [BML-OAuth] Login successful! Performing PKCE exchange...');
+                    
+                    try {
+                        const pkce = await generatePKCE();
+                        
+                        const authRes = await fetch('https://www.bankofmaldives.com.mv/internetbanking/oauth/authorize?response_type=code&client_id=98C83590-513F-4716-B02B-EC68B7D9E7E7&redirect_uri=https://www.bankofmaldives.com.mv/internetbanking/oauth/callback&scope=openid&state=' + pkce.state + '&code_challenge=' + pkce.codeChallenge + '&code_challenge_method=S256', {
+                            redirect: 'manual'
+                        });
+                        
+                        let authCode = null;
+                        if (authRes.status === 302 || authRes.status === 301) {
+                            const location = authRes.headers.get('location');
+                            if (location) {
+                                const url = new URL(location);
+                                authCode = url.searchParams.get('code');
+                            }
+                        }
+                        
+                        if (!authCode) throw new Error("Failed to get auth code from BML.");
+                        
+                        const tokenBody = new URLSearchParams({
+                            'grant_type': 'authorization_code',
+                            'code': authCode,
+                            'redirect_uri': 'https://www.bankofmaldives.com.mv/internetbanking/oauth/callback',
+                            'client_id': '98C83590-513F-4716-B02B-EC68B7D9E7E7',
+                            'code_verifier': pkce.codeVerifier,
+                            'Device-ID': pkce.deviceId,
+                            'User-Agent': 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)',
+                            'x-app-version': '2.1.44.348'
+                        });
+                        
+                        const tokenRes = await fetch('https://www.bankofmaldives.com.mv/internetbanking/oauth/token', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0'
+                            },
+                            body: tokenBody.toString()
+                        });
+                        
+                        const tokenData = await tokenRes.json();
+                        if (!tokenData.access_token) throw new Error("Failed to get access token");
+                        
+                        const cacheKey = `bml_oauth_${bmlUsername}_${profileType}`;
+                        await chrome.storage.local.set({
+                            [cacheKey]: {
+                                access_token: tokenData.access_token,
+                                refresh_token: tokenData.refresh_token,
+                                device_id: pkce.deviceId,
+                                expires_in: tokenData.expires_in,
+                                expires_at: Date.now() + (tokenData.expires_in * 1000)
+                            }
+                        });
+                        
+                        await fetch(`${backendUrl}/api/bml/oauth/store`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${sanctumToken}`
+                            },
+                            body: JSON.stringify({
+                                terminal_id: terminalId,
+                                bank_account_id: bankAccountId,
+                                bml_username: bmlUsername,
+                                profile_type: profileType,
+                                access_token: tokenData.access_token,
+                                refresh_token: tokenData.refresh_token,
+                                device_id: pkce.deviceId,
+                                expires_in: tokenData.expires_in
+                            })
+                        }).catch(e => console.error(e));
+                        
+                        if(port) emitLog(port, '> [BML-OAuth] Tokens acquired and stored successfully.');
+                        setTimeout(() => chrome.tabs.remove(tab.id).catch(() => {}), 1000);
+                        resolve(true);
+                    } catch (e) {
+                        if(port) emitLog(port, '> [BML-OAuth] Error during PKCE exchange: ' + e.message);
+                        reject(e);
+                    }
+                }
+            }
+        };
+        
+        const tabRemoveListener = (tabId) => {
+            if (tabId === tab.id && !isResolved) {
+                isResolved = true;
+                chrome.tabs.onUpdated.removeListener(tabUpdateListener);
+                chrome.tabs.onRemoved.removeListener(tabRemoveListener);
+                reject(new Error("Login tab was closed before completing authentication."));
+            }
+        };
+        
+        chrome.tabs.onUpdated.addListener(tabUpdateListener);
+        chrome.tabs.onRemoved.addListener(tabRemoveListener);
+    });
+}
+
+async function getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken) {
+    const cacheKey = `bml_oauth_${bmlUsername}_${profileType}`;
+    let tokens = null;
+    
+    // Check local cache
+    const data = await chrome.storage.local.get(cacheKey);
+    if (data[cacheKey]) {
+        tokens = data[cacheKey];
+    } else {
+        // Fetch from server
+        try {
+            const res = await fetch(`${backendUrl}/api/bml/oauth/tokens?terminal_id=${terminalId}&bank_account_id=${bankAccountId}`, {
+                headers: {
+                    'Accept': 'application/json',
+                    'Authorization': `Bearer ${sanctumToken}`
+                }
+            });
+            if (res.status === 200) {
+                tokens = await res.json();
+                tokens.expires_at = new Date(tokens.expires_at).getTime();
+                await chrome.storage.local.set({ [cacheKey]: tokens });
+            }
+        } catch(e) { console.error('Failed to fetch tokens from server', e); }
+    }
+
+    if (!tokens) return null;
+
+    // Check expiry (5 min buffer)
+    if (tokens.expires_at < Date.now() + 5 * 60 * 1000) {
+        // Refresh
+        const tokenBody = new URLSearchParams({
+            'grant_type': 'refresh_token',
+            'refresh_token': tokens.refresh_token,
+            'client_id': '98C83590-513F-4716-B02B-EC68B7D9E7E7',
+            'Device-ID': tokens.device_id,
+            'User-Agent': 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)',
+            'x-app-version': '2.1.44.348'
+        });
+        
+        try {
+            const tokenRes = await fetch('https://www.bankofmaldives.com.mv/internetbanking/oauth/token', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0'
+                },
+                body: tokenBody.toString()
+            });
+            
+            if (tokenRes.status !== 200) throw new Error('Refresh failed');
+            const tokenData = await tokenRes.json();
+            
+            tokens.access_token = tokenData.access_token;
+            tokens.refresh_token = tokenData.refresh_token || tokens.refresh_token; // rotation
+            tokens.expires_in = tokenData.expires_in;
+            tokens.expires_at = Date.now() + (tokenData.expires_in * 1000);
+            
+            await chrome.storage.local.set({ [cacheKey]: tokens });
+            
+            // Sync to server
+            fetch(`${backendUrl}/api/bml/oauth/update`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${sanctumToken}`
+                },
+                body: JSON.stringify({
+                    terminal_id: terminalId,
+                    bank_account_id: bankAccountId,
+                    access_token: tokens.access_token,
+                    refresh_token: tokens.refresh_token,
+                    expires_in: tokens.expires_in
+                })
+            }).catch(()=>{});
+        } catch(e) {
+            console.error('Refresh failed', e);
+            await chrome.storage.local.remove(cacheKey);
+            return null; // Force re-link
+        }
+    }
+    return tokens.access_token;
+}
+
+// -------------------------------------------------------------
 // BML API Background Flow (Browser OTP + Persistent Session)
 // -------------------------------------------------------------
 async function runBmlApiFlow(credentials, targetAccount, accountName, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', bmlAuthState = null) {
@@ -2967,152 +3214,32 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
   let loginSuccess = false;
   const BASE_URL = 'https://www.bankofmaldives.com.mv/internetbanking';
 
-  async function checkProfileActive() {
-    try {
-      let xsrfToken = null;
-      await new Promise((resolve) => {
-        chrome.cookies.get({ url: "https://www.bankofmaldives.com.mv", name: "XSRF-TOKEN" }, (cookie) => {
-          xsrfToken = cookie ? decodeURIComponent(cookie.value) : null;
-          resolve();
-        });
-      });
-      const res = await fetch(`${BASE_URL}/api/profile`, {
-        headers: { 
-          'Accept': 'application/json, text/plain, */*',
-          'Authorization': 'Bearer',
-          'X-XSRF-TOKEN': xsrfToken || '',
-          'User-Agent': USER_AGENT
-        }
-      });
-      emitLog(port, `> [BML-API] checkProfileActive returned HTTP ${res.status}`);
-      if (res.status === 200) {
-        return true;
-      }
-    } catch (e) {
-      emitLog(port, `> [BML-API] checkProfileActive threw error: ${e.message}`);
-      console.error(e);
-    }
-    return false;
-  }
-
-  async function extractAndSaveCookies() {
-    const cookies = await chrome.cookies.getAll({ domain: "bankofmaldives.com.mv" });
-    const authStateStr = JSON.stringify(cookies);
-    // Send to backend
-    if (heldSession && heldSession.backendUrl) {
-      await fetch(`${heldSession.backendUrl}/terminal/session/bml-auth`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hardware_id: heldSession.hardwareId,
-          bank_account_id: heldSession.accountId,
-          bml_auth_state: authStateStr
-        })
-      }).catch(() => {});
-    }
-    return cookies;
-  }
-
-  async function injectCookies(authStateStr) {
-    if (!authStateStr) return;
-    try {
-      const cookies = JSON.parse(authStateStr);
-      for (const cookie of cookies) {
-        const protocol = cookie.secure ? "https://" : "http://";
-        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
-        let url = `${protocol}${cleanDomain}${cookie.path}`;
-        
-        let newCookie = {
-          url: url,
-          name: cookie.name,
-          value: cookie.value,
-          domain: cookie.domain,
-          path: cookie.path,
-          secure: cookie.secure,
-          httpOnly: cookie.httpOnly,
-          expirationDate: cookie.expirationDate,
-          sameSite: cookie.sameSite
-        };
-        await chrome.cookies.set(newCookie);
-      }
-    } catch (e) {
-      console.error("Error injecting BML cookies:", e);
-    }
-  }
-
   try {
-    // 1. Inject saved cookies if available and not fresh_login
-    if (sessionMode !== 'fresh_login' && bmlAuthState) {
-      emitLog(port, `> [BML-API] Injecting saved persistent session cookies...`);
-      await injectCookies(bmlAuthState);
-    }
+    const backendUrl = heldSession ? heldSession.backendUrl : (credentials.backendUrl || '');
+    const terminalId = heldSession ? heldSession.hardwareId : (credentials.terminalId || '');
+    const bankAccountId = heldSession ? heldSession.accountId : (credentials.bankAccountId || '');
+    const bmlUsername = credentials.username || '';
+    const sanctumToken = credentials.token || ''; // Assuming the PWA passes sanctum token in credentials if needed
 
-    // 2. Check if we are already authenticated
-    let isAuthenticated = await checkProfileActive();
+    emitLog(port, `> [BML-API] Fetching valid OAuth token...`);
+    const accessToken = await getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken);
 
-    // 3. If not authenticated, we must do browser login
-    if (!isAuthenticated) {
-      if (sessionMode === 'fetch_only') {
-        heldSession = null;
-        chrome.storage.local.remove('viri_held_session');
-        throw new Error("Session expired. Please click Sync again to inject fresh tokens or re-authenticate.");
-      }
-      emitLog(port, `> [BML-API] Session expired or not present. Initiating browser login for OTP...`);
-      
-      // Clear old cookies to ensure clean login
-      const oldCookies = await chrome.cookies.getAll({ domain: "bankofmaldives.com.mv" });
-      for (const cookie of oldCookies) {
-        const protocol = cookie.secure ? "https://" : "http://";
-        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
-        await chrome.cookies.remove({ url: `${protocol}${cleanDomain}${cookie.path}`, name: cookie.name });
-        await chrome.cookies.remove({ url: `${protocol}www.${cleanDomain}${cookie.path}`, name: cookie.name });
-      }
-
-      // Open popup window
-      const win = await chrome.windows.create({
-        url: `${BASE_URL}/web/login`,
-        type: 'popup',
-        width: 400,
-        height: 600,
-        focused: true
-      });
-
-      emitLog(port, `> [BML-API] Please complete the login and OTP verification in the popup window.`);
-      
-      // Wait for dashboard URL
-      isAuthenticated = await new Promise((resolve, reject) => {
-        let isResolved = false;
-
-        const tabUpdateListener = async (tabId, changeInfo, tab) => {
-          if (tab.windowId === win.id && tab.url && tab.url.includes('/vf/accounts/overview')) {
-            if (!isResolved) {
-              isResolved = true;
-              chrome.tabs.onUpdated.removeListener(tabUpdateListener);
-              chrome.windows.onRemoved.removeListener(windowRemoveListener);
-              emitLog(port, `> [BML-API] Login successful! Capturing session cookies...`);
-              await extractAndSaveCookies();
-              setTimeout(() => {
-                chrome.windows.remove(win.id).catch(() => {});
-                resolve(true);
-              }, 1000);
-            }
-          }
-        };
-
-        const windowRemoveListener = (windowId) => {
-          if (windowId === win.id && !isResolved) {
-            isResolved = true;
-            chrome.tabs.onUpdated.removeListener(tabUpdateListener);
-            chrome.windows.onRemoved.removeListener(windowRemoveListener);
-            reject(new Error("Login window was closed before completing authentication."));
-          }
-        };
-
-        chrome.tabs.onUpdated.addListener(tabUpdateListener);
-        chrome.windows.onRemoved.addListener(windowRemoveListener);
-      });
+    if (!accessToken) {
+        if (sessionMode === 'fetch_only') {
+            heldSession = null;
+            chrome.storage.local.remove('viri_held_session');
+            throw new Error("Session expired. Please click Sync again to re-link your BML account.");
+        }
+        emitLog(port, `> [BML-API] Token expired or not present. Initiating OAuth flow...`);
+        // We can't pass a port easily here, but we can pass null or dummy port to startBmlOAuthFlow
+        await startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken);
+        // Retry fetching token
+        const newAccessToken = await getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken);
+        if (!newAccessToken) {
+            throw new Error("Failed to acquire OAuth token after login.");
+        }
     } else {
-      emitLog(port, `> [BML-API] Existing session is valid. Using persistent session.`);
+        emitLog(port, `> [BML-API] Valid OAuth token acquired.`);
     }
 
     loginSuccess = true;
@@ -3123,11 +3250,25 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
       return;
     }
 
+    // Helper for authenticated requests
+    const authFetch = async (url, options = {}) => {
+        const token = await getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken);
+        const headers = options.headers || {};
+        headers['Authorization'] = `Bearer ${token}`;
+        headers['Accept'] = 'application/json';
+        // For mobile API endpoints, we need this specific UA
+        headers['User-Agent'] = 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)';
+        headers['x-app-version'] = '2.1.44.348';
+        
+        return await fetch(url, {
+            ...options,
+            headers
+        });
+    };
+
     // --- FETCH DATA ---
     emitLog(port, `> [BML-API] Fetching dashboard data...`);
-    const dashboardRes = await fetch(`${BASE_URL}/api/dashboard`, {
-      headers: { 'Accept': 'application/json' }
-    });
+    const dashboardRes = await authFetch(`${BASE_URL}/api/dashboard`);
     
     if (dashboardRes.status !== 200) {
       throw new Error(`Dashboard API returned ${dashboardRes.status}. Session might be dropped.`);
@@ -3151,16 +3292,12 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
 
     // Fetch history
     emitLog(port, `> [BML-API] Fetching today's history...`);
-    const historyRes = await fetch(`${BASE_URL}/api/account/${accountInternalId}/history/today`, {
-      headers: { 'Accept': 'application/json' }
-    });
+    const historyRes = await authFetch(`${BASE_URL}/api/account/${accountInternalId}/history/today`);
     
     let pendingData = null;
     try {
       // Also fetch pending if available (not strictly in API doc, but good practice)
-      const pendingRes = await fetch(`${BASE_URL}/api/account/${accountInternalId}/history/pending`, {
-        headers: { 'Accept': 'application/json' }
-      });
+      const pendingRes = await authFetch(`${BASE_URL}/api/account/${accountInternalId}/history/pending`);
       if (pendingRes.status === 200) {
         pendingData = await pendingRes.json();
       }

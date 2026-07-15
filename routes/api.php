@@ -10,6 +10,7 @@ use App\Http\Controllers\API\SuperadminController;
 use App\Http\Controllers\API\TerminalPairingController;
 use App\Http\Controllers\API\BankAccountLockController;
 use App\Http\Controllers\API\LedgerCacheController;
+use App\Http\Controllers\API\BmlOAuthController;
 
 
 /*
@@ -81,6 +82,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/company/credential-sync/{id}/status',          [CredentialSyncController::class, 'status']);
     Route::post('/company/credential-sync/{id}/trigger-import', [CredentialSyncController::class, 'triggerImport']);
     Route::delete('/company/credential-sync/{id}',              [CredentialSyncController::class, 'cancel']);
+
+    // BML OAuth Routes
+    Route::post('/bml/oauth/store', [BmlOAuthController::class, 'store']);
+    Route::get('/bml/oauth/tokens', [BmlOAuthController::class, 'getTokens']);
+    Route::post('/bml/oauth/update', [BmlOAuthController::class, 'updateTokens']);
 });
 
 /*

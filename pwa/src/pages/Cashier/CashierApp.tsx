@@ -296,7 +296,7 @@ function App() {
   const [currentTick, setCurrentTick] = useState(Date.now());
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.13";
+  const LATEST_EXTENSION_VERSION = "1.2.15";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -4094,38 +4094,53 @@ function App() {
 
                         {isExpanded && (
                           <div className="pt-4 border-t border-zinc-800/80 space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                              <div className="input-group">
-                                <label className="input-label text-[10px]">Username</label>
-                                <input
-                                  type="text"
-                                  className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5"
-                                  placeholder="Bank portal username"
-                                  value={tempUsername}
-                                  onChange={e => setTempUsername(e.target.value)}
-                                />
+                            {acc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api' ? (
+                              <div className="grid grid-cols-1 sm:grid-cols-1 gap-3">
+                                <div className="input-group">
+                                  <label className="input-label text-[10px]">Username</label>
+                                  <input
+                                    type="text"
+                                    className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5"
+                                    placeholder="Bank portal username"
+                                    value={tempUsername}
+                                    onChange={e => setTempUsername(e.target.value)}
+                                  />
+                                </div>
                               </div>
-                              <div className="input-group">
-                                <label className="input-label text-[10px]">Password</label>
-                                <input
-                                  type="password"
-                                  className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5"
-                                  placeholder="Bank portal password"
-                                  value={tempPassword}
-                                  onChange={e => setTempPassword(e.target.value)}
-                                />
+                            ) : (
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div className="input-group">
+                                  <label className="input-label text-[10px]">Username</label>
+                                  <input
+                                    type="text"
+                                    className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5"
+                                    placeholder="Bank portal username"
+                                    value={tempUsername}
+                                    onChange={e => setTempUsername(e.target.value)}
+                                  />
+                                </div>
+                                <div className="input-group">
+                                  <label className="input-label text-[10px]">Password</label>
+                                  <input
+                                    type="password"
+                                    className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5"
+                                    placeholder="Bank portal password"
+                                    value={tempPassword}
+                                    onChange={e => setTempPassword(e.target.value)}
+                                  />
+                                </div>
+                                <div className="input-group">
+                                  <label className="input-label text-[10px]">Authenticator Seed (TOTP)</label>
+                                  <input
+                                    type="password"
+                                    className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5 font-mono"
+                                    placeholder="2FA authenticator secret key"
+                                    value={tempTotpSeed}
+                                    onChange={e => setTempTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())}
+                                  />
+                                </div>
                               </div>
-                              <div className="input-group">
-                                <label className="input-label text-[10px]">Authenticator Seed (TOTP)</label>
-                                <input
-                                  type="password"
-                                  className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5 font-mono"
-                                  placeholder="2FA authenticator secret key"
-                                  value={tempTotpSeed}
-                                  onChange={e => setTempTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())}
-                                />
-                              </div>
-                            </div>
+                            )}
                             <div className="flex justify-end gap-2 text-xs">
                               <button
                                 type="button"
@@ -4138,15 +4153,46 @@ function App() {
                                 type="button"
                                 className="btn btn-success py-1.5 px-5 font-bold"
                                 onClick={() => {
-                                  if (!tempUsername.trim() || !tempPassword.trim()) {
-                                    alert("Username and Password are required.");
+                                  const isBmlApi = acc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
+                                  if (!tempUsername.trim() || (!isBmlApi && !tempPassword.trim())) {
+                                    alert(`Username ${!isBmlApi ? 'and Password ' : ''}are required.`);
                                     return;
                                   }
-                                  saveAccountCredentials(acc.id.toString(), tempUsername, tempPassword, tempTotpSeed);
+                                  
+                                  if (isBmlApi) {
+                                    saveAccountCredentials(acc.id.toString(), tempUsername, '', '');
+                                    
+                                    // Send START_BML_AUTH to extension
+                                    if (extensionId && typeof window.chrome?.runtime?.sendMessage === 'function') {
+                                      addLog("> [System] Initiating BML OAuth flow via Viri Bridge...");
+                                      chrome.runtime.sendMessage(extensionId, {
+                                        action: 'START_BML_AUTH',
+                                        payload: {
+                                          terminalId: terminalId,
+                                          bankAccountId: acc.id,
+                                          backendUrl: backendUrl,
+                                          bmlUsername: tempUsername,
+                                          profileType: acc.bml_profile_type || '0',
+                                          sanctumToken: localStorage.getItem('token') || ''
+                                        }
+                                      }, (response: any) => {
+                                        if (response && response.success) {
+                                          addLog("> [System] BML Account linked successfully!");
+                                        } else {
+                                          addLog(`> [System] Failed to link BML account: ${response?.error || 'Unknown error'}`);
+                                        }
+                                      });
+                                    } else {
+                                      alert("Viri Bridge extension is not connected!");
+                                    }
+                                  } else {
+                                    saveAccountCredentials(acc.id.toString(), tempUsername, tempPassword, tempTotpSeed);
+                                  }
+                                  
                                   setExpandedCredsAccountId(null);
                                 }}
                               >
-                                Save Credentials
+                                {acc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api' ? 'Save & Link Account' : 'Save Credentials'}
                               </button>
                             </div>
                           </div>
