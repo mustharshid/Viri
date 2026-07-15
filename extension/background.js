@@ -3041,6 +3041,9 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                     try {
                         const pkce = await generatePKCE();
                         
+                        const cookies = await chrome.cookies.getAll({ domain: "bankofmaldives.com.mv" });
+                        const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+
                         const authUrl = 'https://www.bankofmaldives.com.mv/internetbanking/oauth/authorize?' + new URLSearchParams({
                             redirect_uri: 'https://app.bankofmaldives.com.mv/oauth/mobile-callback',
                             client_id: '98C83590-513F-4716-B02B-EC68B7D9E7E7',
@@ -3054,13 +3057,35 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                             'x-app-version': '2.1.44.348'
                         }).toString();
                         
+                        const ruleId = 9999;
+                        await chrome.declarativeNetRequest.updateSessionRules({
+                            removeRuleIds: [ruleId],
+                            addRules: [{
+                                id: ruleId,
+                                priority: 100,
+                                action: {
+                                    type: "modifyHeaders",
+                                    requestHeaders: [
+                                        { header: "Cookie", operation: "set", value: cookieStr },
+                                        { header: "Origin", operation: "set", value: "https://app.bankofmaldives.com.mv" },
+                                        { header: "Referer", operation: "set", value: "https://app.bankofmaldives.com.mv/" }
+                                    ]
+                                },
+                                condition: {
+                                    urlFilter: "||bankofmaldives.com.mv/internetbanking/oauth/authorize*",
+                                    resourceTypes: ["xmlhttprequest", "other"]
+                                }
+                            }]
+                        });
+                        
                         const authRes = await fetch(authUrl, {
                             redirect: 'manual',
-                            credentials: 'include',
                             headers: {
                                 'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0'
                             }
                         });
+                        
+                        await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [ruleId] });
                         
                         let authCode = null;
                         if (authRes.status === 302 || authRes.status === 301) {

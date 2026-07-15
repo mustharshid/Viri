@@ -12,7 +12,7 @@
         },
         "condition": {
             "urlFilter": "||bankofmaldives.com.mv/internetbanking/api/",
-            "resourceTypes": ["xmlhttprequest"]
+            "resourceTypes": ["xmlhttprequest", "other"]
         }
     },
     {
@@ -27,8 +27,8 @@
             ]
         },
         "condition": {
-            "urlFilter": "||bankofmaldives.com.mv/internetbanking/oauth/token",
-            "resourceTypes": ["xmlhttprequest"]
+            "urlFilter": "||bankofmaldives.com.mv/internetbanking/oauth/*",
+            "resourceTypes": ["xmlhttprequest", "other"]
         }
     }
 ]
