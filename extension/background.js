@@ -45,24 +45,30 @@ async function saveScrap(stepName, content) {
   }
 }
 
-function logHtmlDebug(port, html) {
+function logApiDebug(port, data, tag = 'API') {
   chrome.storage.local.get(['viri_debug_log_mib_html'], (result) => {
     const enabled = result.viri_debug_log_mib_html || debugLogMibHtml;
     if (!enabled) {
-      emitLog(port, `> [MIB] HTML debug logging is disabled. Enable "Debug MIB Profile HTML" in Superadmin Settings to output raw HTML.`);
       return;
     }
     try {
-      const cleanHtml = html.replace(/<img[^>]*>/gi, '');
-      emitLog(port, `> [MIB] DEBUG: profilesHtml clean length: ${cleanHtml.length}`);
-      emitLog(port, `[HTML-DEBUG-START]`);
-      const chunkSize = 1000;
-      for (let i = 0; i < cleanHtml.length; i += chunkSize) {
-        emitLog(port, `[HTML-DEBUG] ${cleanHtml.substring(i, i + chunkSize)}`);
+      let output;
+      if (typeof data === 'object' && data !== null) {
+        // JSON payload — pretty-print it
+        output = JSON.stringify(data, null, 2);
+      } else {
+        // Legacy HTML string (MIB) — clean img tags
+        output = String(data).replace(/<img[^>]*>/gi, '');
       }
-      emitLog(port, `[HTML-DEBUG-END]`);
+      emitLog(port, `> [${tag}] DEBUG: Payload length: ${output.length}`);
+      emitLog(port, `[${tag}-DEBUG-START]`);
+      const chunkSize = 1000;
+      for (let i = 0; i < output.length; i += chunkSize) {
+        emitLog(port, `[${tag}-DEBUG] ${output.substring(i, i + chunkSize)}`);
+      }
+      emitLog(port, `[${tag}-DEBUG-END]`);
     } catch (e) {
-      emitLog(port, `> [MIB] DEBUG: failed to output profiles HTML: ${e.message}`);
+      emitLog(port, `> [${tag}] DEBUG: failed to output payload: ${e.message}`);
     }
   });
 }
@@ -1972,7 +1978,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
 
     const profilesHtml = await profilesRes.text();
     await saveScrap('profiles_page', profilesHtml);
-    logHtmlDebug(port, profilesHtml);
+    logApiDebug(port, profilesHtml, 'MIB');
     try {
       rTag = extractRTag(profilesHtml);
     } catch (e) {
@@ -2648,7 +2654,7 @@ async function runMibMultiProfileFlow(credentials, targetAccount, targetAccountN
 
       const profilesHtml = await profilesRes.text();
       await saveScrap('profiles_page', profilesHtml);
-      logHtmlDebug(port, profilesHtml);
+      logApiDebug(port, profilesHtml, 'MIB');
       try {
         rTag = extractRTag(profilesHtml);
       } catch (e) {
@@ -3340,6 +3346,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     }
     
     const dashboardData = await dashboardRes.json();
+    logApiDebug(port, dashboardData, 'BML-DASHBOARD');
     if (!dashboardData.payload || !dashboardData.payload.dashboard) {
       throw new Error("Invalid dashboard payload from BML API.");
     }
@@ -3369,6 +3376,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     } catch(e) {}
 
     const historyData = await historyRes.json();
+    logApiDebug(port, historyData, 'BML-HISTORY');
     if (!historyData.payload || !historyData.payload.history) {
       throw new Error("Invalid history payload from BML API.");
     }

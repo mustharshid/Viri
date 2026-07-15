@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, KeyRound, Download } from 'lucide-react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, KeyRound, Download, FileText } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import CryptoJS from 'crypto-js';
 
@@ -285,6 +285,14 @@ function App() {
 
   const [visibility, setVisibility] = useState<DocumentVisibilityState>(typeof document !== 'undefined' ? document.visibilityState : 'visible');
   const [newTransactionKeys, setNewTransactionKeys] = useState<Set<string>>(new Set());
+  
+  // Statements State
+  const [stmtAccountId, setStmtAccountId] = useState('');
+  const [stmtFromDate, setStmtFromDate] = useState('');
+  const [stmtToDate, setStmtToDate] = useState('');
+  const [stmtLoading, setStmtLoading] = useState(false);
+  const [stmtTransactions, setStmtTransactions] = useState<any[] | null>(null);
+  const [stmtError, setStmtError] = useState('');
 
   // Derived state for the selected account's recent transactions
   const lastTransactions = selectedAccountId ? (recentTxCache[selectedAccountId]?.transactions || []) : [];
@@ -297,7 +305,7 @@ function App() {
   const [currentTick, setCurrentTick] = useState(Date.now());
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.29";
+  const LATEST_EXTENSION_VERSION = "1.2.30";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -701,7 +709,7 @@ function App() {
     }
   }, [loading]);
 
-  const [activeTab, setActiveTab] = useState<'verify' | 'ledger' | 'reports' | 'checklist' | 'help'>('verify');
+  const [activeTab, setActiveTab] = useState<'verify' | 'ledger' | 'reports' | 'checklist' | 'help' | 'statements'>('verify');
   const [helpSearchQuery, setHelpSearchQuery] = useState('');
   const [bankSearchQuery, setBankSearchQuery] = useState('');
   const verifyAccountRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
@@ -1624,6 +1632,73 @@ function App() {
       setActiveTab('verify');
     }
   }, [permissions, activeTab]);
+
+  const handleGenerateStatement = async (e: any) => {
+    e.preventDefault();
+    if (!stmtAccountId || !stmtFromDate || !stmtToDate) {
+      setStmtError('Please fill all fields');
+      return;
+    }
+    setStmtError('');
+    setStmtLoading(true);
+    setStmtTransactions(null);
+
+    const account = bankAccounts.find(a => a.id.toString() === stmtAccountId);
+    if (!account) {
+      setStmtError('Account not found');
+      setStmtLoading(false);
+      return;
+    }
+    
+    try {
+      // @ts-ignore
+      if (typeof window.chrome === 'undefined' || !window.chrome.runtime || !window.chrome.runtime.connect) {
+        throw new Error('Viri Chrome Extension is not installed or accessible in this context. Statements generation requires the extension to be running on this browser.');
+      }
+      
+      const extId = extensionId || localStorage.getItem('viri_extension_id') || 'hpbbckjchjjkkicjebifimfijijehclh';
+      // @ts-ignore
+      const extPort = chrome.runtime.connect(extId, { name: "viri-statements" });
+      
+      extPort.postMessage({
+        action: 'FETCH_STATEMENT_RANGE',
+        payload: {
+          accountId: account.account_number,
+          fromDate: stmtFromDate,
+          toDate: stmtToDate,
+          bmlProfileType: account.bml_profile_type || '0',
+          hardwareId: hardwareId,
+          backendUrl: backendUrl
+        }
+      });
+      
+      extPort.onMessage.addListener((msg: any) => {
+        if (msg.type === 'statement_success') {
+          setStmtTransactions(msg.transactions || []);
+          setStmtLoading(false);
+          extPort.disconnect();
+        } else if (msg.type === 'statement_error') {
+          setStmtError(msg.error || 'Failed to fetch statement');
+          setStmtLoading(false);
+          extPort.disconnect();
+        }
+      });
+      
+      setTimeout(() => {
+        setStmtLoading(prev => {
+          if (prev) {
+            setStmtError('Request timed out. Please check extension connection.');
+            extPort.disconnect();
+          }
+          return false;
+        });
+      }, 45000);
+      
+    } catch (err: any) {
+      setStmtError(err.message || 'Failed to communicate with extension');
+      setStmtLoading(false);
+    }
+  };
 
   const handlePair = async () => {
     if (!pairingCodeInput || pairingCodeInput.length !== 6) {
@@ -3699,8 +3774,20 @@ function App() {
             <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Reports</span>
           </button>
         )}
-
-
+        {permissions.reports_enabled && (
+          <button
+            onClick={() => { setShowSettings(false); setActiveTab('statements'); }}
+            className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+              } ${activeTab === 'statements' && !showSettings
+                ? 'bg-[var(--color-success)] text-black font-bold'
+                : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
+              }`}
+            title="Statements"
+          >
+            <FileText size={16} className="shrink-0" />
+            <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Statements</span>
+          </button>
+        )}
         <button
           onClick={() => { setShowSettings(false); setActiveTab('help'); }}
           className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
@@ -5758,6 +5845,116 @@ function App() {
                       <p>Select a report from the left to view details.</p>
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* --- TAB: STATEMENTS --- */}
+            {activeTab === 'statements' && (
+              <div className="flex flex-col h-full overflow-hidden animate-fade-in bg-[var(--bg-canvas)]">
+                <div className="p-6 md:p-8 flex-1 overflow-y-auto">
+                  <div className="max-w-5xl mx-auto space-y-6 text-left">
+                    <div className="glass-panel p-8">
+                      <div className="flex items-center gap-3 mb-6">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-900/50 border border-emerald-600/30 flex items-center justify-center">
+                          <FileText size={18} className="text-emerald-400" />
+                        </div>
+                        <div>
+                          <h2 className="text-xl font-bold text-white">Bank Statements</h2>
+                          <p className="text-xs text-zinc-400 mt-0.5">Generate statements from your linked bank accounts using the Viri Chrome Extension.</p>
+                        </div>
+                      </div>
+
+                      <form onSubmit={handleGenerateStatement} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end mb-6">
+                        <div className="input-group">
+                          <label className="input-label">Bank Account</label>
+                          <select 
+                            className="input-field w-full"
+                            value={stmtAccountId}
+                            onChange={(e) => setStmtAccountId(e.target.value)}
+                            required
+                          >
+                            <option value="">Select Account</option>
+                            {bankAccounts.map(a => (
+                              <option key={a.id} value={a.id}>{a.account_name} ({a.account_number})</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="input-group">
+                          <label className="input-label">From Date</label>
+                          <input type="date" className="input-field w-full" value={stmtFromDate} onChange={(e) => setStmtFromDate(e.target.value)} required />
+                        </div>
+                        <div className="input-group">
+                          <label className="input-label">To Date</label>
+                          <input type="date" className="input-field w-full" value={stmtToDate} onChange={(e) => setStmtToDate(e.target.value)} required />
+                        </div>
+                        <div>
+                          <button type="submit" disabled={stmtLoading} className="btn bg-emerald-600 hover:bg-emerald-500 text-white w-full h-[42px] disabled:opacity-50">
+                            {stmtLoading ? <Loader2 size={16} className="animate-spin mx-auto" /> : 'Generate'}
+                          </button>
+                        </div>
+                      </form>
+
+                      {stmtError && (
+                        <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm mb-6">
+                          {stmtError}
+                        </div>
+                      )}
+
+                      {stmtTransactions && (
+                        <div className="mt-8 border border-zinc-800 rounded-xl overflow-hidden bg-black/20">
+                          <div className="flex justify-between items-center p-4 border-b border-zinc-800">
+                            <h3 className="font-semibold text-white">Transactions ({stmtTransactions.length})</h3>
+                            <button 
+                              onClick={() => {
+                                const csv = 'Date,Description,Reference,Amount,Balance\n' + 
+                                  stmtTransactions.map(t => `${t.date},"${t.description}",${t.reference},${t.amount},${t.balance}`).join('\n');
+                                const blob = new Blob([csv], { type: 'text/csv' });
+                                const url = window.URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `statement_${stmtAccountId}_${stmtFromDate}_to_${stmtToDate}.csv`;
+                                a.click();
+                              }}
+                              className="text-xs bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 transition-colors"
+                            >
+                              <Download size={14} /> Download CSV
+                            </button>
+                          </div>
+                          <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+                            <table className="w-full text-left text-sm whitespace-nowrap">
+                              <thead className="bg-zinc-900/50 sticky top-0">
+                                <tr>
+                                  <th className="px-4 py-3 text-zinc-400 font-medium">Date</th>
+                                  <th className="px-4 py-3 text-zinc-400 font-medium">Description</th>
+                                  <th className="px-4 py-3 text-zinc-400 font-medium">Reference</th>
+                                  <th className="px-4 py-3 text-zinc-400 font-medium text-right">Amount</th>
+                                  <th className="px-4 py-3 text-zinc-400 font-medium text-right">Balance</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-zinc-800">
+                                {stmtTransactions.length === 0 ? (
+                                  <tr><td colSpan={5} className="px-4 py-8 text-center text-zinc-500">No transactions found in this date range.</td></tr>
+                                ) : (
+                                  stmtTransactions.map((tx, idx) => (
+                                    <tr key={idx} className="hover:bg-zinc-800/30">
+                                      <td className="px-4 py-3 text-zinc-300">{tx.date}</td>
+                                      <td className="px-4 py-3 text-white max-w-[200px] truncate" title={tx.description}>{tx.description}</td>
+                                      <td className="px-4 py-3 text-zinc-400 text-xs font-mono">{tx.reference}</td>
+                                      <td className={`px-4 py-3 text-right font-medium ${tx.amount < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                                        {tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                      </td>
+                                      <td className="px-4 py-3 text-right text-zinc-300">{tx.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                    </tr>
+                                  ))
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
