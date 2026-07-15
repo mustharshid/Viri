@@ -3404,7 +3404,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     last3Txs = formattedTxs.slice(0, 3);
     emitLog(port, `> [BML-API] Found ${formattedTxs.length} transactions today.`);
 
-    if (mode === 'ledger') {
+    if (mode === 'ledger' || mode === 'history') {
       port.postMessage({
         type: 'success',
         match: null,
@@ -3436,13 +3436,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
       });
     } else {
       emitLog(port, `> [BML-API] No exact match found for amount ${targetAmount}.`);
-      port.postMessage({
-        type: 'not_found',
-        message: 'No matching transaction found',
-        transactions: formattedTxs,
-        balance: accountObj.current_balance,
-        login_success: true
-      });
+      throw new Error(`Verification Failed: No recent credit transaction found for ${targetAmount} MVR.`);
     }
   } catch (error) {
     emitLog(port, `> [BML-API] ERROR: ${error.message}`);

@@ -297,7 +297,7 @@ function App() {
   const [currentTick, setCurrentTick] = useState(Date.now());
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.24";
+  const LATEST_EXTENSION_VERSION = "1.2.25";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
