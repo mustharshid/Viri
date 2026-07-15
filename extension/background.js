@@ -3012,12 +3012,15 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
         const tabUpdateListener = async (tabId, changeInfo, updatedTab) => {
             let isSuccessUrl = false;
             if (updatedTab.url) {
+                if (port) emitLog(port, `> [BML-OAuth-Debug] Tab URL updated to: ${updatedTab.url}`);
                 try {
                     const u = new URL(updatedTab.url);
                     const fullPath = u.pathname + u.search + u.hash;
                     const isLoginFlow = fullPath.includes('/web/login') || fullPath.includes('/web/profile') || fullPath.includes('/web/redirect') || fullPath.includes('/oauth/');
                     
-                    if (!isLoginFlow && (fullPath.includes('/vf/accounts') || fullPath.includes('/dashboard') || fullPath.includes('/home') || fullPath.includes('/overview'))) {
+                    if (port) emitLog(port, `> [BML-OAuth-Debug] fullPath: ${fullPath} | isLoginFlow: ${isLoginFlow}`);
+                    
+                    if (!isLoginFlow && (fullPath.includes('/accounts') || fullPath.includes('/dashboard') || fullPath.includes('/home') || fullPath.includes('/overview') || fullPath.includes('/vf/'))) {
                         isSuccessUrl = true;
                     }
                 } catch(e) {}
