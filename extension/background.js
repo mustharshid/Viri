@@ -3014,7 +3014,10 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
             if (updatedTab.url) {
                 try {
                     const u = new URL(updatedTab.url);
-                    if (u.pathname.endsWith('/vf/accounts/overview')) {
+                    const fullPath = u.pathname + u.search + u.hash;
+                    const isLoginFlow = fullPath.includes('/web/login') || fullPath.includes('/web/profile') || fullPath.includes('/web/redirect') || fullPath.includes('/oauth/');
+                    
+                    if (!isLoginFlow && (fullPath.includes('/vf/accounts') || fullPath.includes('/dashboard') || fullPath.includes('/home') || fullPath.includes('/overview'))) {
                         isSuccessUrl = true;
                     }
                 } catch(e) {}
