@@ -127,6 +127,7 @@ interface BankAccount {
   mib_profile_type?: string;
   bml_profile_type?: string;
   bml_auth_state?: any;
+  has_api_token?: boolean;
   is_default: boolean;
   label?: string;
   currency?: string;
@@ -4045,6 +4046,14 @@ function App() {
                               }`}>
                               {isApiManaged ? 'API Session Managed' : (hasCreds ? 'Credentials Configured' : 'No Credentials')}
                             </span>
+                            {isApiManaged && acc.has_api_token && (
+                              <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider bg-emerald-950 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                </svg>
+                                Token Synced
+                              </span>
+                            )}
                             {!isExpanded && isApiManaged && (
                               <div className="flex items-center gap-2">
                                 <button

@@ -41,6 +41,13 @@ class BankAccount extends Model
         'fetch_started_at'                   => 'datetime',
     ];
 
+    protected $appends = ['has_api_token'];
+
+    public function getHasApiTokenAttribute()
+    {
+        return \App\Models\BmlOAuthToken::where('bank_account_id', $this->id)->exists();
+    }
+
     public function tenant()
     {
         return $this->belongsTo(Tenant::class);
