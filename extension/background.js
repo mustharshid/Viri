@@ -3137,6 +3137,7 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                         resolve(true);
                     } catch (e) {
                         if(port) emitLog(port, '> [BML-OAuth] Error during PKCE exchange: ' + e.message);
+                        setTimeout(() => chrome.tabs.remove(tab.id).catch(() => {}), 1000);
                         reject(e);
                     }
                 }
