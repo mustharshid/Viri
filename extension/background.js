@@ -3201,7 +3201,9 @@ async function getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bml
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
-                    'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0'
+                    'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0',
+                    'Accept': 'application/json',
+                    'X-Device-ID': tokens.device_id
                 },
                 body: tokenBody.toString()
             });
