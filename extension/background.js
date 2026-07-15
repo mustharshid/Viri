@@ -321,6 +321,16 @@ chrome.runtime.onConnectExternal.addListener((port) => {
           port.postMessage({ type: 'error', error: error.message });
         }
       }
+      else if (msg.action === 'FETCH_STATEMENT_RANGE') {
+        const payload = msg.payload;
+        const targetAcc = heldSession ? heldSession.accountId : payload.accountId;
+        try {
+          const bmlProfileType = heldSession ? (heldSession.bmlProfileType || '0') : (payload.bmlProfileType || '0');
+          await fetchBmlStatementRange(payload.credentials, targetAcc, port, payload.fromDate, payload.toDate, bmlProfileType, payload.hardwareId, payload.backendUrl);
+        } catch (error) {
+          port.postMessage({ type: 'statement_error', error: error.message });
+        }
+      }
       else if (msg.action === 'CLAIM_SESSION') {
         heldSession = {
           accountId: msg.payload.accountId,
@@ -3323,7 +3333,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
 
     // --- FETCH DATA ---
     emitLog(port, `> [BML-API] Fetching dashboard data...`);
-    const dashboardRes = await authFetch(`${BASE_URL}/api/dashboard`);
+    const dashboardRes = await authFetch(`${BASE_URL}/api/mobile/dashboard`);
     
     if (dashboardRes.status !== 200) {
       throw new Error(`Dashboard API returned ${dashboardRes.status}. Session might be dropped.`);
@@ -3347,12 +3357,12 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
 
     // Fetch history
     emitLog(port, `> [BML-API] Fetching today's history...`);
-    const historyRes = await authFetch(`${BASE_URL}/api/account/${accountInternalId}/history/today`);
+    const historyRes = await authFetch(`${BASE_URL}/api/mobile/account/${accountInternalId}/history/today`);
     
     let pendingData = null;
     try {
       // Also fetch pending if available (not strictly in API doc, but good practice)
-      const pendingRes = await authFetch(`${BASE_URL}/api/account/${accountInternalId}/history/pending`);
+      const pendingRes = await authFetch(`${BASE_URL}/api/mobile/history/pending/${accountInternalId}`);
       if (pendingRes.status === 200) {
         pendingData = await pendingRes.json();
       }
@@ -3456,5 +3466,87 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
         });
       } catch (e) { }
     }
+  }
+}
+
+async function fetchBmlStatementRange(credentials, bankAccountId, port, fromDate, toDate, profileType, payloadHardwareId, payloadBackendUrl) {
+  emitLog(port, `> [BML-API] Starting statement fetch for ${bankAccountId} from ${fromDate} to ${toDate}...`);
+  const BASE_URL = 'https://www.bankofmaldives.com.mv/internetbanking';
+  try {
+    const backendUrl = heldSession ? heldSession.backendUrl : (payloadBackendUrl || credentials.backendUrl || '');
+    const terminalId = heldSession ? heldSession.hardwareId : (payloadHardwareId || credentials.terminalId || '');
+    const bmlUsername = credentials?.username || '';
+    const sanctumToken = credentials?.token || '';
+
+    const authFetch = async (url, options = {}) => {
+        const token = await getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken);
+        const headers = options.headers || {};
+        headers['Authorization'] = `Bearer ${token}`;
+        headers['Accept'] = 'application/json';
+        headers['User-Agent'] = 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)';
+        headers['x-app-version'] = '2.1.44.348';
+        return await fetch(url, { ...options, headers });
+    };
+
+    const dashboardRes = await authFetch(`${BASE_URL}/api/mobile/dashboard`);
+    if (dashboardRes.status !== 200) throw new Error("Dashboard fetch failed.");
+    const dashboardData = await dashboardRes.json();
+    
+    // Find account by looking for account property ending with the last 4 digits of bankAccountId or matching it
+    const accountObj = dashboardData.payload?.dashboard?.find(a => 
+      a.account === bankAccountId || 
+      a.account.replace(/X/g, '').endsWith(bankAccountId.slice(-4)) || 
+      (a.id === bankAccountId)
+    );
+    if (!accountObj) throw new Error(`Target account ${bankAccountId} not found.`);
+    const accountInternalId = accountObj.id;
+
+    let page = 1;
+    let allTransactions = [];
+    let keepFetching = true;
+    
+    const fromStr = fromDate.replace(/-/g, '');
+    const toStr = toDate.replace(/-/g, '');
+
+    while (keepFetching) {
+      emitLog(port, `> [BML-API] Fetching history page ${page}...`);
+      const pageRes = await authFetch(`${BASE_URL}/api/mobile/account/${accountInternalId}/history/${page}`);
+      if (pageRes.status !== 200) throw new Error(`History page ${page} failed.`);
+      const pageData = await pageRes.json();
+      
+      const txs = pageData.payload?.history;
+      if (!txs || txs.length === 0) {
+        break; 
+      }
+      
+      for (const tx of txs) {
+        if (tx.date < fromStr) {
+          keepFetching = false;
+        } else if (tx.date <= toStr && tx.date >= fromStr) {
+          allTransactions.push(tx);
+        }
+      }
+      
+      if (!keepFetching) break;
+      
+      page++;
+      if (page > 50) {
+        emitLog(port, `> [BML-API] Reached 50 pages limit, stopping fetch.`);
+        break; 
+      }
+    }
+
+    emitLog(port, `> [BML-API] Statement fetch complete. Found ${allTransactions.length} transactions.`);
+    port.postMessage({
+      type: 'statement_success',
+      transactions: allTransactions
+    });
+
+  } catch (error) {
+    emitLog(port, `> [BML-API] Statement ERROR: ${error.message}`);
+    port.postMessage({
+      type: 'statement_error',
+      error: error.message
+    });
   }
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound } from 'lucide-react';
+import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound, FileText } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 
 const Tooltip = ({ text, onClick }: { text: string; onClick?: () => void }) => (
@@ -67,7 +67,7 @@ const DeleteConfirmModal = ({ isOpen, onClose, onConfirm, title, message, itemNa
 };
 
 export default function CompanyDashboard() {
-  const LATEST_EXTENSION_VERSION = "1.2.28";
+  const LATEST_EXTENSION_VERSION = "1.2.29";
   const [theme, toggleTheme] = useTheme();
   const [user, setUser] = useState<any>(null);
   const [terminals, setTerminals] = useState<any[]>([]);
@@ -208,6 +208,14 @@ export default function CompanyDashboard() {
   const [terminalFormName, setTerminalFormName] = useState('');
   const [terminalSettingsPin, setTerminalSettingsPin] = useState('');
   const [terminalLockPin, setTerminalLockPin] = useState('');
+  
+  // Statements State
+  const [stmtAccountId, setStmtAccountId] = useState('');
+  const [stmtFromDate, setStmtFromDate] = useState('');
+  const [stmtToDate, setStmtToDate] = useState('');
+  const [stmtLoading, setStmtLoading] = useState(false);
+  const [stmtTransactions, setStmtTransactions] = useState<any[] | null>(null);
+  const [stmtError, setStmtError] = useState('');
   const [permissionsForm, setPermissionsForm] = useState({
     verification_enabled: true,
     ledger_enabled: false,
@@ -554,6 +562,73 @@ export default function CompanyDashboard() {
     }
   };
 
+  const handleGenerateStatement = async (e: any) => {
+    e.preventDefault();
+    if (!stmtAccountId || !stmtFromDate || !stmtToDate) {
+      setStmtError('Please fill all fields');
+      return;
+    }
+    setStmtError('');
+    setStmtLoading(true);
+    setStmtTransactions(null);
+
+    const account = bankAccounts.find(a => a.id.toString() === stmtAccountId);
+    if (!account) {
+      setStmtError('Account not found');
+      setStmtLoading(false);
+      return;
+    }
+    
+    try {
+      // @ts-ignore
+      if (typeof window.chrome === 'undefined' || !window.chrome.runtime || !window.chrome.runtime.connect) {
+        throw new Error('Viri Chrome Extension is not installed or accessible in this context. Statements generation requires the extension to be running on this browser.');
+      }
+      
+      const extId = localStorage.getItem('viri_extension_id') || 'hpbbckjchjjkkicjebifimfijijehclh';
+      // @ts-ignore
+      const extPort = chrome.runtime.connect(extId, { name: "viri-statements" });
+      
+      extPort.postMessage({
+        action: 'FETCH_STATEMENT_RANGE',
+        payload: {
+          accountId: account.account_number,
+          fromDate: stmtFromDate,
+          toDate: stmtToDate,
+          bmlProfileType: account.bml_profile_type || '0',
+          hardwareId: 'admin-dashboard',
+          backendUrl: window.location.origin
+        }
+      });
+      
+      extPort.onMessage.addListener((msg: any) => {
+        if (msg.type === 'statement_success') {
+          setStmtTransactions(msg.transactions || []);
+          setStmtLoading(false);
+          extPort.disconnect();
+        } else if (msg.type === 'statement_error') {
+          setStmtError(msg.error || 'Failed to fetch statement');
+          setStmtLoading(false);
+          extPort.disconnect();
+        }
+      });
+      
+      setTimeout(() => {
+        setStmtLoading(prev => {
+          if (prev) {
+            setStmtError('Request timed out. Please check extension connection.');
+            extPort.disconnect();
+          }
+          return false;
+        });
+      }, 45000); // 45 second timeout for large statements
+      
+    } catch (err: any) {
+      setStmtError(err.message || 'Failed to communicate with extension');
+      setStmtLoading(false);
+    }
+  };
+
   const deleteTerminal = async (id: number) => {
     const token = localStorage.getItem('viri_token');
     await fetch(`/api/company/terminals/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` }});
@@ -706,6 +781,9 @@ export default function CompanyDashboard() {
             </button>
             <button onClick={() => setActiveTab('activity')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'activity' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
               <Clock size={18} /> Activity Logs
+            </button>
+            <button onClick={() => setActiveTab('statements')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'statements' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
+              <FileText size={18} /> Statements
             </button>
             <button onClick={() => setActiveTab('credential-sync')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'credential-sync' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
               <KeyRound size={18} /> Credential Sync
@@ -1820,6 +1898,111 @@ export default function CompanyDashboard() {
               <a href="tel:7793811" className="text-4xl font-extrabold text-white hover:text-[var(--color-success)] transition-colors">
                 779-3811
               </a>
+            </div>
+          </div>
+        )}
+        {/* --- TAB: STATEMENTS --- */}
+        {activeTab === 'statements' && (
+          <div className="space-y-6 animate-fade-in text-left">
+            <div className="glass-panel p-8">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 rounded-xl bg-emerald-900/50 border border-emerald-600/30 flex items-center justify-center">
+                  <FileText size={18} className="text-emerald-400" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-white">Bank Statements</h2>
+                  <p className="text-xs text-zinc-400 mt-0.5">Generate statements from your linked bank accounts using the Viri Chrome Extension.</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleGenerateStatement} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end mb-6">
+                <div className="input-group">
+                  <label className="input-label">Bank Account</label>
+                  <select 
+                    className="input-field w-full"
+                    value={stmtAccountId}
+                    onChange={(e) => setStmtAccountId(e.target.value)}
+                    required
+                  >
+                    <option value="">Select Account</option>
+                    {bankAccounts.map(a => (
+                      <option key={a.id} value={a.id}>{a.account_name} ({a.account_number})</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label className="input-label">From Date</label>
+                  <input type="date" className="input-field w-full" value={stmtFromDate} onChange={(e) => setStmtFromDate(e.target.value)} required />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">To Date</label>
+                  <input type="date" className="input-field w-full" value={stmtToDate} onChange={(e) => setStmtToDate(e.target.value)} required />
+                </div>
+                <div>
+                  <button type="submit" disabled={stmtLoading} className="btn bg-emerald-600 hover:bg-emerald-500 text-white w-full h-[42px] disabled:opacity-50">
+                    {stmtLoading ? <Loader2 size={16} className="animate-spin mx-auto" /> : 'Generate'}
+                  </button>
+                </div>
+              </form>
+
+              {stmtError && (
+                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm mb-6">
+                  {stmtError}
+                </div>
+              )}
+
+              {stmtTransactions && (
+                <div className="mt-8 border border-zinc-800 rounded-xl overflow-hidden bg-black/20">
+                  <div className="flex justify-between items-center p-4 border-b border-zinc-800">
+                    <h3 className="font-semibold text-white">Transactions ({stmtTransactions.length})</h3>
+                    <button 
+                      onClick={() => {
+                        const csv = 'Date,Description,Reference,Amount,Balance\n' + 
+                          stmtTransactions.map(t => `${t.date},"${t.description}",${t.reference},${t.amount},${t.balance}`).join('\n');
+                        const blob = new Blob([csv], { type: 'text/csv' });
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `statement_${stmtAccountId}_${stmtFromDate}_to_${stmtToDate}.csv`;
+                        a.click();
+                      }}
+                      className="text-xs bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 transition-colors"
+                    >
+                      <Download size={14} /> Download CSV
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+                    <table className="w-full text-left text-sm whitespace-nowrap">
+                      <thead className="bg-zinc-900/50 sticky top-0">
+                        <tr>
+                          <th className="px-4 py-3 text-zinc-400 font-medium">Date</th>
+                          <th className="px-4 py-3 text-zinc-400 font-medium">Description</th>
+                          <th className="px-4 py-3 text-zinc-400 font-medium">Reference</th>
+                          <th className="px-4 py-3 text-zinc-400 font-medium text-right">Amount</th>
+                          <th className="px-4 py-3 text-zinc-400 font-medium text-right">Balance</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-800">
+                        {stmtTransactions.length === 0 ? (
+                          <tr><td colSpan={5} className="px-4 py-8 text-center text-zinc-500">No transactions found in this date range.</td></tr>
+                        ) : (
+                          stmtTransactions.map((tx, idx) => (
+                            <tr key={idx} className="hover:bg-zinc-800/30">
+                              <td className="px-4 py-3 text-zinc-300">{tx.date}</td>
+                              <td className="px-4 py-3 text-white max-w-[200px] truncate" title={tx.description}>{tx.description}</td>
+                              <td className="px-4 py-3 text-zinc-400 text-xs font-mono">{tx.reference}</td>
+                              <td className={`px-4 py-3 text-right font-medium ${tx.amount < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                                {tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              </td>
+                              <td className="px-4 py-3 text-right text-zinc-300">{tx.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
