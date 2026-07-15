@@ -3140,7 +3140,7 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                                 hardware_id: terminalId,
                                 bank_account_id: bankAccountId,
                                 bml_username: bmlUsername,
-                                profile_type: profileType,
+                                profile_type: profileType === '1' ? 'business' : 'personal',
                                 access_token: tokenData.access_token,
                                 refresh_token: tokenData.refresh_token,
                                 device_id: pkce.deviceId,

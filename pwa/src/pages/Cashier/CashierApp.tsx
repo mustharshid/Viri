@@ -297,7 +297,7 @@ function App() {
   const [currentTick, setCurrentTick] = useState(Date.now());
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.27";
+  const LATEST_EXTENSION_VERSION = "1.2.28";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -1097,7 +1097,7 @@ function App() {
 
   const activePortRef = useRef<chrome.runtime.Port | null>(null);
   const [initLoading, setInitLoading] = useState(false);
-  const [operationMode, setOperationMode] = useState<string>('Single Counter');
+  const [operationMode, setOperationMode] = useState<string>('Single Terminal');
   const [activeTerminalsCount, setActiveTerminalsCount] = useState<number>(1);
   const [syncHealthSummary, setSyncHealthSummary] = useState<{
     confidence_score: number;
@@ -2826,7 +2826,7 @@ function App() {
     let claimSuccess = false;
     let strategy = 'CLAIM_AND_LOGIN';
 
-    if (operationMode === 'Single Counter') {
+    if (operationMode === 'Single Counter' || operationMode === 'Single Terminal') {
       addLog("> [Session] Single Terminal Mode - skipping session claim.");
     } else {
       addLog("> [Session] Claiming session on backend...");
@@ -2957,7 +2957,7 @@ function App() {
           }
 
           // Push the newly scraped data to the server cache (ZK compliance: credentials never sent)
-          if (operationMode === 'Single Counter') {
+          if (operationMode === 'Single Counter' || operationMode === 'Single Terminal') {
             addLog("> [System] Single Terminal Mode - skipping shared cache push.");
           } else {
             try {
@@ -3148,7 +3148,7 @@ function App() {
       }
     });
 
-    if (operationMode === 'Single Counter') {
+    if (operationMode === 'Single Counter' || operationMode === 'Single Terminal') {
       addLog("> [System] Checking extension for active session...");
       try {
         port.postMessage({ action: 'CHECK_SESSION' });
@@ -3220,22 +3220,28 @@ function App() {
     syncStartTimeRef.current = sTime;
     isVerifyingRef.current = true;
 
-    setProgress({
-      stage: 'init',
-      text: 'Requesting cached data from server...',
-      percent: 15,
-      isIndeterminate: true
-    });
-
-    addLog("> [Cache] Reading from shared transaction cache...");
+    const isSingleTerminal = operationMode === 'Single Terminal' || operationMode === 'Single Counter';
     let cacheData: any = null;
-    try {
-      const res = await fetch(`${backendUrl}/terminal/ledger-cache/${targetAccountId}?hardware_id=${hardwareId}`);
-      if (res.ok) {
-        cacheData = await res.json();
+
+    if (isSingleTerminal) {
+      addLog("> [System] Single Terminal Mode - skipping shared cache read.");
+    } else {
+      setProgress({
+        stage: 'init',
+        text: 'Requesting cached data from server...',
+        percent: 15,
+        isIndeterminate: true
+      });
+
+      addLog("> [Cache] Reading from shared transaction cache...");
+      try {
+        const res = await fetch(`${backendUrl}/terminal/ledger-cache/${targetAccountId}?hardware_id=${hardwareId}`);
+        if (res.ok) {
+          cacheData = await res.json();
+        }
+      } catch (e: any) {
+        addLog(`> [Cache] Read failed: ${e.message}`);
       }
-    } catch (e: any) {
-      addLog(`> [Cache] Read failed: ${e.message}`);
     }
 
     const accLabel = `${selectedAccount.bank_name} ${selectedAccount.account_number}`;
