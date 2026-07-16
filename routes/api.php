@@ -111,6 +111,10 @@ Route::post('/bml/oauth/store', [BmlOAuthController::class, 'store']);
 Route::get('/bml/oauth/tokens', [BmlOAuthController::class, 'getTokens']);
 Route::post('/bml/oauth/update', [BmlOAuthController::class, 'updateTokens']);
 
+// MIB Device Credentials (Keys) Endpoints
+Route::post('/mib/keys/store', [\App\Http\Controllers\API\MibKeysController::class, 'store']);
+Route::get('/mib/keys', [\App\Http\Controllers\API\MibKeysController::class, 'getKeys']);
+
 
 Route::post('/verify-terminal', function (Request $request) {
     $request->validate([

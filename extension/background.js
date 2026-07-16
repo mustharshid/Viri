@@ -1,3 +1,9 @@
+import { 
+  generateNonce, blowfishEncrypt, blowfishDecrypt, computePgf03, 
+  deriveSessionKey, generateSodium, generateXxid, generateAppId,
+  generateClientSalt, DEFAULT_KEY, computeCmod
+} from './utils/mib-crypto.js';
+
 const BASE_URL = "https://www.bankofmaldives.com.mv/internetbanking";
 const MIB_BASE_URL = "https://faisanet.mib.com.mv";
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
@@ -220,6 +226,20 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === 'START_MIB_AUTH') {
+    startMibAuthFlow(msg.payload.terminalId, msg.payload.bankAccountId, msg.payload.backendUrl, msg.payload.mibUsername, msg.payload.sanctumToken, msg.payload.password, msg.payload.hardwareId)
+      .then(res => sendResponse(res))
+      .catch(e => sendResponse({ success: false, error: e.message }));
+    return true;
+  }
+
+  if (msg.action === 'SUBMIT_MIB_OTP') {
+    submitMibOtp(msg.payload.otp, msg.payload.terminalId, msg.payload.bankAccountId, msg.payload.backendUrl, msg.payload.mibUsername, msg.payload.sanctumToken)
+      .then(res => sendResponse(res))
+      .catch(e => sendResponse({ success: false, error: e.message }));
+    return true;
+  }
+
   if (msg.action === 'CHECK_BML_TOKENS') {
     getValidBmlAccessToken(msg.payload.terminalId, msg.payload.bankAccountId, msg.payload.backendUrl, msg.payload.bmlUsername, msg.payload.profileType, msg.payload.sanctumToken)
       .then(token => sendResponse({ hasTokens: !!token }))
@@ -286,7 +306,9 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         const sessionMode = payload.sessionMode || 'fresh_login';
         try {
           if (payload.bank === 'MIB') {
-            if (payload.mibProfileType === '1') {
+            if (payload.mibLoginProcedure === 'api') {
+              await runMibApiFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode, sessionMode, payload.hardwareId, payload.backendUrl);
+            } else if (payload.mibProfileType === '1') {
               await runMibMultiProfileFlow(payload.credentials, targetAcc, payload.accountName, port, payload.amount, mode, sessionMode);
             } else {
               await runMibFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode, sessionMode);
@@ -3568,3 +3590,393 @@ async function fetchBmlStatementRange(credentials, bankAccountId, port, fromDate
     });
   }
 }
+
+// -------------------------------------------------------------
+// MIB API Integration Implementation
+// -------------------------------------------------------------
+
+async function executeMibSfunc(sfunc, dataPayload, key1, key2) {
+  const encrypted = blowfishEncrypt(JSON.stringify(dataPayload), key1);
+  const formBody = `key2=${encodeURIComponent(key2)}&sfunc=${sfunc}&data=${encodeURIComponent(encrypted)}`;
+
+  const resp = await fetch('https://faisanet.mib.com.mv/faisamobilex_smvc/', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
+      'User-Agent': 'android/1.0',
+    },
+    body: formBody,
+  });
+
+  const cipherBody = await resp.text();
+  if (!cipherBody) throw new Error("Empty response from MIB API");
+  
+  try {
+    return JSON.parse(blowfishDecrypt(cipherBody, key1));
+  } catch (e) {
+    throw new Error("Failed to decrypt MIB response. Possible stale keys.");
+  }
+}
+
+async function fetchMibUserSalt(sessionState, username) {
+  const sodium = generateSodium();
+  const payload = {
+    sodium: sodium,
+    routePath: 'A44',
+    xxid: sessionState.xxid,
+    p_lg_uid: username,
+    p_dev_typ: 'A',
+    p_dev_tok: 'test',
+    p_dev_uid: sessionState.appId,
+  };
+  const resp = await executeMibSfunc('n', payload, sessionState.key1, sessionState.key2);
+  if (resp.payload && resp.payload.login) {
+    return resp.payload.login.usrsalt;
+  }
+  throw new Error("Failed to fetch userSalt");
+}
+
+async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUsername, sanctumToken, password, hardwareId) {
+  const port = activePort;
+  if(port) emitLog(port, '> [MIB-API] Starting MIB API auth flow...');
+  
+  // 1. Get or Generate AppId
+  let storedAppId = null;
+  let storedKey1 = null;
+  let storedKey2 = null;
+
+  const localRes = await chrome.storage.local.get(['mib_appId', 'mib_key1', 'mib_key2']);
+  if (localRes.mib_appId) {
+    storedAppId = localRes.mib_appId;
+    storedKey1 = localRes.mib_key1;
+    storedKey2 = localRes.mib_key2;
+  } else {
+    storedAppId = generateAppId();
+    await chrome.storage.local.set({ mib_appId: storedAppId });
+  }
+
+  let sessionState = { appId: storedAppId, key1: DEFAULT_KEY, key2: DEFAULT_KEY, xxid: '', nonceGenerator: '', sessionKey: '' };
+
+  const doRegistrationFlow = async () => {
+    if(port) emitLog(port, '> [MIB-API] Executing first-time device registration (C41)...');
+    sessionState.key1 = DEFAULT_KEY;
+    sessionState.key2 = DEFAULT_KEY;
+
+    // sfunc=r
+    const rPayload = { cmod: computeCmod().toString(), appId: storedAppId, routePath: 'S40' };
+    const rResp = await executeMibSfunc('r', rPayload, sessionState.key1, sessionState.key2);
+    sessionState.xxid = String(rResp.xxid);
+    sessionState.nonceGenerator = rResp.nonceGenerator;
+    sessionState.sessionKey = await deriveSessionKey(rResp.smod);
+
+    // If sfunc=r directly returns keys (fast-path optimization for recognized appId)
+    if (rResp.key1 && rResp.key2) {
+      if(port) emitLog(port, '> [MIB-API] Found existing keys via sfunc=r. Checking if valid...');
+      await chrome.storage.local.set({ mib_key1: rResp.key1, mib_key2: rResp.key2 });
+      sessionState.key1 = rResp.key1;
+      sessionState.key2 = rResp.key2;
+      
+      try {
+        const iPayload = { cmod: computeCmod().toString(), appId: storedAppId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
+        const iResp = await executeMibSfunc('i', iPayload, sessionState.key1, sessionState.key2);
+        
+        // Save new session data
+        sessionState.sessionKey = await deriveSessionKey(iResp.smod);
+        sessionState.xxid = String(iResp.xxid);
+        sessionState.nonceGenerator = iResp.nonceGenerator;
+        
+        await chrome.storage.session.set({ mibSession: sessionState });
+        if(port) emitLog(port, '> [MIB-API] Fast-path successful. Keys were valid.');
+        return { success: true, skipOtp: true };
+      } catch (e) {
+        if(port) emitLog(port, '> [MIB-API] Fast-path keys were stale. Falling back to C41...');
+        sessionState.key1 = DEFAULT_KEY;
+        sessionState.key2 = DEFAULT_KEY;
+      }
+    }
+
+    const userSalt = await fetchMibUserSalt(sessionState, mibUsername);
+    const clientSalt = generateClientSalt();
+    const pgf03 = await computePgf03(password, userSalt, clientSalt);
+
+    const sodium = generateSodium();
+    const nonce = generateNonce(sessionState.nonceGenerator);
+    const c41Payload = {
+      sodium: sodium,
+      routePath: 'C41',
+      xxid: sessionState.xxid,
+      pgf01: mibUsername,
+      pgf02: clientSalt,
+      pgf03: pgf03,
+      nonce: nonce,
+      p_dev_typ: 'A',
+      p_dev_tok: 'test',
+      p_dev_uid: sessionState.appId,
+    };
+    
+    const c41Resp = await executeMibSfunc('n', c41Payload, sessionState.key1, sessionState.key2);
+    if (c41Resp.code === 0) {
+      if(port) emitLog(port, '> [MIB-API] C41 successful. OTP required.');
+      await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'C42' } });
+      return { success: true, requiresOtp: true };
+    } else {
+      throw new Error(`C41 failed: ${c41Resp.message}`);
+    }
+  };
+
+  if (storedKey1 && storedKey2) {
+    if(port) emitLog(port, '> [MIB-API] Found stored keys. Attempting returning device login (A41)...');
+    sessionState.key1 = storedKey1;
+    sessionState.key2 = storedKey2;
+
+    try {
+      const iPayload = { cmod: computeCmod().toString(), appId: storedAppId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
+      const iResp = await executeMibSfunc('i', iPayload, sessionState.key1, sessionState.key2);
+      sessionState.sessionKey = await deriveSessionKey(iResp.smod);
+      sessionState.xxid = String(iResp.xxid);
+      sessionState.nonceGenerator = iResp.nonceGenerator;
+
+      const userSalt = await fetchMibUserSalt(sessionState, mibUsername);
+      const clientSalt = generateClientSalt();
+      const pgf03 = await computePgf03(password, userSalt, clientSalt);
+
+      const sodium = generateSodium();
+      const nonce = generateNonce(sessionState.nonceGenerator);
+      const a41Payload = {
+        sodium: sodium,
+        routePath: 'A41',
+        xxid: sessionState.xxid,
+        pgf01: mibUsername,
+        pgf02: clientSalt,
+        pgf03: pgf03,
+        nonce: nonce,
+        p_dev_typ: 'A',
+        p_dev_tok: 'test',
+        p_dev_uid: sessionState.appId,
+      };
+
+      const a41Resp = await executeMibSfunc('n', a41Payload, sessionState.key1, sessionState.key2);
+      if (a41Resp.code === 0) {
+        if (a41Resp.payload && a41Resp.payload.login && a41Resp.payload.login.otpRequired) {
+          if(port) emitLog(port, '> [MIB-API] A41 successful. OTP required.');
+          await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'A42' } });
+          return { success: true, requiresOtp: true };
+        } else {
+          // Fast path, no OTP needed. Store session.
+          await chrome.storage.session.set({ mibSession: sessionState });
+          if(port) emitLog(port, '> [MIB-API] A41 successful. No OTP required.');
+          return { success: true, skipOtp: true };
+        }
+      } else {
+         if(port) emitLog(port, `> [MIB-API] A41 failed: ${a41Resp.message}. Falling back to Registration...`);
+         return await doRegistrationFlow();
+      }
+    } catch (e) {
+      if(port) emitLog(port, `> [MIB-API] Returning device flow failed (${e.message}). Falling back to Registration...`);
+      return await doRegistrationFlow();
+    }
+  } else {
+    return await doRegistrationFlow();
+  }
+}
+
+async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsername, sanctumToken) {
+  const port = activePort;
+  const { mibAuthTemp } = await chrome.storage.session.get('mibAuthTemp');
+  if (!mibAuthTemp) throw new Error("No MIB auth session found in storage.");
+  
+  const { sessionState, flow } = mibAuthTemp;
+  const sodium = generateSodium();
+  const nonce = generateNonce(sessionState.nonceGenerator);
+  
+  if(port) emitLog(port, `> [MIB-API] Submitting OTP via ${flow}...`);
+  
+  const payload = {
+    sodium: sodium,
+    routePath: flow,
+    xxid: sessionState.xxid,
+    otp: otp,
+    nonce: nonce,
+    p_dev_typ: 'A',
+    p_dev_tok: 'test',
+    p_dev_uid: sessionState.appId,
+  };
+  
+  const resp = await executeMibSfunc('n', payload, sessionState.key1, sessionState.key2);
+  
+  if (resp.code === 0) {
+    if(port) emitLog(port, '> [MIB-API] OTP Verified successfully.');
+    
+    // C42 returns key1/key2. We save them.
+    if (flow === 'C42' && resp.key1 && resp.key2) {
+      sessionState.key1 = resp.key1;
+      sessionState.key2 = resp.key2;
+      await chrome.storage.local.set({ mib_key1: resp.key1, mib_key2: resp.key2 });
+      
+      // Store in backend
+      if(port) emitLog(port, '> [MIB-API] Storing device keys in backend...');
+      await fetch(`${backendUrl}/api/mib/keys/store`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sanctumToken}`
+        },
+        body: JSON.stringify({
+          hardware_id: terminalId, // wait, hardwareId is terminalId in payload? We'll check args
+          bank_account_id: bankAccountId,
+          mib_username: mibUsername,
+          key1: resp.key1,
+          key2: resp.key2,
+          app_id: sessionState.appId
+        })
+      });
+    }
+
+    await chrome.storage.session.set({ mibSession: sessionState });
+    await chrome.storage.session.remove('mibAuthTemp');
+    return { success: true };
+  } else {
+    throw new Error(`OTP Verification failed: ${resp.message}`);
+  }
+}
+
+async function ensureMibSession(port, terminalId, backendUrl) {
+  let { mibSession } = await chrome.storage.session.get('mibSession');
+  if (mibSession && mibSession.sessionKey) {
+    return mibSession; // assume valid for now; if api fails we should catch and retry
+  }
+
+  // Need to resume via sfunc=i
+  if(port) emitLog(port, '> [MIB-API] No active session in memory. Attempting sfunc=i resume...');
+  const localRes = await chrome.storage.local.get(['mib_appId', 'mib_key1', 'mib_key2']);
+  if (!localRes.mib_appId || !localRes.mib_key1 || !localRes.mib_key2) {
+    throw new Error("Missing MIB device credentials. Please link account again.");
+  }
+
+  const iPayload = { cmod: computeCmod().toString(), appId: localRes.mib_appId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
+  try {
+    const iResp = await executeMibSfunc('i', iPayload, localRes.mib_key1, localRes.mib_key2);
+    mibSession = {
+      appId: localRes.mib_appId,
+      key1: localRes.mib_key1,
+      key2: localRes.mib_key2,
+      sessionKey: await deriveSessionKey(iResp.smod),
+      xxid: String(iResp.xxid),
+      nonceGenerator: iResp.nonceGenerator
+    };
+    await chrome.storage.session.set({ mibSession });
+    if(port) emitLog(port, '> [MIB-API] Session resumed successfully.');
+    return mibSession;
+  } catch(e) {
+    throw new Error("Failed to resume MIB session. Keys may be stale.");
+  }
+}
+
+async function runMibApiFlow(credentials, targetAccount, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', hardwareId = '', backendUrl = '') {
+  emitLog(port, `> [MIB-API] Starting API ledger flow (mode: ${mode})...`);
+  let last3Txs = [];
+  
+  try {
+    const mibSession = await ensureMibSession(port, hardwareId, backendUrl);
+
+    if (sessionMode === 'claim_and_login') {
+      emitLog(port, `> [MIB-API] Session claimed. Auth sequence complete.`);
+      port.postMessage({ type: 'success', match: null, login_success: true, transactions: [] });
+      return;
+    }
+
+    emitLog(port, `> [MIB-API] Fetching transactions from WebView API...`);
+    // WebView fetch
+    const trxRes = await fetch('https://faisamobilex-wv.mib.com.mv/ajaxAccounts/trxHistory', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Cookie': `mbmodel=IOS-1.0; xxid=${mibSession.xxid}; IBSID=${mibSession.xxid}; mbnonce=${mibSession.nonceGenerator}; time-tracker=597`
+      },
+      body: `acc=${targetAccount}`
+    });
+
+    if (trxRes.status !== 200) {
+      throw new Error(`WebView API returned HTTP ${trxRes.status}`);
+    }
+
+    const data = await trxRes.json();
+    logApiDebug(port, data, 'MIB-HISTORY');
+
+    if (!data.status) {
+      throw new Error("WebView API response indicated failure.");
+    }
+
+    const allTxs = data.history || [];
+    emitLog(port, `> [MIB-API] Found ${allTxs.length} transactions.`);
+
+    // Normalize MIB WebView transactions
+    // They look like: { trxDate: "29 Aug 2024", trxDesc: "Transfer  | ...", trxRef: "...", trxAmount: "123.00", crdr: "CR" }
+    const formattedTxs = allTxs.map(t => {
+      let isCredit = (t.crdr === 'CR');
+      let dt = t.trxDate; // e.g. "29 Aug 2024"
+      let amtStr = (t.trxAmount || "").toString().replace(/,/g, '');
+      let amt = parseFloat(amtStr);
+      let descRaw = t.trxDesc || "";
+      
+      let narr2 = "", narr3 = "";
+      if (descRaw.includes('|')) {
+        let parts = descRaw.split('|');
+        narr2 = parts[0].trim();
+        narr3 = parts.slice(1).join('|').trim();
+      } else {
+        narr2 = descRaw;
+      }
+
+      return {
+        id: String(t.trxRef || Math.random()),
+        date: dt,
+        description: narr2,
+        reference: t.trxRef || "",
+        amount: amt,
+        balance: 0,
+        minus: !isCredit,
+        narrative1: narr3,
+        narrative2: narr2,
+        narrative3: narr3,
+        is_pending: false,
+        raw: t
+      };
+    });
+
+    if (mode === 'fetch_only') {
+      port.postMessage({ type: 'statement_success', transactions: formattedTxs });
+      return;
+    }
+
+    // Match logic for 'search' mode
+    const searchAmt = parseFloat(targetAmount);
+    let matchedTx = null;
+
+    for (const tx of formattedTxs) {
+      if (!tx.minus && tx.amount === searchAmt) {
+        matchedTx = tx;
+        break;
+      }
+    }
+
+    if (matchedTx) {
+      emitLog(port, `> [MIB-API] Match FOUND for ${targetAmount}.`);
+      port.postMessage({ type: 'success', match: matchedTx, login_success: true, transactions: formattedTxs.slice(0, 3) });
+    } else {
+      emitLog(port, `> [MIB-API] No match found for ${targetAmount}.`);
+      port.postMessage({ type: 'not_found', transactions: formattedTxs.slice(0, 3), login_success: true });
+    }
+
+  } catch (error) {
+    emitLog(port, `> [MIB-API] ERROR: ${error.message}`);
+    if (mode === 'fetch_only') {
+      port.postMessage({ type: 'statement_error', error: error.message });
+    } else {
+      port.postMessage({ type: 'error', error: error.message });
+    }
+  }
+}
+
+

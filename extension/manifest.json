@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Viri Bridge",
-  "version": "1.2.42",
+  "version": "1.2.43",
   "description": "Viri Decentralized Live Bank Transfer Verification Bridge.",
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "options_ui": {
     "page": "options.html",

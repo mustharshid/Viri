@@ -354,7 +354,8 @@ function App() {
     realtime_event_poll_interval: 3,
     poll_interval_holder: 1,
     debug_log_mib_html: false,
-    bml_login_procedure: 'legacy'
+    bml_login_procedure: 'legacy',
+    mib_login_procedure: 'legacy'
   });
   const [settingsPin, setSettingsPin] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<any>({
@@ -490,7 +491,7 @@ function App() {
   // Removed currentTick state for performance
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.42";
+  const LATEST_EXTENSION_VERSION = "1.2.43";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -542,6 +543,12 @@ function App() {
       : `${window.location.origin}/api`;  // production: viri.thinksafe.mv/api
     return localStorage.getItem('viri_backend_url') || defaultUrl;
   });
+
+  // MIB API Auth States
+  const [showMibOtpModal, setShowMibOtpModal] = useState(false);
+  const [mibOtp, setMibOtp] = useState('');
+  const [mibOtpLoading, setMibOtpLoading] = useState(false);
+  const [mibAuthData, setMibAuthData] = useState<{accountId: string, username: string} | null>(null);
 
   useEffect(() => {
     if (!extensionId || typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
@@ -3088,6 +3095,7 @@ function App() {
           credentials: activeCreds,
           debugLogMibHtml: appConfig.debug_log_mib_html,
           bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
+          mibLoginProcedure: appConfig.mib_login_procedure || 'legacy',
           backendUrl: backendUrl,
           hardwareId: hardwareId
         }
@@ -3465,7 +3473,8 @@ function App() {
               bmlInternalId: selectedAccount ? selectedAccount.bml_internal_id : null,
               credentials: activeCreds,
               debugLogMibHtml: appConfig.debug_log_mib_html,
-              bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy'
+              bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
+              mibLoginProcedure: appConfig.mib_login_procedure || 'legacy'
             }
           });
         } catch (msgErr: any) {
@@ -3511,7 +3520,8 @@ function App() {
             bmlInternalId: selectedAccount ? selectedAccount.bml_internal_id : null,
             credentials: activeCreds,
             debugLogMibHtml: appConfig.debug_log_mib_html,
-            bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy'
+            bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
+            mibLoginProcedure: appConfig.mib_login_procedure || 'legacy'
           }
         });
       } catch (msgErr: any) {
@@ -4534,6 +4544,8 @@ function App() {
                                 className="btn btn-success py-1.5 px-5 font-bold"
                                 onClick={() => {
                                   const isBmlApi = acc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
+                                  const isMibApi = acc.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api';
+
                                   if (!tempUsername.trim() || (!isBmlApi && !tempPassword.trim())) {
                                     alert(`Username ${!isBmlApi ? 'and Password ' : ''}are required.`);
                                     return;
@@ -4565,6 +4577,42 @@ function App() {
                                     } else {
                                       alert("Viri Bridge extension is not connected!");
                                     }
+                                  } else if (isMibApi) {
+                                    saveAccountCredentials(acc.id.toString(), tempUsername, '', '');
+                                    
+                                    if (extensionId && typeof window.chrome?.runtime?.sendMessage === 'function') {
+                                      addLog("> [System] Initiating MIB Device Auth flow via Viri Bridge...");
+                                      chrome.runtime.sendMessage(extensionId, {
+                                        action: 'START_MIB_AUTH',
+                                        payload: {
+                                          terminalId: terminalId,
+                                          bankAccountId: acc.id,
+                                          backendUrl: backendUrl,
+                                          mibUsername: tempUsername,
+                                          password: tempPassword,
+                                          hardwareId: terminalId, // Same as terminalId for MIB
+                                          sanctumToken: localStorage.getItem('token') || ''
+                                        }
+                                      }, (response: any) => {
+                                        if (response && response.success) {
+                                          if (response.requiresOtp) {
+                                            // Trigger OTP modal in PWA
+                                            setMibAuthData({
+                                              accountId: acc.id.toString(),
+                                              username: tempUsername
+                                            });
+                                            setShowMibOtpModal(true);
+                                            addLog("> [System] MIB OTP required. Please check your SMS/Authenticator.");
+                                          } else if (response.skipOtp) {
+                                            addLog("> [System] MIB Account linked successfully! (Fast-path, no OTP needed)");
+                                          }
+                                        } else {
+                                          addLog(`> [System] Failed to link MIB account: ${response?.error || 'Unknown error'}`);
+                                        }
+                                      });
+                                    } else {
+                                      alert("Viri Bridge extension is not connected!");
+                                    }
                                   } else {
                                     saveAccountCredentials(acc.id.toString(), tempUsername, tempPassword, tempTotpSeed);
                                   }
@@ -4572,7 +4620,7 @@ function App() {
                                   setExpandedCredsAccountId(null);
                                 }}
                               >
-                                {acc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api' ? 'Save & Link Account' : 'Save Credentials'}
+                                {((acc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api') || (acc.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api')) ? 'Save & Link Account' : 'Save Credentials'}
                               </button>
                             </div>
                           </div>
@@ -6565,6 +6613,69 @@ function App() {
               </div>
             )}
           </>
+        )}
+
+        {showMibOtpModal && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-sm p-6 shadow-2xl animate-scale-in">
+              <h3 className="text-xl font-bold text-white mb-2">MIB Device Registration</h3>
+              <p className="text-sm text-zinc-400 mb-6">Enter the OTP sent to your registered phone number or authenticator app.</p>
+              
+              <div className="mb-4">
+                <input
+                  type="text"
+                  className="input-field w-full text-center tracking-[0.5em] font-mono text-xl py-3"
+                  placeholder="000000"
+                  value={mibOtp}
+                  onChange={(e) => setMibOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  maxLength={6}
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  className="btn bg-zinc-800 hover:bg-zinc-700 text-white flex-1"
+                  onClick={() => setShowMibOtpModal(false)}
+                  disabled={mibOtpLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-success flex-1"
+                  disabled={mibOtp.length < 5 || mibOtpLoading}
+                  onClick={() => {
+                    if (!mibOtp || !mibAuthData) return;
+                    setMibOtpLoading(true);
+                    addLog(`> [System] Submitting OTP for ${mibAuthData.username}...`);
+                    
+                    chrome.runtime.sendMessage(extensionId, {
+                      action: 'SUBMIT_MIB_OTP',
+                      payload: {
+                        otp: mibOtp,
+                        terminalId: terminalId,
+                        bankAccountId: mibAuthData.accountId,
+                        backendUrl: backendUrl,
+                        mibUsername: mibAuthData.username,
+                        sanctumToken: localStorage.getItem('token') || ''
+                      }
+                    }, (response: any) => {
+                      setMibOtpLoading(false);
+                      if (response && response.success) {
+                        addLog("> [System] MIB Account linked successfully!");
+                        setShowMibOtpModal(false);
+                        setMibOtp('');
+                      } else {
+                        addLog(`> [System] Failed to verify OTP: ${response?.error || 'Unknown error'}`);
+                        alert(`OTP Verification Failed: ${response?.error || 'Unknown error'}`);
+                      }
+                    });
+                  }}
+                >
+                  {mibOtpLoading ? 'Verifying...' : 'Verify OTP'}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
       </main>
