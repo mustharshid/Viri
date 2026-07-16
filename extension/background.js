@@ -472,18 +472,21 @@ async function generateTOTP(secret, clockOffset = 0) {
 }
 
 function parseBmlNarrativeDate(tx) {
-  if (tx && tx.narrative1 && /^\d{2}-\d{2}-\d{4} \d{2}-\d{2}-\d{2}$/.test(tx.narrative1.trim())) {
-    const parts = tx.narrative1.trim().split(/[ -]/);
-    if (parts.length === 6) {
-      const day = parseInt(parts[0], 10);
-      const month = parseInt(parts[1], 10);
-      const year = parseInt(parts[2], 10);
-      const hour = parseInt(parts[3], 10);
-      const minute = parseInt(parts[4], 10);
-      const second = parseInt(parts[5], 10);
-      const parsedDate = new Date(year, month - 1, day, hour, minute, second);
-      if (!isNaN(parsedDate.getTime())) {
-        return parsedDate;
+  if (tx && tx.narrative1) {
+    const match = tx.narrative1.match(/(\d{2}-\d{2}-\d{4} \d{2}-\d{2}-\d{2})/);
+    if (match) {
+      const parts = match[1].split(/[ -]/);
+      if (parts.length === 6) {
+        const day = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10);
+        const year = parseInt(parts[2], 10);
+        const hour = parseInt(parts[3], 10);
+        const minute = parseInt(parts[4], 10);
+        const second = parseInt(parts[5], 10);
+        const parsedDate = new Date(year, month - 1, day, hour, minute, second);
+        if (!isNaN(parsedDate.getTime())) {
+          return parsedDate;
+        }
       }
     }
   }
@@ -3399,84 +3402,8 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
       allTxs = allTxs.concat(historyData.payload.history);
     }
 
-    // Format txs exactly like runBmlFlow format
-    const formattedTxs = allTxs.map(tx => {
-      let date = (tx.bookingDate || tx.date || '').replace(/\s+/g, ' ').trim();
-      
-      const parsedDate = parseBmlNarrativeDate(tx);
-      if (parsedDate) {
-        date = parsedDate;
-      }
-      
-      if (date) {
-        try {
-          const d = new Date(date);
-          if (!isNaN(d.getTime())) {
-            date = d.toLocaleString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: false
-            });
-          }
-        } catch (e) {}
-      }
-
-      let details = (tx.narrative || tx.description || 'Transaction').replace(/\s+/g, ' ').trim();
-      
-      const detailFields = [
-        tx.customerReference,
-        tx.userReference,
-        tx.senderName,
-        tx.receiverName,
-        tx.beneficiaryName,
-        tx.additionalInfo,
-        tx.memo,
-        tx.narrative1,
-        tx.narrative2,
-        tx.narrative3,
-        tx.narrative4,
-        tx.id,
-        tx.reference
-      ];
-      for (const field of detailFields) {
-        if (field && typeof field === 'string') {
-          const val = field.trim().replace(/[ \t]+/g, ' ');
-          if (val && val !== (tx.description || '').trim() && !details.includes(val)) {
-            details += `\n${val}`;
-          }
-        }
-      }
-
-      let refFallback = tx.narrative2 || tx.id || tx.reference || tx.trxNumber2 || tx.refNo || tx.ref;
-      let refMatch = details.match(/(?:REF|RRN|FT|TR|BLZ|BLAZ)\s*[:#\-]?\s*([A-Za-z0-9\\]+)/i);
-      let refTrimmed = refMatch ? refMatch[1] : (refFallback ? String(refFallback).trim() : '');
-
-      let formattedAmount = '';
-      if (tx.amount) {
-        const amtNum = parseFloat(tx.amount);
-        if (!isNaN(amtNum)) {
-          formattedAmount = amtNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-          if (tx.drCr === 'DR' || amtNum < 0) {
-            formattedAmount = '-' + formattedAmount.replace('-', '');
-          } else {
-            formattedAmount = '+' + formattedAmount;
-          }
-        }
-      }
-
-      const runningBal = tx.runningBalance || tx.balance;
-      let formattedRunningBal = '';
-      if (runningBal !== undefined && runningBal !== null) {
-        const balNum = parseFloat(runningBal);
-        if (!isNaN(balNum)) {
-          formattedRunningBal = balNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        }
-      }
-      
-      return { date, details, amount: formattedAmount, runningBalance: formattedRunningBal, reference: refTrimmed };
-    });
+    // Format txs using the robust legacy normalizer
+    const formattedTxs = normalizeTransactions(allTxs, 'BML', null);
 
     last3Txs = formattedTxs.slice(0, 3);
     emitLog(port, `> [BML-API] Found ${formattedTxs.length} transactions today.`);
@@ -3577,6 +3504,23 @@ async function fetchBmlStatementRange(credentials, bankAccountId, port, fromDate
     const fromStr = fromDate.replace(/-/g, '');
     const toStr = toDate.replace(/-/g, '');
 
+    let pendingData = null;
+    try {
+      emitLog(port, `> [BML-API] Fetching pending history for statement...`);
+      const pendingRes = await authFetch(`${BASE_URL}/api/mobile/history/pending/${accountInternalId}`);
+      if (pendingRes.status === 200) {
+        pendingData = await pendingRes.json();
+      }
+    } catch(e) {}
+
+    if (pendingData && pendingData.payload && Array.isArray(pendingData.payload.history)) {
+      for (const tx of pendingData.payload.history) {
+        if (!tx.date || tx.date <= toStr && tx.date >= fromStr) {
+          allTransactions.push(tx);
+        }
+      }
+    }
+
     while (keepFetching) {
       emitLog(port, `> [BML-API] Fetching history page ${page}...`);
       const pageRes = await authFetch(`${BASE_URL}/api/mobile/account/${accountInternalId}/history/${page}`);
@@ -3605,10 +3549,14 @@ async function fetchBmlStatementRange(credentials, bankAccountId, port, fromDate
       }
     }
 
-    emitLog(port, `> [BML-API] Statement fetch complete. Found ${allTransactions.length} transactions.`);
+    emitLog(port, `> [BML-API] Statement fetch complete. Found ${allTransactions.length} raw transactions.`);
+    
+    // Normalize transactions before returning
+    const formattedTxs = normalizeTransactions(allTransactions, 'BML', null);
+
     port.postMessage({
       type: 'statement_success',
-      transactions: allTransactions
+      transactions: formattedTxs
     });
 
   } catch (error) {
