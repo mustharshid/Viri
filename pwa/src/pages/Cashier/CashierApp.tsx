@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, KeyRound, Download, FileText } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import CryptoJS from 'crypto-js';
@@ -250,7 +250,7 @@ const TransactionRow = React.memo(({
   permissions: any;
   handleCheckTransaction: (accountId: string, hash: string) => void;
 }) => {
-  const detailsParts = tx.details.split('\n');
+  const detailsParts = (tx.details || '').split('\n');
   const description = (detailsParts[0] || '').trim();
   const details = detailsParts.slice(1).join('\n').trim();
 
@@ -5284,54 +5284,44 @@ function App() {
               }) : { balance: 'Not synced', lastUpdated: 'Never', transactions: [] };
 
               // Apply filters & search logic
-              const { filteredTransactions, paginatedTransactions } = useMemo(() => {
-                const rawTransactions = cache.transactions || [];
-                const filtered = rawTransactions.filter(tx => {
-                  const isCredit = tx.amount.startsWith('+');
+              const rawTransactions = cache.transactions || [];
+              const filteredTransactions = rawTransactions.filter(tx => {
+                const isCredit = tx.amount.startsWith('+');
 
-                  // 0. Permission Filter (Hide Outward / Debit)
-                  if (!permissions.ledger_show_debit && !isCredit) return false;
+                // 0. Permission Filter (Hide Outward / Debit)
+                if (!permissions.ledger_show_debit && !isCredit) return false;
 
-                  // 1. Direction Filter
-                  if (ledgerFilter === 'in' && !isCredit) return false;
-                  if (ledgerFilter === 'out' && isCredit) return false;
+                // 1. Direction Filter
+                if (ledgerFilter === 'in' && !isCredit) return false;
+                if (ledgerFilter === 'out' && isCredit) return false;
 
-                  // 2. Search Query Matching (description, details, date)
-                  if (ledgerSearch.trim()) {
-                    const query = ledgerSearch.toLowerCase();
-                    const matchesDesc = tx.details.toLowerCase().includes(query);
-                    const matchesDate = tx.date.toLowerCase().includes(query);
-                    const matchesAmount = tx.amount.toLowerCase().includes(query);
-                    return matchesDesc || matchesDate || matchesAmount;
-                  }
+                // 2. Search Query Matching (description, details, date)
+                if (ledgerSearch.trim()) {
+                  const query = ledgerSearch.toLowerCase();
+                  const matchesDesc = tx.details.toLowerCase().includes(query);
+                  const matchesDate = tx.date.toLowerCase().includes(query);
+                  const matchesAmount = tx.amount.toLowerCase().includes(query);
+                  return matchesDesc || matchesDate || matchesAmount;
+                }
 
-                  // 3. Date Filter
-                  if (ledgerDateFilter) {
-                    // tx.date format: "Jul 5, 14:06" → match by "Jul D," prefix
-                    const picked = new Date(ledgerDateFilter);
-                    const monthShort = picked.toLocaleString('en-US', { month: 'short' });
-                    const day = picked.getDate();
-                    const prefix = `${monthShort} ${day},`;
-                    if (!tx.date.startsWith(prefix)) return false;
-                  }
+                // 3. Date Filter
+                if (ledgerDateFilter) {
+                  // tx.date format: "Jul 5, 14:06" → match by "Jul D," prefix
+                  const picked = new Date(ledgerDateFilter);
+                  const monthShort = picked.toLocaleString('en-US', { month: 'short' });
+                  const day = picked.getDate();
+                  const prefix = `${monthShort} ${day},`;
+                  if (!tx.date.startsWith(prefix)) return false;
+                }
 
-                  return true;
-                });
+                return true;
+              });
 
-                // Pagination variables
-                const totalPages = Math.ceil(filtered.length / ledgerPageSize);
-                const currentPage = Math.min(ledgerPage, totalPages || 1);
-                const startIndex = (currentPage - 1) * ledgerPageSize;
-                const paginated = filtered.slice(startIndex, startIndex + ledgerPageSize);
-
-                return {
-                  filteredTransactions: filtered,
-                  paginatedTransactions: paginated,
-                  totalPages,
-                  currentPage,
-                  startIndex
-                };
-              }, [cache.transactions, permissions.ledger_show_debit, ledgerFilter, ledgerSearch, ledgerDateFilter, ledgerPage, ledgerPageSize]);
+              // Pagination variables
+              const totalPages = Math.ceil(filteredTransactions.length / ledgerPageSize);
+              const currentPage = Math.min(ledgerPage, totalPages || 1);
+              const startIndex = (currentPage - 1) * ledgerPageSize;
+              const paginatedTransactions = filteredTransactions.slice(startIndex, startIndex + ledgerPageSize);
 
               const isSyncing = loading && loadingMode === 'ledger';
 
