@@ -3024,6 +3024,9 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
       url: 'https://www.bankofmaldives.com.mv/internetbanking/web/login',
       active: true
     });
+    if (tab.windowId) {
+        chrome.windows.update(tab.windowId, { focused: true });
+    }
 
     if(port) emitLog(port, '> [BML-OAuth] Please complete the login and OTP verification in the new tab.');
 
