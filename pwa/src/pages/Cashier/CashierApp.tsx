@@ -544,11 +544,7 @@ function App() {
     return localStorage.getItem('viri_backend_url') || defaultUrl;
   });
 
-  // MIB API Auth States
-  const [showMibOtpModal, setShowMibOtpModal] = useState(false);
-  const [mibOtp, setMibOtp] = useState('');
-  const [mibOtpLoading, setMibOtpLoading] = useState(false);
-  const [mibAuthData, setMibAuthData] = useState<{accountId: string, username: string} | null>(null);
+
 
   useEffect(() => {
     if (!extensionId || typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
@@ -4456,6 +4452,11 @@ function App() {
                                     : 'btn-success text-black'
                                     }`}
                                   onClick={() => {
+                                    const isMibApi = acc.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api';
+                                    if (isMibApi) {
+                                      window.open(`/cashier/mib-login?accountId=${acc.id}&terminalId=${terminalId}`, '_blank');
+                                      return;
+                                    }
                                     const creds = accountsCreds[acc.id.toString()] || {};
                                     setTempUsername(creds.username || '');
                                     setTempPassword(creds.password || '');
@@ -4463,7 +4464,7 @@ function App() {
                                     setExpandedCredsAccountId(acc.id.toString());
                                   }}
                                 >
-                                  {hasCreds ? 'Edit' : 'Configure'}
+                                  {(acc.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api') ? 'Authenticate' : (hasCreds ? 'Edit' : 'Configure')}
                                 </button>
                                 {hasCreds && (
                                   <button
@@ -4544,7 +4545,6 @@ function App() {
                                 className="btn btn-success py-1.5 px-5 font-bold"
                                 onClick={() => {
                                   const isBmlApi = acc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
-                                  const isMibApi = acc.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api';
 
                                   if (!tempUsername.trim() || (!isBmlApi && !tempPassword.trim())) {
                                     alert(`Username ${!isBmlApi ? 'and Password ' : ''}are required.`);
@@ -4572,42 +4572,6 @@ function App() {
                                           addLog("> [System] BML Account linked successfully!");
                                         } else {
                                           addLog(`> [System] Failed to link BML account: ${response?.error || 'Unknown error'}`);
-                                        }
-                                      });
-                                    } else {
-                                      alert("Viri Bridge extension is not connected!");
-                                    }
-                                  } else if (isMibApi) {
-                                    saveAccountCredentials(acc.id.toString(), tempUsername, '', '');
-                                    
-                                    if (extensionId && typeof window.chrome?.runtime?.sendMessage === 'function') {
-                                      addLog("> [System] Initiating MIB Device Auth flow via Viri Bridge...");
-                                      chrome.runtime.sendMessage(extensionId, {
-                                        action: 'START_MIB_AUTH',
-                                        payload: {
-                                          terminalId: terminalId,
-                                          bankAccountId: acc.id,
-                                          backendUrl: backendUrl,
-                                          mibUsername: tempUsername,
-                                          password: tempPassword,
-                                          hardwareId: terminalId, // Same as terminalId for MIB
-                                          sanctumToken: localStorage.getItem('token') || ''
-                                        }
-                                      }, (response: any) => {
-                                        if (response && response.success) {
-                                          if (response.requiresOtp) {
-                                            // Trigger OTP modal in PWA
-                                            setMibAuthData({
-                                              accountId: acc.id.toString(),
-                                              username: tempUsername
-                                            });
-                                            setShowMibOtpModal(true);
-                                            addLog("> [System] MIB OTP required. Please check your SMS/Authenticator.");
-                                          } else if (response.skipOtp) {
-                                            addLog("> [System] MIB Account linked successfully! (Fast-path, no OTP needed)");
-                                          }
-                                        } else {
-                                          addLog(`> [System] Failed to link MIB account: ${response?.error || 'Unknown error'}`);
                                         }
                                       });
                                     } else {
@@ -6615,68 +6579,7 @@ function App() {
           </>
         )}
 
-        {showMibOtpModal && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-sm p-6 shadow-2xl animate-scale-in">
-              <h3 className="text-xl font-bold text-white mb-2">MIB Device Registration</h3>
-              <p className="text-sm text-zinc-400 mb-6">Enter the OTP sent to your registered phone number or authenticator app.</p>
-              
-              <div className="mb-4">
-                <input
-                  type="text"
-                  className="input-field w-full text-center tracking-[0.5em] font-mono text-xl py-3"
-                  placeholder="000000"
-                  value={mibOtp}
-                  onChange={(e) => setMibOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  maxLength={6}
-                />
-              </div>
 
-              <div className="flex gap-3">
-                <button
-                  className="btn bg-zinc-800 hover:bg-zinc-700 text-white flex-1"
-                  onClick={() => setShowMibOtpModal(false)}
-                  disabled={mibOtpLoading}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="btn btn-success flex-1"
-                  disabled={mibOtp.length < 5 || mibOtpLoading}
-                  onClick={() => {
-                    if (!mibOtp || !mibAuthData) return;
-                    setMibOtpLoading(true);
-                    addLog(`> [System] Submitting OTP for ${mibAuthData.username}...`);
-                    
-                    chrome.runtime.sendMessage(extensionId, {
-                      action: 'SUBMIT_MIB_OTP',
-                      payload: {
-                        otp: mibOtp,
-                        terminalId: terminalId,
-                        bankAccountId: mibAuthData.accountId,
-                        backendUrl: backendUrl,
-                        mibUsername: mibAuthData.username,
-                        sanctumToken: localStorage.getItem('token') || ''
-                      }
-                    }, (response: any) => {
-                      setMibOtpLoading(false);
-                      if (response && response.success) {
-                        addLog("> [System] MIB Account linked successfully!");
-                        setShowMibOtpModal(false);
-                        setMibOtp('');
-                      } else {
-                        addLog(`> [System] Failed to verify OTP: ${response?.error || 'Unknown error'}`);
-                        alert(`OTP Verification Failed: ${response?.error || 'Unknown error'}`);
-                      }
-                    });
-                  }}
-                >
-                  {mibOtpLoading ? 'Verifying...' : 'Verify OTP'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
       </main>
     </div>

@@ -5,6 +5,7 @@ import Register from './pages/Auth/Register';
 import CompanyDashboard from './pages/Dashboard/CompanyDashboard';
 import AdminDashboard from './pages/Dashboard/AdminDashboard';
 import CashierApp from './pages/Cashier/CashierApp';
+import MibLogin from './pages/Cashier/MibLogin';
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
         <Route path="/admin/*" element={<AdminDashboard />} />
         
         <Route path="/cashier" element={<CashierApp />} />
+        <Route path="/cashier/mib-login" element={<MibLogin />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
