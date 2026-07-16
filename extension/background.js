@@ -3396,9 +3396,50 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     // Format txs exactly like runBmlFlow format
     const formattedTxs = allTxs.map(tx => {
       let date = (tx.bookingDate || tx.date || '').replace(/\s+/g, ' ').trim();
-      let details = (tx.narrative || tx.description || '').replace(/\s+/g, ' ').trim();
-      let refTrimmed = details.match(/(?:REF|RRN|FT|TR)\s*[:#\-]?\s*([A-Za-z0-9]+)/i);
-      refTrimmed = refTrimmed ? refTrimmed[1] : '';
+      
+      if (date) {
+        try {
+          const d = new Date(date);
+          if (!isNaN(d.getTime())) {
+            date = d.toLocaleString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false
+            });
+          }
+        } catch (e) {}
+      }
+
+      let details = (tx.narrative || tx.description || 'Transaction').replace(/\s+/g, ' ').trim();
+      
+      const detailFields = [
+        tx.customerReference,
+        tx.userReference,
+        tx.senderName,
+        tx.receiverName,
+        tx.beneficiaryName,
+        tx.additionalInfo,
+        tx.memo,
+        tx.narrative1,
+        tx.narrative2,
+        tx.narrative3,
+        tx.narrative4,
+        tx.reference
+      ];
+      for (const field of detailFields) {
+        if (field && typeof field === 'string') {
+          const val = field.trim().replace(/[ \t]+/g, ' ');
+          if (val && val !== (tx.description || '').trim() && !details.includes(val)) {
+            details += `\n${val}`;
+          }
+        }
+      }
+
+      let refFallback = tx.reference || tx.trxNumber2 || tx.refNo || tx.ref;
+      let refMatch = details.match(/(?:REF|RRN|FT|TR|BLZ)\s*[:#\-]?\s*([A-Za-z0-9]+)/i);
+      let refTrimmed = refMatch ? refMatch[1] : (refFallback ? String(refFallback).trim() : '');
 
       let formattedAmount = '';
       if (tx.amount) {
@@ -3407,6 +3448,8 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
           formattedAmount = amtNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
           if (tx.drCr === 'DR' || amtNum < 0) {
             formattedAmount = '-' + formattedAmount.replace('-', '');
+          } else {
+            formattedAmount = '+' + formattedAmount;
           }
         }
       }

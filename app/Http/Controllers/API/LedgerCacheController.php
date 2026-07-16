@@ -183,9 +183,23 @@ class LedgerCacheController extends Controller
         $isLive = $account->hasLiveSession();
         $holderName = $isLive ? Terminal::find($account->session_holder_terminal_id)?->terminal_name : null;
 
+        $transactions = $cache?->transactions ?? [];
+        $transactions = array_map(function ($tx) use ($account) {
+            if (!isset($tx['hash'])) {
+                $tx['hash'] = hash('sha256', implode('|', [
+                    $account->id,
+                    $tx['date'] ?? '',
+                    $tx['amount'] ?? '',
+                    $tx['details'] ?? '',
+                    $tx['reference'] ?? '',
+                ]));
+            }
+            return $tx;
+        }, $transactions);
+
         return response()->json([
             'balance'               => $cache?->balance ?? 'Not synced',
-            'transactions'          => $cache?->transactions ?? [],
+            'transactions'          => $transactions,
             'cached_at'             => $cache?->cached_at ? $cache->cached_at->toIso8601String() : null,
             'cache_version'         => $cache?->cache_version ?? 0,
             'is_live'               => $isLive,

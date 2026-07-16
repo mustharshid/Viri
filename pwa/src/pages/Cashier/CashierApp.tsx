@@ -287,7 +287,11 @@ const TransactionRow = React.memo(({
         {activeLedgerAcc?.bank_name === 'BML' && (
           <div className="mt-2 text-zinc-300">
             {(() => {
-              const ref = tx.reference || (tx.details?.match(/(BLZ|FT)\d+/i)?.[0]);
+              const combinedText = `${tx.reference || ''} ${tx.details || ''}`;
+              const bmlMatch = combinedText.match(/(BLZ|FT)\d+/i);
+              const fallbackRef = tx.reference && tx.reference.trim().length > 4 && !tx.reference.toLowerCase().includes('ansfer') && !tx.reference.toLowerCase().includes('transfer') ? tx.reference : null;
+              const ref = bmlMatch ? bmlMatch[0] : fallbackRef;
+              
               if (ref) {
                 return (
                   <div className="inline-flex items-center gap-2 bg-zinc-900 px-2 py-1 rounded">
@@ -470,7 +474,7 @@ function App() {
   // Removed currentTick state for performance
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.32";
+  const LATEST_EXTENSION_VERSION = "1.2.33";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
