@@ -3357,12 +3357,10 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
       }
       
       let accountObj = null;
-      for (const group of dashData.payload.dashboard) {
-        const found = group.accounts.find(a => a.account.replace(/[^0-9]/g, '') === targetAccount.replace(/[^0-9]/g, ''));
-        if (found) {
-            accountObj = found;
-            break;
-        }
+      if (Array.isArray(dashData.payload.dashboard)) {
+        accountObj = dashData.payload.dashboard.find(a => 
+          a.account && a.account.replace(/[^0-9]/g, '') === targetAccount.replace(/[^0-9]/g, '')
+        );
       }
       if (!accountObj) {
         throw new Error(`Account ${targetAccount} not found on this BML profile.`);
