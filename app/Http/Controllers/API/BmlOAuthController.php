@@ -64,6 +64,9 @@ class BmlOAuthController extends Controller
                   ->where('profile_type', $request->profile_type);
         } else if ($request->has('bank_account_id')) {
             $query->where('bank_account_id', $request->bank_account_id);
+            if ($request->has('profile_type')) {
+                $query->where('profile_type', $request->profile_type);
+            }
         } else {
             return response()->json(['error' => 'Missing identifiers'], 400);
         }

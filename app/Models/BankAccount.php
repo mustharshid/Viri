@@ -15,6 +15,8 @@ class BankAccount extends Model
         'account_name',
         'account_number',
         'mib_profile_type',
+        'bml_profile_type',
+        'bml_auth_state',
         'is_default',
         'label',
         'currency',
@@ -34,6 +36,7 @@ class BankAccount extends Model
 
     protected $casts = [
         'is_default'                         => 'boolean',
+        'bml_auth_state'                     => 'array',
         'session_claimed_at'                 => 'datetime',
         'session_last_heartbeat_at'          => 'datetime',
         'last_bank_fetch_at'                 => 'datetime',

@@ -316,8 +316,8 @@ chrome.runtime.onConnectExternal.addListener((port) => {
           } else {
             const bmlLoginProcedure = heldSession ? (heldSession.bmlLoginProcedure || 'legacy') : (req.bmlLoginProcedure || 'legacy');
             if (bmlLoginProcedure === 'api') {
-              const bmlAuthState = heldSession ? heldSession.bmlAuthState : req.bmlAuthState;
-              const bmlProfileType = heldSession ? (heldSession.bmlProfileType || '0') : (req.bmlProfileType || '0');
+              const bmlAuthState = heldSession ? heldSession.bmlAuthState : req.bml_auth_state;
+              const bmlProfileType = heldSession ? (heldSession.bmlProfileType || '0') : (req.bml_profile_type || '0');
               await runBmlApiFlow(payload.credentials, targetAcc, req.account_name, port, req.target_amount || '1.00', bmlProfileType, req.request_type, 'fetch_only', bmlAuthState, req.hardware_id || payload.hardwareId, req.backend_url || payload.backendUrl);
             } else {
               await runBmlFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', req.request_type, 'fetch_only');
@@ -3202,7 +3202,8 @@ async function getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bml
     } else {
         // Fetch from server
         try {
-            const res = await fetch(`${backendUrl}/api/bml/oauth/tokens?hardware_id=${terminalId}&bank_account_id=${bankAccountId}`, {
+            const profileTypeParam = profileType === '1' ? 'business' : 'personal';
+            const res = await fetch(`${backendUrl}/api/bml/oauth/tokens?hardware_id=${terminalId}&bank_account_id=${bankAccountId}&profile_type=${profileTypeParam}`, {
                 headers: {
                     'Accept': 'application/json',
                     'Authorization': `Bearer ${sanctumToken}`

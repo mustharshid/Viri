@@ -1221,6 +1221,14 @@ export default function CompanyDashboard() {
                             <span className="text-[8px] bg-zinc-800 border border-zinc-700 px-1 rounded font-bold font-mono text-zinc-300">
                               {acc.currency || 'MVR'}
                             </span>
+                            {acc.bank_name === 'BML' && (acc.bml_profile_type === '1' ? (
+                              <span className="text-[8px] bg-violet-950/50 border border-violet-500/30 px-1 rounded font-bold font-sans text-violet-300">Business</span>
+                            ) : (
+                              <span className="text-[8px] bg-sky-950/50 border border-sky-500/30 px-1 rounded font-bold font-sans text-sky-300">Personal</span>
+                            ))}
+                            {acc.bank_name === 'MIB' && acc.mib_profile_type === '1' && (
+                              <span className="text-[8px] bg-violet-950/50 border border-violet-500/30 px-1 rounded font-bold font-sans text-violet-300">Multi-Profile</span>
+                            )}
                           </div>
                         </div>
                       </div>

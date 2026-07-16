@@ -1,5 +1,7 @@
 # Bank of Maldives Internet Banking API Integration Guide
 
+## Open Source Documents here https://git.shihaam.dev/shihaam/thijooree/src/branch/main/docs/bmlapi
+
 ## Document Purpose
 This document provides a comprehensive technical specification for integrating with the Bank of Maldives (BML) Internet Banking API. It is designed to be consumed by AI agents and developers for building legitimate integrations with proper authorization.
 
