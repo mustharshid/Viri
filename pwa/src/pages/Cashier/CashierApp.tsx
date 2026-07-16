@@ -2868,7 +2868,7 @@ function App() {
         action: 'VERIFY_TRANSFER',
         payload: {
           mode: mode,
-          sessionMode: strategy === 'FETCH_ONLY' ? 'fetch_only' : (claimSuccess ? 'claim_and_login' : 'fresh_login'),
+          sessionMode: strategy === 'FETCH_ONLY' ? 'fetch_only' : 'fresh_login',
           amount: mode === 'search' ? parseFloat(amount).toFixed(2) : '0.00',
           bank: selectedBankName,
           accountId: selectedAccountId,
@@ -3186,7 +3186,7 @@ function App() {
           uploadLogsToServer();
         }, 1500);
       } else if (response.type === 'session_status') {
-        const finalSessionMode = response.hasSession ? 'fetch_only' : 'claim_and_login';
+        const finalSessionMode = response.hasSession ? 'fetch_only' : 'fresh_login';
         if (!response.hasSession) {
           addLog("> [System] Local session not found. Injecting server tokens...");
         } else {
@@ -3242,7 +3242,7 @@ function App() {
           action: 'VERIFY_TRANSFER',
           payload: {
             mode: 'ledger',
-            sessionMode: strategy === 'FETCH_ONLY' ? 'fetch_only' : (claimSuccess ? 'claim_and_login' : 'fresh_login'),
+            sessionMode: strategy === 'FETCH_ONLY' ? 'fetch_only' : 'fresh_login',
             amount: '0.00',
             bank: selectedBankName,
             accountId: targetAccountId,
@@ -4416,7 +4416,7 @@ function App() {
                         </div>
                       ) : (
                         <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin">
-                          {bankAccounts.map((acc) => {
+                          {bankAccounts.map((acc, idx) => {
                             const isSelected = selectedAccountId === acc.id.toString();
                             const isBml = acc.bank_name === 'BML';
                             return (
@@ -4442,6 +4442,11 @@ function App() {
                                       }`}>
                                       {acc.bank_name}
                                     </span>
+                                    {idx < 9 && (
+                                      <kbd className="text-[9px] bg-zinc-800 text-zinc-400 border border-zinc-700 px-1.5 py-0.5 rounded shadow-sm flex items-center justify-center font-mono">
+                                        {idx + 1}
+                                      </kbd>
+                                    )}
                                     {acc.label && (
                                       <span className="text-[10px] bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded font-bold">
                                         {acc.label}
@@ -5290,6 +5295,7 @@ function App() {
                         }
 
                         return filtered.map(acc => {
+                          const originalIndex = bankAccounts.findIndex(a => a.id === acc.id);
                           const isSelected = selectedLedgerAccountId === acc.id.toString();
                           const isBml = acc.bank_name === 'BML';
                           const accCache = ledgerCache[acc.id.toString()] || { balance: 'Not synced' };
@@ -5312,6 +5318,11 @@ function App() {
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">{acc.bank_name} • Active</span>
+                                  {originalIndex < 9 && (
+                                    <kbd className="text-[9px] bg-zinc-800 text-zinc-400 border border-zinc-700 px-1.5 py-0.5 rounded shadow-sm flex items-center justify-center font-mono">
+                                      {originalIndex + 1}
+                                    </kbd>
+                                  )}
                                   {acc.label && (
                                     <span className="text-[9px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium">
                                       {acc.label}
