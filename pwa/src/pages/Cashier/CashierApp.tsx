@@ -286,16 +286,17 @@ const TransactionRow = React.memo(({
       <td className="py-4 px-5 text-xs text-zinc-400 font-mono whitespace-pre-line leading-relaxed align-middle break-all max-w-sm">
         {details || <span className="text-zinc-600 italic">-</span>}
         {activeLedgerAcc?.bank_name === 'BML' && (
-          <div className="mt-2 text-zinc-300">
+          <div className="mt-2 flex flex-wrap gap-2 text-zinc-300">
             {(() => {
               const combinedText = `${tx.reference || ''} ${tx.details || ''}`;
-              const bmlMatch = combinedText.match(/(BLZ|BLAZ|FT)[A-Za-z0-9\\]+/i);
-              const fallbackRef = tx.reference && tx.reference.trim().length > 4 && !tx.reference.toLowerCase().includes('ansfer') && !tx.reference.toLowerCase().includes('transfer') ? tx.reference : null;
-              const ref = bmlMatch ? bmlMatch[0] : fallbackRef;
+              const refs = Array.from(new Set(combinedText.match(/(?:BLZ|BLAZ|FT)[A-Za-z0-9\\]+/gi) || []));
               
-              if (ref) {
-                return (
-                  <div className="inline-flex items-center gap-2 bg-zinc-900 px-2 py-1 rounded">
+              const fallbackRef = tx.reference && tx.reference.trim().length > 4 && !tx.reference.toLowerCase().includes('ansfer') && !tx.reference.toLowerCase().includes('transfer') ? tx.reference : null;
+              if (refs.length === 0 && fallbackRef) refs.push(fallbackRef);
+              
+              if (refs.length > 0) {
+                return refs.map((ref, idx) => (
+                  <div key={idx} className="inline-flex items-center gap-2 bg-zinc-900 px-2 py-1 rounded">
                     <span className="font-semibold">{ref}</span>
                     <button
                       onClick={() => navigator.clipboard.writeText(ref)}
@@ -307,7 +308,7 @@ const TransactionRow = React.memo(({
                       </svg>
                     </button>
                   </div>
-                );
+                ));
               }
               return null;
             })()}
@@ -380,6 +381,7 @@ function App() {
       details: string;
       amount: string;
       runningBalance?: string;
+      reference?: string;
     }[];
     label: string;
     lastUpdated: string;
@@ -475,7 +477,7 @@ function App() {
   // Removed currentTick state for performance
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.40";
+  const LATEST_EXTENSION_VERSION = "1.2.41";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -5317,6 +5319,35 @@ function App() {
                                   </td>
                                   <td className="px-4 py-3.5 text-[11px] text-zinc-400 font-mono whitespace-pre-line leading-relaxed align-top break-words max-w-xs lg:max-w-md">
                                     {details || <span className="text-zinc-600 italic">-</span>}
+                                    {selectedAccount?.bank_name === 'BML' && (
+                                      <div className="mt-2 flex flex-wrap gap-2 text-zinc-300">
+                                        {(() => {
+                                          const combinedText = `${tx.reference || ''} ${tx.details || ''}`;
+                                          const refs = Array.from(new Set(combinedText.match(/(?:BLZ|BLAZ|FT)[A-Za-z0-9\\]+/gi) || []));
+                                          
+                                          const fallbackRef = tx.reference && tx.reference.trim().length > 4 && !tx.reference.toLowerCase().includes('ansfer') && !tx.reference.toLowerCase().includes('transfer') ? tx.reference : null;
+                                          if (refs.length === 0 && fallbackRef) refs.push(fallbackRef);
+                                          
+                                          if (refs.length > 0) {
+                                            return refs.map((ref, idx) => (
+                                              <div key={idx} className="inline-flex items-center gap-2 bg-zinc-900 px-2 py-1 rounded">
+                                                <span className="font-semibold text-zinc-300">{ref}</span>
+                                                <button
+                                                  onClick={() => navigator.clipboard.writeText(ref)}
+                                                  className="text-zinc-500 hover:text-white transition-colors cursor-pointer"
+                                                  title="Copy Reference"
+                                                >
+                                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                                  </svg>
+                                                </button>
+                                              </div>
+                                            ));
+                                          }
+                                          return null;
+                                        })()}
+                                      </div>
+                                    )}
                                   </td>
                                   <td className="px-4 py-3.5 text-right align-top whitespace-nowrap">
                                     <div className={`font-mono font-bold text-sm leading-none ${isCredit ? 'text-[var(--color-success)]' : 'text-red-400'

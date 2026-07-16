@@ -533,6 +533,9 @@ function normalizeTransactions(rawTxList, bankType, limit = 50) {
       }
     } else {
       details = tx.description || tx.remarks || tx.narrative || tx.particulars || 'Transaction';
+      if (bankType === 'BML' && tx.narrative3 && tx.narrative3.trim()) {
+        details += ` - ${tx.narrative3.trim()}`;
+      }
     }
 
     if (typeof details === 'string') {
