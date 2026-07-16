@@ -43,30 +43,47 @@ export default function MibLogin() {
       setLoading(false);
       return;
     }
-
-    chrome.runtime.sendMessage(extensionId, {
-      action: 'START_MIB_AUTH',
-      payload: {
-        username: username.trim(),
-        password: password.trim(),
-        terminalId: terminalId,
-        bankAccountId: accountId,
-        backendUrl: backendUrl,
-        sanctumToken: localStorage.getItem('token') || '',
-        hardwareId: terminalId
-      }
-    }, (response: any) => {
+    
+    if (!extensionId) {
+      setError('Viri Extension ID is missing. Please re-pair your terminal.');
       setLoading(false);
-      if (response && response.success) {
-        if (response.requiresOtp) {
-          setStep('otp');
-        } else if (response.skipOtp) {
-          setStep('success');
+      return;
+    }
+
+    try {
+      const timeoutId = setTimeout(() => {
+        setLoading(false);
+        setError('Authentication timed out. The bank server or extension is not responding.');
+      }, 30000); // 30 seconds timeout
+
+      chrome.runtime.sendMessage(extensionId, {
+        action: 'START_MIB_AUTH',
+        payload: {
+          mibUsername: username.trim(),
+          password: password.trim(),
+          terminalId: terminalId,
+          bankAccountId: accountId,
+          backendUrl: backendUrl,
+          sanctumToken: localStorage.getItem('token') || '',
+          hardwareId: terminalId
         }
-      } else {
-        setError(response?.error || 'Authentication failed. Please check your credentials.');
-      }
-    });
+      }, (response: any) => {
+        clearTimeout(timeoutId);
+        setLoading(false);
+        if (response && response.success) {
+          if (response.requiresOtp) {
+            setStep('otp');
+          } else if (response.skipOtp) {
+            setStep('success');
+          }
+        } else {
+          setError(response?.error || 'Authentication failed. Please check your credentials.');
+        }
+      });
+    } catch (e: any) {
+      setLoading(false);
+      setError(`Extension connection error: ${e.message}`);
+    }
   };
 
   const handleOtpSubmit = (e: React.FormEvent) => {
@@ -79,24 +96,35 @@ export default function MibLogin() {
     setError(null);
     setLoading(true);
 
-    chrome.runtime.sendMessage(extensionId, {
-      action: 'SUBMIT_MIB_OTP',
-      payload: {
-        otp: otp,
-        terminalId: terminalId,
-        bankAccountId: accountId,
-        backendUrl: backendUrl,
-        mibUsername: username.trim(),
-        sanctumToken: localStorage.getItem('token') || ''
-      }
-    }, (response: any) => {
+    try {
+      const timeoutId = setTimeout(() => {
+        setLoading(false);
+        setError('Verification timed out. The bank server or extension is not responding.');
+      }, 30000); // 30 seconds timeout
+
+      chrome.runtime.sendMessage(extensionId, {
+        action: 'SUBMIT_MIB_OTP',
+        payload: {
+          otp: otp,
+          terminalId: terminalId,
+          bankAccountId: accountId,
+          backendUrl: backendUrl,
+          mibUsername: username.trim(),
+          sanctumToken: localStorage.getItem('token') || ''
+        }
+      }, (response: any) => {
+        clearTimeout(timeoutId);
+        setLoading(false);
+        if (response && response.success) {
+          setStep('success');
+        } else {
+          setError(response?.error || 'OTP Verification failed.');
+        }
+      });
+    } catch (e: any) {
       setLoading(false);
-      if (response && response.success) {
-        setStep('success');
-      } else {
-        setError(response?.error || 'OTP Verification failed.');
-      }
-    });
+      setError(`Extension connection error: ${e.message}`);
+    }
   };
 
   return (
