@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, KeyRound, Download, FileText } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import CryptoJS from 'crypto-js';
@@ -152,6 +152,7 @@ interface LedgerData {
   balance: string;
   lastUpdated: string;
   lastUpdatedTimestamp?: number;
+  timestamp?: number;
   transactions: LedgerTransaction[];
   error?: string;
   cacheVersion?: number;
@@ -159,6 +160,168 @@ interface LedgerData {
   cachedByTerminalName?: string;
   isFromServerCache?: boolean;
 }
+
+const LiveTimer = ({ 
+  startTime, 
+  mode = 'elapsed' 
+}: { 
+  startTime: number; 
+  mode?: 'elapsed' | 'ago' | 'hms' 
+}) => {
+  const [tick, setTick] = useState(Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setTick(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (mode === 'elapsed') {
+    return <span>{((tick - startTime) / 1000).toFixed(1)}s</span>;
+  }
+  
+  if (mode === 'ago') {
+    const diffSeconds = Math.max(0, Math.floor((tick - startTime) / 1000));
+    return <span>{diffSeconds}</span>;
+  }
+
+  if (mode === 'hms') {
+    const diffSeconds = Math.max(0, Math.floor((tick - startTime) / 1000));
+    const h = Math.floor(diffSeconds / 3600);
+    const m = Math.floor((diffSeconds % 3600) / 60);
+    const s = diffSeconds % 60;
+    return <span>{`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`}</span>;
+  }
+  
+  return null;
+};
+
+const formatAmount = (val: any): string => {
+  if (val === undefined || val === null || val === '') return '0.00';
+  const str = String(val).trim();
+  if (str === 'Not synced' || str === 'Not found' || str === 'Never' || str === 'Never synced') {
+    return str;
+  }
+  let sign = '';
+  let rest = str;
+  if (str.startsWith('+')) {
+    sign = '+';
+    rest = str.substring(1);
+  } else if (str.startsWith('-')) {
+    sign = '-';
+    rest = str.substring(1);
+  }
+  const cleanRest = rest.replace(/,/g, '');
+  const num = parseFloat(cleanRest);
+  if (isNaN(num)) return str;
+  const formatted = num.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+  return `${sign}${formatted}`;
+};
+
+const getTransactionIcon = (description: string) => {
+  const descLower = description.toLowerCase();
+  if (descLower.includes('annual') || descLower.includes('fee') || descLower.includes('charge')) {
+    return <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-400 border border-zinc-700/50"><Copy size={14} /></div>;
+  }
+  if (descLower.includes('withdrawal') || descLower.includes('atm') || descLower.includes('cash')) {
+    return <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-400 border border-zinc-700/50 font-mono text-[9px] font-bold">ATM</div>;
+  }
+  if (descLower.includes('purchase') || descLower.includes('visa') || descLower.includes('pos') || descLower.includes('card')) {
+    return <div className="w-8 h-8 rounded-lg bg-red-955/20 flex items-center justify-center text-red-400 border border-red-900/30"><MonitorSmartphone size={14} /></div>;
+  }
+  return <div className="w-8 h-8 rounded-lg bg-emerald-955/20 flex items-center justify-center text-emerald-400 border border-emerald-900/30"><BookOpen size={14} /></div>;
+};
+
+const TransactionRow = React.memo(({
+  tx,
+  isNew,
+  isCredit,
+  isChecked,
+  activeLedgerAcc,
+  permissions,
+  handleCheckTransaction,
+}: {
+  tx: LedgerTransaction;
+  isNew: boolean;
+  isCredit: boolean;
+  isChecked: boolean;
+  activeLedgerAcc: BankAccount | undefined;
+  permissions: any;
+  handleCheckTransaction: (accountId: string, hash: string) => void;
+}) => {
+  const detailsParts = tx.details.split('\n');
+  const description = (detailsParts[0] || '').trim();
+  const details = detailsParts.slice(1).join('\n').trim();
+
+  return (
+    <tr className={`hover:bg-white/[0.01] transition-colors group ${isNew ? 'animate-new-transaction' : ''}`}>
+      <td className="py-4 px-5 text-center align-middle">
+        {tx.hash && (
+          <button 
+            onClick={() => !isChecked && activeLedgerAcc && handleCheckTransaction(activeLedgerAcc.id.toString(), tx.hash!)}
+            className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
+              isChecked 
+                ? 'bg-emerald-500 border-emerald-500 text-white cursor-default' 
+                : 'border-zinc-600 hover:border-emerald-400 text-transparent hover:text-zinc-600 cursor-pointer'
+            }`}
+            title={isChecked ? 'Received' : 'Mark as Received'}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </button>
+        )}
+      </td>
+      <td className="py-4 px-5 text-xs font-mono text-zinc-400 whitespace-nowrap align-middle">
+        {tx.date}
+      </td>
+      <td className="py-4 px-5 text-sm font-bold text-zinc-200 align-middle">
+        <div className="flex items-center gap-3">
+          {getTransactionIcon(description)}
+          <span>{description}</span>
+        </div>
+      </td>
+      <td className="py-4 px-5 text-xs text-zinc-400 font-mono whitespace-pre-line leading-relaxed align-middle break-all max-w-sm">
+        {details || <span className="text-zinc-600 italic">-</span>}
+        {activeLedgerAcc?.bank_name === 'BML' && (
+          <div className="mt-2 text-zinc-300">
+            {(() => {
+              const ref = tx.reference || (tx.details?.match(/(BLZ|FT)\d+/i)?.[0]);
+              if (ref) {
+                return (
+                  <div className="inline-flex items-center gap-2 bg-zinc-900 px-2 py-1 rounded">
+                    <span className="font-semibold">{ref}</span>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(ref)}
+                      className="text-zinc-500 hover:text-white transition-colors cursor-pointer"
+                      title="Copy Reference"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    </button>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+          </div>
+        )}
+      </td>
+      <td className="py-4 px-5 text-right align-middle whitespace-nowrap">
+        <div className={`font-mono font-extrabold text-base ${isCredit ? 'text-emerald-400' : 'text-red-400'}`}>
+          {formatAmount(tx.amount)}
+        </div>
+        {permissions.ledger_show_balance && tx.runningBalance && (
+          <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1 uppercase">
+            Bal {formatAmount(tx.runningBalance)}
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+});
 
 function App() {
   const [theme, toggleTheme] = useTheme();
@@ -304,7 +467,7 @@ function App() {
   const [syncTimeElapsed, setSyncTimeElapsed] = useState<number | null>(null);
   const syncStartTimeRef = useRef<number | null>(null);
   const checkPendingRequestsRef = useRef<() => Promise<void>>();
-  const [currentTick, setCurrentTick] = useState(Date.now());
+  // Removed currentTick state for performance
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
   const LATEST_EXTENSION_VERSION = "1.2.32";
@@ -329,41 +492,7 @@ function App() {
     }
   };
 
-  const formatAmount = (val: any): string => {
-    if (val === undefined || val === null || val === '') return '0.00';
-    const str = String(val).trim();
-    if (str === 'Not synced' || str === 'Not found' || str === 'Never' || str === 'Never synced') {
-      return str;
-    }
-
-    // Extract optional sign (+/-)
-    let sign = '';
-    let rest = str;
-    if (str.startsWith('+')) {
-      sign = '+';
-      rest = str.substring(1);
-    } else if (str.startsWith('-')) {
-      sign = '-';
-      rest = str.substring(1);
-    }
-
-    // Clean rest from commas if any exist
-    const cleanRest = rest.replace(/,/g, '');
-    const num = parseFloat(cleanRest);
-    if (isNaN(num)) return str; // return original if not a number
-
-    // Format with thousandth commas and 2 decimal places
-    const formatted = num.toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
-    return `${sign}${formatted}`;
-  };
-
-  useEffect(() => {
-    const interval = setInterval(() => setCurrentTick(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, []);
+  // (Interval for currentTick removed for performance)
 
 
 
@@ -4723,7 +4852,7 @@ function App() {
                             } else if (account.session_last_heartbeat_at) {
                               try {
                                 heartbeatTime = new Date(account.session_last_heartbeat_at).getTime();
-                                const idleMs = Math.max(0, currentTick - heartbeatTime);
+                                const idleMs = Math.max(0, Date.now() - heartbeatTime);
                                 isActive = idleMs <= 90000;
                               } catch (e) {
                                 isActive = false;
@@ -4732,7 +4861,7 @@ function App() {
 
                             if (isActive) {
                               if (claimedTime) {
-                                elapsedMs = Math.max(0, currentTick - claimedTime);
+                                elapsedMs = Math.max(0, Date.now() - claimedTime);
                               } else {
                                 elapsedMs = 0;
                               }
@@ -5049,20 +5178,16 @@ function App() {
 
                       {/* Sync Info / Metadata */}
                       <div className="flex flex-wrap items-center justify-end gap-3 font-mono text-[11px] min-w-0">
-                        <span className={`${(loading && loadingMode === 'history') ? 'text-zinc-300' : 'text-zinc-500'}`}>
-                          {(loading && loadingMode === 'history') && syncStartTimeRef.current
-                            ? `${((currentTick - syncStartTimeRef.current) / 1000).toFixed(1)}s`
-                            : (syncTimeElapsed !== null ? `${(syncTimeElapsed / 1000).toFixed(1)}s` : '0.0s')}
+                        <span className="font-mono text-zinc-500 font-bold tabular-nums">
+                          {loading && loadingMode === 'history' && syncStartTimeRef.current
+                          ? <><LiveTimer startTime={syncStartTimeRef.current} mode="elapsed" /></>
+                          : (syncTimeElapsed !== null ? `${(syncTimeElapsed / 1000).toFixed(1)}s` : '0.0s')}
                         </span>
                         <span className="text-zinc-700 hidden xl:inline">|</span>
                         <span className="text-zinc-500 whitespace-nowrap hidden xl:inline">Since last fetch: <span className={`${!(loading && loadingMode === 'history') ? 'text-zinc-300' : 'text-zinc-500'}`}>
                           {lastPopulatedTimestamp ? (() => {
-                            const diffSeconds = Math.floor((currentTick - lastPopulatedTimestamp) / 1000);
-                            const h = Math.floor(diffSeconds / 3600);
-                            const m = Math.floor((diffSeconds % 3600) / 60);
-                            const s = diffSeconds % 60;
-                            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-                          })() : '00:00:00'}
+                            return <><LiveTimer startTime={lastPopulatedTimestamp} mode="ago" />s ago</>;
+                          })() : '0s ago'}
                         </span></span>
                         <span className="text-zinc-700 hidden xl:inline">|</span>
                         <span className="text-zinc-500 truncate">{lastPopulatedTime ? lastPopulatedTime : 'Never fetched'}</span>
@@ -5159,46 +5284,56 @@ function App() {
               }) : { balance: 'Not synced', lastUpdated: 'Never', transactions: [] };
 
               // Apply filters & search logic
-              const rawTransactions = cache.transactions || [];
-              const filteredTransactions = rawTransactions.filter(tx => {
-                const isCredit = tx.amount.startsWith('+');
+              const { filteredTransactions, paginatedTransactions } = useMemo(() => {
+                const rawTransactions = cache.transactions || [];
+                const filtered = rawTransactions.filter(tx => {
+                  const isCredit = tx.amount.startsWith('+');
 
-                // 0. Permission Filter (Hide Outward / Debit)
-                if (!permissions.ledger_show_debit && !isCredit) return false;
+                  // 0. Permission Filter (Hide Outward / Debit)
+                  if (!permissions.ledger_show_debit && !isCredit) return false;
 
-                // 1. Direction Filter
-                if (ledgerFilter === 'in' && !isCredit) return false;
-                if (ledgerFilter === 'out' && isCredit) return false;
+                  // 1. Direction Filter
+                  if (ledgerFilter === 'in' && !isCredit) return false;
+                  if (ledgerFilter === 'out' && isCredit) return false;
 
-                // 2. Search Query Matching (description, details, date)
-                if (ledgerSearch.trim()) {
-                  const query = ledgerSearch.toLowerCase();
-                  const matchesDesc = tx.details.toLowerCase().includes(query);
-                  const matchesDate = tx.date.toLowerCase().includes(query);
-                  const matchesAmount = tx.amount.toLowerCase().includes(query);
-                  return matchesDesc || matchesDate || matchesAmount;
-                }
+                  // 2. Search Query Matching (description, details, date)
+                  if (ledgerSearch.trim()) {
+                    const query = ledgerSearch.toLowerCase();
+                    const matchesDesc = tx.details.toLowerCase().includes(query);
+                    const matchesDate = tx.date.toLowerCase().includes(query);
+                    const matchesAmount = tx.amount.toLowerCase().includes(query);
+                    return matchesDesc || matchesDate || matchesAmount;
+                  }
 
-                // 3. Date Filter
-                if (ledgerDateFilter) {
-                  // tx.date format: "Jul 5, 14:06" → match by "Jul D," prefix
-                  const picked = new Date(ledgerDateFilter);
-                  const monthShort = picked.toLocaleString('en-US', { month: 'short' });
-                  const day = picked.getDate();
-                  const prefix = `${monthShort} ${day},`;
-                  if (!tx.date.startsWith(prefix)) return false;
-                }
+                  // 3. Date Filter
+                  if (ledgerDateFilter) {
+                    // tx.date format: "Jul 5, 14:06" → match by "Jul D," prefix
+                    const picked = new Date(ledgerDateFilter);
+                    const monthShort = picked.toLocaleString('en-US', { month: 'short' });
+                    const day = picked.getDate();
+                    const prefix = `${monthShort} ${day},`;
+                    if (!tx.date.startsWith(prefix)) return false;
+                  }
 
-                return true;
-              });
+                  return true;
+                });
+
+                // Pagination variables
+                const totalPages = Math.ceil(filtered.length / ledgerPageSize);
+                const currentPage = Math.min(ledgerPage, totalPages || 1);
+                const startIndex = (currentPage - 1) * ledgerPageSize;
+                const paginated = filtered.slice(startIndex, startIndex + ledgerPageSize);
+
+                return {
+                  filteredTransactions: filtered,
+                  paginatedTransactions: paginated,
+                  totalPages,
+                  currentPage,
+                  startIndex
+                };
+              }, [cache.transactions, permissions.ledger_show_debit, ledgerFilter, ledgerSearch, ledgerDateFilter, ledgerPage, ledgerPageSize]);
 
               const isSyncing = loading && loadingMode === 'ledger';
-
-              // Pagination variables
-              const totalPages = Math.ceil(filteredTransactions.length / ledgerPageSize);
-              const currentPage = Math.min(ledgerPage, totalPages || 1);
-              const startIndex = (currentPage - 1) * ledgerPageSize;
-              const paginatedTransactions = filteredTransactions.slice(startIndex, startIndex + ledgerPageSize);
 
               // Helper function to return icon based on transaction description
               const handleCheckTransaction = async (accountId: string, hash: string) => {
@@ -5237,20 +5372,7 @@ function App() {
                 }
               };
 
-              const getTransactionIcon = (description: string) => {
-                const descLower = description.toLowerCase();
-                if (descLower.includes('annual') || descLower.includes('fee') || descLower.includes('charge')) {
-                  return <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-400 border border-zinc-700/50"><Copy size={14} /></div>;
-                }
-                if (descLower.includes('withdrawal') || descLower.includes('atm') || descLower.includes('cash')) {
-                  return <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-400 border border-zinc-700/50 font-mono text-[9px] font-bold">ATM</div>;
-                }
-                if (descLower.includes('purchase') || descLower.includes('visa') || descLower.includes('pos') || descLower.includes('card')) {
-                  return <div className="w-8 h-8 rounded-lg bg-red-955/20 flex items-center justify-center text-red-400 border border-red-900/30"><MonitorSmartphone size={14} /></div>;
-                }
-                // default bank icon
-                return <div className="w-8 h-8 rounded-lg bg-emerald-955/20 flex items-center justify-center text-emerald-400 border border-emerald-900/30"><BookOpen size={14} /></div>;
-              };
+              // (getTransactionIcon removed, extracted outside component)
 
               return (
                 <div className="w-full max-w-7xl mx-auto animate-fade-in flex flex-col gap-6 font-sans">
@@ -5432,9 +5554,8 @@ function App() {
                           {/* Shared Sync Badge */}
                           {(() => {
                             const cache = ledgerCache[activeLedgerAcc.id.toString()];
-                            if (!cache || !cache.lastUpdatedTimestamp) return null;
-                            const secondsAgo = Math.max(0, Math.floor((currentTick - cache.lastUpdatedTimestamp) / 1000));
-                            const isFresh = secondsAgo < 10;
+                            if (!cache || !cache.timestamp) return null;
+                            const isFresh = (Date.now() - cache.timestamp) < 10000;
                             const terminalNameStr = cache.cachedByTerminalName || 'System';
 
                             return (
@@ -5444,7 +5565,9 @@ function App() {
                                 }`}
                                 title={`Version: ${cache.cacheVersion || 0}`}>
                                 <span className={`w-1.5 h-1.5 rounded-full ${isFresh ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-                                <span>Updated by {terminalNameStr} {secondsAgo}s ago</span>
+                                <span>Updated by {terminalNameStr} {(() => {
+                                  return <><LiveTimer startTime={cache.timestamp} mode="ago" />s ago</>;
+                                })()}</span>
                               </div>
                             );
                           })()}
@@ -5678,20 +5801,16 @@ function App() {
 
                         {/* Sync Info / Metadata */}
                         <div className="flex flex-wrap items-center gap-3 font-mono text-[11px]">
-                          <span className={`${isSyncing ? 'text-zinc-300' : 'text-zinc-500'}`}>
+                          <span className="font-mono text-zinc-500 font-bold tabular-nums">
                             {isSyncing && syncStartTimeRef.current
-                              ? `${((currentTick - syncStartTimeRef.current) / 1000).toFixed(1)}s`
+                              ? <><LiveTimer startTime={syncStartTimeRef.current} mode="elapsed" /></>
                               : (syncTimeElapsed !== null ? `${(syncTimeElapsed / 1000).toFixed(1)}s` : '0.0s')}
                           </span>
                           <span className="text-zinc-700">|</span>
                           <span className="text-zinc-500">Since last sync: <span className={`${!isSyncing ? 'text-zinc-300' : 'text-zinc-500'}`}>
-                            {cache.lastUpdatedTimestamp ? (() => {
-                              const diffSeconds = Math.floor((currentTick - cache.lastUpdatedTimestamp) / 1000);
-                              const h = Math.floor(diffSeconds / 3600);
-                              const m = Math.floor((diffSeconds % 3600) / 60);
-                              const s = diffSeconds % 60;
-                              return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-                            })() : '00:00:00'}
+                            {cache.lastUpdatedTimestamp ? (
+                              <LiveTimer startTime={cache.lastUpdatedTimestamp} mode="hms" />
+                            ) : '00:00:00'}
                           </span></span>
                           <span className="text-zinc-700">|</span>
                           <span className="text-zinc-500">{cache.lastUpdated !== 'Never' ? cache.lastUpdated : 'Never synced'}</span>
@@ -5723,87 +5842,24 @@ function App() {
                                   </tr>
                                 </thead>
                                 <tbody className="divide-y divide-zinc-900/60">
-                                  {paginatedTransactions.map((tx) => {
-                                    const getTxKey = (t: typeof tx) => {
-                                      return `${t.date}-${t.amount}-${t.details}-${t.runningBalance || ''}`;
-                                    };
+                                  {paginatedTransactions.map((tx: LedgerTransaction) => {
+                                    const getTxKey = (t: typeof tx) => `${t.date}-${t.amount}-${t.details}-${t.runningBalance || ''}`;
                                     const txKey = getTxKey(tx);
-                                    const rowKey = txKey;
                                     const isNew = newTransactionKeys.has(txKey);
                                     const isCredit = tx.amount.startsWith('+');
-                                    const detailsParts = tx.details.split('\n');
-                                    const description = (detailsParts[0] || '').trim();
-                                    const details = detailsParts.slice(1).join('\n').trim();
+                                    const isChecked = tx.hash ? checkedHashes.has(tx.hash) : false;
 
                                     return (
-                                      <tr key={rowKey} className={`hover:bg-white/[0.01] transition-colors group ${isNew ? 'animate-new-transaction' : ''}`}>
-                                        <td className="py-4 px-5 text-center align-middle">
-                                          {tx.hash && (
-                                            <button 
-                                              onClick={() => !checkedHashes.has(tx.hash!) && activeLedgerAcc && handleCheckTransaction(activeLedgerAcc.id.toString(), tx.hash!)}
-                                              className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
-                                                checkedHashes.has(tx.hash) 
-                                                  ? 'bg-emerald-500 border-emerald-500 text-white cursor-default' 
-                                                  : 'border-zinc-600 hover:border-emerald-400 text-transparent hover:text-zinc-600 cursor-pointer'
-                                              }`}
-                                              title={checkedHashes.has(tx.hash) ? 'Received' : 'Mark as Received'}
-                                            >
-                                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                              </svg>
-                                            </button>
-                                          )}
-                                        </td>
-                                        <td className="py-4 px-5 text-xs font-mono text-zinc-400 whitespace-nowrap align-middle">
-                                          {tx.date}
-                                        </td>
-                                        <td className="py-4 px-5 text-sm font-bold text-zinc-200 align-middle">
-                                          <div className="flex items-center gap-3">
-                                            {getTransactionIcon(description)}
-                                            <span>{description}</span>
-                                          </div>
-                                        </td>
-                                        <td className="py-4 px-5 text-xs text-zinc-400 font-mono whitespace-pre-line leading-relaxed align-middle break-all max-w-sm">
-                                          {details || <span className="text-zinc-600 italic">-</span>}
-                                          {activeLedgerAcc?.bank_name === 'BML' && (
-                                            <div className="mt-2 text-zinc-300">
-                                              {(() => {
-                                                const ref = tx.reference || (tx.details?.match(/(BLZ|FT)\d+/i)?.[0]);
-                                                if (ref) {
-                                                  return (
-                                                    <div className="inline-flex items-center gap-2 bg-zinc-900 px-2 py-1 rounded">
-                                                      <span className="font-semibold">{ref}</span>
-                                                      <button
-                                                        onClick={() => {
-                                                          navigator.clipboard.writeText(ref);
-                                                        }}
-                                                        className="text-zinc-500 hover:text-white transition-colors cursor-pointer"
-                                                        title="Copy Reference"
-                                                      >
-                                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                                        </svg>
-                                                      </button>
-                                                    </div>
-                                                  );
-                                                }
-                                                return null;
-                                              })()}
-                                            </div>
-                                          )}
-                                        </td>
-                                        <td className="py-4 px-5 text-right align-middle whitespace-nowrap">
-                                          <div className={`font-mono font-extrabold text-base ${isCredit ? 'text-emerald-400' : 'text-red-400'
-                                            }`}>
-                                            {formatAmount(tx.amount)}
-                                          </div>
-                                          {permissions.ledger_show_balance && tx.runningBalance && (
-                                            <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1 uppercase">
-                                              Bal {formatAmount(tx.runningBalance)}
-                                            </div>
-                                          )}
-                                        </td>
-                                      </tr>
+                                      <TransactionRow
+                                        key={txKey}
+                                        tx={tx}
+                                        isNew={isNew}
+                                        isCredit={isCredit}
+                                        isChecked={isChecked}
+                                        activeLedgerAcc={activeLedgerAcc}
+                                        permissions={permissions}
+                                        handleCheckTransaction={handleCheckTransaction}
+                                      />
                                     );
                                   })}
                                 </tbody>
