@@ -293,7 +293,7 @@ chrome.runtime.onConnectExternal.addListener((port) => {
             }
           } else {
             if (payload.bmlLoginProcedure === 'api') {
-              await runBmlApiFlow(payload.credentials, targetAcc, payload.accountName, port, payload.amount, payload.bmlProfileType || '0', mode, sessionMode, payload.bmlAuthState, payload.hardwareId, payload.backendUrl);
+              await runBmlApiFlow(payload.credentials, targetAcc, payload.accountName, port, payload.amount, payload.bmlProfileType || '0', mode, sessionMode, payload.bmlAuthState, payload.hardwareId, payload.backendUrl, payload.bmlInternalId);
             } else {
               await runBmlFlow(payload.credentials, targetAcc, port, payload.amount, mode, sessionMode);
             }
@@ -318,7 +318,7 @@ chrome.runtime.onConnectExternal.addListener((port) => {
             if (bmlLoginProcedure === 'api') {
               const bmlAuthState = heldSession ? heldSession.bmlAuthState : req.bml_auth_state;
               const bmlProfileType = heldSession ? (heldSession.bmlProfileType || '0') : (req.bml_profile_type || '0');
-              await runBmlApiFlow(payload.credentials, targetAcc, req.account_name, port, req.target_amount || '1.00', bmlProfileType, req.request_type, 'fetch_only', bmlAuthState, req.hardware_id || payload.hardwareId, req.backend_url || payload.backendUrl);
+              await runBmlApiFlow(payload.credentials, targetAcc, req.account_name, port, req.target_amount || '1.00', bmlProfileType, req.request_type, 'fetch_only', bmlAuthState, req.hardware_id || payload.hardwareId, req.backend_url || payload.backendUrl, req.bml_internal_id || payload.bmlInternalId);
             } else {
               await runBmlFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', req.request_type, 'fetch_only');
             }
@@ -3283,7 +3283,7 @@ async function getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bml
 // -------------------------------------------------------------
 // BML API Background Flow (Browser OTP + Persistent Session)
 // -------------------------------------------------------------
-async function runBmlApiFlow(credentials, targetAccount, accountName, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', bmlAuthState = null, payloadHardwareId = '', payloadBackendUrl = '') {
+async function runBmlApiFlow(credentials, targetAccount, accountName, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', bmlAuthState = null, payloadHardwareId = '', payloadBackendUrl = '', payloadBmlInternalId = null) {
   emitLog(port, `> [BML-API] Starting API auth flow (sessionMode: ${sessionMode}, profileType: ${profileType})...`);
   let last3Txs = [];
   let loginSuccess = false;
@@ -3342,8 +3342,36 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     };
 
     // --- FETCH DATA ---
-    // User requested to skip dashboard to save time/requests. We use the targetAccount directly for the History API.
-    const accountInternalId = targetAccount;
+    let accountInternalId = payloadBmlInternalId;
+
+    if (!accountInternalId) {
+      emitLog(port, `> [BML-API] Internal ID not provided. Fetching dashboard to resolve account UUID...`);
+      const dashRes = await authFetch(`${BASE_URL}/api/mobile/dashboard`);
+      if (dashRes.status !== 200) {
+        throw new Error(`Failed to load dashboard (HTTP ${dashRes.status}). Maybe token expired.`);
+      }
+      
+      const dashData = await dashRes.json();
+      if (!dashData.success || !dashData.payload || !dashData.payload.dashboard) {
+        throw new Error("Invalid dashboard response format.");
+      }
+      
+      let accountObj = null;
+      for (const group of dashData.payload.dashboard) {
+        const found = group.accounts.find(a => a.account.replace(/[^0-9]/g, '') === targetAccount.replace(/[^0-9]/g, ''));
+        if (found) {
+            accountObj = found;
+            break;
+        }
+      }
+      if (!accountObj) {
+        throw new Error(`Account ${targetAccount} not found on this BML profile.`);
+      }
+      accountInternalId = accountObj.id;
+      emitLog(port, `> [BML-API] Resolved account UUID: ${accountInternalId}`);
+    } else {
+      emitLog(port, `> [BML-API] Skipping dashboard fetch. Using provided internal ID: ${accountInternalId}`);
+    }
 
     // Fetch history
     emitLog(port, `> [BML-API] Fetching today's history from: ${BASE_URL}/api/mobile/account/${accountInternalId}/history/today`);
@@ -3465,6 +3493,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
         match: null,
         transactions: formattedTxs,
         balance: currentBalance,
+        internal_id: accountInternalId,
         login_success: true
       });
       return;
@@ -3487,6 +3516,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
         match: match,
         transactions: formattedTxs,
         balance: currentBalance,
+        internal_id: accountInternalId,
         login_success: true
       });
     } else {
