@@ -3599,6 +3599,9 @@ async function executeMibSfunc(sfunc, dataPayload, key1, key2) {
   const encrypted = blowfishEncrypt(JSON.stringify(dataPayload), key1);
   const formBody = `key2=${encodeURIComponent(key2)}&sfunc=${sfunc}&data=${encodeURIComponent(encrypted)}`;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
   const resp = await fetch('https://faisanet.mib.com.mv/faisamobilex_smvc/', {
     method: 'POST',
     headers: {
@@ -3606,7 +3609,10 @@ async function executeMibSfunc(sfunc, dataPayload, key1, key2) {
       'User-Agent': 'android/1.0',
     },
     body: formBody,
+    signal: controller.signal
   });
+  
+  clearTimeout(timeoutId);
 
   const cipherBody = await resp.text();
   if (!cipherBody) throw new Error("Empty response from MIB API");
@@ -3637,8 +3643,11 @@ async function fetchMibUserSalt(sessionState, username) {
 }
 
 async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUsername, sanctumToken, password, hardwareId) {
-  const port = activePort;
-  if(port) emitLog(port, '> [MIB-API] Starting MIB API auth flow...');
+  return Promise.race([
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Extension Auth Flow internal timeout after 20s")), 20000)),
+    (async () => {
+      const port = activePort;
+      if(port) emitLog(port, '> [MIB-API] Starting MIB API auth flow...');
   
   // 1. Get or Generate AppId
   let storedAppId = null;
@@ -3778,6 +3787,8 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
   } else {
     return await doRegistrationFlow();
   }
+    })()
+  ]);
 }
 
 async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsername, sanctumToken) {
