@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, KeyRound, Download, FileText } from 'lucide-react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, KeyRound, Download, FileText, Check } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import CryptoJS from 'crypto-js';
 
@@ -147,6 +147,7 @@ interface LedgerTransaction {
   runningBalance?: string;
   hash?: string;
   reference?: string;
+  narrative3?: string;
 }
 
 interface LedgerData {
@@ -253,24 +254,40 @@ const TransactionRow = React.memo(({
 }) => {
   const detailsParts = (tx.details || '').split('\n');
   const description = (detailsParts[0] || '').trim();
-  const details = detailsParts.slice(1).join('\n').trim();
+  let details = detailsParts.slice(1).join('\n').trim();
+
+  // Extract BML references
+  let refs: string[] = [];
+  if (activeLedgerAcc?.bank_name === 'BML') {
+    const combinedText = `${tx.reference || ''} ${tx.details || ''}`;
+    refs = Array.from(new Set(combinedText.match(/(?:BLZ|BLAZ|FT)[A-Za-z0-9\\]+/gi) || []));
+    
+    const fallbackRef = tx.reference && tx.reference.trim().length > 4 && !tx.reference.toLowerCase().includes('ansfer') && !tx.reference.toLowerCase().includes('transfer') ? tx.reference : null;
+    if (refs.length === 0 && fallbackRef) refs.push(fallbackRef);
+
+    // Remove chips from the plain text details to avoid duplication
+    refs.forEach(ref => {
+      details = details.replace(new RegExp(`Ref:?\\s*${ref.replace(/\\/g, '\\\\')}`, 'gi'), '');
+      details = details.replace(new RegExp(ref.replace(/\\/g, '\\\\'), 'gi'), '');
+    });
+    details = details.replace(/^\s*[\r\n]/gm, '').trim(); // clean up empty lines
+  }
 
   return (
-    <tr className={`hover:bg-white/[0.01] transition-colors group ${isNew ? 'animate-new-transaction' : ''}`}>
+    <tr className={`hover:bg-white/[0.01] transition-colors group ${isNew ? 'animate-new-transaction' : ''} ${isChecked ? 'opacity-40 bg-black/20' : ''}`}>
       <td className="py-4 px-5 text-center align-middle">
         {tx.hash && (
           <button 
             onClick={() => !isChecked && activeLedgerAcc && handleCheckTransaction(activeLedgerAcc.id.toString(), tx.hash!)}
             className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
               isChecked 
-                ? 'bg-emerald-500 border-emerald-500 text-white cursor-default' 
-                : 'border-zinc-600 hover:border-emerald-400 text-transparent hover:text-zinc-600 cursor-pointer'
+                ? 'bg-emerald-500 border-emerald-500 text-black' 
+                : 'border-zinc-700 text-transparent hover:border-emerald-500/50'
             }`}
-            title={isChecked ? 'Received' : 'Mark as Received'}
+            disabled={isChecked}
+            title={isChecked ? "Checked" : "Mark as checked"}
           >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
+            <Check size={14} strokeWidth={3} />
           </button>
         )}
       </td>
@@ -278,40 +295,34 @@ const TransactionRow = React.memo(({
         {tx.date}
       </td>
       <td className="py-4 px-5 text-sm font-bold text-zinc-200 align-middle">
-        <div className="flex items-center gap-3">
-          {getTransactionIcon(description)}
-          <span>{description}</span>
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5">{getTransactionIcon(description)}</div>
+          <div className="flex flex-col">
+            <span>{description}</span>
+            {tx.narrative3 && (
+              <span className="text-xs font-medium text-zinc-400 mt-1">{tx.narrative3}</span>
+            )}
+          </div>
         </div>
       </td>
       <td className="py-4 px-5 text-xs text-zinc-400 font-mono whitespace-pre-line leading-relaxed align-middle break-all max-w-sm">
-        {details || <span className="text-zinc-600 italic">-</span>}
-        {activeLedgerAcc?.bank_name === 'BML' && (
-          <div className="mt-2 flex flex-wrap gap-2 text-zinc-300">
-            {(() => {
-              const combinedText = `${tx.reference || ''} ${tx.details || ''}`;
-              const refs = Array.from(new Set(combinedText.match(/(?:BLZ|BLAZ|FT)[A-Za-z0-9\\]+/gi) || []));
-              
-              const fallbackRef = tx.reference && tx.reference.trim().length > 4 && !tx.reference.toLowerCase().includes('ansfer') && !tx.reference.toLowerCase().includes('transfer') ? tx.reference : null;
-              if (refs.length === 0 && fallbackRef) refs.push(fallbackRef);
-              
-              if (refs.length > 0) {
-                return refs.map((ref, idx) => (
-                  <div key={idx} className="inline-flex items-center gap-2 bg-zinc-900 px-2 py-1 rounded">
-                    <span className="font-semibold">{ref}</span>
-                    <button
-                      onClick={() => navigator.clipboard.writeText(ref)}
-                      className="text-zinc-500 hover:text-white transition-colors cursor-pointer"
-                      title="Copy Reference"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
-                    </button>
-                  </div>
-                ));
-              }
-              return null;
-            })()}
+        {details || (!refs.length && <span className="text-zinc-600 italic">-</span>)}
+        {activeLedgerAcc?.bank_name === 'BML' && refs.length > 0 && (
+          <div className={`flex flex-wrap gap-2 text-zinc-300 ${details ? 'mt-2' : ''}`}>
+            {refs.map((ref, idx) => (
+              <div key={idx} className="inline-flex items-center gap-2 bg-zinc-900 px-2 py-1 rounded">
+                <span className="font-semibold">{ref}</span>
+                <button
+                  onClick={() => navigator.clipboard.writeText(ref)}
+                  className="text-zinc-500 hover:text-white transition-colors cursor-pointer"
+                  title="Copy Reference"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </td>
@@ -382,6 +393,8 @@ function App() {
       amount: string;
       runningBalance?: string;
       reference?: string;
+      narrative3?: string;
+      hash?: string;
     }[];
     label: string;
     lastUpdated: string;
@@ -477,7 +490,7 @@ function App() {
   // Removed currentTick state for performance
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.41";
+  const LATEST_EXTENSION_VERSION = "1.2.42";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -3228,7 +3241,14 @@ function App() {
             return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || ''}`;
           };
 
-          const newTxs = response.transactions || [];
+          let newTxs = response.transactions || [];
+          newTxs = await Promise.all(newTxs.map(async (tx: any) => {
+            if (!tx.hash) {
+              const rawStr = `${targetAccountId}|${tx.date || ''}|${tx.amount || ''}|${tx.details || ''}|${tx.reference || ''}`;
+              tx.hash = await sha256(rawStr);
+            }
+            return tx;
+          }));
           const currentKeys = new Set(
             ledgerCache[targetAccountId]?.transactions?.map((tx) => getTxKey(tx)) || []
           );
@@ -3243,59 +3263,53 @@ function App() {
             });
           }
 
-          // Push the newly scraped data to the server cache (ZK compliance: credentials never sent)
-          if (operationMode === 'Single Counter' || operationMode === 'Single Terminal') {
-            addLog("> [System] Single Terminal Mode - skipping shared cache push.");
-          } else {
-            try {
-              addLog("> [System] Pushing scraped transactions to Viri shared cache...");
-              await fetch(`${backendUrl}/terminal/ledger-cache/push`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  hardware_id: hardwareId,
-                  bank_account_id: parseInt(targetAccountId),
-                  balance: response.balance || 'Not found',
-                  transactions: newTxs,
-                  request_id: requestId
-                })
-              });
-              addLog("> [System] Shared cache push succeeded.");
-            } catch (pushErr: any) {
-              console.error("Failed to push cache to server:", pushErr);
-              addLog(`> [System] Shared cache push failed: ${pushErr.message}`);
-            }
+          // Unconditionally push the newly scraped data to the server cache so it gets saved to the permanent ledger and we can use status checkboxes
+          try {
+            addLog("> [System] Pushing scraped transactions to Viri shared cache...");
+            await fetch(`${backendUrl}/terminal/ledger-cache/push`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                hardware_id: hardwareId,
+                bank_account_id: parseInt(targetAccountId),
+                balance: response.balance || 'Not found',
+                transactions: newTxs,
+                request_id: requestId
+              })
+            });
+            addLog("> [System] Shared cache push succeeded.");
+          } catch (pushErr: any) {
+            console.error("Failed to push cache to server:", pushErr);
+            addLog(`> [System] Shared cache push failed: ${pushErr.message}`);
           }
 
-          // Fetch latest from server to get hashed transactions if sharing cache
-          if (operationMode !== 'Single Counter' && operationMode !== 'Single Terminal') {
-            try {
-              const res = await fetch(`${backendUrl}/terminal/ledger-cache/${targetAccountId}?hardware_id=${hardwareId}`);
-              if (res.ok) {
-                const serverData = await res.json();
-                setLedgerCache(prev => ({
-                  ...prev,
-                  [targetAccountId]: serverData
-                }));
-              } else {
-                throw new Error("Failed to fetch updated ledger cache");
+          // Fetch latest from server to get hashed transactions (important for checkboxes)
+          try {
+            const res = await fetch(`${backendUrl}/terminal/ledger-cache/${targetAccountId}?hardware_id=${hardwareId}`);
+            if (res.ok) {
+              const serverData = await res.json();
+              if (serverData.checked_hashes) {
+                setCheckedHashes(prev => {
+                  const next = new Set(prev);
+                  serverData.checked_hashes.forEach((h: string) => next.add(h));
+                  return next;
+                });
               }
-            } catch (e) {
-              console.error("Local sync fallback", e);
-              // Fallback Update local state ledger cache
               setLedgerCache(prev => ({
                 ...prev,
-                [targetAccountId]: {
-                  balance: response.balance || 'Not found',
-                  lastUpdated: new Date().toLocaleTimeString(),
-                  lastUpdatedTimestamp: Date.now(),
-                  transactions: newTxs,
-                  isFromServerCache: true
-                }
+                [targetAccountId]: serverData
               }));
+              
+              // Also update recentTxs from serverData so they share the exact hashes
+              if (serverData.transactions) {
+                newTxs = serverData.transactions;
+              }
+            } else {
+              throw new Error("Failed to fetch updated ledger cache");
             }
-          } else {
-            // In Single Terminal mode, just use local state directly since we skipped server push
+          } catch (e) {
+            console.error("Local sync fallback", e);
+            // Fallback Update local state ledger cache
             setLedgerCache(prev => ({
               ...prev,
               [targetAccountId]: {
@@ -3303,7 +3317,7 @@ function App() {
                 lastUpdated: new Date().toLocaleTimeString(),
                 lastUpdatedTimestamp: Date.now(),
                 transactions: newTxs,
-                isFromServerCache: false
+                isFromServerCache: true
               }
             }));
           }
@@ -5314,14 +5328,31 @@ function App() {
                             {lastTransactions.map((tx) => {
                               const getTxKey = (t: typeof tx) => {
                                 return `${t.date}-${t.amount}-${t.details}-${t.runningBalance || ''}`;
-                              };
+                                    };
                               const txKey = getTxKey(tx);
                               const rowKey = txKey;
                               const isNew = newTransactionKeys.has(txKey);
                               const isCredit = tx.amount.startsWith('+');
                               const detailsParts = tx.details.split('\n');
                               const description = (detailsParts[0] || '').trim();
-                              const details = detailsParts.slice(1).join('\n').trim();
+                              let details = detailsParts.slice(1).join('\n').trim();
+
+                              // Extract BML references
+                              let refs: string[] = [];
+                              if (selectedAccount?.bank_name === 'BML') {
+                                const combinedText = `${tx.reference || ''} ${tx.details || ''}`;
+                                refs = Array.from(new Set(combinedText.match(/(?:BLZ|BLAZ|FT)[A-Za-z0-9\\]+/gi) || []));
+                                
+                                const fallbackRef = tx.reference && tx.reference.trim().length > 4 && !tx.reference.toLowerCase().includes('ansfer') && !tx.reference.toLowerCase().includes('transfer') ? tx.reference : null;
+                                if (refs.length === 0 && fallbackRef) refs.push(fallbackRef);
+
+                                // Remove chips from the plain text details to avoid duplication
+                                refs.forEach(ref => {
+                                  details = details.replace(new RegExp(`Ref:?\\s*${ref.replace(/\\/g, '\\\\')}`, 'gi'), '');
+                                  details = details.replace(new RegExp(ref.replace(/\\/g, '\\\\'), 'gi'), '');
+                                });
+                                details = details.replace(/^\s*[\r\n]/gm, '').trim(); // clean up empty lines
+                              }
 
                               return (
                                 <tr key={rowKey} className={`hover:bg-zinc-800/50 transition-colors group ${isNew ? 'animate-new-transaction' : ''}`}>
@@ -5329,37 +5360,31 @@ function App() {
                                     {tx.date}
                                   </td>
                                   <td className="px-4 py-3.5 text-xs font-semibold text-zinc-200 align-top">
-                                    {description}
+                                    <div className="flex flex-col">
+                                      <span>{description}</span>
+                                      {tx.narrative3 && (
+                                        <span className="text-[11px] font-medium text-zinc-400 mt-0.5">{tx.narrative3}</span>
+                                      )}
+                                    </div>
                                   </td>
                                   <td className="px-4 py-3.5 text-[11px] text-zinc-400 font-mono whitespace-pre-line leading-relaxed align-top break-words max-w-xs lg:max-w-md">
-                                    {details || <span className="text-zinc-600 italic">-</span>}
-                                    {selectedAccount?.bank_name === 'BML' && (
-                                      <div className="mt-2 flex flex-wrap gap-2 text-zinc-300">
-                                        {(() => {
-                                          const combinedText = `${tx.reference || ''} ${tx.details || ''}`;
-                                          const refs = Array.from(new Set(combinedText.match(/(?:BLZ|BLAZ|FT)[A-Za-z0-9\\]+/gi) || []));
-                                          
-                                          const fallbackRef = tx.reference && tx.reference.trim().length > 4 && !tx.reference.toLowerCase().includes('ansfer') && !tx.reference.toLowerCase().includes('transfer') ? tx.reference : null;
-                                          if (refs.length === 0 && fallbackRef) refs.push(fallbackRef);
-                                          
-                                          if (refs.length > 0) {
-                                            return refs.map((ref, idx) => (
-                                              <div key={idx} className="inline-flex items-center gap-2 bg-zinc-900 px-2 py-1 rounded">
-                                                <span className="font-semibold text-zinc-300">{ref}</span>
-                                                <button
-                                                  onClick={() => navigator.clipboard.writeText(ref)}
-                                                  className="text-zinc-500 hover:text-white transition-colors cursor-pointer"
-                                                  title="Copy Reference"
-                                                >
-                                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                                  </svg>
-                                                </button>
-                                              </div>
-                                            ));
-                                          }
-                                          return null;
-                                        })()}
+                                    {details || (!refs.length && <span className="text-zinc-600 italic">-</span>)}
+                                    {selectedAccount?.bank_name === 'BML' && refs.length > 0 && (
+                                      <div className={`flex flex-wrap gap-2 text-zinc-300 ${details ? 'mt-2' : ''}`}>
+                                        {refs.map((ref, idx) => (
+                                          <div key={idx} className="inline-flex items-center gap-2 bg-zinc-900 px-2 py-1 rounded">
+                                            <span className="font-semibold">{ref}</span>
+                                            <button
+                                              onClick={() => navigator.clipboard.writeText(ref)}
+                                              className="text-zinc-500 hover:text-white transition-colors cursor-pointer"
+                                              title="Copy Reference"
+                                            >
+                                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                              </svg>
+                                            </button>
+                                          </div>
+                                        ))}
                                       </div>
                                     )}
                                   </td>
@@ -6020,16 +6045,6 @@ function App() {
                                   <span>Save Report</span>
                                 </button>
 
-                                {/* Force Full Sync Button */}
-                                <button
-                                  onClick={() => syncLedger(activeLedgerAcc.id.toString(), true)}
-                                  disabled={isSyncing || isLockedByVerify || subscriptionExpired}
-                                  className="bg-transparent hover:bg-zinc-800 text-zinc-400 hover:text-white font-semibold text-[10px] px-2.5 py-1.5 rounded-md border border-zinc-800 hover:border-zinc-700 flex items-center gap-1.5 transition-all disabled:opacity-40"
-                                  title="Bypass shared cache and force direct bank authentication sync"
-                                >
-                                  <AlertTriangle size={12} className="text-amber-500/80" />
-                                  <span>Force Sync</span>
-                                </button>
                               </div>
                             </div>
                           </div>

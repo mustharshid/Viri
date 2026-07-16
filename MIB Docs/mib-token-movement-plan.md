@@ -1,5 +1,7 @@
 # MIB Token Movement — Implementation Plan
 
+- **Base URL**: `https://git.shihaam.dev/shihaam/thijooree/src/branch/main/docs/mibapi` with comprehensive documentation. 
+
 Follows the same methodology as BML: PWA does the login, saves tokens locally and on the server, then uses them for API calls via the extension.
 
 ---

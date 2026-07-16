@@ -533,9 +533,6 @@ function normalizeTransactions(rawTxList, bankType, limit = 50) {
       }
     } else {
       details = tx.description || tx.remarks || tx.narrative || tx.particulars || 'Transaction';
-      if (bankType === 'BML' && tx.narrative3 && tx.narrative3.trim()) {
-        details += ` - ${tx.narrative3.trim()}`;
-      }
     }
 
     if (typeof details === 'string') {
@@ -614,7 +611,8 @@ function normalizeTransactions(rawTxList, bankType, limit = 50) {
       }
     }
     
-    return { date, details, amount: formattedAmount, runningBalance: formattedRunningBal, reference: refTrimmed || '' };
+    const narrative3Trimmed = tx.narrative3 ? String(tx.narrative3).trim() : '';
+    return { date, details, amount: formattedAmount, runningBalance: formattedRunningBal, reference: refTrimmed || '', narrative3: narrative3Trimmed };
   });
 }
 
