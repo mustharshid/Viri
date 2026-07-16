@@ -324,6 +324,7 @@ Route::get('/terminal/ledger-cache/{account_id}',               [LedgerCacheCont
 Route::post('/terminal/ledger-cache/push',                      [LedgerCacheController::class, 'pushCache']);
 Route::post('/terminal/ledger-cache/request-refresh',           [LedgerCacheController::class, 'requestRefresh']);
 Route::post('/terminal/session/acknowledge',                    [LedgerCacheController::class, 'acknowledge']);
+Route::post('/terminal/transaction/check',                      [LedgerCacheController::class, 'checkTransaction']);
 
 
 Route::post('/terminal/update-pin', function (Request $request) {

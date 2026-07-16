@@ -144,6 +144,8 @@ interface LedgerTransaction {
   details: string;
   amount: string;
   runningBalance?: string;
+  hash?: string;
+  reference?: string;
 }
 
 interface LedgerData {
@@ -636,6 +638,12 @@ function App() {
             detail: payload
           });
           window.dispatchEvent(customEvent);
+        } else if (eventType === 'transaction_checked') {
+          setCheckedHashes(prev => {
+            const next = new Set(prev);
+            next.add(payload.hash);
+            return next;
+          });
         }
       } catch (err: any) {
         console.error("Realtime event process failed:", err);
@@ -720,6 +728,8 @@ function App() {
     const saved = localStorage.getItem('viri_ledger_cache');
     return saved ? JSON.parse(saved) : {};
   });
+
+  const [checkedHashes, setCheckedHashes] = useState<Set<string>>(new Set());
 
   const handleSaveReport = async () => {
     if (!hardwareId || !backendUrl) return;
@@ -3313,6 +3323,13 @@ function App() {
         const res = await fetch(`${backendUrl}/terminal/ledger-cache/${targetAccountId}?hardware_id=${hardwareId}`);
         if (res.ok) {
           cacheData = await res.json();
+          if (cacheData.checked_hashes) {
+            setCheckedHashes(prev => {
+              const next = new Set(prev);
+              cacheData.checked_hashes.forEach((h: string) => next.add(h));
+              return next;
+            });
+          }
         }
       } catch (e: any) {
         addLog(`> [Cache] Read failed: ${e.message}`);
@@ -3483,6 +3500,13 @@ function App() {
           const finalRes = await fetch(`${backendUrl}/terminal/ledger-cache/${targetAccountId}?hardware_id=${hardwareId}`);
           if (finalRes.ok) {
             const finalCache = await finalRes.json();
+            if (finalCache.checked_hashes) {
+              setCheckedHashes(prev => {
+                const next = new Set(prev);
+                finalCache.checked_hashes.forEach((h: string) => next.add(h));
+                return next;
+              });
+            }
             const finalTxs = finalCache.transactions || [];
 
             setLedgerCache(prev => ({
@@ -5177,6 +5201,42 @@ function App() {
               const paginatedTransactions = filteredTransactions.slice(startIndex, startIndex + ledgerPageSize);
 
               // Helper function to return icon based on transaction description
+              const handleCheckTransaction = async (accountId: string, hash: string) => {
+                if (!hardwareId || !backendUrl) return;
+                
+                // Optimistic UI update
+                setCheckedHashes(prev => {
+                  const next = new Set(prev);
+                  next.add(hash);
+                  return next;
+                });
+
+                try {
+                  const res = await fetch(`${backendUrl}/terminal/transaction/check`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      hardware_id: hardwareId,
+                      bank_account_id: parseInt(accountId),
+                      hash: hash
+                    })
+                  });
+                  if (!res.ok) {
+                    const d = await res.json().catch(() => ({}));
+                    throw new Error(d.error || 'Failed to check transaction');
+                  }
+                } catch (err: any) {
+                  console.error(err);
+                  // Revert if failed
+                  setCheckedHashes(prev => {
+                    const next = new Set(prev);
+                    next.delete(hash);
+                    return next;
+                  });
+                  alert('Failed to mark transaction as received: ' + err.message);
+                }
+              };
+
               const getTransactionIcon = (description: string) => {
                 const descLower = description.toLowerCase();
                 if (descLower.includes('annual') || descLower.includes('fee') || descLower.includes('charge')) {
@@ -5655,6 +5715,7 @@ function App() {
                               <table className="w-full text-left border-collapse">
                                 <thead>
                                   <tr className="border-b border-zinc-800 text-[10px] text-zinc-500 uppercase tracking-wider font-bold">
+                                    <th className="py-4 px-5 font-semibold w-12 text-center">Status</th>
                                     <th className="py-4 px-5 font-semibold">Date & Time</th>
                                     <th className="py-4 px-5 font-semibold">Description</th>
                                     <th className="py-4 px-5 font-semibold">Details / Meta</th>
@@ -5676,6 +5737,23 @@ function App() {
 
                                     return (
                                       <tr key={rowKey} className={`hover:bg-white/[0.01] transition-colors group ${isNew ? 'animate-new-transaction' : ''}`}>
+                                        <td className="py-4 px-5 text-center align-middle">
+                                          {tx.hash && (
+                                            <button 
+                                              onClick={() => !checkedHashes.has(tx.hash!) && activeLedgerAcc && handleCheckTransaction(activeLedgerAcc.id.toString(), tx.hash!)}
+                                              className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
+                                                checkedHashes.has(tx.hash) 
+                                                  ? 'bg-emerald-500 border-emerald-500 text-white cursor-default' 
+                                                  : 'border-zinc-600 hover:border-emerald-400 text-transparent hover:text-zinc-600 cursor-pointer'
+                                              }`}
+                                              title={checkedHashes.has(tx.hash) ? 'Received' : 'Mark as Received'}
+                                            >
+                                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                              </svg>
+                                            </button>
+                                          )}
+                                        </td>
                                         <td className="py-4 px-5 text-xs font-mono text-zinc-400 whitespace-nowrap align-middle">
                                           {tx.date}
                                         </td>
@@ -5687,6 +5765,32 @@ function App() {
                                         </td>
                                         <td className="py-4 px-5 text-xs text-zinc-400 font-mono whitespace-pre-line leading-relaxed align-middle break-all max-w-sm">
                                           {details || <span className="text-zinc-600 italic">-</span>}
+                                          {activeLedgerAcc?.bank_name === 'BML' && (
+                                            <div className="mt-2 text-zinc-300">
+                                              {(() => {
+                                                const ref = tx.reference || (tx.details?.match(/(BLZ|FT)\d+/i)?.[0]);
+                                                if (ref) {
+                                                  return (
+                                                    <div className="inline-flex items-center gap-2 bg-zinc-900 px-2 py-1 rounded">
+                                                      <span className="font-semibold">{ref}</span>
+                                                      <button
+                                                        onClick={() => {
+                                                          navigator.clipboard.writeText(ref);
+                                                        }}
+                                                        className="text-zinc-500 hover:text-white transition-colors cursor-pointer"
+                                                        title="Copy Reference"
+                                                      >
+                                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                                        </svg>
+                                                      </button>
+                                                    </div>
+                                                  );
+                                                }
+                                                return null;
+                                              })()}
+                                            </div>
+                                          )}
                                         </td>
                                         <td className="py-4 px-5 text-right align-middle whitespace-nowrap">
                                           <div className={`font-mono font-extrabold text-base ${isCredit ? 'text-emerald-400' : 'text-red-400'

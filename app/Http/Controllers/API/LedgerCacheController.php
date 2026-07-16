@@ -191,6 +191,7 @@ class LedgerCacheController extends Controller
             'is_live'               => $isLive,
             'holder_terminal_id'    => $isLive ? $account->session_holder_terminal_id : null,
             'holder_terminal_name'  => $holderName,
+            'checked_hashes'        => DB::table('bank_transactions')->where('bank_account_id', $account->id)->where('is_checked', true)->pluck('transaction_hash'),
         ]);
     }
 
@@ -283,6 +284,18 @@ class LedgerCacheController extends Controller
             $merged = collect(array_merge($incoming, $existing))
                 ->unique(function ($tx) {
                     return trim($tx['date'] ?? '') . '-' . trim($tx['amount'] ?? '') . '-' . trim($tx['details'] ?? '');
+                })
+                ->map(function ($tx) use ($account) {
+                    if (!isset($tx['hash'])) {
+                        $tx['hash'] = hash('sha256', implode('|', [
+                            $account->id,
+                            $tx['date'] ?? '',
+                            $tx['amount'] ?? '',
+                            $tx['details'] ?? '',
+                            $tx['reference'] ?? '',
+                        ]));
+                    }
+                    return $tx;
                 })
                 ->take(500)
                 ->values()
@@ -467,5 +480,69 @@ class LedgerCacheController extends Controller
         );
 
         return response()->json(['status' => 'ok']);
+    }
+
+    /**
+     * POST /api/terminal/transaction/check
+     */
+    public function checkTransaction(Request $request)
+    {
+        $request->validate([
+            'hardware_id'     => 'required|string',
+            'bank_account_id' => 'required|integer',
+            'hash'            => 'required|string',
+        ]);
+
+        $terminal = $this->resolveTerminal($request->hardware_id);
+        if (!$terminal) {
+            return response()->json(['error' => 'Terminal unauthorized'], 403);
+        }
+
+        $account = $this->resolveAccount((int) $request->bank_account_id, $terminal->tenant_id);
+        if (!$account) {
+            return response()->json(['error' => 'Bank account not found'], 404);
+        }
+
+        $tx = DB::table('bank_transactions')
+            ->where('bank_account_id', $account->id)
+            ->where('transaction_hash', $request->hash)
+            ->first();
+
+        if (!$tx) {
+            return response()->json(['error' => 'Transaction not found'], 404);
+        }
+
+        if ($tx->is_checked) {
+            return response()->json(['error' => 'Already checked'], 400);
+        }
+
+        DB::table('bank_transactions')
+            ->where('id', $tx->id)
+            ->update([
+                'is_checked' => true,
+                'checked_by' => $request->user()->id ?? null,
+                'updated_at' => now(),
+            ]);
+
+        // Broadcast to all OTHER active terminals in the tenant
+        $activeTerminals = \App\Models\Terminal::where('tenant_id', $terminal->tenant_id)
+            ->where('status', 'active')
+            ->where('id', '!=', $terminal->id)
+            ->get();
+
+        foreach ($activeTerminals as $t) {
+            \App\Models\TerminalEvent::create([
+                'tenant_id'          => $terminal->tenant_id,
+                'target_terminal_id' => $t->id,
+                'hardware_id'        => $t->hardware_id,
+                'event_type'         => 'transaction_checked',
+                'payload'            => [
+                    'hash'            => $request->hash,
+                    'bank_account_id' => $account->id,
+                ]
+            ]);
+        }
+
+        return response()->json(['success' => true]);
     }
 }
