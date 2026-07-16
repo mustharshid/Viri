@@ -3267,21 +3267,35 @@ function App() {
             }
           }
 
-          // Fetch latest from server to get hashed transactions
-          try {
-            const res = await fetch(`${backendUrl}/terminal/ledger-cache/${targetAccountId}?hardware_id=${hardwareId}`);
-            if (res.ok) {
-              const serverData = await res.json();
+          // Fetch latest from server to get hashed transactions if sharing cache
+          if (operationMode !== 'Single Counter' && operationMode !== 'Single Terminal') {
+            try {
+              const res = await fetch(`${backendUrl}/terminal/ledger-cache/${targetAccountId}?hardware_id=${hardwareId}`);
+              if (res.ok) {
+                const serverData = await res.json();
+                setLedgerCache(prev => ({
+                  ...prev,
+                  [targetAccountId]: serverData
+                }));
+              } else {
+                throw new Error("Failed to fetch updated ledger cache");
+              }
+            } catch (e) {
+              console.error("Local sync fallback", e);
+              // Fallback Update local state ledger cache
               setLedgerCache(prev => ({
                 ...prev,
-                [targetAccountId]: serverData
+                [targetAccountId]: {
+                  balance: response.balance || 'Not found',
+                  lastUpdated: new Date().toLocaleTimeString(),
+                  lastUpdatedTimestamp: Date.now(),
+                  transactions: newTxs,
+                  isFromServerCache: true
+                }
               }));
-            } else {
-              throw new Error("Failed to fetch updated ledger cache");
             }
-          } catch (e) {
-            console.error("Local sync fallback", e);
-            // Fallback Update local state ledger cache
+          } else {
+            // In Single Terminal mode, just use local state directly since we skipped server push
             setLedgerCache(prev => ({
               ...prev,
               [targetAccountId]: {
@@ -3289,7 +3303,7 @@ function App() {
                 lastUpdated: new Date().toLocaleTimeString(),
                 lastUpdatedTimestamp: Date.now(),
                 transactions: newTxs,
-                isFromServerCache: true
+                isFromServerCache: false
               }
             }));
           }
