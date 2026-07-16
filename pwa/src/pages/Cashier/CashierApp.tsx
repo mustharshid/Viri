@@ -474,7 +474,7 @@ function App() {
   // Removed currentTick state for performance
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.34";
+  const LATEST_EXTENSION_VERSION = "1.2.35";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);

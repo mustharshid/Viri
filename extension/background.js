@@ -3342,29 +3342,8 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     };
 
     // --- FETCH DATA ---
-    emitLog(port, `> [BML-API] Fetching dashboard data...`);
-    const dashboardRes = await authFetch(`${BASE_URL}/api/mobile/dashboard`);
-    
-    if (dashboardRes.status !== 200) {
-      throw new Error(`Dashboard API returned ${dashboardRes.status}. Session might be dropped.`);
-    }
-    
-    const dashboardData = await dashboardRes.json();
-    logApiDebug(port, dashboardData, 'BML-DASHBOARD');
-    if (!dashboardData.payload || !dashboardData.payload.dashboard) {
-      throw new Error("Invalid dashboard payload from BML API.");
-    }
-    
-    // Find account
-    const accounts = dashboardData.payload.dashboard;
-    const accountObj = accounts.find(a => a.account === targetAccount);
-    
-    if (!accountObj) {
-      throw new Error(`Target account ${targetAccount} not found on this BML profile.`);
-    }
-    
-    const accountInternalId = accountObj.id;
-    emitLog(port, `> [BML-API] Found account ${targetAccount} (ID: ${accountInternalId}). Current balance: ${accountObj.current_balance}`);
+    // User requested to skip dashboard to save time/requests. We use the targetAccount directly for the History API.
+    const accountInternalId = targetAccount;
 
     // Fetch history
     emitLog(port, `> [BML-API] Fetching today's history from: ${BASE_URL}/api/mobile/account/${accountInternalId}/history/today`);
@@ -3478,7 +3457,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
 
     const currentBalance = formattedTxs.length > 0 && formattedTxs[0].runningBalance
       ? formattedTxs[0].runningBalance 
-      : (accountObj.workingBalance || accountObj.availableBalance || accountObj.balance || '0.00');
+      : '0.00';
 
     if (mode === 'ledger' || mode === 'history') {
       port.postMessage({
