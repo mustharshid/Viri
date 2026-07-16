@@ -288,7 +288,7 @@ const TransactionRow = React.memo(({
           <div className="mt-2 text-zinc-300">
             {(() => {
               const combinedText = `${tx.reference || ''} ${tx.details || ''}`;
-              const bmlMatch = combinedText.match(/(BLZ|FT)\d+/i);
+              const bmlMatch = combinedText.match(/(BLZ|BLAZ|FT)[A-Za-z0-9\\]+/i);
               const fallbackRef = tx.reference && tx.reference.trim().length > 4 && !tx.reference.toLowerCase().includes('ansfer') && !tx.reference.toLowerCase().includes('transfer') ? tx.reference : null;
               const ref = bmlMatch ? bmlMatch[0] : fallbackRef;
               
@@ -474,7 +474,7 @@ function App() {
   // Removed currentTick state for performance
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.33";
+  const LATEST_EXTENSION_VERSION = "1.2.34";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -2398,7 +2398,7 @@ function App() {
           percent: 100,
           isIndeterminate: false
         });
-        setTimeout(() => {
+        setTimeout(async () => {
           setLoading(false);
           setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
           setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
@@ -2443,8 +2443,21 @@ function App() {
             }
           }));
 
-          // Update ledger cache
-          if (response.balance) {
+          // Fetch latest from server so we have hashed transactions (important for checkboxes)
+          if (response.balance && requestType === 'ledger') {
+            try {
+              const res = await fetch(`${backendUrl}/terminal/ledger-cache/${accountId}?hardware_id=${hardwareId}`);
+              if (res.ok) {
+                const serverData = await res.json();
+                setLedgerCache(prev => ({
+                  ...prev,
+                  [accountId]: serverData
+                }));
+              }
+            } catch (e) {
+              console.error("Failed to fetch updated ledger cache", e);
+            }
+          } else if (response.balance) {
             setLedgerCache(prev => {
               const prevAcc = prev[accountId] || {};
               return {
@@ -2454,7 +2467,7 @@ function App() {
                   balance: response.balance,
                   lastUpdated: new Date().toLocaleTimeString(),
                   lastUpdatedTimestamp: Date.now(),
-                  transactions: requestType === 'ledger' ? newTxs : (prevAcc.transactions || [])
+                  transactions: prevAcc.transactions || []
                 }
               };
             });
@@ -3198,17 +3211,32 @@ function App() {
             }
           }
 
-          // Update local state ledger cache
-          setLedgerCache(prev => ({
-            ...prev,
-            [targetAccountId]: {
-              balance: response.balance || 'Not found',
-              lastUpdated: new Date().toLocaleTimeString(),
-              lastUpdatedTimestamp: Date.now(),
-              transactions: newTxs,
-              isFromServerCache: true
+          // Fetch latest from server to get hashed transactions
+          try {
+            const res = await fetch(`${backendUrl}/terminal/ledger-cache/${targetAccountId}?hardware_id=${hardwareId}`);
+            if (res.ok) {
+              const serverData = await res.json();
+              setLedgerCache(prev => ({
+                ...prev,
+                [targetAccountId]: serverData
+              }));
+            } else {
+              throw new Error("Failed to fetch updated ledger cache");
             }
-          }));
+          } catch (e) {
+            console.error("Local sync fallback", e);
+            // Fallback Update local state ledger cache
+            setLedgerCache(prev => ({
+              ...prev,
+              [targetAccountId]: {
+                balance: response.balance || 'Not found',
+                lastUpdated: new Date().toLocaleTimeString(),
+                lastUpdatedTimestamp: Date.now(),
+                transactions: newTxs,
+                isFromServerCache: true
+              }
+            }));
+          }
 
           // Also update recent transactions cache with the top 3
           const accLabel = selectedAccount ? `${selectedAccount.bank_name} ${selectedAccount.account_number}` : '';

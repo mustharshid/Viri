@@ -3367,12 +3367,13 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     emitLog(port, `> [BML-API] Found account ${targetAccount} (ID: ${accountInternalId}). Current balance: ${accountObj.current_balance}`);
 
     // Fetch history
-    emitLog(port, `> [BML-API] Fetching today's history...`);
+    emitLog(port, `> [BML-API] Fetching today's history from: ${BASE_URL}/api/mobile/account/${accountInternalId}/history/today`);
     const historyRes = await authFetch(`${BASE_URL}/api/mobile/account/${accountInternalId}/history/today`);
     
     let pendingData = null;
     try {
       // Also fetch pending if available (not strictly in API doc, but good practice)
+      emitLog(port, `> [BML-API] Fetching pending history from: ${BASE_URL}/api/mobile/history/pending/${accountInternalId}`);
       const pendingRes = await authFetch(`${BASE_URL}/api/mobile/history/pending/${accountInternalId}`);
       if (pendingRes.status === 200) {
         pendingData = await pendingRes.json();
@@ -3396,6 +3397,11 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     // Format txs exactly like runBmlFlow format
     const formattedTxs = allTxs.map(tx => {
       let date = (tx.bookingDate || tx.date || '').replace(/\s+/g, ' ').trim();
+      
+      const parsedDate = parseBmlNarrativeDate(tx);
+      if (parsedDate) {
+        date = parsedDate;
+      }
       
       if (date) {
         try {
@@ -3426,6 +3432,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
         tx.narrative2,
         tx.narrative3,
         tx.narrative4,
+        tx.id,
         tx.reference
       ];
       for (const field of detailFields) {
@@ -3437,8 +3444,8 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
         }
       }
 
-      let refFallback = tx.reference || tx.trxNumber2 || tx.refNo || tx.ref;
-      let refMatch = details.match(/(?:REF|RRN|FT|TR|BLZ)\s*[:#\-]?\s*([A-Za-z0-9]+)/i);
+      let refFallback = tx.narrative2 || tx.id || tx.reference || tx.trxNumber2 || tx.refNo || tx.ref;
+      let refMatch = details.match(/(?:REF|RRN|FT|TR|BLZ|BLAZ)\s*[:#\-]?\s*([A-Za-z0-9\\]+)/i);
       let refTrimmed = refMatch ? refMatch[1] : (refFallback ? String(refFallback).trim() : '');
 
       let formattedAmount = '';
