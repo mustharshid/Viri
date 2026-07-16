@@ -12,8 +12,12 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('bank_transactions', function (Blueprint $table) {
-            $table->boolean('is_checked')->default(false);
-            $table->foreignId('checked_by')->nullable()->constrained('users');
+            if (!Schema::hasColumn('bank_transactions', 'is_checked')) {
+                $table->boolean('is_checked')->default(false);
+            }
+            if (!Schema::hasColumn('bank_transactions', 'checked_by')) {
+                $table->foreignId('checked_by')->nullable()->constrained('users');
+            }
         });
     }
 
