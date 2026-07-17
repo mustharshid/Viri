@@ -4397,7 +4397,7 @@ function App() {
                     const isBmlApiManaged = acc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
                     const isMibApiManaged = acc.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api';
                     const isApiManaged = isBmlApiManaged;
-                    const hasCreds = (isBmlApiManaged || isMibApiManaged) ? acc.has_api_token : !!(accountsCreds[acc.id.toString()]?.username);
+                    const hasCreds = acc.has_api_token || !!(accountsCreds[acc.id.toString()]?.username);
                     const isExpanded = expandedCredsAccountId === acc.id.toString();
 
                     return (
@@ -4459,18 +4459,16 @@ function App() {
                                 >
                                   {loading ? 'Opening...' : (hasCreds ? 'Login (Browser)' : 'Setup API Auth')}
                                 </button>
-                                {hasCreds && (
-                                  <button
-                                    className="text-xs text-red-400 hover:text-red-300 underline font-semibold px-2 py-1"
-                                    onClick={() => {
-                                      if (confirm(`Are you sure you want to clear credentials for account ${acc.account_name}?`)) {
-                                        clearAccountCredentials(acc.id.toString());
-                                      }
-                                    }}
-                                  >
-                                    Clear
-                                  </button>
-                                )}
+                                <button
+                                  className="text-xs text-red-400 hover:text-red-300 underline font-semibold px-2 py-1"
+                                  onClick={() => {
+                                    if (confirm(`Are you sure you want to clear credentials for account ${acc.account_name}?`)) {
+                                      clearAccountCredentials(acc.id.toString());
+                                    }
+                                  }}
+                                >
+                                  Clear
+                                </button>
                               </div>
                             )}
                             {!isExpanded && !isApiManaged && (
@@ -4495,18 +4493,16 @@ function App() {
                                 >
                                   {(acc.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api') ? (hasCreds ? 'Authenticate' : 'Setup API Auth') : (hasCreds ? 'Edit' : 'Configure')}
                                 </button>
-                                {hasCreds && (
-                                  <button
-                                    className="text-xs text-red-400 hover:text-red-300 underline font-semibold px-2 py-1"
-                                    onClick={() => {
-                                      if (confirm(`Are you sure you want to clear credentials for account ${acc.account_name}?`)) {
-                                        clearAccountCredentials(acc.id.toString());
-                                      }
-                                    }}
-                                  >
-                                    Clear
-                                  </button>
-                                )}
+                                <button
+                                  className="text-xs text-red-400 hover:text-red-300 underline font-semibold px-2 py-1"
+                                  onClick={() => {
+                                    if (confirm(`Are you sure you want to clear credentials for account ${acc.account_name}?`)) {
+                                      clearAccountCredentials(acc.id.toString());
+                                    }
+                                  }}
+                                >
+                                  Clear
+                                </button>
                               </div>
                             )}
                           </div>
@@ -5118,7 +5114,7 @@ function App() {
                                 )}
                               </>
                             ) : (() => {
-                              const lastCreditTx = lastTransactions.find(tx => tx.amount.startsWith('+'));
+                              const lastCreditTx = lastTransactions.find(tx => tx.amount && tx.amount.startsWith('+'));
                               const lastCreditAmount = lastCreditTx
                                 ? formatAmount(lastCreditTx.amount).replace('+', '')
                                 : '00.00';
@@ -5164,7 +5160,7 @@ function App() {
                               {timeLeft !== null ? `Estimated remaining: ~${timeLeft}s` : "Contacting banking server..."}
                             </p>
                           ) : (() => {
-                            const lastCreditTx = lastTransactions.find(tx => tx.amount.startsWith('+'));
+                            const lastCreditTx = lastTransactions.find(tx => tx.amount && tx.amount.startsWith('+'));
                             if (lastCreditTx) {
                               return (
                                 <div className="space-y-1 font-mono text-[11px] mt-1.5 text-zinc-300">
@@ -5486,7 +5482,7 @@ function App() {
               // Apply filters & search logic
               const rawTransactions = cache.transactions || [];
               const filteredTransactions = rawTransactions.filter(tx => {
-                const isCredit = tx.amount.startsWith('+');
+                const isCredit = tx.amount ? tx.amount.startsWith('+') : false;
 
                 // 0. Permission Filter (Hide Outward / Debit)
                 if (!permissions.ledger_show_debit && !isCredit) return false;
@@ -5511,7 +5507,7 @@ function App() {
                   const monthShort = picked.toLocaleString('en-US', { month: 'short' });
                   const day = picked.getDate();
                   const prefix = `${monthShort} ${day},`;
-                  if (!tx.date.startsWith(prefix)) return false;
+                  if (!tx.date || !tx.date.startsWith(prefix)) return false;
                 }
 
                 return true;
@@ -6036,7 +6032,7 @@ function App() {
                                     const getTxKey = (t: typeof tx) => `${t.date}-${t.amount}-${t.details}-${t.runningBalance || ''}`;
                                     const txKey = getTxKey(tx);
                                     const isNew = newTransactionKeys.has(txKey);
-                                    const isCredit = tx.amount.startsWith('+');
+                                    const isCredit = tx.amount ? tx.amount.startsWith('+') : false;
                                     const isChecked = tx.hash ? checkedHashes.has(tx.hash) : false;
 
                                     return (
