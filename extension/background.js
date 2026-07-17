@@ -4309,29 +4309,28 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     emitLog(port, `> [MIB-API] Found ${allTxs.length} transactions.`);
 
     // Normalize MIB WebView transactions
-    // They look like: { trxDate: "29 Aug 2024", trxDesc: "Transfer  | ...", trxRef: "...", trxAmount: "123.00", baseAmount: "CR" }
     const formattedTxs = allTxs.map(t => {
       let isCredit = parseFloat(t.baseAmount || 0) >= 0;
       let dt = t.trxDate;
       let amt = parseFloat(t.absAmount || 0);
       let descRaw = t.descr1 || "";
-      
-      let narr2 = t.descr2 || "";
-      let narr3 = t.descr3 || "";
+      let desc3 = t.descr3 || "";
 
-      let description = narr2 ? `${descRaw} | ${narr2}` : descRaw;
+      // details: descr1 as description title, descr3 as narrative text below it
+      // reference: trxNumber shown as copiable chip
+      const trxRef = t.trxNumber || t.trxNumber2 || "";
 
       return {
         id: String(t.trxNumber || t.trxNumber2 || Math.random()),
         date: dt,
-        description: description,
-        reference: t.trxNumber2 || t.trxNumber || "",
+        details: descRaw,      // descr1 = bold description title (first line of tx.details)
+        reference: trxRef,     // trxNumber = copiable chip
         amount: (isCredit ? '+' : '-') + amt.toFixed(2),
         balance: 0,
         minus: !isCredit,
-        narrative1: narr3,
-        narrative2: narr2,
-        narrative3: narr3,
+        narrative1: desc3,
+        narrative2: t.descr2 || "",
+        narrative3: desc3,     // descr3 = secondary text below description
         is_pending: false,
         raw: t
       };

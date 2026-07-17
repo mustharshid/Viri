@@ -263,7 +263,7 @@ const TransactionRow = React.memo(({
   const description = (detailsParts[0] || '').trim();
   let details = detailsParts.slice(1).join('\n').trim();
 
-  // Extract BML references
+  // Extract BML references and MIB transaction numbers for chip display
   let refs: string[] = [];
   if (activeLedgerAcc?.bank_name === 'BML') {
     const combinedText = `${tx.reference || ''} ${tx.details || ''}`;
@@ -277,7 +277,12 @@ const TransactionRow = React.memo(({
       details = details.replace(new RegExp(`Ref:?\\s*${ref.replace(/\\/g, '\\\\')}`, 'gi'), '');
       details = details.replace(new RegExp(ref.replace(/\\/g, '\\\\'), 'gi'), '');
     });
-    details = details.replace(/^\s*[\r\n]/gm, '').trim(); // clean up empty lines
+    details = details.replace(/^\s*[\r\n]/gm, '').trim();
+  } else if (activeLedgerAcc?.bank_name === 'MIB' && tx.reference) {
+    // MIB: use trxNumber from reference field as a copiable chip
+    refs = [tx.reference];
+    // Remove trxNumber from details text to avoid duplication
+    details = details.replace(tx.reference, '').replace(/^\s*[\r\n]+/, '').trim();
   }
 
   return (
@@ -314,7 +319,7 @@ const TransactionRow = React.memo(({
       </td>
       <td className="py-4 px-5 text-xs text-zinc-400 font-mono whitespace-pre-line leading-relaxed align-middle break-all max-w-sm">
         {details || (!refs.length && <span className="text-zinc-600 italic">-</span>)}
-        {activeLedgerAcc?.bank_name === 'BML' && refs.length > 0 && (
+        {refs.length > 0 && (
           <div className={`flex flex-wrap gap-2 text-zinc-300 ${details ? 'mt-2' : ''}`}>
             {refs.map((ref, idx) => (
               <div key={idx} className="inline-flex items-center gap-2 bg-zinc-900 px-2 py-1 rounded">
