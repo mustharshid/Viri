@@ -3595,9 +3595,14 @@ async function fetchBmlStatementRange(credentials, bankAccountId, port, fromDate
 // MIB API Integration Implementation
 // -------------------------------------------------------------
 
-async function executeMibSfunc(sfunc, dataPayload, key1, key2) {
-  const encrypted = blowfishEncrypt(JSON.stringify(dataPayload), key1);
-  const formBody = `key2=${encodeURIComponent(key2)}&sfunc=${sfunc}&data=${encodeURIComponent(encrypted)}`;
+async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields = {}) {
+  const encrypted = blowfishEncrypt(JSON.stringify(dataPayload), encryptKey);
+  const formParts = [];
+  for (const [k, v] of Object.entries(extraFormFields)) {
+    formParts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+  }
+  formParts.push(`data=${encodeURIComponent(encrypted)}`);
+  const formBody = formParts.join('&');
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000);
@@ -3618,7 +3623,7 @@ async function executeMibSfunc(sfunc, dataPayload, key1, key2) {
   if (!cipherBody) throw new Error("Empty response from MIB API");
   
   try {
-    return JSON.parse(blowfishDecrypt(cipherBody, key1));
+    return JSON.parse(blowfishDecrypt(cipherBody, encryptKey));
   } catch (e) {
     throw new Error("Failed to decrypt MIB response. Possible stale keys.");
   }
@@ -3626,18 +3631,20 @@ async function executeMibSfunc(sfunc, dataPayload, key1, key2) {
 
 async function fetchMibUserSalt(sessionState, username) {
   const sodium = generateSodium();
+  const nonce = generateNonce(sessionState.nonceGenerator);
   const payload = {
     sodium: sodium,
     routePath: 'A44',
     xxid: sessionState.xxid,
-    p_lg_uid: username,
+    uname: username,
+    appId: sessionState.appId,
+    nonce: nonce,
     p_dev_typ: 'A',
     p_dev_tok: 'test',
-    p_dev_uid: sessionState.appId,
   };
-  const resp = await executeMibSfunc('n', payload, sessionState.key1, sessionState.key2);
-  if (resp.payload && resp.payload.login) {
-    return resp.payload.login.usrsalt;
+  const resp = await executeMibSfunc('n', payload, sessionState.sessionKey, { sfunc: 'n' });
+  if (resp.data && resp.data[0] && resp.data[0].userSalt) {
+    return resp.data[0].userSalt;
   }
   throw new Error("Failed to fetch userSalt");
 }
@@ -3672,8 +3679,10 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
     sessionState.key2 = DEFAULT_KEY;
 
     // sfunc=r
-    const rPayload = { cmod: computeCmod().toString(), appId: storedAppId, routePath: 'S40' };
-    const rResp = await executeMibSfunc('r', rPayload, sessionState.key1, sessionState.key2);
+    const rSodium = generateSodium();
+    const rXxid = generateXxid();
+    const rPayload = { cmod: computeCmod().toString(), appId: storedAppId, routePath: 'S40', sodium: rSodium, xxid: rXxid };
+    const rResp = await executeMibSfunc('r', rPayload, DEFAULT_KEY, { sfunc: 'r' });
     sessionState.xxid = String(rResp.xxid);
     sessionState.nonceGenerator = rResp.nonceGenerator;
     sessionState.sessionKey = await deriveSessionKey(rResp.smod);
@@ -3687,7 +3696,7 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
       
       try {
         const iPayload = { cmod: computeCmod().toString(), appId: storedAppId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
-        const iResp = await executeMibSfunc('i', iPayload, sessionState.key1, sessionState.key2);
+        const iResp = await executeMibSfunc('i', iPayload, sessionState.key1, { key2: sessionState.key2, sfunc: 'i' });
         
         // Save new session data
         sessionState.sessionKey = await deriveSessionKey(iResp.smod);
@@ -3714,16 +3723,16 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
       sodium: sodium,
       routePath: 'C41',
       xxid: sessionState.xxid,
-      pgf01: mibUsername,
-      pgf02: clientSalt,
+      uname: mibUsername,
+      clientSalt: clientSalt,
       pgf03: pgf03,
       nonce: nonce,
+      appId: sessionState.appId,
       p_dev_typ: 'A',
       p_dev_tok: 'test',
-      p_dev_uid: sessionState.appId,
     };
     
-    const c41Resp = await executeMibSfunc('n', c41Payload, sessionState.key1, sessionState.key2);
+    const c41Resp = await executeMibSfunc('n', c41Payload, sessionState.sessionKey, { sfunc: 'n' });
     if (c41Resp.code === 0) {
       if(port) emitLog(port, '> [MIB-API] C41 successful. OTP required.');
       await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'C42' } });
@@ -3740,7 +3749,7 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
 
     try {
       const iPayload = { cmod: computeCmod().toString(), appId: storedAppId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
-      const iResp = await executeMibSfunc('i', iPayload, sessionState.key1, sessionState.key2);
+      const iResp = await executeMibSfunc('i', iPayload, sessionState.key1, { key2: sessionState.key2, sfunc: 'i' });
       sessionState.sessionKey = await deriveSessionKey(iResp.smod);
       sessionState.xxid = String(iResp.xxid);
       sessionState.nonceGenerator = iResp.nonceGenerator;
@@ -3755,16 +3764,18 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
         sodium: sodium,
         routePath: 'A41',
         xxid: sessionState.xxid,
-        pgf01: mibUsername,
-        pgf02: clientSalt,
+        uname: mibUsername,
+        clientSalt: clientSalt,
         pgf03: pgf03,
         nonce: nonce,
+        appId: sessionState.appId,
+        pmodTime: 43200000,
+        requireBankData: 'Y',
         p_dev_typ: 'A',
         p_dev_tok: 'test',
-        p_dev_uid: sessionState.appId,
       };
 
-      const a41Resp = await executeMibSfunc('n', a41Payload, sessionState.key1, sessionState.key2);
+      const a41Resp = await executeMibSfunc('n', a41Payload, sessionState.sessionKey, { sfunc: 'n' });
       if (a41Resp.code === 0) {
         if (a41Resp.payload && a41Resp.payload.login && a41Resp.payload.login.otpRequired) {
           if(port) emitLog(port, '> [MIB-API] A41 successful. OTP required.');
@@ -3807,22 +3818,24 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
     routePath: flow,
     xxid: sessionState.xxid,
     otp: otp,
+    uname: mibUsername,
+    otpType: 'email',
+    appId: sessionState.appId,
     nonce: nonce,
     p_dev_typ: 'A',
     p_dev_tok: 'test',
-    p_dev_uid: sessionState.appId,
   };
   
-  const resp = await executeMibSfunc('n', payload, sessionState.key1, sessionState.key2);
+  const resp = await executeMibSfunc('n', payload, sessionState.sessionKey, { sfunc: 'n' });
   
   if (resp.code === 0) {
     if(port) emitLog(port, '> [MIB-API] OTP Verified successfully.');
     
-    // C42 returns key1/key2. We save them.
-    if (flow === 'C42' && resp.key1 && resp.key2) {
-      sessionState.key1 = resp.key1;
-      sessionState.key2 = resp.key2;
-      await chrome.storage.local.set({ mib_key1: resp.key1, mib_key2: resp.key2 });
+    // C42/A42 returns key1/key2 in data[0]. We save them.
+    if ((flow === 'C42' || flow === 'A42') && resp.data && resp.data[0] && resp.data[0].key1 && resp.data[0].key2) {
+      sessionState.key1 = resp.data[0].key1;
+      sessionState.key2 = resp.data[0].key2;
+      await chrome.storage.local.set({ mib_key1: resp.data[0].key1, mib_key2: resp.data[0].key2 });
       
       // Store in backend
       if(port) emitLog(port, '> [MIB-API] Storing device keys in backend...');
@@ -3833,11 +3846,11 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
           'Authorization': `Bearer ${sanctumToken}`
         },
         body: JSON.stringify({
-          hardware_id: terminalId, // wait, hardwareId is terminalId in payload? We'll check args
+          hardware_id: terminalId,
           bank_account_id: bankAccountId,
           mib_username: mibUsername,
-          key1: resp.key1,
-          key2: resp.key2,
+          key1: resp.data[0].key1,
+          key2: resp.data[0].key2,
           app_id: sessionState.appId
         })
       });
@@ -3859,14 +3872,25 @@ async function ensureMibSession(port, terminalId, backendUrl) {
 
   // Need to resume via sfunc=i
   if(port) emitLog(port, '> [MIB-API] No active session in memory. Attempting sfunc=i resume...');
-  const localRes = await chrome.storage.local.get(['mib_appId', 'mib_key1', 'mib_key2']);
+  let localRes = await chrome.storage.local.get(['mib_appId', 'mib_key1', 'mib_key2']);
   if (!localRes.mib_appId || !localRes.mib_key1 || !localRes.mib_key2) {
-    throw new Error("Missing MIB device credentials. Please link account again.");
+    if(port) emitLog(port, '> [MIB-API] Local keys not found. Attempting server fetch...');
+    const tokenRes = await chrome.storage.local.get('sanctumToken');
+    if (!tokenRes.sanctumToken) throw new Error("Missing MIB device credentials and no auth token.");
+    const params = new URLSearchParams({ hardware_id: terminalId });
+    const keysResp = await fetch(`${backendUrl}/api/mib/keys?${params}`, {
+      headers: { 'Authorization': `Bearer ${tokenRes.sanctumToken}` }
+    });
+    if (!keysResp.ok) throw new Error("Missing MIB device credentials. Please link account again.");
+    const keysData = await keysResp.json();
+    if (!keysData.key1 || !keysData.key2) throw new Error("Server has no MIB keys. Please link account again.");
+    await chrome.storage.local.set({ mib_key1: keysData.key1, mib_key2: keysData.key2, mib_appId: keysData.appId });
+    localRes = { mib_appId: keysData.appId, mib_key1: keysData.key1, mib_key2: keysData.key2 };
   }
 
   const iPayload = { cmod: computeCmod().toString(), appId: localRes.mib_appId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
   try {
-    const iResp = await executeMibSfunc('i', iPayload, localRes.mib_key1, localRes.mib_key2);
+    const iResp = await executeMibSfunc('i', iPayload, localRes.mib_key1, { key2: localRes.mib_key2, sfunc: 'i' });
     mibSession = {
       appId: localRes.mib_appId,
       key1: localRes.mib_key1,
@@ -3905,7 +3929,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
         'X-Requested-With': 'XMLHttpRequest',
         'Cookie': `mbmodel=IOS-1.0; xxid=${mibSession.xxid}; IBSID=${mibSession.xxid}; mbnonce=${mibSession.nonceGenerator}; time-tracker=597`
       },
-      body: `acc=${targetAccount}`
+      body: `accountNo=${targetAccount}&appType=1&pageNo=1&pageSize=50`
     });
 
     if (trxRes.status !== 200) {
@@ -3919,13 +3943,13 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
       throw new Error("WebView API response indicated failure.");
     }
 
-    const allTxs = data.history || [];
+    const allTxs = data.data || [];
     emitLog(port, `> [MIB-API] Found ${allTxs.length} transactions.`);
 
     // Normalize MIB WebView transactions
-    // They look like: { trxDate: "29 Aug 2024", trxDesc: "Transfer  | ...", trxRef: "...", trxAmount: "123.00", crdr: "CR" }
+    // They look like: { trxDate: "29 Aug 2024", trxDesc: "Transfer  | ...", trxRef: "...", trxAmount: "123.00", baseAmount: "CR" }
     const formattedTxs = allTxs.map(t => {
-      let isCredit = (t.crdr === 'CR');
+      let isCredit = (t.baseAmount === 'CR');
       let dt = t.trxDate; // e.g. "29 Aug 2024"
       let amtStr = (t.trxAmount || "").toString().replace(/,/g, '');
       let amt = parseFloat(amtStr);

@@ -56,8 +56,6 @@ class MibKeysController extends Controller
             $query->where('mib_username', $request->mib_username);
         } else if ($request->has('bank_account_id')) {
             $query->where('bank_account_id', $request->bank_account_id);
-        } else {
-            return response()->json(['error' => 'Missing identifiers'], 400);
         }
 
         $credential = $query->first();
