@@ -96,15 +96,6 @@ async function enableBankLockdown() {
       });
     }
 
-    rules.push({
-      id: 11,
-      priority: 1,
-      action: { type: "block" },
-      condition: {
-        urlFilter: "mib.com.mv",
-        resourceTypes: ["main_frame", "sub_frame"]
-      }
-    });
 
     try {
       await chrome.declarativeNetRequest.updateDynamicRules({
@@ -1468,20 +1459,6 @@ async function hashPasswordSHA256(password) {
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
-}
-
-/**
- * Generate a random client salt of specified length
- */
-function generateClientSalt(length = 32) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  let result = '';
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(bytes[i] % chars.length);
-  }
-  return result;
 }
 
 function extractNameAroundId(html, id) {
@@ -3621,11 +3598,12 @@ async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields =
 
   const cipherBody = await resp.text();
   if (!cipherBody) throw new Error("Empty response from MIB API");
-  
+
   try {
     return JSON.parse(blowfishDecrypt(cipherBody, encryptKey));
   } catch (e) {
-    throw new Error("Failed to decrypt MIB response. Possible stale keys.");
+    console.error(`[MIB-DEBUG] sfunc=${sfunc} HTTP ${resp.status} key=${encryptKey.substring(0, 16)}... body(200): "${cipherBody.substring(0, 200)}"`);
+    throw new Error(`Failed to decrypt MIB response (sfunc=${sfunc}, status=${resp.status}). Possible stale keys.`);
   }
 }
 
