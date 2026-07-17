@@ -349,7 +349,8 @@ export default function AdminDashboard() {
       }
 
       const compRes = await fetch('/api/admin/companies', { headers });
-      setCompanies(await compRes.json());
+      const compData = await compRes.json();
+      setCompanies(Array.isArray(compData) ? compData : (Array.isArray(compData.data) ? compData.data : []));
 
       const plansRes = await fetch('/api/admin/subscription-plans', { headers });
       if (plansRes.ok) {
