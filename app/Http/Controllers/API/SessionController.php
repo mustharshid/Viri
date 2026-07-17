@@ -8,8 +8,6 @@ use App\Models\SessionActivityLog;
 use App\Models\SessionFetchRequest;
 use App\Models\Terminal;
 use App\Models\TerminalAccountActivity;
-use App\Events\SyncCompleted;
-
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
@@ -293,7 +291,7 @@ class SessionController extends Controller
             ->where('updated_at', '>=', DB::raw('NOW() - INTERVAL 30 SECOND'))
             ->count() > 1;
 
-        $summary = Cache::get("sync_health_summary_{$account->id}", [
+        $summary = [
             'status' => 'healthy',
             'sync_confidence_score' => 100,
             'last_sync_at' => $account->last_bank_fetch_at ? $account->last_bank_fetch_at->toDateTimeString() : null,
@@ -301,11 +299,10 @@ class SessionController extends Controller
             'p95_latency_ms' => 0,
             'failed_today' => 0,
             'consecutive_failures_count' => 0,
-            'pending_backlog' => max(0, $account->sync_requested_version - $account->sync_version),
+            'pending_backlog' => 0,
             'sync_efficiency' => 0,
             'calculated_at' => null,
-        ]);
-
+        ];
         $response = [
             'is_live'              => $isLive,
             'is_self'              => $isSelf,
@@ -324,8 +321,6 @@ class SessionController extends Controller
         $isSuperadmin = ($user && $user->role === 'superadmin') || $request->input('role') === 'superadmin';
 
         if ($isSuperadmin) {
-            $response['sync_version'] = $account->sync_version;
-            $response['sync_requested_version'] = $account->sync_requested_version;
             $response['fetch_in_progress_until'] = $account->fetch_in_progress_until;
             $response['fetch_started_at'] = $account->fetch_started_at;
             $response['fetch_started_by_terminal'] = $account->fetchStartedByTerminal?->terminal_name;
@@ -374,7 +369,6 @@ class SessionController extends Controller
             'target_amount'          => $request->target_amount,
             'status'                 => 'pending',
             'expires_at'             => now()->addSeconds(20),
-            'required_sync_version'  => $account->sync_requested_version,
         ]);
 
         $holderName = $this->holderName($account);
@@ -443,13 +437,7 @@ class SessionController extends Controller
         $filteredPending = collect();
 
         foreach ($pending as $r) {
-            $acc = $r->bankAccount;
-            if ($acc && $acc->sync_version >= $r->required_sync_version) {
-                // Already satisfied — push to pending so the leader can fulfill
-                $filteredPending->push($r);
-            } else {
-                $filteredPending->push($r);
-            }
+            $filteredPending->push($r);
         }
 
         if ($filteredPending->isEmpty()) {
@@ -536,9 +524,8 @@ class SessionController extends Controller
         ]);
 
         if ($request->status === 'fulfilled' && $account) {
-            // Update sync versions & timestamps on bank account atomically (Synchronous)
+            // Update timestamps on bank account atomically
             BankAccount::where('id', $account->id)->update([
-                'sync_version' => DB::raw('sync_version + 1'),
                 'last_bank_fetch_at' => DB::raw('CURRENT_TIMESTAMP'),
                 'last_successful_fetch_terminal_id' => $terminal->id,
             ]);
@@ -587,27 +574,6 @@ class SessionController extends Controller
                 ],
                 $terminal->terminal_name
             );
-        }
-
-        // Dispatch SyncCompleted Event (DEFERRED Telemetry)
-        if ($account) {
-            dispatch(function () use ($fetchRequest, $terminal, $durationMs, $request) {
-                event(new \App\Events\SyncCompleted(
-                    requestId: $fetchRequest->id,
-                    bankAccountId: $fetchRequest->bank_account_id,
-                    terminalId: $terminal->id,
-                    durationMs: $durationMs,
-                    status: $request->status === 'fulfilled' ? 'success' : 'failed',
-                    failureReason: $request->error_message,
-                    timestamps: [
-                        'requested_at' => $fetchRequest->created_at,
-                        'holder_received_at' => $fetchRequest->holder_received_at,
-                        'bank_fetch_started_at' => $fetchRequest->bank_fetch_started_at,
-                        'bank_fetch_completed_at' => $fetchRequest->bank_fetch_completed_at,
-                        'result_received_at' => now(),
-                    ]
-                ));
-            })->afterResponse();
         }
 
         return response()->json(['status' => 'ok']);

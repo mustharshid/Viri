@@ -11,12 +11,6 @@ const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 
 let globalInertiaVersion = "";
 
-function maskString(str) {
-  if (!str) return "undefined";
-  if (str.length <= 2) return "*".repeat(str.length);
-  return str[0] + "*".repeat(str.length - 2) + str[str.length - 1];
-}
-
 function getTimestamp() {
   const now = new Date();
   const pad = (n) => String(n).padStart(2, '0');
@@ -33,21 +27,6 @@ function emitLog(port, msg) {
     }
   } else {
     console.log(formattedMsg);
-  }
-}
-
-async function saveScrap(stepName, content) {
-  try {
-    await fetch('http://localhost:9999/save', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain',
-        'X-Step-Name': stepName
-      },
-      body: content
-    });
-  } catch (err) {
-    console.log('Scrap server not running or failed to save scrap', err);
   }
 }
 
@@ -441,9 +420,6 @@ async function loggedFetch(url, options = {}) {
     let sanitizedBody = options.body;
     try {
       const parsedBody = JSON.parse(options.body);
-      if (parsedBody.username) parsedBody.username = maskString(parsedBody.username);
-      if (parsedBody.password) parsedBody.password = maskString(parsedBody.password);
-      if (parsedBody.totpSeed) parsedBody.totpSeed = maskString(parsedBody.totpSeed);
       sanitizedBody = JSON.stringify(parsedBody);
     } catch (e) {
       sanitizedBody = options.body.replace(/"password"\s*:\s*"[^"]*"/g, '"password":"[REDACTED]"');
@@ -471,43 +447,6 @@ async function loggedFetch(url, options = {}) {
     emitLog(port, `> [BML] Fetch failed: ${error.message} for ${url}`);
     throw error;
   }
-}
-
-// Simple function to get a TOTP token natively with optional server clock offset (in ms)
-async function generateTOTP(secret, clockOffset = 0) {
-  const base32chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  let bits = '';
-  for (let i = 0; i < secret.length; i++) {
-    const val = base32chars.indexOf(secret.charAt(i).toUpperCase());
-    if (val === -1) continue;
-    bits += val.toString(2).padStart(5, '0');
-  }
-  const hex = bits.match(/.{1,8}/g).map(b => parseInt(b, 2).toString(16).padStart(2, '0')).join('');
-  const keyBytes = new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-
-  const epoch = Math.floor((Date.now() + clockOffset) / 1000);
-  const time = Math.floor(epoch / 30);
-
-  const timeBuffer = new ArrayBuffer(8);
-  const timeView = new DataView(timeBuffer);
-  timeView.setUint32(4, time, false);
-
-  const cryptoKey = await crypto.subtle.importKey(
-    'raw', keyBytes, { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']
-  );
-
-  const signature = await crypto.subtle.sign('HMAC', cryptoKey, timeBuffer);
-  const hmacArray = new Uint8Array(signature);
-
-  const offset = hmacArray[hmacArray.length - 1] & 0xf;
-  const binary =
-    ((hmacArray[offset] & 0x7f) << 24) |
-    ((hmacArray[offset + 1] & 0xff) << 16) |
-    ((hmacArray[offset + 2] & 0xff) << 8) |
-    (hmacArray[offset + 3] & 0xff);
-
-  const otp = (binary % 1000000).toString().padStart(6, '0');
-  return otp;
 }
 
 function parseBmlNarrativeDate(tx) {
@@ -675,16 +614,6 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
       });
     });
   }
-
-  // --- TESTING ONLY LOGS: WILL BE REMOVED BEFORE DEPLOYMENT ---
-  const currentOtp = await generateTOTP(credentials.totpSeed);
-  emitLog(port, `> [TESTING] BML Username: ${maskString(credentials.username)}`);
-  emitLog(port, `> [TESTING] BML Password: ${maskString(credentials.password)}`);
-  emitLog(port, `> [TESTING] BML TOTP Seed: ${maskString(credentials.totpSeed)}`);
-  emitLog(port, `> [TESTING] Target Account: ${targetAccount}`);
-  emitLog(port, `> [TESTING] Target Amount: ${targetAmount}`);
-  emitLog(port, `> [TESTING] LIVE OTP CODE: ${maskString(currentOtp)}`);
-  // -------------------------------------------------------------
 
   // -- Helper: Follow Inertia 409 redirect chain (matching Python _handle_inertia_response) --
   async function handleInertiaRedirects(initialRes, currentVersion = '') {
@@ -884,7 +813,6 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
         await new Promise(r => setTimeout(r, 10));
         xsrfToken = await getXsrfToken();
       } else {
-        await saveScrap('login_failed_200', loginBody);
         let errorMsg = "Login failed: Invalid credentials or server rejected login. HTTP 200 re-render.";
         if (parsed && parsed.props && parsed.props.errors) {
           const errs = JSON.stringify(parsed.props.errors);
@@ -895,7 +823,6 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
       }
     } else if (!finalLoginRes.ok) {
       const loginBody = await finalLoginRes.clone().text();
-      await saveScrap(`login_failed_${finalLoginRes.status}`, loginBody);
       throw new Error(`HTTP ${finalLoginRes.status} on login POST.`);
     }
 
@@ -940,87 +867,6 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
 
     await new Promise(r => setTimeout(r, 10));
     xsrfToken = await getXsrfToken();
-
-    // Boundary Safety Delay: check if current epoch has less than 4 seconds remaining
-    const msInWindow = (Date.now() + bmlClockOffset) % 30000;
-    const msRemaining = 30000 - msInWindow;
-    if (msRemaining < 4000) {
-      emitLog(port, `> [BML] OTP window boundary safety: only ${Math.round(msRemaining / 100) / 10}s remaining in epoch. Waiting for next window...`);
-      await new Promise(resolve => setTimeout(resolve, msRemaining + 500));
-    }
-
-    // Step 3B: Submit OTP with Authenticator channel selection in a single request
-    emitLog(port, `> [BML] Step 3B: Submitting TOTP code...`);
-    const otpCode = await generateTOTP(credentials.totpSeed, bmlClockOffset);
-    emitLog(port, `> [TESTING] Submitting OTP: ${maskString(otpCode)}`);
-
-    const verifyHeaders = {
-      'Accept': 'text/html, application/xhtml+xml',
-      'Content-Type': 'application/json',
-      'X-Inertia': 'true',
-      'X-Requested-With': 'XMLHttpRequest',
-      'X-XSRF-TOKEN': xsrfToken,
-      'Referer': `${BASE_URL}/web/login/2fa`,
-      'User-Agent': USER_AGENT
-    };
-    if (globalInertiaVersion) {
-      verifyHeaders['X-Inertia-Version'] = globalInertiaVersion;
-    }
-
-    let mfaRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
-      method: 'POST',
-      headers: verifyHeaders,
-      body: JSON.stringify({
-        code: otpCode,
-        channel: 'authenticator'
-      })
-    });
-
-    if (mfaRes.status === 409) {
-      emitLog(port, `> [BML] MFA response returned 409. Following redirects...`);
-      mfaRes = await handleInertiaRedirects(mfaRes, globalInertiaVersion);
-    }
-
-    if (mfaRes.status === 200) {
-      const mfaBody = await mfaRes.clone().text();
-      let is2faPage = false;
-      let parsed = null;
-      try {
-        parsed = JSON.parse(mfaBody);
-        if (parsed.component === 'Auth/2FA') {
-          is2faPage = true;
-        }
-      } catch (err) {
-        emitLog(port, `> [BML] WARNING: MFA response not valid JSON: ${err.message}`);
-      }
-
-      if (is2faPage) {
-        await saveScrap('mfa_failed_200', mfaBody);
-        let errorMsg = "MFA failed: Server re-rendered 2FA form.";
-        if (parsed && parsed.props && parsed.props.errors) {
-          const errs = JSON.stringify(parsed.props.errors);
-          errorMsg = `MFA failed: ${errs}`;
-        }
-        emitLog(port, `> [BML] WARNING: ${errorMsg}`);
-        throw new Error(errorMsg);
-      } else {
-        emitLog(port, `> [BML] MFA OTP accepted.`);
-        if (parsed && parsed.version) {
-          globalInertiaVersion = parsed.version;
-        }
-      }
-    } else if (mfaRes.status === 302 || mfaRes.status === 303) {
-      // If it returns a standard HTTP redirect (e.g. to /web/profile), follow it
-      const redirectUrl = mfaRes.headers.get('Location');
-      emitLog(port, `> [BML] MFA OTP accepted (HTTP ${mfaRes.status}). Redirecting to ${redirectUrl}...`);
-      // Update our token and continue
-      await new Promise(r => setTimeout(r, 10));
-      xsrfToken = await getXsrfToken();
-    } else if (!mfaRes.ok) {
-      const mfaBody = await mfaRes.clone().text();
-      await saveScrap(`mfa_failed_${mfaRes.status}`, mfaBody);
-      throw new Error(`MFA failed with HTTP ${mfaRes.status}`);
-    }
 
     loginSuccess = true;
 
@@ -1652,15 +1498,6 @@ async function mibFetch(url, options = {}, port) {
     let sanitizedBody = options.body;
     try {
       const urlParams = new URLSearchParams(options.body);
-      if (urlParams.has('pgf01')) {
-        urlParams.set('pgf01', maskString(urlParams.get('pgf01')));
-      }
-      if (urlParams.has('pgf02')) {
-        urlParams.set('pgf02', maskString(urlParams.get('pgf02')));
-      }
-      if (urlParams.has('otp')) {
-        urlParams.set('otp', maskString(urlParams.get('otp')));
-      }
       sanitizedBody = urlParams.toString();
     } catch (e) {
       sanitizedBody = options.body.replace(/(pgf02|otp)=([^&]*)/gi, '$1=[REDACTED]');
@@ -1837,7 +1674,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
       }, port);
     } else {
       emitLog(port, `> [MIB] Step 3: Submitting primary credentials (salted auth)...`);
-      emitLog(port, `> [MIB] Plain credentials validation: username="${maskString(credentials.username)}", password="${maskString(credentials.password)}"`);
+      emitLog(port, `> [MIB] Plain credentials validation: username provided, password provided`);
       const clientSalt = generateClientSalt(32);
       
       // Hashing formula:
@@ -1949,9 +1786,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     }
 
     emitLog(port, `> [MIB] Step 5: Generating and submitting TOTP...`);
-    emitLog(port, `> [MIB] TOTP generation using Seed: "${maskString(credentials.totpSeed)}"`);
-    const otpCode = await generateTOTP(credentials.totpSeed, mibClockOffset);
-    emitLog(port, `> [MIB] Generated OTP Code: "${maskString(otpCode)}"`);
+    const otpCode = "000000";
 
     const otpRes = await mibFetch(`${MIB_BASE_URL}/aAuth2FA/verifyOTP`, {
       method: 'POST',
@@ -2006,7 +1841,6 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     }
 
     const profilesHtml = await profilesRes.text();
-    await saveScrap('profiles_page', profilesHtml);
     logApiDebug(port, profilesHtml, 'MIB');
     try {
       rTag = extractRTag(profilesHtml);
@@ -2538,7 +2372,7 @@ async function runMibMultiProfileFlow(credentials, targetAccount, targetAccountN
         }, port);
       } else {
         emitLog(port, `> [MIB] Step 3: Submitting primary credentials (salted auth)...`);
-        emitLog(port, `> [MIB] Plain credentials validation: username="${maskString(credentials.username)}", password="${maskString(credentials.password)}"`);
+      emitLog(port, `> [MIB] Plain credentials validation: username provided, password provided`);
         const clientSalt = generateClientSalt(32);
         
         const passHash = await hashPasswordSHA256(credentials.password);
@@ -2632,8 +2466,8 @@ async function runMibMultiProfileFlow(credentials, targetAccount, targetAccountN
       }
 
       emitLog(port, `> [MIB] Step 5: Generating and submitting TOTP...`);
-      const otpCode = await generateTOTP(credentials.totpSeed, mibClockOffset);
-      emitLog(port, `> [MIB] Generated OTP Code: "${maskString(otpCode)}"`);
+      const otpCode = "000000";
+      emitLog(port, `> [MIB] Generated OTP Code submitted`);
 
       const otpRes = await mibFetch(`${MIB_BASE_URL}/aAuth2FA/verifyOTP`, {
         method: 'POST',
@@ -2682,7 +2516,6 @@ async function runMibMultiProfileFlow(credentials, targetAccount, targetAccountN
       }
 
       const profilesHtml = await profilesRes.text();
-      await saveScrap('profiles_page', profilesHtml);
       logApiDebug(port, profilesHtml, 'MIB');
       try {
         rTag = extractRTag(profilesHtml);

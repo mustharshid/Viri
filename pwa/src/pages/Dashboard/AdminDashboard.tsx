@@ -60,7 +60,6 @@ export default function AdminDashboard() {
   // System Settings State
   const [systemSettings, setSystemSettings] = useState<any[]>([]);
   const [serverInfo, setServerInfo] = useState<any | null>(null);
-  const [syncHealthSummary, setSyncHealthSummary] = useState<any | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -79,9 +78,6 @@ export default function AdminDashboard() {
       setSystemSettings(data.settings);
       if (data.server_info) {
         setServerInfo(data.server_info);
-      }
-      if (data.sync_health_summary) {
-        setSyncHealthSummary(data.sync_health_summary);
       }
     } catch (err: any) {
       if (showLoading) setSettingsError(err.message);
@@ -1026,41 +1022,6 @@ export default function AdminDashboard() {
                         </div>
                       )}
                     </div>
-
-                    <div className="flex gap-2 justify-end border-t border-zinc-900/60 pt-2 mt-1">
-                      <button
-                        onClick={async () => {
-                          if (confirm(`Are you sure you want to release the locks and reset fetch state for ${acct.bank_name}?`)) {
-                            try {
-                              const token = localStorage.getItem('viri_token');
-                              const res = await fetch(`/api/admin/bank-accounts/${acct.id}/clear-lock`, {
-                                method: 'POST',
-                                headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
-                              });
-                              if (res.ok) {
-                                alert('Stuck lock cleared successfully.');
-                                // Refresh companies data to update UI
-                                const compRes = await fetch('/api/admin/companies', {
-                                  headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
-                                });
-                                if (compRes.ok) {
-      const compData = await compRes.json();
-      setCompanies(Array.isArray(compData) ? compData : (Array.isArray(compData.data) ? compData.data : []));
-                                }
-                              } else {
-                                const data = await res.json();
-                                alert('Failed to clear lock: ' + (data.error || 'Unknown error'));
-                              }
-                            } catch (err: any) {
-                              alert('Error: ' + err.message);
-                            }
-                          }
-                        }}
-                        className="text-[10px] text-red-400 hover:text-red-300 border border-red-500/30 px-2 py-0.5 rounded hover:bg-red-500/10 transition-all font-semibold"
-                      >
-                        Clear Stuck Lock
-                      </button>
-                    </div>
                   </div>
                 );
               })}
@@ -1494,78 +1455,6 @@ export default function AdminDashboard() {
             <RefreshCw size={11} /> Refresh
           </button>
         </div>
-
-        {/* Synchronization Engine Health & Telemetry */}
-        {syncHealthSummary && (
-          <div className="mb-8 p-5 bg-gradient-to-br from-zinc-900 via-zinc-950 to-black border border-zinc-800 rounded-xl shadow-2xl relative overflow-hidden">
-            <h4 className="text-sm font-bold text-white flex items-center gap-2 mb-4 relative z-10">
-              <Zap size={16} className="text-yellow-500 animate-pulse" />
-              Synchronization Engine Health & Telemetry
-            </h4>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 relative z-10">
-              <div className="bg-black/40 border border-zinc-800/80 rounded-lg p-3 shadow-inner backdrop-blur-sm">
-                <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1">Confidence Score</div>
-                <div className={`text-2xl font-bold font-mono ${
-                  syncHealthSummary.confidence_score >= 85 ? 'text-emerald-400' :
-                  syncHealthSummary.confidence_score >= 60 ? 'text-amber-400' : 'text-red-400'
-                }`}>
-                  {syncHealthSummary.confidence_score}%
-                </div>
-              </div>
-
-              <div className="bg-black/40 border border-zinc-800/80 rounded-lg p-3 shadow-inner backdrop-blur-sm">
-                <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1">Efficiency Ratio (KPI)</div>
-                <div className="text-2xl font-bold font-mono text-blue-400">
-                  {Math.round(syncHealthSummary.efficiency_score * 100)}%
-                </div>
-              </div>
-
-              <div className="bg-black/40 border border-zinc-800/80 rounded-lg p-3 shadow-inner backdrop-blur-sm">
-                <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1">Average Latency</div>
-                <div className="text-2xl font-bold font-mono text-zinc-200">
-                  {syncHealthSummary.avg_latency_ms ? `${(syncHealthSummary.avg_latency_ms / 1000).toFixed(2)}s` : '0s'}
-                </div>
-              </div>
-
-              <div className="bg-black/40 border border-zinc-800/80 rounded-lg p-3 shadow-inner backdrop-blur-sm">
-                <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold mb-1">Active Backlog</div>
-                <div className={`text-2xl font-bold font-mono ${
-                  syncHealthSummary.backlog > 0 ? 'text-amber-400 animate-pulse' : 'text-zinc-500'
-                }`}>
-                  {syncHealthSummary.backlog} request(s)
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 relative z-10 text-xs text-zinc-400 border-t border-zinc-800/50 pt-3">
-              <div>
-                <span className="text-zinc-500 font-bold block uppercase tracking-wider text-[9px]">Total Requests (24h)</span>
-                <span className="font-mono text-zinc-300 text-sm font-semibold">{syncHealthSummary.total_requests || 0}</span>
-              </div>
-              <div>
-                <span className="text-zinc-500 font-bold block uppercase tracking-wider text-[9px]">Actual Fetches (24h)</span>
-                <span className="font-mono text-zinc-300 text-sm font-semibold">{syncHealthSummary.total_fetches || 0}</span>
-              </div>
-              <div>
-                <span className="text-zinc-500 font-bold block uppercase tracking-wider text-[9px]">Failed Fetches (24h)</span>
-                <span className={`font-mono text-sm font-semibold ${syncHealthSummary.failures_24h > 0 ? 'text-red-400 font-bold' : 'text-zinc-300'}`}>
-                  {syncHealthSummary.failures_24h || 0}
-                </span>
-              </div>
-              <div>
-                <span className="text-zinc-500 font-bold block uppercase tracking-wider text-[9px]">System Health Status</span>
-                <span className={`font-semibold capitalize text-sm ${
-                  syncHealthSummary.status === 'excellent' ? 'text-emerald-400' :
-                  syncHealthSummary.status === 'stable' ? 'text-emerald-500/80' :
-                  syncHealthSummary.status === 'degraded' ? 'text-amber-400' : 'text-red-400 font-bold'
-                }`}>
-                  {syncHealthSummary.status}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Server Metrics Dashboard */}
         {serverInfo && (

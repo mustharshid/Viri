@@ -27,8 +27,6 @@ class BankAccount extends Model
         'session_claimed_at',
         'session_last_heartbeat_at',
         'last_bank_fetch_at',
-        'sync_version',
-        'sync_requested_version',
         'fetch_in_progress_until',
         'fetch_started_at',
         'fetch_started_by_terminal_id',

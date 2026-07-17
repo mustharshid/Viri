@@ -18,7 +18,6 @@ class SessionFetchRequest extends Model
         'result_json',
         'error_message',
         'expires_at',
-        'required_sync_version',
         'holder_received_at',
         'bank_fetch_started_at',
         'bank_fetch_completed_at',

@@ -167,7 +167,6 @@ interface LedgerData {
   cacheVersion?: number;
   cachedAt?: string;
   cachedByTerminalName?: string;
-  isFromServerCache?: boolean;
 }
 
 const LiveTimer = ({ 
@@ -781,7 +780,6 @@ function App() {
               lastUpdated: new Date().toLocaleTimeString(),
               lastUpdatedTimestamp: Date.now(),
               transactions: responseData.transactions || [],
-              isFromServerCache: true
             }
           }));
 
@@ -1156,9 +1154,6 @@ function App() {
           if (data.app_config) {
             setAppConfig(data.app_config);
           }
-          if (data.sync_health_summary) {
-            setSyncHealthSummary(data.sync_health_summary);
-          }
           if (data.operation_mode) {
             setOperationMode(data.operation_mode);
           }
@@ -1307,25 +1302,6 @@ function App() {
   const [initLoading, setInitLoading] = useState(false);
   const [operationMode, setOperationMode] = useState<string>('Single Terminal');
   const [activeTerminalsCount, setActiveTerminalsCount] = useState<number>(1);
-  const [syncHealthSummary, setSyncHealthSummary] = useState<{
-    confidence_score: number;
-    efficiency_score: number;
-    status: string;
-    failures_24h: number;
-    avg_latency_ms: number;
-    total_requests: number;
-    total_fetches: number;
-    backlog: number;
-  }>({
-    confidence_score: 100,
-    efficiency_score: 100,
-    status: 'excellent',
-    failures_24h: 0,
-    avg_latency_ms: 0,
-    total_requests: 0,
-    total_fetches: 0,
-    backlog: 0,
-  });
   const [result, setResult] = useState<{
     status: string;
     reference: string;
@@ -1717,9 +1693,6 @@ function App() {
         const data = await response.json();
         if (data.app_config) {
           setAppConfig(data.app_config);
-        }
-        if (data.sync_health_summary) {
-          setSyncHealthSummary(data.sync_health_summary);
         }
         if (data.operation_mode) {
           setOperationMode(data.operation_mode);
@@ -2290,7 +2263,6 @@ function App() {
                     lastUpdated: new Date().toLocaleTimeString(),
                     lastUpdatedTimestamp: Date.now(),
                     transactions: responseData.transactions || [],
-                    isFromServerCache: true
                   }
                 }));
               } catch (err: any) {
@@ -3289,7 +3261,6 @@ function App() {
               lastUpdated: new Date().toLocaleTimeString(),
               lastUpdatedTimestamp: Date.now(),
               transactions: newTxs,
-              isFromServerCache: false
             }
           }));
 
@@ -4645,38 +4616,6 @@ function App() {
                         </span>
                       </div>
 
-                      {syncHealthSummary && (
-                        <>
-                          <div className="flex justify-between items-center border-t border-zinc-800/60 pt-2 mt-1">
-                            <span className="text-zinc-400">Sync Confidence</span>
-                            <span className={`font-bold flex items-center gap-1.5 ${
-                              syncHealthSummary.confidence_score >= 85 ? 'text-emerald-400' :
-                              syncHealthSummary.confidence_score >= 60 ? 'text-amber-400' : 'text-red-400'
-                            }`}>
-                              <div className={`w-1.5 h-1.5 rounded-full ${
-                                syncHealthSummary.confidence_score >= 85 ? 'bg-emerald-400 animate-pulse-glow' :
-                                syncHealthSummary.confidence_score >= 60 ? 'bg-amber-400 animate-pulse-glow' : 'bg-red-400 animate-pulse'
-                              }`} />
-                              {syncHealthSummary.confidence_score}%
-                            </span>
-                          </div>
-
-                          <div className="flex justify-between items-center">
-                            <span className="text-zinc-400">Sync Efficiency</span>
-                            <span className="text-zinc-300 font-bold">
-                              {Math.round(syncHealthSummary.efficiency_score * 100)}%
-                            </span>
-                          </div>
-
-                          <div className="flex justify-between items-center">
-                            <span className="text-zinc-400">Sync Backlog</span>
-                            <span className={`font-bold ${syncHealthSummary.backlog > 0 ? 'text-amber-400 animate-pulse' : 'text-zinc-500'}`}>
-                              {syncHealthSummary.backlog} request(s)
-                            </span>
-                          </div>
-                        </>
-                      )}
-
                       <div className="border-t border-zinc-800/60 mt-1 pt-2 flex flex-col gap-1.5">
                         <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">All Bank Sessions</span>
                         <div className={`grid gap-x-4 gap-y-1.5 ${bankAccounts.length > 3 ? 'grid-cols-2' : 'grid-cols-1'}`}>
@@ -4807,7 +4746,6 @@ function App() {
                             ) : loading ? (
                               <>
                                 <span>{progress.text || "Verifying Transfer..."}</span>
-                                <Tooltip text="Active scraping session running in companion browser extension." helpSectionId="extension-installation" />
                                 {progress.stage === 'lock' && (
                                   <span className="px-2 py-0.5 bg-amber-955/50 border border-amber-500/20 text-amber-400 text-[10px] font-bold tracking-wider rounded uppercase animate-pulse">
                                     Locking
