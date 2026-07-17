@@ -3907,26 +3907,31 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     }
 
     // Set cookies via cookies API (Cookie header is forbidden in fetch)
+    const webviewDomain = 'faisamobilex-wv.mib.com.mv';
     const setMibCookies = (domain) => new Promise((resolve) => {
       let done = 0;
       const cb = () => { if (++done === 5) resolve(); };
       chrome.cookies.set({ url: `https://${domain}/`, name: 'mbmodel', value: 'IOS-1.0', domain, path: '/' }, cb);
       chrome.cookies.set({ url: `https://${domain}/`, name: 'xxid', value: mibSession.xxid, domain, path: '/' }, cb);
       chrome.cookies.set({ url: `https://${domain}/`, name: 'IBSID', value: mibSession.xxid, domain, path: '/' }, cb);
-      chrome.cookies.set({ url: `https://${domain}/`, name: 'mbnonce', value: mibSession.nonceGenerator, domain, path: '/' }, cb);
+      chrome.cookies.set({ url: `https://${domain}/`, name: 'mbnonce', value: generateNonce(mibSession.nonceGenerator), domain, path: '/' }, cb);
       chrome.cookies.set({ url: `https://${domain}/`, name: 'time-tracker', value: '597', domain, path: '/' }, cb);
     });
-    await setMibCookies('faisamobilex-wv.mib.com.mv');
+    await setMibCookies(webviewDomain);
     await setMibCookies('faisanet.mib.com.mv');
 
     // Load account details page to establish web session
-    const detailsUrl = `https://${cookieDomain}/accountDetails?aiv=1&dashurl=1&accountNo=${targetAccount}`;
+    const detailsUrl = `https://${webviewDomain}/accountDetails?aiv=1&dashurl=1&accountNo=${targetAccount}`;
     emitLog(port, `> [MIB-API] Loading account details page to establish session...`);
     const detailsRes = await fetch(detailsUrl, { credentials: 'include' });
-    emitLog(port, `> [MIB-API] Account details page: HTTP ${detailsRes.status}`);
+    emitLog(port, `> [MIB-API] Account details page: HTTP ${detailsRes.status} finalUrl=${detailsRes.url.substring(0,80)}`);
+    // Log cookies after page load
+    chrome.cookies.getAll({ domain: 'mib.com.mv' }, (cookies) => {
+      emitLog(port, `> [MIB-API] Cookies after page load: ${cookies.map(c => `${c.name}=${c.value.substring(0,30)}`).join(', ')}`);
+    });
 
-    emitLog(port, `> [MIB-API] Fetching transactions from WebView API (Endpoint: https://${cookieDomain}/ajaxAccounts/trxHistory)...`);
-    const trxRes = await fetch(`https://${cookieDomain}/ajaxAccounts/trxHistory`, {
+    emitLog(port, `> [MIB-API] Fetching transactions from WebView API (Endpoint: https://${webviewDomain}/ajaxAccounts/trxHistory)...`);
+    const trxRes = await fetch(`https://${webviewDomain}/ajaxAccounts/trxHistory`, {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -3950,6 +3955,8 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     });
 
     if (trxRes.status !== 200) {
+      const errBody = await trxRes.text().catch(() => '');
+      emitLog(port, `> [MIB-API] WebView API error body: ${errBody.substring(0, 500)}`);
       throw new Error(`WebView API returned HTTP ${trxRes.status}`);
     }
 

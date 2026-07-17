@@ -58,5 +58,19 @@
             "urlFilter": "||faisamobilex-wv.mib.com.mv",
             "resourceTypes": ["xmlhttprequest", "other"]
         }
+    },
+    {
+        "id": 5,
+        "priority": 2,
+        "action": {
+            "type": "modifyHeaders",
+            "requestHeaders": [
+                { "header": "Referer", "operation": "set", "value": "https://faisamobilex-wv.mib.com.mv/accountDetails" }
+            ]
+        },
+        "condition": {
+            "urlFilter": "||faisamobilex-wv.mib.com.mv/ajaxAccounts/trxHistory",
+            "resourceTypes": ["xmlhttprequest"]
+        }
     }
 ]
