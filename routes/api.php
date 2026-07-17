@@ -9,7 +9,6 @@ use App\Http\Controllers\API\CredentialSyncController;
 use App\Http\Controllers\API\SuperadminController;
 use App\Http\Controllers\API\TerminalPairingController;
 use App\Http\Controllers\API\BankAccountLockController;
-use App\Http\Controllers\API\LedgerCacheController;
 use App\Http\Controllers\API\BmlOAuthController;
 
 
@@ -330,14 +329,23 @@ Route::get('/terminal/credential-sync/pending',                [CredentialSyncCo
 Route::post('/terminal/credential-sync/{id}/upload',           [CredentialSyncController::class, 'upload']);
 Route::post('/terminal/credential-sync/{id}/confirm-import',   [CredentialSyncController::class, 'confirmImport']);
 
-// Shared Transaction Cache & Real-Time Signaling Endpoints
-Route::get('/terminal/events',                                  [LedgerCacheController::class, 'streamEvents']);
-Route::get('/terminal/events/poll',                             [LedgerCacheController::class, 'pollEvents']);
-Route::get('/terminal/ledger-cache/{account_id}',               [LedgerCacheController::class, 'readCache']);
-Route::post('/terminal/ledger-cache/push',                      [LedgerCacheController::class, 'pushCache']);
-Route::post('/terminal/ledger-cache/request-refresh',           [LedgerCacheController::class, 'requestRefresh']);
-Route::post('/terminal/session/acknowledge',                    [LedgerCacheController::class, 'acknowledge']);
-Route::post('/terminal/transaction/check',                      [LedgerCacheController::class, 'checkTransaction']);
+// Real-Time Signaling Endpoints (non-cache)
+Route::post('/terminal/session/acknowledge', function (\Illuminate\Http\Request $request) {
+    $request->validate([
+        'hardware_id' => 'required|string',
+        'request_id'  => 'required|integer',
+    ]);
+    $terminal = \App\Models\Terminal::where('hardware_id', $request->hardware_id)
+        ->where('status', 'active')->first();
+    if (!$terminal) return response()->json(['error' => 'Terminal unauthorized'], 403);
+    $fetchReq = \App\Models\SessionFetchRequest::find($request->request_id);
+    if (!$fetchReq) return response()->json(['error' => 'Request not found'], 404);
+    $account = $fetchReq->bankAccount;
+    if (!$account || $account->session_holder_terminal_id !== $terminal->id)
+        return response()->json(['error' => 'Not the session holder for this account'], 403);
+    $fetchReq->update(['status' => 'syncing']);
+    return response()->json(['status' => 'ok']);
+});
 
 
 Route::post('/terminal/update-pin', function (Request $request) {

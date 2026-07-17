@@ -772,23 +772,8 @@ function App() {
 
           port.disconnect();
 
-          // 3. Push new data to cache & mark request fulfilled
-          addLog(`> [Realtime] Sync succeeded for request ID ${request_id}. Pushing new cache to server...`);
-          await fetch(`${backendUrl}/terminal/ledger-cache/push`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              hardware_id: hardwareId,
-              bank_account_id: bank_account_id,
-              balance: responseData.balance || '0.00',
-              transactions: responseData.transactions || [],
-              request_id: request_id
-            })
-          });
-
-          addLog(`> [Realtime] Cache updated successfully for account ID ${bank_account_id}.`);
-
-          // Proactively update local cache too!
+          // Update local cache with fetched data
+          addLog(`> [Realtime] Sync succeeded for request ID ${request_id}. Updating local cache...`);
           setLedgerCache(prev => ({
             ...prev,
             [bank_account_id.toString()]: {
@@ -2215,7 +2200,6 @@ function App() {
           if (requestsList.length > 0) {
             for (const req of requestsList) {
               setDelegatedFulfilling(true);
-              const startTime = Date.now();
               try {
                 addLog(`> [Session] Fulfilling delegated request ID ${req.id} (${req.request_type}) in background...`);
 
@@ -2286,35 +2270,16 @@ function App() {
                   })
                 });
 
-                let txsToUpload = responseData.transactions || [];
                 if (checkRes.ok) {
                   const checkData = await checkRes.json();
                   if (checkData.status === 'no_change') {
                     addLog(`> [Session] Fingerprint match (no change). Short-circuiting upload.`);
-                    txsToUpload = [];
                   } else {
                     addLog(`> [Session] Fingerprint mismatch. Uploading full transactions list.`);
                   }
                 }
 
-                const durationMs = Date.now() - startTime;
-
-                const fulfillRes = await fetch(`${backendUrl}/terminal/ledger-cache/push`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    hardware_id: hardwareId,
-                    bank_account_id: parseInt(sessionHolderAccountId),
-                    balance: responseData.balance || '0.00',
-                    transactions: txsToUpload,
-                    request_id: req.id,
-                    fingerprint: fingerprint,
-                    duration_ms: durationMs,
-                    status: 'fulfilled'
-                  })
-                });
-                if (!fulfillRes.ok) throw new Error("Fulfillment upload failed");
-
+              
                 addLog(`> [Session] Fulfilling delegated request ID ${req.id} succeeded.`);
 
                 // Proactively update local cache too!
@@ -2331,23 +2296,6 @@ function App() {
               } catch (err: any) {
                 console.error("Failed to fulfill delegated request:", err);
                 addLog(`> [Session] Fulfilling delegated request ID ${req.id} failed: ${err.message}`);
-
-                const durationMs = Date.now() - startTime;
-
-                await fetch(`${backendUrl}/terminal/ledger-cache/push`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    hardware_id: hardwareId,
-                    bank_account_id: parseInt(sessionHolderAccountId),
-                    balance: '0.00',
-                    transactions: [],
-                    request_id: req.id,
-                    status: 'failed',
-                    error_message: err.message,
-                    duration_ms: durationMs
-                  })
-                }).catch(() => { });
               } finally {
                 setDelegatedFulfilling(false);
               }
@@ -2540,20 +2488,9 @@ function App() {
             }
           }));
 
-          // Fetch latest from server so we have hashed transactions (important for checkboxes)
           if (response.balance && requestType === 'ledger') {
-            try {
-              const res = await fetch(`${backendUrl}/terminal/ledger-cache/${accountId}?hardware_id=${hardwareId}`);
-              if (res.ok) {
-                const serverData = await res.json();
-                setLedgerCache(prev => ({
-                  ...prev,
-                  [accountId]: serverData
-                }));
-              }
-            } catch (e) {
-              console.error("Failed to fetch updated ledger cache", e);
-            }
+            // Direct fetch completed — local cache updated via success handler
+            addLog(`> [System] Ledger data synced locally.`);
           } else if (response.balance) {
             setLedgerCache(prev => {
               const prevAcc = prev[accountId] || {};
@@ -3185,7 +3122,7 @@ function App() {
     }
   };
 
-  const syncLedgerLocally = async (targetAccountId: string, selectedAccount: any, selectedBankName: string, requestId: number | null) => {
+  const syncLedgerLocally = async (targetAccountId: string, selectedAccount: any, selectedBankName: string) => {
     let claimSuccess = false;
     let strategy = 'CLAIM_AND_LOGIN';
 
@@ -3344,64 +3281,17 @@ function App() {
             });
           }
 
-          // Unconditionally push the newly scraped data to the server cache so it gets saved to the permanent ledger and we can use status checkboxes
-          try {
-            addLog("> [System] Pushing scraped transactions to Viri shared cache...");
-            await fetch(`${backendUrl}/terminal/ledger-cache/push`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                hardware_id: hardwareId,
-                bank_account_id: parseInt(targetAccountId),
-                balance: response.balance || 'Not found',
-                transactions: newTxs,
-                request_id: requestId
-              })
-            });
-            addLog("> [System] Shared cache push succeeded.");
-          } catch (pushErr: any) {
-            console.error("Failed to push cache to server:", pushErr);
-            addLog(`> [System] Shared cache push failed: ${pushErr.message}`);
-          }
-
-          // Fetch latest from server to get hashed transactions (important for checkboxes)
-          try {
-            const res = await fetch(`${backendUrl}/terminal/ledger-cache/${targetAccountId}?hardware_id=${hardwareId}`);
-            if (res.ok) {
-              const serverData = await res.json();
-              if (serverData.checked_hashes) {
-                setCheckedHashes(prev => {
-                  const next = new Set(prev);
-                  serverData.checked_hashes.forEach((h: string) => next.add(h));
-                  return next;
-                });
-              }
-              setLedgerCache(prev => ({
-                ...prev,
-                [targetAccountId]: serverData
-              }));
-              
-              // Also update recentTxs from serverData so they share the exact hashes
-              if (serverData.transactions) {
-                newTxs = serverData.transactions;
-              }
-            } else {
-              throw new Error("Failed to fetch updated ledger cache");
+          // Update local cache with fetched transactions
+          setLedgerCache(prev => ({
+            ...prev,
+            [targetAccountId]: {
+              balance: response.balance || 'Not found',
+              lastUpdated: new Date().toLocaleTimeString(),
+              lastUpdatedTimestamp: Date.now(),
+              transactions: newTxs,
+              isFromServerCache: false
             }
-          } catch (e) {
-            console.error("Local sync fallback", e);
-            // Fallback Update local state ledger cache
-            setLedgerCache(prev => ({
-              ...prev,
-              [targetAccountId]: {
-                balance: response.balance || 'Not found',
-                lastUpdated: new Date().toLocaleTimeString(),
-                lastUpdatedTimestamp: Date.now(),
-                transactions: newTxs,
-                isFromServerCache: true
-              }
-            }));
-          }
+          }));
 
           // Also update recent transactions cache with the top 3
           const accLabel = selectedAccount ? `${selectedAccount.bank_name} ${selectedAccount.account_number}` : '';
@@ -3610,7 +3500,7 @@ function App() {
     }
   };
 
-  const syncLedger = async (targetAccountId: string, forceFullSync: boolean = false) => {
+  const syncLedger = async (targetAccountId: string) => {
     if (!targetAccountId) return;
     const selectedAccount = bankAccounts.find(a => a.id.toString() === targetAccountId);
     if (!selectedAccount) return;
@@ -3637,267 +3527,9 @@ function App() {
     syncStartTimeRef.current = sTime;
     isVerifyingRef.current = true;
 
-    const isSingleTerminal = operationMode === 'Single Terminal' || operationMode === 'Single Counter';
-    let cacheData: any = null;
-
-    if (isSingleTerminal) {
-      addLog("> [System] Single Terminal Mode - skipping shared cache read.");
-    } else {
-      setProgress({
-        stage: 'init',
-        text: 'Requesting cached data from server...',
-        percent: 15,
-        isIndeterminate: true
-      });
-
-      addLog("> [Cache] Reading from shared transaction cache...");
-      try {
-        const res = await fetch(`${backendUrl}/terminal/ledger-cache/${targetAccountId}?hardware_id=${hardwareId}`);
-        if (res.ok) {
-          cacheData = await res.json();
-          if (cacheData.checked_hashes) {
-            setCheckedHashes(prev => {
-              const next = new Set(prev);
-              cacheData.checked_hashes.forEach((h: string) => next.add(h));
-              return next;
-            });
-          }
-        }
-      } catch (e: any) {
-        addLog(`> [Cache] Read failed: ${e.message}`);
-      }
-    }
-
-    const accLabel = `${selectedAccount.bank_name} ${selectedAccount.account_number}`;
-
-    // Render cache immediately if available (even if stale!)
-    if (cacheData && cacheData.transactions) {
-      const cacheTxs = cacheData.transactions || [];
-      addLog(`> [Cache] Rendered cached transactions from server (${cacheTxs.length} entries).`);
-
-      setLedgerCache(prev => ({
-        ...prev,
-        [targetAccountId]: {
-          balance: cacheData.balance || 'Not synced',
-          lastUpdated: cacheData.cached_at ? new Date(cacheData.cached_at).toLocaleTimeString() : 'Never',
-          lastUpdatedTimestamp: cacheData.cached_at ? new Date(cacheData.cached_at).getTime() : undefined,
-          transactions: cacheTxs,
-          cacheVersion: cacheData.cache_version,
-          cachedAt: cacheData.cached_at,
-          cachedByTerminalName: cacheData.holder_terminal_name || undefined,
-          isFromServerCache: true
-        }
-      }));
-
-      setRecentTxCache(prev => ({
-        ...prev,
-        [targetAccountId]: {
-          transactions: cacheTxs.slice(0, 3),
-          label: accLabel,
-          lastUpdated: cacheData.cached_at ? new Date(cacheData.cached_at).toLocaleTimeString() : 'Never',
-          timestamp: cacheData.cached_at ? new Date(cacheData.cached_at).getTime() : null
-        }
-      }));
-
-      // Check age: is it less than 10 seconds old?
-      const cacheAgeSeconds = cacheData.cached_at
-        ? (Date.now() - new Date(cacheData.cached_at).getTime()) / 1000
-        : Infinity;
-
-      if (cacheAgeSeconds < 10 && !forceFullSync) {
-        addLog(`> [Cache] Shared cache is fresh (${Math.round(cacheAgeSeconds)}s old). Skipping sync.`);
-        setProgress({
-          stage: 'success',
-          text: '✅ Ledger updated (fresh server cache)',
-          percent: 100,
-          isIndeterminate: false
-        });
-        setTimeout(() => {
-          setLoading(false);
-          setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
-        }, 1000);
-        return;
-      }
-    }
-
-    // Cache is stale or expired or force full sync requested
-    const isLive = cacheData ? cacheData.is_live : false;
-    const holderTerminalId = cacheData ? cacheData.holder_terminal_id : null;
-    const isLeaderActive = isLive && holderTerminalId && holderTerminalId !== terminalId;
-
-    if (isLeaderActive && !forceFullSync) {
-      // Route A: SSE Delegation to Active Leader
-      setProgress({
-        stage: 'init',
-        text: 'Requesting sync from active session...',
-        percent: 30,
-        isIndeterminate: true
-      });
-
-      try {
-        const reqRes = await fetch(`${backendUrl}/terminal/ledger-cache/request-refresh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            hardware_id: hardwareId,
-            bank_account_id: parseInt(targetAccountId)
-          })
-        });
-
-        if (!reqRes.ok) throw new Error("Failed to post refresh request.");
-        const reqData = await reqRes.json();
-
-        if (reqData.status === 'no_holder') {
-          addLog("> [Cache Refresh] Holder disappeared. Syncing locally.");
-          await syncLedgerLocally(targetAccountId, selectedAccount, selectedBankName, null);
-          return;
-        }
-
-        const requestId = reqData.request_id;
-        addLog(`> [Cache Refresh] Request ID ${requestId} submitted. Waiting for leader acknowledgment...`);
-        setProgress({
-          stage: 'init',
-          text: 'Waiting for active cashier counter to respond...',
-          percent: 45,
-          isIndeterminate: true
-        });
-
-        // Wait for leader acknowledgment or completion via SSE custom window events
-        const waitResult = await new Promise<{ status: string, error?: string }>((resolve) => {
-          let resolved = false;
-          let isAcknowledged = false;
-
-          const ackHandler = () => {
-            if (isAcknowledged || resolved) return;
-            isAcknowledged = true;
-            addLog("> [Cache Refresh] Leader acknowledged. Syncing bank data...");
-            setProgress({
-              stage: 'auth',
-              text: 'Active terminal is fetching new data...',
-              percent: 70,
-              isIndeterminate: true
-            });
-          };
-
-          const completionHandler = (e: any) => {
-            const detail = e.detail;
-            cleanup({ status: detail.status, error: detail.error });
-          };
-
-          const cleanup = (res: { status: string, error?: string }) => {
-            if (resolved) return;
-            resolved = true;
-            clearTimeout(ackTimeoutId);
-            clearTimeout(totalTimeoutId);
-            window.removeEventListener(`sync_request_ack_${requestId}`, ackHandler);
-            window.removeEventListener(`sync_request_${requestId}`, completionHandler);
-            resolve(res);
-          };
-
-          window.addEventListener(`sync_request_ack_${requestId}`, ackHandler);
-          window.addEventListener(`sync_request_${requestId}`, completionHandler);
-
-          // If no acknowledgment received in 3 seconds, promote immediately
-          const ackTimeoutId = setTimeout(() => {
-            if (!isAcknowledged && !resolved) {
-              addLog("> [Cache Refresh] Leader failed to acknowledge within 3 seconds.");
-              cleanup({ status: 'no_ack' });
-            }
-          }, 3000);
-
-          // Total wait timeout of 6 seconds
-          const totalTimeoutId = setTimeout(async () => {
-            if (!resolved) {
-              addLog("> [Cache Refresh] SSE signal wait timed out. Checking server once before promotion.");
-              try {
-                const pollRes = await fetch(`${backendUrl}/terminal/session/result/${requestId}?hardware_id=${hardwareId}`);
-                if (pollRes.ok) {
-                  const pollData = await pollRes.json();
-                  cleanup({ status: pollData.status, error: pollData.error_message });
-                  return;
-                }
-              } catch (err) { }
-              cleanup({ status: 'timeout' });
-            }
-          }, 6000);
-        });
-
-        const isCompleted = waitResult.status === 'fulfilled';
-        if (waitResult.status === 'failed' && waitResult.error) {
-          addLog(`> [Cache Refresh] Leader reported sync error: ${waitResult.error}`);
-        }
-
-        if (isCompleted) {
-          // Fetch updated cache data
-          const finalRes = await fetch(`${backendUrl}/terminal/ledger-cache/${targetAccountId}?hardware_id=${hardwareId}`);
-          if (finalRes.ok) {
-            const finalCache = await finalRes.json();
-            if (finalCache.checked_hashes) {
-              setCheckedHashes(prev => {
-                const next = new Set(prev);
-                finalCache.checked_hashes.forEach((h: string) => next.add(h));
-                return next;
-              });
-            }
-            const finalTxs = finalCache.transactions || [];
-
-            setLedgerCache(prev => ({
-              ...prev,
-              [targetAccountId]: {
-                balance: finalCache.balance || 'Not synced',
-                lastUpdated: finalCache.cached_at ? new Date(finalCache.cached_at).toLocaleTimeString() : 'Never',
-                lastUpdatedTimestamp: finalCache.cached_at ? new Date(finalCache.cached_at).getTime() : undefined,
-                transactions: finalTxs,
-                cacheVersion: finalCache.cache_version,
-                cachedAt: finalCache.cached_at,
-                cachedByTerminalName: finalCache.holder_terminal_name || undefined,
-                isFromServerCache: true
-              }
-            }));
-
-            setRecentTxCache(prev => ({
-              ...prev,
-              [targetAccountId]: {
-                transactions: finalTxs.slice(0, 3),
-                label: accLabel,
-                lastUpdated: finalCache.cached_at ? new Date(finalCache.cached_at).toLocaleTimeString() : 'Never',
-                timestamp: finalCache.cached_at ? new Date(finalCache.cached_at).getTime() : null
-              }
-            }));
-          }
-
-          setProgress({
-            stage: 'success',
-            text: '✅ Ledger updated (via active leader)',
-            percent: 100,
-            isIndeterminate: false
-          });
-          setTimeout(() => {
-            setLoading(false);
-            setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
-            setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
-          }, 1000);
-        } else {
-          // Timeout fallback: Promote this counter and sync locally
-          addLog("> [Cache Refresh] Fallback triggered. Promoting this cashier counter to Leader...");
-          setProgress({
-            stage: 'init',
-            text: 'Active terminal busy. Promoting this cashier counter to sync...',
-            percent: 50,
-            isIndeterminate: true
-          });
-          await syncLedgerLocally(targetAccountId, selectedAccount, selectedBankName, requestId);
-        }
-
-      } catch (err: any) {
-        addLog(`> [Cache Refresh Error] ${err.message}. Promoting self...`);
-        await syncLedgerLocally(targetAccountId, selectedAccount, selectedBankName, null);
-      }
-
-    } else {
-      // Route B: Direct Local Sync
-      await syncLedgerLocally(targetAccountId, selectedAccount, selectedBankName, null);
-    }
+    // Cache is stale or expired, sync directly
+    addLog("> [Cache] Syncing transactions directly from bank...");
+    await syncLedgerLocally(targetAccountId, selectedAccount, selectedBankName);
   };
 
   const companyName = tenantName || "Unregistered Cashier Counter";
@@ -4522,7 +4154,7 @@ function App() {
                                 <button
                                   className={`btn text-xs py-1.5 px-3 font-semibold ${hasCreds ? 'border border-emerald-500 hover:bg-emerald-950/50 text-emerald-400' : 'btn-success text-black'}`}
                                   onClick={() => {
-                                    syncLedgerLocally(acc.id.toString(), acc, acc.bank_name, null);
+                                    syncLedgerLocally(acc.id.toString(), acc, acc.bank_name);
                                   }}
                                   disabled={loading}
                                 >

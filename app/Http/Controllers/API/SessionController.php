@@ -7,8 +7,6 @@ use App\Models\BankAccount;
 use App\Models\SessionActivityLog;
 use App\Models\SessionFetchRequest;
 use App\Models\Terminal;
-use App\Models\TerminalEvent;
-use App\Models\BankTransaction;
 use App\Models\TerminalAccountActivity;
 use App\Events\SyncCompleted;
 
@@ -396,14 +394,7 @@ class SessionController extends Controller
         if ($account->session_holder_terminal_id) {
             $leader = Terminal::find($account->session_holder_terminal_id);
             if ($leader && $leader->status === 'active') {
-                TerminalEvent::create([
-                    'hardware_id' => $leader->hardware_id,
-                    'event_type'  => 'verify_request_queued',
-                    'payload'     => json_encode([
-                        'request_id'      => $fetchRequest->id,
-                        'bank_account_id' => $account->id,
-                    ])
-                ]);
+                // Leader will be notified via the pending requests poll
             }
         }
 
@@ -454,28 +445,8 @@ class SessionController extends Controller
         foreach ($pending as $r) {
             $acc = $r->bankAccount;
             if ($acc && $acc->sync_version >= $r->required_sync_version) {
-                // Already satisfied! Fulfill from cache immediately
-                $cache = \App\Models\BankAccountCache::where('bank_account_id', $acc->id)->first();
-                $r->update([
-                    'status' => 'fulfilled',
-                    'result_json' => [
-                        'balance' => $cache?->balance ?? '0.00',
-                        'transactions' => $cache?->transactions ?? [],
-                    ],
-                ]);
-
-                // Dispatch SyncCompleted telemetry event as cache_hit
-                dispatch(function () use ($r, $terminal) {
-                    event(new \App\Events\SyncCompleted(
-                        requestId: $r->id,
-                        bankAccountId: $r->bank_account_id,
-                        terminalId: $terminal->id,
-                        durationMs: 0,
-                        status: 'cache_hit',
-                        failureReason: null,
-                        timestamps: ['requested_at' => $r->created_at, 'result_received_at' => now()]
-                    ));
-                })->afterResponse();
+                // Already satisfied — push to pending so the leader can fulfill
+                $filteredPending->push($r);
             } else {
                 $filteredPending->push($r);
             }
@@ -574,52 +545,11 @@ class SessionController extends Controller
 
             // Save transactions to permanent ledger (insertOrIgnore to avoid duplicates)
             $incoming = $request->result_json['transactions'] ?? [];
-            foreach ($incoming as $tx) {
-                // Generate a unique fingerprint per transaction (hash)
-                $hash = hash('sha256', implode('|', [
-                    $account->id,
-                    $tx['date'] ?? '',
-                    $tx['amount'] ?? '',
-                    $tx['details'] ?? '',
-                    $tx['reference'] ?? '',
-                ]));
-
-                DB::table('bank_transactions')->insertOrIgnore([
-                    'bank_account_id' => $account->id,
-                    'transaction_hash' => $hash,
-                    'amount' => $tx['amount'] ?? '0.00',
-                    'transaction_date' => $tx['date'] ?? now()->toDateString(),
-                    'description' => $tx['details'] ?? '',
-                    'reference' => $tx['reference'] ?? null,
-                    'created_at' => DB::raw('CURRENT_TIMESTAMP'),
-                    'updated_at' => DB::raw('CURRENT_TIMESTAMP'),
-                ]);
-            }
 
             // Cache fingerprint if provided
             if ($request->fingerprint) {
                 Cache::forever("bank_account_fingerprint_{$account->id}", $request->fingerprint);
             }
-
-            // Automatically update/create the cache snapshot to ensure follower syncs receive the data
-            $cache = \App\Models\BankAccountCache::firstOrNew(['bank_account_id' => $account->id]);
-            $existing = $cache->transactions ?: [];
-
-            $merged = collect(array_merge($incoming, $existing))
-                ->unique(function ($tx) {
-                    return trim($tx['date'] ?? '') . '-' . trim($tx['amount'] ?? '') . '-' . trim($tx['details'] ?? '');
-                })
-                ->take(500)
-                ->values()
-                ->toArray();
-
-            $cache->tenant_id = $terminal->tenant_id;
-            $cache->balance = $request->result_json['balance'] ?? $cache->balance ?? '0.00';
-            $cache->transactions = $merged;
-            $cache->cached_at = now();
-            $cache->cached_by_terminal_id = $terminal->id;
-            $cache->cache_version += 1;
-            $cache->save();
         }
 
         // Always release the fetch lock
