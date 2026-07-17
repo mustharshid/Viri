@@ -38,6 +38,8 @@ async function sha256Hex(input) {
 }
 
 export async function deriveSessionKey(smod) {
+  // Yield before blocking BigInt modPow to keep service worker responsive
+  await new Promise(r => setTimeout(r, 0));
   const smodBig = BigInt(smod);
   const shared = modPow(smodBig, DH_A, DH_P);
   const sharedStr = shared.toString();

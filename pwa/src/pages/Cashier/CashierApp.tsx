@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, KeyRound, Download, FileText, Check } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import CryptoJS from 'crypto-js';
+import { ErrorBoundary } from '../../components/ErrorBoundary';
 
 const Tooltip = ({ text, helpSectionId, onHelpNavigate }: { text: string; helpSectionId?: string; onHelpNavigate?: (sectionId: string) => void }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -28,6 +29,12 @@ const sha256 = async (message: string): Promise<string> => {
   const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+const safeJsonParse = <T,>(raw: string | null, fallback: T): T => {
+  if (!raw) return fallback;
+  try { return JSON.parse(raw) as T; }
+  catch { return fallback; }
 };
 
 const computeCredsHash = async (bank: string, username: string): Promise<string> => {
@@ -401,12 +408,18 @@ function App() {
     lastUpdated: string;
     timestamp: number | null;
   }>>(() => {
-    const saved = localStorage.getItem('viri_recent_tx_cache');
-    return saved ? JSON.parse(saved) : {};
+    return safeJsonParse(localStorage.getItem('viri_recent_tx_cache'), {});
   });
 
+  const ledgerWriteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recentTxWriteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
-    localStorage.setItem('viri_recent_tx_cache', JSON.stringify(recentTxCache));
+    if (recentTxWriteTimerRef.current) clearTimeout(recentTxWriteTimerRef.current);
+    recentTxWriteTimerRef.current = setTimeout(() => {
+      localStorage.setItem('viri_recent_tx_cache', JSON.stringify(recentTxCache));
+    }, 300);
+    return () => { if (recentTxWriteTimerRef.current) clearTimeout(recentTxWriteTimerRef.current); };
   }, [recentTxCache]);
 
   const [isUserIdle, setIsUserIdle] = useState(false);
@@ -610,8 +623,7 @@ function App() {
 
   // Credentials States
   const [accountsCreds, setAccountsCreds] = useState<Record<string, { username?: string; password?: string; totpSeed?: string }>>(() => {
-    const saved = localStorage.getItem('viri_accounts_creds');
-    return saved ? JSON.parse(saved) : {};
+    return safeJsonParse(localStorage.getItem('viri_accounts_creds'), {});
   });
 
   // Forms States for Inline Config
@@ -904,8 +916,7 @@ function App() {
   const carouselRef = useRef<HTMLDivElement>(null);
 
   const [ledgerCache, setLedgerCache] = useState<Record<string, LedgerData>>(() => {
-    const saved = localStorage.getItem('viri_ledger_cache');
-    return saved ? JSON.parse(saved) : {};
+    return safeJsonParse(localStorage.getItem('viri_ledger_cache'), {});
   });
 
   const [checkedHashes, setCheckedHashes] = useState<Set<string>>(new Set());
@@ -1009,7 +1020,11 @@ function App() {
   };
 
   useEffect(() => {
-    localStorage.setItem('viri_ledger_cache', JSON.stringify(ledgerCache));
+    if (ledgerWriteTimerRef.current) clearTimeout(ledgerWriteTimerRef.current);
+    ledgerWriteTimerRef.current = setTimeout(() => {
+      localStorage.setItem('viri_ledger_cache', JSON.stringify(ledgerCache));
+    }, 500);
+    return () => { if (ledgerWriteTimerRef.current) clearTimeout(ledgerWriteTimerRef.current); };
   }, [ledgerCache]);
 
   const [reportsKey] = useState<string>(() => {
@@ -1325,6 +1340,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const logsRef = useRef<string[]>([]);
+  const logsScheduledRef = useRef(false);
   const addLog = (rawMsg: string) => {
     let msg = rawMsg;
     // Mask sensitive credentials
@@ -1347,7 +1363,13 @@ function App() {
     } catch (e) { }
 
     logsRef.current.push(msg);
-    setLogs([...logsRef.current]);
+    if (!logsScheduledRef.current) {
+      logsScheduledRef.current = true;
+      requestAnimationFrame(() => {
+        setLogs([...logsRef.current]);
+        logsScheduledRef.current = false;
+      });
+    }
   };
 
   // Tenant Information from Server
@@ -3937,6 +3959,7 @@ function App() {
 
   if (isSetupMode) {
     return (
+      <ErrorBoundary>
       <div className="min-h-screen bg-[var(--bg-base)] flex flex-col items-center justify-center p-4">
         <div className="glass-panel p-8 max-w-sm w-full text-center animate-fade-in shadow-2xl">
           <img src="/logo_en.png" alt="Viri Logo" className="h-48 mx-auto mb-6 object-contain" />
@@ -3966,11 +3989,13 @@ function App() {
           </button>
         </div>
       </div>
+      </ErrorBoundary>
     );
   }
 
   if (isLocked) {
     return (
+      <ErrorBoundary>
       <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center p-4">
         <div className="glass-panel p-8 max-w-sm w-full text-center animate-fade-in shadow-2xl">
           <Lock className="mx-auto mb-6 text-[var(--color-success)]" size={56} />
@@ -4001,6 +4026,7 @@ function App() {
           </button>
         </div>
       </div>
+      </ErrorBoundary>
     );
   }
 
@@ -4212,10 +4238,11 @@ function App() {
   );
 
   return (
+    <ErrorBoundary>
     <div className="min-h-screen flex bg-[var(--bg-base)] text-[var(--text-primary)] w-screen overflow-hidden">
 
       {/* Sidebar Navigation */}
-      <Sidebar />
+      {Sidebar()}
 
       {/* Main Content Area */}
       <main className="flex-1 h-screen overflow-y-auto p-4 md:p-8 flex flex-col items-center">
@@ -6643,6 +6670,7 @@ function App() {
 
       </main>
     </div>
+    </ErrorBoundary>
   );
 }
 

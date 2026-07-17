@@ -3602,7 +3602,13 @@ class MibSessionExpiredError extends Error {
   constructor(message) { super(message); this.name = 'MibSessionExpiredError'; }
 }
 
+// Yield control back to the event loop to prevent service worker blockage
+// during synchronous crypto operations (Blowfish, BigInt modPow)
+const yieldToEventLoop = () => new Promise(r => setTimeout(r, 0));
+
 async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields = {}) {
+  // Yield before synchronous encryption to keep service worker responsive
+  await yieldToEventLoop();
   const encrypted = blowfishEncrypt(JSON.stringify(dataPayload), encryptKey);
   const formParts = [];
   for (const [k, v] of Object.entries(extraFormFields)) {
@@ -3635,6 +3641,8 @@ async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields =
   if (!cipherBody) throw new Error("Empty response from MIB API");
 
   try {
+    // Yield before synchronous decryption
+    await yieldToEventLoop();
     const decrypted = JSON.parse(blowfishDecrypt(cipherBody, encryptKey));
     console.log(`[MIB] sfunc=${sfunc} HTTP ${resp.status} OK success=${decrypted.success} code=${decrypted.responseCode} reason=${decrypted.reasonText} keys=${Object.keys(decrypted).join(',')}`);
     

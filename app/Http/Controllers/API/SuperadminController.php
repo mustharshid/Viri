@@ -14,11 +14,12 @@ class SuperadminController extends Controller
         // Add middleware to check if user is superadmin
     }
 
-    public function listCompanies()
+    public function listCompanies(Request $request)
     {
+        $perPage = min((int) $request->input('per_page', 50), 200);
         $companies = Tenant::with('terminals', 'bankAccounts', 'users')
             ->orderBy('created_at', 'desc')
-            ->get();
+            ->paginate($perPage);
         return response()->json($companies);
     }
 
@@ -148,7 +149,7 @@ class SuperadminController extends Controller
         
         $response = $logs->toArray();
         $response['active_terminals'] = \App\Models\Terminal::where('status', 'active')->count();
-        $response['session_holders'] = \App\Models\BankAccount::whereNotNull('session_holder_terminal_id')->with('tenant')->get();
+        $response['session_holders'] = \App\Models\BankAccount::whereNotNull('session_holder_terminal_id')->with('tenant')->limit(100)->get();
         
         return response()->json($response);
     }
@@ -388,9 +389,10 @@ class SuperadminController extends Controller
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
+        $perPage = min((int) $request->input('per_page', 50), 200);
         $payments = \App\Models\PaymentReceipt::with('tenant')
             ->orderBy('created_at', 'desc')
-            ->get();
+            ->paginate($perPage);
 
         return response()->json($payments);
     }
