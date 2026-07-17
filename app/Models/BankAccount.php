@@ -49,7 +49,9 @@ class BankAccount extends Model
 
     public function getHasApiTokenAttribute()
     {
-        return \App\Models\BmlOAuthToken::where('bank_account_id', $this->id)->exists();
+        $hasBml = \App\Models\BmlOAuthToken::where('bank_account_id', $this->id)->exists();
+        $hasMib = \App\Models\MibDeviceCredential::where('bank_account_id', $this->id)->exists();
+        return $hasBml || $hasMib;
     }
 
     public function tenant()

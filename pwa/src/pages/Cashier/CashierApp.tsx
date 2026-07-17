@@ -856,6 +856,17 @@ function App() {
     localStorage.setItem('viri_accounts_creds', JSON.stringify(updated));
     // Credentials are stored locally only (ZK architecture — not transmitted to server)
     logActivityToServer('settings_changed', { action: 'cleared_credentials', account_id: accId });
+
+    try {
+      await fetch(`${backendUrl}/terminal/bank-accounts/clear-api-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(accId) })
+      });
+      // We do not wait for refresh, but the user may see the status change eventually or upon next poll.
+    } catch (err) {
+      console.error("Failed to clear API tokens", err);
+    }
   };
 
   // Verification State
@@ -4383,8 +4394,10 @@ function App() {
                   bankAccounts.map(acc => {
                     const failures = acc.login_failures || 0;
                     const isLocked = failures >= 2;
-                    const isApiManaged = acc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
-                    const hasCreds = isApiManaged || (acc.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api') || !!(accountsCreds[acc.id.toString()]?.username);
+                    const isBmlApiManaged = acc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
+                    const isMibApiManaged = acc.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api';
+                    const isApiManaged = isBmlApiManaged;
+                    const hasCreds = (isBmlApiManaged || isMibApiManaged) ? acc.has_api_token : !!(accountsCreds[acc.id.toString()]?.username);
                     const isExpanded = expandedCredsAccountId === acc.id.toString();
 
                     return (
@@ -4425,7 +4438,7 @@ function App() {
                               ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-500/10'
                               : 'bg-zinc-800 text-zinc-400'
                               }`}>
-                              {isApiManaged ? 'API Session Managed' : (hasCreds ? 'Credentials Configured' : 'No Credentials')}
+                              {(isBmlApiManaged || isMibApiManaged) ? (hasCreds ? 'API Session Managed' : 'Setup Required') : (hasCreds ? 'Credentials Configured' : 'No Credentials')}
                             </span>
                             {isApiManaged && acc.has_api_token && (
                               <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider bg-emerald-950 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
@@ -4438,13 +4451,13 @@ function App() {
                             {!isExpanded && isApiManaged && (
                               <div className="flex items-center gap-2">
                                 <button
-                                  className={`btn text-xs py-1.5 px-3 font-semibold border border-emerald-500 hover:bg-emerald-950/50 text-emerald-400`}
+                                  className={`btn text-xs py-1.5 px-3 font-semibold ${hasCreds ? 'border border-emerald-500 hover:bg-emerald-950/50 text-emerald-400' : 'btn-success text-black'}`}
                                   onClick={() => {
                                     syncLedgerLocally(acc.id.toString(), acc, acc.bank_name, null);
                                   }}
                                   disabled={loading}
                                 >
-                                  {loading ? 'Opening...' : 'Login (Browser)'}
+                                  {loading ? 'Opening...' : (hasCreds ? 'Login (Browser)' : 'Setup API Auth')}
                                 </button>
                                 {hasCreds && (
                                   <button
@@ -4480,7 +4493,7 @@ function App() {
                                     setExpandedCredsAccountId(acc.id.toString());
                                   }}
                                 >
-                                  {(acc.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api') ? 'Authenticate' : (hasCreds ? 'Edit' : 'Configure')}
+                                  {(acc.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api') ? (hasCreds ? 'Authenticate' : 'Setup API Auth') : (hasCreds ? 'Edit' : 'Configure')}
                                 </button>
                                 {hasCreds && (
                                   <button
@@ -5360,8 +5373,8 @@ function App() {
                               const txKey = getTxKey(tx);
                               const rowKey = txKey;
                               const isNew = newTransactionKeys.has(txKey);
-                              const isCredit = tx.amount.startsWith('+');
-                              const detailsParts = tx.details.split('\n');
+                              const isCredit = tx.amount ? tx.amount.startsWith('+') : false;
+                              const detailsParts = (tx.details || '').split('\n');
                               const description = (detailsParts[0] || '').trim();
                               let details = detailsParts.slice(1).join('\n').trim();
 

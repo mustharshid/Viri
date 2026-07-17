@@ -314,6 +314,7 @@ Route::post('/terminal/logs', [TerminalPairingController::class, 'uploadLogs']);
 Route::post('/terminal/credentials', [TerminalPairingController::class, 'saveCredentials']);
 Route::post('/terminal/bank-accounts/increment-failures', [BankAccountLockController::class, 'incrementFailures']);
 Route::post('/terminal/bank-accounts/reset-failures', [BankAccountLockController::class, 'resetFailures']);
+Route::post('/terminal/bank-accounts/clear-api-token', [BankAccountLockController::class, 'clearApiToken']);
 Route::post('/terminal/bank-accounts/map-credentials', [BankAccountLockController::class, 'mapCredentials']);
 Route::post('/terminal/bank-accounts/{id}/internal-id', function (\Illuminate\Http\Request $request, $id) {
     $request->validate(['bml_internal_id' => 'required|string']);

@@ -3768,7 +3768,19 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
         const a41ProfileId = firstProfile.profileId || a41Resp.selectedProfileId || a41Resp.payload?.login?.selectedProfileId;
         const a41ProfileType = firstProfile.profileType || '0';
 
-        // Per FLOW.md: OTP is signaled by primaryOTPType/otpTypes at the A41 response root
+        // Per FLOW.md: OTP is signaled by primaryOTPType/otpTypes at the A41 response root.
+        // But if profileSelected is true (single-profile fast-path), OTP is always skipped.
+        if (a41Resp.profileSelected) {
+          if(port) emitLog(port, '> [MIB-API] A41 single-profile fast-path. No OTP required.');
+          const spProfileId = a41Resp.selectedProfileId || a41ProfileId;
+          const spProfileType = a41Resp.selectedProfileType || a41ProfileType || '0';
+          if (spProfileId) {
+            await chrome.storage.local.set({ mib_profileId: spProfileId, mib_profileType: spProfileType });
+            if(port) emitLog(port, `> [MIB-API] Saved profile ${spProfileId} (type ${spProfileType}).`);
+          }
+          await chrome.storage.session.set({ mibSession: sessionState });
+          return { success: true, skipOtp: true };
+        }
         const needsOtp = a41Resp.primaryOTPType || (a41Resp.otpTypes && a41Resp.otpTypes.length > 0);
         if (needsOtp) {
           if(port) emitLog(port, '> [MIB-API] A41 successful. OTP required.');
@@ -3816,7 +3828,7 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
     xxid: sessionState.xxid,
     otp: otp,
     uname: mibUsername,
-    otpType: primaryOTPType || '3',
+    otpType: '3', // otpType "2" (SMS) triggers server-side PHP bug at IndexController.php:423 — use TOTP type "3" always
     appId: sessionState.appId,
     nonce: nonce,
   };

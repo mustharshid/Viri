@@ -237,6 +237,29 @@ class BankAccountLockController extends Controller
         return response()->json(['status' => 'success', 'login_failures' => 0]);
     }
 
+    public function clearApiToken(Request $request)
+    {
+        $validation = $this->validateTerminalAndAccount($request);
+        if (isset($validation['error'])) {
+            return response()->json(['error' => $validation['error']], $validation['status']);
+        }
+
+        $bankAccountId = $request->bank_account_id;
+        $terminal = $validation['terminal'];
+
+        // Clear BML OAuth Tokens
+        \App\Models\BmlOAuthToken::where('bank_account_id', $bankAccountId)
+            ->where('terminal_id', $terminal->id)
+            ->delete();
+
+        // Clear MIB Device Credentials
+        \App\Models\MibDeviceCredential::where('bank_account_id', $bankAccountId)
+            ->where('terminal_id', $terminal->id)
+            ->delete();
+
+        return response()->json(['status' => 'success']);
+    }
+
     public function mapCredentials(Request $request)
     {
         $request->validate([
