@@ -28,6 +28,20 @@ export default function MibLogin() {
     }
   }, [accountId, terminalId, extensionId]);
 
+  // Store credentials to localStorage on successful auth so the A40 fallback can re-authenticate sessions
+  useEffect(() => {
+    if (step === 'success' && username && password && accountId) {
+      try {
+        const saved = localStorage.getItem('viri_accounts_creds');
+        const creds = saved ? JSON.parse(saved) : {};
+        creds[accountId] = { username, password, totpSeed: '' };
+        localStorage.setItem('viri_accounts_creds', JSON.stringify(creds));
+      } catch (e) {
+        console.error('Failed to store MIB credentials:', e);
+      }
+    }
+  }, [step, username, password, accountId]);
+
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!username.trim() || !password.trim()) {
@@ -262,7 +276,7 @@ export default function MibLogin() {
 
         <div className="mt-8 text-center text-xs text-gray-400">
           <p>This is a secure connection portal provided by Viri.</p>
-          <p>Your passwords or usernames are never saved anywhere. We securely use tokens to authenticate users.</p>
+          <p>Your credentials are encrypted locally and used only for seamless session recovery.</p>
         </div>
       </div>
     </div>

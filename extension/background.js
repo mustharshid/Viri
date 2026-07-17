@@ -3983,7 +3983,27 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
 async function ensureMibSession(port, terminalId, backendUrl, credentials) {
   let { mibSession } = await chrome.storage.session.get('mibSession');
   if (mibSession && mibSession.sessionKey) {
-    return mibSession; // assume valid for now; if api fails we should catch and retry
+    // Validate cached session is still alive via lightweight A80 call
+    try {
+      const a80Payload = {
+        nonce: generateNonce(mibSession.nonceGenerator),
+        appId: mibSession.appId,
+        sodium: generateSodium(),
+        routePath: 'A80',
+        xxid: mibSession.xxid
+      };
+      const a80Resp = await executeMibSfunc('n', a80Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
+      if (a80Resp.success) {
+        return mibSession;
+      }
+      if(port) emitLog(port, '> [MIB-API] Cached session invalid, re-establishing...');
+    } catch(e) {
+      if (e instanceof MibSessionExpiredError) {
+        if(port) emitLog(port, '> [MIB-API] Cached session expired, re-establishing...');
+      } else {
+        if(port) emitLog(port, `> [MIB-API] Cached session validation failed: ${e.message}`);
+      }
+    }
   }
 
   // Need to resume via sfunc=i
@@ -4032,7 +4052,8 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials) {
     }
 
     // If P47 failed (None Authenticated Session) and credentials available, try A40 fallback
-    if (!profileSelected && credentials && credentials.username && credentials.password) {
+    const hasCreds = credentials?.username?.length > 0 && credentials?.password?.length > 0;
+    if (!profileSelected && hasCreds) {
       if(port) emitLog(port, '> [MIB-API] Attempting A40 authentication fallback...');
       try {
         const a40Sodium = generateSodium();
@@ -4151,7 +4172,7 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials) {
           const { mib_profileId, mib_profileType } = await chrome.storage.local.get(['mib_profileId', 'mib_profileType']);
           if (mib_profileId) profileSelected = await attemptP47(port, mibSession, mib_profileId, mib_profileType || '0');
         } catch (pe) { /* ignore */ }
-        if (!profileSelected && credentials?.username && credentials?.password) {
+        if (!profileSelected && credentials?.username?.length > 0 && credentials?.password?.length > 0) {
           try {
             const a40Sodium = generateSodium();
             const a40Nonce = generateNonce(mibSession.nonceGenerator);
