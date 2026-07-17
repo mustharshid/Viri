@@ -583,9 +583,13 @@ function App() {
   }, [extensionId, appConfig.version_check_interval]);
 
   useEffect(() => {
+    const detectedRef = { current: false };
     const handleMessage = (event: MessageEvent) => {
       if (event.data && event.data.type === 'VIRI_BRIDGE_HEARTBEAT' && event.data.extensionId) {
-        console.log("Auto-detected Viri Bridge Extension ID:", event.data.extensionId);
+        if (!detectedRef.current) {
+          console.log("Auto-detected Viri Bridge Extension ID:", event.data.extensionId);
+          detectedRef.current = true;
+        }
         setExtensionId(event.data.extensionId);
         localStorage.setItem('viri_extension_id', event.data.extensionId);
         if (event.data.version) {
@@ -595,6 +599,7 @@ function App() {
     };
     window.addEventListener('message', handleMessage);
     const requestInterval = setInterval(() => {
+      if (detectedRef.current) { clearInterval(requestInterval); return; }
       try {
         window.postMessage({ type: 'REQUEST_VIRI_BRIDGE_ID' }, '*');
       } catch (e) { }
@@ -605,6 +610,7 @@ function App() {
     return () => {
       window.removeEventListener('message', handleMessage);
       clearInterval(requestInterval);
+      detectedRef.current = true;
     };
   }, []);
 
@@ -944,7 +950,7 @@ function App() {
       return newTx;
     });
     const filteredTransactionsForReport = rawTransactions.filter((tx: any) => {
-      const isCredit = (tx.amount || '').startsWith('+');
+      const isCredit = (typeof tx.amount === 'string' ? tx.amount : '').startsWith('+');
 
       // 0. Permission Filter (Hide Outward / Debit)
       if (!permissions.ledger_show_debit && !isCredit) return false;
@@ -5172,7 +5178,7 @@ function App() {
                                 )}
                               </>
                             ) : (() => {
-                              const lastCreditTx = lastTransactions.find(tx => tx.amount && tx.amount.startsWith('+'));
+                              const lastCreditTx = lastTransactions.find(tx => typeof tx.amount === 'string' && tx.amount.startsWith('+'));
                               const lastCreditAmount = lastCreditTx
                                 ? formatAmount(lastCreditTx.amount).replace('+', '')
                                 : '00.00';
@@ -5218,7 +5224,7 @@ function App() {
                               {timeLeft !== null ? `Estimated remaining: ~${timeLeft}s` : "Contacting banking server..."}
                             </p>
                           ) : (() => {
-                            const lastCreditTx = lastTransactions.find(tx => tx.amount && tx.amount.startsWith('+'));
+                            const lastCreditTx = lastTransactions.find(tx => typeof tx.amount === 'string' && tx.amount.startsWith('+'));
                             if (lastCreditTx) {
                               return (
                                 <div className="space-y-1 font-mono text-[11px] mt-1.5 text-zinc-300">
@@ -5427,7 +5433,7 @@ function App() {
                               const txKey = getTxKey(tx);
                               const rowKey = txKey;
                               const isNew = newTransactionKeys.has(txKey);
-                              const isCredit = tx.amount ? tx.amount.startsWith('+') : false;
+                                    const isCredit = typeof tx.amount === 'string' ? tx.amount.startsWith('+') : false;
                               const detailsParts = (tx.details || '').split('\n');
                               const description = (detailsParts[0] || '').trim();
                               let details = detailsParts.slice(1).join('\n').trim();
@@ -6094,7 +6100,7 @@ function App() {
                                     const getTxKey = (t: typeof tx) => `${t.date}-${t.amount}-${t.details}-${t.runningBalance || ''}`;
                                     const txKey = getTxKey(tx);
                                     const isNew = newTransactionKeys.has(txKey);
-                                    const isCredit = tx.amount ? tx.amount.startsWith('+') : false;
+                              const isCredit = typeof tx.amount === 'string' ? tx.amount.startsWith('+') : false;
                                     const isChecked = tx.hash ? checkedHashes.has(tx.hash) : false;
 
                                     return (
@@ -6222,7 +6228,7 @@ function App() {
                             <tbody className="divide-y divide-zinc-800/50">
                               {selectedReport.payload?.transactions?.length > 0 ? (
                                 selectedReport.payload.transactions.map((tx: any, idx: number) => {
-                                  const isCredit = (tx.amount || '').startsWith('+');
+      const isCredit = (typeof tx.amount === 'string' ? tx.amount : '').startsWith('+');
                                   const detailsParts = (tx.details || '').split('\n');
                                   const description = (detailsParts[0] || '').trim();
                                   return (

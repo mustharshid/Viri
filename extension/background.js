@@ -4326,7 +4326,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
         date: dt,
         description: description,
         reference: t.trxNumber2 || t.trxNumber || "",
-        amount: amt,
+        amount: (isCredit ? '+' : '-') + amt.toFixed(2),
         balance: 0,
         minus: !isCredit,
         narrative1: narr3,
