@@ -11,11 +11,15 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
+      // Unregister any existing service worker to prevent stale cache issues
       if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(regs => {
+          regs.forEach(reg => reg.unregister());
+        });
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('sw.js')
             .then(reg => console.log('ServiceWorker registered:', reg.scope))
-            .catch(() => { /* SW not available on this server — non-critical */ });
+            .catch(() => {});
         });
       }
     </script>

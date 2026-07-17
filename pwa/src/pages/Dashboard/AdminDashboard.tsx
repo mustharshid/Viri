@@ -139,7 +139,7 @@ export default function AdminDashboard() {
       });
       if (!res.ok) throw new Error('Failed to fetch payments');
       const data = await res.json();
-      setPayments(data);
+      setPayments(Array.isArray(data) ? data : (Array.isArray(data.data) ? data.data : []));
     } catch (err) {
       console.error(err);
     } finally {
@@ -1043,7 +1043,8 @@ export default function AdminDashboard() {
                                   headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
                                 });
                                 if (compRes.ok) {
-                                  setCompanies(await compRes.json());
+      const compData = await compRes.json();
+      setCompanies(Array.isArray(compData) ? compData : (Array.isArray(compData.data) ? compData.data : []));
                                 }
                               } else {
                                 const data = await res.json();
