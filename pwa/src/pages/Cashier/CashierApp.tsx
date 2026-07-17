@@ -3058,7 +3058,8 @@ function App() {
       totpSeed: currentCreds.totpSeed || ''
     };
 
-    const isApiManaged = selectedAccount?.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
+    const isApiManaged = (selectedAccount?.bank_name === 'BML' && appConfig.bml_login_procedure === 'api') || 
+                         (selectedAccount?.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api');
 
     if (!isApiManaged && (!activeCreds.username || !activeCreds.password)) {
       setError("Credentials missing for this account. Please re-pair the cashier counter or check account settings.");
@@ -3191,7 +3192,8 @@ function App() {
       totpSeed: currentCreds.totpSeed || ''
     };
 
-    const isApiManaged = selectedAccount?.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
+    const isApiManaged = (selectedAccount?.bank_name === 'BML' && appConfig.bml_login_procedure === 'api') || 
+                         (selectedAccount?.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api');
 
     if (!isApiManaged && (!activeCreds.username || !activeCreds.password)) {
       setError("Credentials missing for this account. Please re-pair the cashier counter or check account settings.");
