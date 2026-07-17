@@ -4446,6 +4446,18 @@ function App() {
                                 >
                                   {loading ? 'Opening...' : 'Login (Browser)'}
                                 </button>
+                                {hasCreds && (
+                                  <button
+                                    className="text-xs text-red-400 hover:text-red-300 underline font-semibold px-2 py-1"
+                                    onClick={() => {
+                                      if (confirm(`Are you sure you want to clear credentials for account ${acc.account_name}?`)) {
+                                        clearAccountCredentials(acc.id.toString());
+                                      }
+                                    }}
+                                  >
+                                    Clear
+                                  </button>
+                                )}
                               </div>
                             )}
                             {!isExpanded && !isApiManaged && (

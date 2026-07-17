@@ -3768,9 +3768,11 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
         const a41ProfileId = firstProfile.profileId || a41Resp.selectedProfileId || a41Resp.payload?.login?.selectedProfileId;
         const a41ProfileType = firstProfile.profileType || '0';
 
-        if (a41Resp.payload && a41Resp.payload.login && a41Resp.payload.login.otpRequired) {
+        // Per FLOW.md: OTP is signaled by primaryOTPType/otpTypes at the A41 response root
+        const needsOtp = a41Resp.primaryOTPType || (a41Resp.otpTypes && a41Resp.otpTypes.length > 0);
+        if (needsOtp) {
           if(port) emitLog(port, '> [MIB-API] A41 successful. OTP required.');
-          await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'A42', primaryOTPType: a41Resp.primaryOTPType, mibPassword: password, mibUsername, mibProfileId: a41ProfileId, mibProfileType: a41ProfileType } });
+          await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'C42', primaryOTPType: a41Resp.primaryOTPType || '3', mibPassword: password, mibUsername, mibProfileId: a41ProfileId, mibProfileType: a41ProfileType } });
           return { success: true, requiresOtp: true };
         } else {
           // Fast path, no OTP needed. Save profile and session.
@@ -3911,7 +3913,7 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
   }
 }
 
-async function ensureMibSession(port, terminalId, backendUrl) {
+async function ensureMibSession(port, terminalId, backendUrl, credentials) {
   let { mibSession } = await chrome.storage.session.get('mibSession');
   if (mibSession && mibSession.sessionKey) {
     return mibSession; // assume valid for now; if api fails we should catch and retry
@@ -3950,26 +3952,11 @@ async function ensureMibSession(port, terminalId, backendUrl) {
     if(port) emitLog(port, '> [MIB-API] Session resumed successfully.');
 
     // Select profile via P47 so WebView recognizes the session
+    let profileSelected = false;
     try {
       const { mib_profileId, mib_profileType } = await chrome.storage.local.get(['mib_profileId', 'mib_profileType']);
       if (mib_profileId) {
-        const p47Sodium = generateSodium();
-        const p47Nonce = generateNonce(mibSession.nonceGenerator);
-        const p47Payload = {
-          profileType: mib_profileType || '0',
-          profileId: mib_profileId,
-          nonce: p47Nonce,
-          appId: mibSession.appId,
-          sodium: p47Sodium,
-          routePath: 'P47',
-          xxid: mibSession.xxid
-        };
-        const p47Resp = await executeMibSfunc('n', p47Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
-        if (p47Resp.success) {
-          if(port) emitLog(port, '> [MIB-API] P47 profile selected successfully.');
-        } else {
-          if(port) emitLog(port, `> [MIB-API] P47 failed: ${p47Resp.reasonText}`);
-        }
+        profileSelected = await attemptP47(port, mibSession, mib_profileId, mib_profileType || '0');
       } else {
         if(port) emitLog(port, '> [MIB-API] No saved profile. Skipping P47.');
       }
@@ -3977,13 +3964,107 @@ async function ensureMibSession(port, terminalId, backendUrl) {
       if(port) emitLog(port, `> [MIB-API] P47 failed (non-fatal): ${e.message}`);
     }
 
-    // Log cookies set by the encrypted API response
+    // If P47 failed (None Authenticated Session) and credentials available, try A40 fallback
+    if (!profileSelected && credentials && credentials.username && credentials.password) {
+      if(port) emitLog(port, '> [MIB-API] Attempting A40 authentication fallback...');
+      try {
+        const a40Sodium = generateSodium();
+        const a40Nonce = generateNonce(mibSession.nonceGenerator);
+        const a40Payload = {
+          sodium: a40Sodium,
+          routePath: 'A40',
+          xxid: mibSession.xxid,
+          uname: credentials.username,
+          pgf02: credentials.password,
+          pmodTime: 0,
+          requireBankData: 1,
+          nonce: a40Nonce,
+          appId: mibSession.appId,
+        };
+        const a40Resp = await executeMibSfunc('n', a40Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
+        if (a40Resp.success) {
+          if(port) emitLog(port, '> [MIB-API] A40 authentication successful.');
+
+          // Extract and save profile from A40 response
+          const a40Profiles = a40Resp.operatingProfiles || [];
+          if (a40Profiles.length > 0) {
+            const profileId = a40Profiles[0].profileId || a40Profiles[0].customerProfileId;
+            const profileType = a40Profiles[0].profileType || '0';
+            await chrome.storage.local.set({ mib_profileId: profileId, mib_profileType: profileType });
+            if(port) emitLog(port, `> [MIB-API] Saved profile from A40: ${profileId} (type ${profileType}).`);
+            // Retry P47 with the saved profile
+            profileSelected = await attemptP47(port, mibSession, profileId, profileType);
+          } else {
+            // Single-profile fast-path — A40 may return accountBalance directly
+            if (a40Resp.selectedProfileId) {
+              await chrome.storage.local.set({
+                mib_profileId: a40Resp.selectedProfileId,
+                mib_profileType: a40Resp.selectedProfileType || '0'
+              });
+              profileSelected = await attemptP47(port, mibSession, a40Resp.selectedProfileId, a40Resp.selectedProfileType || '0');
+            } else {
+              if(port) emitLog(port, '> [MIB-API] A40 returned no profiles. Trying A80...');
+              // Try A80 fallback to see if session is usable
+              try {
+                const a80Payload = {
+                  nonce: generateNonce(mibSession.nonceGenerator),
+                  appId: mibSession.appId,
+                  sodium: generateSodium(),
+                  routePath: 'A80',
+                  xxid: mibSession.xxid
+                };
+                const a80Resp = await executeMibSfunc('n', a80Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
+                if (a80Resp.success) {
+                  if(port) emitLog(port, '> [MIB-API] A80 fallback succeeded.');
+                  profileSelected = true; // session is authenticated even without explicit profile
+                }
+              } catch (a80e) {
+                if(port) emitLog(port, `> [MIB-API] A80 fallback also failed: ${a80e.message}`);
+              }
+            }
+          }
+        } else {
+          if(port) emitLog(port, `> [MIB-API] A40 authentication failed: ${a40Resp.reasonText}`);
+        }
+      } catch (a40e) {
+        if(port) emitLog(port, `> [MIB-API] A40 fallback error: ${a40e.message}`);
+      }
+    }
+
+    // Log cookies after session setup
     chrome.cookies.getAll({ domain: 'mib.com.mv' }, (cookies) => {
-      if(port) emitLog(port, `> [MIB-API] Cookies after sfunc=i: ${cookies.map(c => `${c.name}=${c.value.substring(0,30)}`).join(', ')}`);
+      if(port) emitLog(port, `> [MIB-API] Cookies after session setup: ${cookies.map(c => `${c.name}=${c.value.substring(0,30)}`).join(', ')}`);
     });
     return mibSession;
   } catch(e) {
     throw new Error("Failed to resume MIB session. Keys may be stale.");
+  }
+}
+
+async function attemptP47(port, mibSession, profileId, profileType) {
+  const p47Sodium = generateSodium();
+  const p47Nonce = generateNonce(mibSession.nonceGenerator);
+  const p47Payload = {
+    profileType: profileType || '0',
+    customerProfileId: profileId,
+    nonce: p47Nonce,
+    appId: mibSession.appId,
+    sodium: p47Sodium,
+    routePath: 'P47',
+    xxid: mibSession.xxid
+  };
+  try {
+    const p47Resp = await executeMibSfunc('n', p47Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
+    if (p47Resp.success) {
+      if(port) emitLog(port, '> [MIB-API] P47 profile selected successfully.');
+      return true;
+    } else {
+      if(port) emitLog(port, `> [MIB-API] P47 failed: ${p47Resp.reasonText}`);
+      return false;
+    }
+  } catch (e) {
+    if(port) emitLog(port, `> [MIB-API] P47 error: ${e.message}`);
+    return false;
   }
 }
 
@@ -3992,7 +4073,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
   let last3Txs = [];
   
   try {
-    const mibSession = await ensureMibSession(port, hardwareId, backendUrl);
+    const mibSession = await ensureMibSession(port, hardwareId, backendUrl, credentials);
 
     if (sessionMode === 'claim_and_login') {
       emitLog(port, `> [MIB-API] Session claimed. Auth sequence complete.`);
