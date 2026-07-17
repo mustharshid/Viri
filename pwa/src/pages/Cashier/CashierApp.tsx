@@ -481,7 +481,8 @@ function App() {
   const [stmtError, setStmtError] = useState('');
 
   // Derived state for the selected account's recent transactions
-  const lastTransactions = selectedAccountId ? (recentTxCache[selectedAccountId]?.transactions || []) : [];
+  const rawTxs = selectedAccountId ? recentTxCache[selectedAccountId]?.transactions : undefined;
+  const lastTransactions = Array.isArray(rawTxs) ? rawTxs : [];
   const lastTransactionsLabel = selectedAccountId ? (recentTxCache[selectedAccountId]?.label || '') : '';
   const lastPopulatedTime = selectedAccountId ? (recentTxCache[selectedAccountId]?.lastUpdated || '') : '';
   const lastPopulatedTimestamp = selectedAccountId ? (recentTxCache[selectedAccountId]?.timestamp || null) : null;
@@ -2475,7 +2476,7 @@ function App() {
             return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || ''}`;
           };
 
-          const newTxs = response ? (response.transactions || []) : [];
+          const newTxs = response ? (Array.isArray(response.transactions) ? response.transactions : []) : [];
           addLog(`> [Session] Extracted transactions count: ${newTxs.length}`);
           const currentKeys = new Set(
             (requestType === 'ledger'
@@ -2882,6 +2883,7 @@ function App() {
         setTimeLeft(null);
         setTimeout(() => {
           (async () => {
+            try {
           setLoading(false);
           setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
           setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
@@ -2913,7 +2915,7 @@ function App() {
             return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || ''}`;
           };
 
-          const newTxs = response.transactions || [];
+          const newTxs = Array.isArray(response.transactions) ? response.transactions : [];
           const currentKeys = new Set(
             recentTxCache[selectedAccountId]?.transactions?.map((tx) => getTxKey(tx)) || []
           );
@@ -3003,6 +3005,12 @@ function App() {
           } catch (e) {
             console.error("Failed to reset failures:", e);
           }
+            } catch (err) {
+              console.error("Verification success handler crashed:", err);
+              setLoading(false);
+              setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+              setError("An unexpected error occurred after sync completed.");
+            }
         })();
         }, 1500); // 1.5s reinforcement checkmark flash
       } else if (response.type === 'error') {
@@ -3068,7 +3076,7 @@ function App() {
         setRecentTxCache(prev => ({
           ...prev,
           [selectedAccountId]: {
-            transactions: (response.transactions || []).slice(0, 3),
+            transactions: Array.isArray(response.transactions) ? response.transactions.slice(0, 3) : [],
             label: labelVal,
             lastUpdated: new Date().toLocaleTimeString(),
             timestamp: Date.now()
@@ -3279,7 +3287,7 @@ function App() {
             return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || ''}`;
           };
 
-          let newTxs = response.transactions || [];
+          let newTxs = Array.isArray(response.transactions) ? response.transactions : [];
           newTxs = await Promise.all(newTxs.map(async (tx: any) => {
             if (!tx.hash) {
               const rawStr = `${targetAccountId}|${tx.date || ''}|${tx.amount || ''}|${tx.details || ''}|${tx.reference || ''}`;
@@ -5500,9 +5508,10 @@ function App() {
               }) : { balance: 'Not synced', lastUpdated: 'Never', transactions: [] };
 
               // Apply filters & search logic
-              const rawTransactions = cache.transactions || [];
+              const rawTransactions = Array.isArray(cache.transactions) ? cache.transactions : [];
               const filteredTransactions = rawTransactions.filter(tx => {
-                const isCredit = tx.amount ? tx.amount.startsWith('+') : false;
+                if (!tx || typeof tx.amount !== 'string') return false;
+                const isCredit = tx.amount.startsWith('+');
 
                 // 0. Permission Filter (Hide Outward / Debit)
                 if (!permissions.ledger_show_debit && !isCredit) return false;
@@ -5514,9 +5523,12 @@ function App() {
                 // 2. Search Query Matching (description, details, date)
                 if (ledgerSearch.trim()) {
                   const query = ledgerSearch.toLowerCase();
-                  const matchesDesc = tx.details.toLowerCase().includes(query);
-                  const matchesDate = tx.date.toLowerCase().includes(query);
-                  const matchesAmount = tx.amount.toLowerCase().includes(query);
+                  const details = tx.details || '';
+                  const txDate = tx.date || '';
+                  const txAmount = tx.amount || '';
+                  const matchesDesc = details.toLowerCase().includes(query);
+                  const matchesDate = txDate.toLowerCase().includes(query);
+                  const matchesAmount = txAmount.toLowerCase().includes(query);
                   return matchesDesc || matchesDate || matchesAmount;
                 }
 
