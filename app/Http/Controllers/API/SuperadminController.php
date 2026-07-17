@@ -493,4 +493,47 @@ class SuperadminController extends Controller
             'message' => 'Stuck fetch lock cleared successfully'
         ]);
     }
+
+    public function getDebugInfo()
+    {
+        $mibKeys = \App\Models\MibDeviceCredential::with('terminal', 'bankAccount')->get()->map(function ($key) {
+            return [
+                'id' => $key->id,
+                'terminal_id' => $key->terminal_id,
+                'terminal_name' => $key->terminal->terminal_name ?? null,
+                'bank_account_id' => $key->bank_account_id,
+                'account_name' => $key->bankAccount->account_name ?? null,
+                'mib_username' => $key->mib_username,
+                'key1_prefix' => substr($key->key1 ?? '', 0, 8) . '...',
+                'key2_prefix' => substr($key->key2 ?? '', 0, 8) . '...',
+                'app_id' => $key->app_id,
+                'obtained_at' => $key->obtained_at,
+            ];
+        });
+
+        $bmlTokens = \App\Models\BmlOAuthToken::with('terminal', 'bankAccount')->get()->map(function ($token) {
+            return [
+                'id' => $token->id,
+                'terminal_id' => $token->terminal_id,
+                'terminal_name' => $token->terminal->terminal_name ?? null,
+                'bank_account_id' => $token->bank_account_id,
+                'account_name' => $token->bankAccount->account_name ?? null,
+                'bml_username' => $token->bml_username,
+                'device_id' => $token->device_id,
+                'token_type' => $token->token_type,
+                'last_grant' => $token->last_grant,
+                'obtained_at' => $token->obtained_at,
+                'expires_at' => $token->expires_at,
+                'has_access_token' => !empty($token->access_token),
+                'has_refresh_token' => !empty($token->refresh_token),
+            ];
+        });
+
+        return response()->json([
+            'mib_keys' => $mibKeys,
+            'bml_tokens' => $bmlTokens,
+            'total_mib_keys' => count($mibKeys),
+            'total_bml_tokens' => count($bmlTokens),
+        ]);
+    }
 }

@@ -317,6 +317,10 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         const targetAcc = payload.accountNumber || payload.accountId || payload.account;
         const mode = payload.mode || 'search';
         const sessionMode = payload.sessionMode || 'fresh_login';
+        // Store sanctumToken for backend-authenticated operations (e.g., MIB key fetch)
+        if (payload.sanctumToken) {
+          chrome.storage.local.set({ sanctumToken: payload.sanctumToken });
+        }
         try {
           if (payload.bank === 'MIB') {
             if (payload.mibLoginProcedure === 'api') {
@@ -3594,6 +3598,10 @@ async function fetchBmlStatementRange(credentials, bankAccountId, port, fromDate
 // MIB API Integration Implementation
 // -------------------------------------------------------------
 
+class MibSessionExpiredError extends Error {
+  constructor(message) { super(message); this.name = 'MibSessionExpiredError'; }
+}
+
 async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields = {}) {
   const encrypted = blowfishEncrypt(JSON.stringify(dataPayload), encryptKey);
   const formParts = [];
@@ -3618,14 +3626,26 @@ async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields =
   
   clearTimeout(timeoutId);
 
+  // HTTP 419 = session expired (server signal)
+  if (resp.status === 419) {
+    throw new MibSessionExpiredError('HTTP 419 — session expired');
+  }
+
   const cipherBody = await resp.text();
   if (!cipherBody) throw new Error("Empty response from MIB API");
 
   try {
     const decrypted = JSON.parse(blowfishDecrypt(cipherBody, encryptKey));
     console.log(`[MIB] sfunc=${sfunc} HTTP ${resp.status} OK success=${decrypted.success} code=${decrypted.responseCode} reason=${decrypted.reasonText} keys=${Object.keys(decrypted).join(',')}`);
+    
+    // reasonCode 505 or error 101 = session expired (within encrypted response)
+    if (!decrypted.success && (decrypted.reasonCode === '505' || decrypted.reasonText?.includes('Cipher key not found'))) {
+      throw new MibSessionExpiredError(`Session expired: ${decrypted.reasonText} (${decrypted.reasonCode})`);
+    }
+    
     return decrypted;
   } catch (e) {
+    if (e instanceof MibSessionExpiredError) throw e;
     console.error(`[MIB] sfunc=${sfunc} HTTP ${resp.status} body(200): "${cipherBody.substring(0, 200)}" err=${e.message}`);
     throw new Error("Failed to decrypt MIB response. Possible stale keys.");
   }
@@ -3696,9 +3716,14 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
     // If sfunc=r directly returns keys (fast-path optimization for recognized appId)
     if (rResp.key1 && rResp.key2) {
       if(port) emitLog(port, '> [MIB-API] Found existing keys via sfunc=r. Checking if valid...');
+      if (rResp.appId) {
+        storedAppId = rResp.appId;
+        await chrome.storage.local.set({ mib_appId: storedAppId });
+      }
       await chrome.storage.local.set({ mib_key1: rResp.key1, mib_key2: rResp.key2 });
       sessionState.key1 = rResp.key1;
       sessionState.key2 = rResp.key2;
+      if (rResp.appId) sessionState.appId = rResp.appId;
       
       try {
         const iPayload = { cmod: computeCmod().toString(), appId: storedAppId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
@@ -4071,6 +4096,90 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials) {
     });
     return mibSession;
   } catch(e) {
+    if (e instanceof MibSessionExpiredError || /stale keys/i.test(e.message)) {
+      if(port) emitLog(port, '> [MIB-API] Keys expired. Attempting sfunc=r re-registration...');
+      try {
+        const rSodium = generateSodium();
+        const rXxid = generateXxid();
+        const rAppId = localRes.mib_appId || generateAppId();
+        const rPayload = { cmod: computeCmod().toString(), appId: rAppId, routePath: 'S40', sodium: rSodium, xxid: rXxid };
+        const rResp = await executeMibSfunc('r', rPayload, DEFAULT_KEY, { sfunc: 'r' });
+        if (!rResp.success || !rResp.key1 || !rResp.key2) {
+          throw new Error(`sfunc=r re-registration failed: ${rResp?.reasonText || 'no keys returned'}`);
+        }
+        if(port) emitLog(port, '> [MIB-API] sfunc=r re-registration succeeded. Got fresh keys.');
+        const freshAppId = rResp.appId || rAppId;
+        await chrome.storage.local.set({ mib_key1: rResp.key1, mib_key2: rResp.key2, mib_appId: freshAppId });
+        // Upload fresh keys to server
+        try {
+          const { sanctumToken } = await chrome.storage.local.get('sanctumToken');
+          if (sanctumToken) {
+            await fetch(`${backendUrl}/api/mib/keys/store`, {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${sanctumToken}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                hardware_id: terminalId,
+                bank_account_id: 0,
+                mib_username: credentials?.username || '',
+                key1: rResp.key1, key2: rResp.key2, app_id: freshAppId,
+              })
+            });
+          }
+        } catch (uploadErr) {
+          if(port) emitLog(port, `> [MIB-API] Warning: failed to upload fresh keys to server: ${uploadErr.message}`);
+        }
+        // Retry with new keys
+        const iResp = await executeMibSfunc('i', iPayload, rResp.key1, { key2: rResp.key2, sfunc: 'i' });
+        mibSession = {
+          appId: freshAppId, key1: rResp.key1, key2: rResp.key2,
+          sessionKey: await deriveSessionKey(iResp.smod),
+          xxid: String(iResp.xxid), nonceGenerator: iResp.nonceGenerator
+        };
+        await chrome.storage.session.set({ mibSession });
+        if(port) emitLog(port, '> [MIB-API] Session re-established with fresh keys.');
+        // Retry profile selection + A40 fallback
+        let profileSelected = false;
+        try {
+          const { mib_profileId, mib_profileType } = await chrome.storage.local.get(['mib_profileId', 'mib_profileType']);
+          if (mib_profileId) profileSelected = await attemptP47(port, mibSession, mib_profileId, mib_profileType || '0');
+        } catch (pe) { /* ignore */ }
+        if (!profileSelected && credentials?.username && credentials?.password) {
+          try {
+            const a40Sodium = generateSodium();
+            const a40Nonce = generateNonce(mibSession.nonceGenerator);
+            const a40Payload = {
+              sodium: a40Sodium, routePath: 'A40', xxid: mibSession.xxid,
+              uname: credentials.username, pgf02: credentials.password,
+              pmodTime: 0, requireBankData: 1, nonce: a40Nonce, appId: mibSession.appId,
+            };
+            const a40Resp = await executeMibSfunc('n', a40Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
+            if (a40Resp.success) {
+              const a40Profiles = a40Resp.operatingProfiles || [];
+              if (a40Profiles.length > 0) {
+                const pid = a40Profiles[0].profileId || a40Profiles[0].customerProfileId;
+                const pt = a40Profiles[0].profileType || '0';
+                await chrome.storage.local.set({ mib_profileId: pid, mib_profileType: pt });
+                profileSelected = await attemptP47(port, mibSession, pid, pt);
+              } else if (a40Resp.selectedProfileId) {
+                await chrome.storage.local.set({ mib_profileId: a40Resp.selectedProfileId, mib_profileType: a40Resp.selectedProfileType || '0' });
+                profileSelected = await attemptP47(port, mibSession, a40Resp.selectedProfileId, a40Resp.selectedProfileType || '0');
+              } else {
+                const a80Payload = { nonce: generateNonce(mibSession.nonceGenerator), appId: mibSession.appId, sodium: generateSodium(), routePath: 'A80', xxid: mibSession.xxid };
+                const a80Resp = await executeMibSfunc('n', a80Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
+                if (a80Resp.success) profileSelected = true;
+              }
+            }
+          } catch (a40e) { if(port) emitLog(port, `> [MIB-API] Re-auth A40 failed: ${a40e.message}`); }
+        }
+        chrome.cookies.getAll({ domain: 'mib.com.mv' }, (cookies) => {
+          if(port) emitLog(port, `> [MIB-API] Cookies after re-session: ${cookies.map(c => `${c.name}=${c.value.substring(0,30)}`).join(', ')}`);
+        });
+        return mibSession;
+      } catch (rE) {
+        if(port) emitLog(port, `> [MIB-API] Re-registration failed: ${rE.message}`);
+        throw new Error("Missing MIB device credentials. Please link account again.");
+      }
+    }
     throw new Error("Failed to resume MIB session. Keys may be stale.");
   }
 }

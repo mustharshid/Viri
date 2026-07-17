@@ -76,6 +76,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/admin/payments/{id}/approve', [SuperadminController::class, 'approvePayment']);
     Route::post('/admin/payments/{id}/reject', [SuperadminController::class, 'rejectPayment']);
     Route::post('/admin/bank-accounts/{id}/clear-lock', [SuperadminController::class, 'clearStuckLock']);
+    Route::get('/admin/debug-info', [SuperadminController::class, 'getDebugInfo']);
 
     // Credential Sync (Company Dashboard)
     Route::post('/company/credential-sync/initiate',            [CredentialSyncController::class, 'initiate']);

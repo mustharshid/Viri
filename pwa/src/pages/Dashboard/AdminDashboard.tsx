@@ -33,13 +33,17 @@ export default function AdminDashboard() {
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRunIdx, setSelectedRunIdx] = useState<number>(0);
 
-  const [activeTab, setActiveTab] = useState<'companies' | 'archived' | 'tiers' | 'logs' | 'settings' | 'payments'>('companies');
+  const [activeTab, setActiveTab] = useState<'companies' | 'archived' | 'tiers' | 'logs' | 'settings' | 'payments' | 'debug'>('companies');
   const [sessionLogs, setSessionLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsPage, setLogsPage] = useState(1);
   const [logsTotalPages, setLogsTotalPages] = useState(1);
   const [logRefreshCountdown, setLogRefreshCountdown] = useState<number | null>(null);
   const [logRefreshInterval, setLogRefreshInterval] = useState<number>(15);
+
+  // Debug state
+  const [debugData, setDebugData] = useState<{ mib_keys: any[]; bml_tokens: any[]; total_mib_keys: number; total_bml_tokens: number } | null>(null);
+  const [debugLoading, setDebugLoading] = useState(false);
 
   // Payments State
   const [payments, setPayments] = useState<any[]>([]);
@@ -307,6 +311,22 @@ export default function AdminDashboard() {
       console.error(err);
     } finally {
       setLogsLoading(false);
+    }
+  };
+
+  const fetchDebugInfo = async () => {
+    setDebugLoading(true);
+    try {
+      const token = localStorage.getItem('viri_token');
+      if (!token) return;
+      const res = await fetch('/api/admin/debug-info', {
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+      });
+      if (res.ok) setDebugData(await res.json());
+    } catch (err) {
+      console.error('Failed to fetch debug info:', err);
+    } finally {
+      setDebugLoading(false);
     }
   };
 
@@ -1369,8 +1389,19 @@ export default function AdminDashboard() {
                             className="bg-red-950/40 hover:bg-red-900 border border-red-500/30 hover:border-red-500 text-red-300 hover:text-white font-bold py-1 px-3 rounded-lg transition-colors text-[10px]"
                           >
                             Reject
-                          </button>
-                        </div>
+          </button>
+          <button
+            onClick={() => { setActiveTab('debug'); fetchDebugInfo(); }}
+            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+              activeTab === 'debug'
+                ? 'border-yellow-500 text-yellow-500'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Code size={16} className="shrink-0" />
+            <span>Debug</span>
+          </button>
+        </div>
                       </td>
                     </tr>
                   ))}
@@ -2429,6 +2460,75 @@ export default function AdminDashboard() {
           {activeTab === 'settings' && renderSystemSettingsTab()}
 
           {activeTab === 'payments' && renderPaymentsTab()}
+
+          {activeTab === 'debug' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold">Stored Credentials Debug</h2>
+                <button onClick={fetchDebugInfo} className="btn btn-outline text-sm" disabled={debugLoading}>
+                  <RefreshCw size={14} className={`mr-1 ${debugLoading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </button>
+              </div>
+              {debugData && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="glass-panel p-5 border border-zinc-800 rounded-xl">
+                    <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
+                      <Server size={16} className="text-emerald-400" />
+                      MIB Device Keys ({debugData.total_mib_keys})
+                    </h3>
+                    {debugData.mib_keys.length === 0 ? (
+                      <p className="text-zinc-500 text-sm italic">No MIB keys stored.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {debugData.mib_keys.map((key: any) => (
+                          <div key={key.id} className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-3 text-xs font-mono">
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                              <div><span className="text-zinc-500">Account:</span> <span className="text-zinc-300">{key.account_name || 'N/A'}</span></div>
+                              <div><span className="text-zinc-500">Terminal:</span> <span className="text-zinc-300">{key.terminal_name || 'N/A'}</span></div>
+                              <div><span className="text-zinc-500">MIB Username:</span> <span className="text-zinc-300">{key.mib_username || 'N/A'}</span></div>
+                              <div><span className="text-zinc-500">App ID:</span> <span className="text-zinc-300">{key.app_id || 'N/A'}</span></div>
+                              <div><span className="text-zinc-500">Key1:</span> <span className="text-zinc-300">{key.key1_prefix || 'N/A'}</span></div>
+                              <div><span className="text-zinc-500">Key2:</span> <span className="text-zinc-300">{key.key2_prefix || 'N/A'}</span></div>
+                              <div><span className="text-zinc-500">Obtained:</span> <span className="text-zinc-300">{key.obtained_at || 'N/A'}</span></div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="glass-panel p-5 border border-zinc-800 rounded-xl">
+                    <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
+                      <Database size={16} className="text-blue-400" />
+                      BML OAuth Tokens ({debugData.total_bml_tokens})
+                    </h3>
+                    {debugData.bml_tokens.length === 0 ? (
+                      <p className="text-zinc-500 text-sm italic">No BML tokens stored.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {debugData.bml_tokens.map((token: any) => (
+                          <div key={token.id} className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-3 text-xs font-mono">
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                              <div><span className="text-zinc-500">Account:</span> <span className="text-zinc-300">{token.account_name || 'N/A'}</span></div>
+                              <div><span className="text-zinc-500">Terminal:</span> <span className="text-zinc-300">{token.terminal_name || 'N/A'}</span></div>
+                              <div><span className="text-zinc-500">BML Username:</span> <span className="text-zinc-300">{token.bml_username || 'N/A'}</span></div>
+                              <div><span className="text-zinc-500">Device ID:</span> <span className="text-zinc-300">{token.device_id || 'N/A'}</span></div>
+                              <div><span className="text-zinc-500">Token Type:</span> <span className="text-zinc-300">{token.token_type || 'N/A'}</span></div>
+                              <div><span className="text-zinc-500">Last Grant:</span> <span className="text-zinc-300">{token.last_grant || 'N/A'}</span></div>
+                              <div><span className="text-zinc-500">Has Access Token:</span> <span className={token.has_access_token ? 'text-emerald-400' : 'text-red-400'}>{token.has_access_token ? 'Yes' : 'No'}</span></div>
+                              <div><span className="text-zinc-500">Has Refresh Token:</span> <span className={token.has_refresh_token ? 'text-emerald-400' : 'text-red-400'}>{token.has_refresh_token ? 'Yes' : 'No'}</span></div>
+                              <div><span className="text-zinc-500">Expires:</span> <span className="text-zinc-300">{token.expires_at || 'N/A'}</span></div>
+                              <div><span className="text-zinc-500">Obtained:</span> <span className="text-zinc-300">{token.obtained_at || 'N/A'}</span></div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Debug Logs Viewer Modal */}

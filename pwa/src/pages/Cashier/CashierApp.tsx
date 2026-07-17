@@ -3026,8 +3026,9 @@ function App() {
         setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
         setError(isSearchNotFound ? "Search not found" : (response.error || (mode === 'history' ? "Failed to fetch history." : "Verification failed.")));
 
-        // Track consecutive failures
-        const isAuthError = !response.login_success && (response.auth_failed || (progress.stage === 'init' || progress.stage === 'auth' ||
+        // Track consecutive failures — but not for infrastructure errors (missing keys, server fetch fails)
+        const isInfraError = /Missing MIB device credentials|no auth token/i.test(response.error || '');
+        const isAuthError = !isInfraError && !response.login_success && (response.auth_failed || (progress.stage === 'init' || progress.stage === 'auth' ||
           /login|credential|auth|password|seed|incorrect|invalid/i.test(response.error || '')));
         if (isAuthError) {
           addLog("> [System] Invalid bank credentials detected. Incrementing failure count...");
@@ -3134,7 +3135,8 @@ function App() {
           bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
           mibLoginProcedure: appConfig.mib_login_procedure || 'legacy',
           backendUrl: backendUrl,
-          hardwareId: hardwareId
+          hardwareId: hardwareId,
+          sanctumToken: localStorage.getItem('token') || ''
         }
       });
     } catch (msgErr: any) {
@@ -3434,8 +3436,9 @@ function App() {
           }
         }));
 
-        // Track consecutive failures
-        const isAuthError = !response.login_success && (response.auth_failed || (progress.stage === 'init' || progress.stage === 'auth' ||
+        // Track consecutive failures — but not for infrastructure errors (missing keys, server fetch fails)
+        const isInfraError = /Missing MIB device credentials|no auth token/i.test(response.error || '');
+        const isAuthError = !isInfraError && !response.login_success && (response.auth_failed || (progress.stage === 'init' || progress.stage === 'auth' ||
           /login|credential|auth|password|seed|incorrect|invalid/i.test(response.error || '')));
         if (isAuthError) {
           const currentCreds = accountsCreds[targetAccountId] || {};
