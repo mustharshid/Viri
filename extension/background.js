@@ -4089,6 +4089,16 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
       return;
     }
 
+    if (mode === 'ledger' || mode === 'history') {
+      port.postMessage({
+        type: 'success',
+        match: null,
+        transactions: formattedTxs,
+        login_success: true
+      });
+      return;
+    }
+
     // Match logic for 'search' mode
     const searchAmt = parseFloat(targetAmount);
     let matchedTx = null;
