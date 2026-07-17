@@ -3600,10 +3600,12 @@ async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields =
   if (!cipherBody) throw new Error("Empty response from MIB API");
 
   try {
-    return JSON.parse(blowfishDecrypt(cipherBody, encryptKey));
+    const decrypted = JSON.parse(blowfishDecrypt(cipherBody, encryptKey));
+    console.log(`[MIB] sfunc=${sfunc} HTTP ${resp.status} OK success=${decrypted.success} code=${decrypted.responseCode} reason=${decrypted.reasonText} keys=${Object.keys(decrypted).join(',')}`);
+    return decrypted;
   } catch (e) {
-    console.error(`[MIB-DEBUG] sfunc=${sfunc} HTTP ${resp.status} key=${encryptKey.substring(0, 16)}... body(200): "${cipherBody.substring(0, 200)}"`);
-    throw new Error(`Failed to decrypt MIB response (sfunc=${sfunc}, status=${resp.status}). Possible stale keys.`);
+    console.error(`[MIB] sfunc=${sfunc} HTTP ${resp.status} body(200): "${cipherBody.substring(0, 200)}" err=${e.message}`);
+    throw new Error("Failed to decrypt MIB response. Possible stale keys.");
   }
 }
 
@@ -3620,7 +3622,7 @@ async function fetchMibUserSalt(sessionState, username) {
     p_dev_typ: 'A',
     p_dev_tok: 'test',
   };
-  const resp = await executeMibSfunc('n', payload, sessionState.sessionKey, { sfunc: 'n' });
+  const resp = await executeMibSfunc('n', payload, sessionState.sessionKey, { xxid: sessionState.xxid, sfunc: 'n' });
   if (resp.data && resp.data[0] && resp.data[0].userSalt) {
     return resp.data[0].userSalt;
   }
@@ -3661,6 +3663,10 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
     const rXxid = generateXxid();
     const rPayload = { cmod: computeCmod().toString(), appId: storedAppId, routePath: 'S40', sodium: rSodium, xxid: rXxid };
     const rResp = await executeMibSfunc('r', rPayload, DEFAULT_KEY, { sfunc: 'r' });
+    console.log(`[MIB] sfunc=r response success=${rResp.success} code=${rResp.responseCode} reason=${rResp.reasonText} xxid=${rResp.xxid}`);
+    if (!rResp.success) {
+      throw new Error(`sfunc=r failed: ${rResp.reasonText} (${rResp.reasonCode})`);
+    }
     sessionState.xxid = String(rResp.xxid);
     sessionState.nonceGenerator = rResp.nonceGenerator;
     sessionState.sessionKey = await deriveSessionKey(rResp.smod);
@@ -3710,13 +3716,15 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
       p_dev_tok: 'test',
     };
     
-    const c41Resp = await executeMibSfunc('n', c41Payload, sessionState.sessionKey, { sfunc: 'n' });
-    if (c41Resp.code === 0) {
+    console.log(`[MIB] A44/C41 payload xxid="${sessionState.xxid}" nonceGen="${sessionState.nonceGenerator?.substring(0, 30)}" sessionKey="${sessionState.sessionKey?.substring(0, 16)}"`);
+    const c41Resp = await executeMibSfunc('n', c41Payload, sessionState.sessionKey, { xxid: sessionState.xxid, sfunc: 'n' });
+    console.log(`[MIB] C41 success=${c41Resp.success} primaryOTPType=${c41Resp.primaryOTPType} otpTypes=${JSON.stringify(c41Resp.otpTypes)} reason=${c41Resp.reasonText}`);
+    if (c41Resp.success) {
       if(port) emitLog(port, '> [MIB-API] C41 successful. OTP required.');
-      await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'C42' } });
+      await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'C42', primaryOTPType: c41Resp.primaryOTPType } });
       return { success: true, requiresOtp: true };
     } else {
-      throw new Error(`C41 failed: ${c41Resp.message}`);
+      throw new Error(`C41 failed: ${c41Resp.reasonText || JSON.stringify(c41Resp)}`);
     }
   };
 
@@ -3753,11 +3761,11 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
         p_dev_tok: 'test',
       };
 
-      const a41Resp = await executeMibSfunc('n', a41Payload, sessionState.sessionKey, { sfunc: 'n' });
-      if (a41Resp.code === 0) {
+      const a41Resp = await executeMibSfunc('n', a41Payload, sessionState.sessionKey, { xxid: sessionState.xxid, sfunc: 'n' });
+      if (a41Resp.success) {
         if (a41Resp.payload && a41Resp.payload.login && a41Resp.payload.login.otpRequired) {
           if(port) emitLog(port, '> [MIB-API] A41 successful. OTP required.');
-          await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'A42' } });
+          await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'A42', primaryOTPType: a41Resp.primaryOTPType } });
           return { success: true, requiresOtp: true };
         } else {
           // Fast path, no OTP needed. Store session.
@@ -3785,7 +3793,7 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
   const { mibAuthTemp } = await chrome.storage.session.get('mibAuthTemp');
   if (!mibAuthTemp) throw new Error("No MIB auth session found in storage.");
   
-  const { sessionState, flow } = mibAuthTemp;
+  const { sessionState, flow, primaryOTPType } = mibAuthTemp;
   const sodium = generateSodium();
   const nonce = generateNonce(sessionState.nonceGenerator);
   
@@ -3797,16 +3805,16 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
     xxid: sessionState.xxid,
     otp: otp,
     uname: mibUsername,
-    otpType: 'email',
+    otpType: primaryOTPType || '3',
     appId: sessionState.appId,
     nonce: nonce,
     p_dev_typ: 'A',
     p_dev_tok: 'test',
   };
   
-  const resp = await executeMibSfunc('n', payload, sessionState.sessionKey, { sfunc: 'n' });
+  const resp = await executeMibSfunc('n', payload, sessionState.sessionKey, { xxid: sessionState.xxid, sfunc: 'n' });
   
-  if (resp.code === 0) {
+  if (resp.success) {
     if(port) emitLog(port, '> [MIB-API] OTP Verified successfully.');
     
     // C42/A42 returns key1/key2 in data[0]. We save them.
@@ -3838,7 +3846,7 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
     await chrome.storage.session.remove('mibAuthTemp');
     return { success: true };
   } else {
-    throw new Error(`OTP Verification failed: ${resp.message}`);
+    throw new Error(`OTP Verification failed: ${resp.reasonText || resp.message || JSON.stringify(resp)}`);
   }
 }
 

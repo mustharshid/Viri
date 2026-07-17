@@ -3829,7 +3829,8 @@ function App() {
   const selectedAccountCurrency = selectedAccount ? (selectedAccount.currency || 'MVR') : 'MVR';
 
   const selectedAccountCreds = selectedAccountId ? (accountsCreds[selectedAccountId] || {}) : {};
-  const isSelectedApiManaged = selectedAccount?.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
+  const isSelectedApiManaged = (selectedAccount?.bank_name === 'BML' && appConfig.bml_login_procedure === 'api') || 
+                               (selectedAccount?.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api');
   const isCredentialsComplete = isSelectedApiManaged || (
     !!selectedAccountCreds.username?.trim() &&
     !!selectedAccountCreds.password?.trim() &&
