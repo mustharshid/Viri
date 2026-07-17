@@ -863,10 +863,25 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(accId) })
       });
-      // We do not wait for refresh, but the user may see the status change eventually or upon next poll.
     } catch (err) {
       console.error("Failed to clear API tokens", err);
     }
+
+    // Clear extension-side MIB keys and cookies
+    if (typeof chrome !== 'undefined' && chrome.runtime && extensionId) {
+      try {
+        const acc = bankAccounts.find(a => a.id.toString() === accId);
+        if (acc?.bank_name === 'MIB') {
+          chrome.runtime.sendMessage(extensionId, { action: 'CLEAR_MIB_CREDENTIALS' })
+            .catch(() => console.log("Extension not available for MIB credential clearing"));
+        }
+      } catch (e) {
+        console.error("Failed to send clear message to extension", e);
+      }
+    }
+
+    // Refresh account list to update badge status
+    fetchAccounts();
   };
 
   // Verification State
@@ -2857,7 +2872,7 @@ function App() {
           setProgress(parsed);
         }
       } else if (response.type === 'success') {
-        addLog("> [Session] Bank session authenticated successfully.");
+        addLog("> [Session] Request completed successfully.");
         setProgress({
           stage: 'success',
           text: mode === 'history' ? '✅ History Fetched!' : '✅ Transfer Verified!',
@@ -2865,11 +2880,15 @@ function App() {
           isIndeterminate: false
         });
         setTimeLeft(null);
-        setTimeout(async () => {
+        setTimeout(() => {
+          (async () => {
           setLoading(false);
           setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
           setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
-          setResult(response.data || null);
+          // response.data may be null for non-search modes
+          if (response.data) {
+            setResult(response.data);
+          }
 
           // Save internal_id if returned
           if (response.internal_id) {
@@ -2984,6 +3003,7 @@ function App() {
           } catch (e) {
             console.error("Failed to reset failures:", e);
           }
+        })();
         }, 1500); // 1.5s reinforcement checkmark flash
       } else if (response.type === 'error') {
         const isSearchNotFound = /No recent credit transaction found/i.test(response.error || '');

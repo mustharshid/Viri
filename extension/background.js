@@ -231,6 +231,28 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === 'CLEAR_MIB_CREDENTIALS') {
+    (async () => {
+      try {
+        // Clear MIB device keys from local storage
+        await chrome.storage.local.remove(['mib_key1', 'mib_key2', 'mib_appId', 'mib_profileId', 'mib_profileType']);
+        // Clear cached session
+        await chrome.storage.session.remove('mibSession');
+        // Clear MIB cookies
+        const mibCookies = await chrome.cookies.getAll({ domain: 'mib.com.mv' });
+        for (const cookie of mibCookies) {
+          const protocol = cookie.secure ? "https://" : "http://";
+          const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+          await chrome.cookies.remove({ url: `${protocol}${cleanDomain}${cookie.path}`, name: cookie.name });
+        }
+        sendResponse({ success: true });
+      } catch (e) {
+        sendResponse({ success: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
   if (msg.action === 'CHECK_BML_TOKENS') {
     getValidBmlAccessToken(msg.payload.terminalId, msg.payload.bankAccountId, msg.payload.backendUrl, msg.payload.bmlUsername, msg.payload.profileType, msg.payload.sanctumToken)
       .then(token => sendResponse({ hasTokens: !!token }))
@@ -312,7 +334,7 @@ chrome.runtime.onConnectExternal.addListener((port) => {
             }
           }
         } catch (error) {
-          port.postMessage({ type: 'error', error: error.message });
+          try { port.postMessage({ type: 'error', error: error.message }); } catch(e) {}
         }
       }
       else if (msg.action === 'FULFILL_DELEGATED_REQUEST') {
@@ -4212,11 +4234,15 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     }
 
   } catch (error) {
-    emitLog(port, `> [MIB-API] ERROR: ${error.message}`);
-    if (mode === 'fetch_only') {
-      port.postMessage({ type: 'statement_error', error: error.message });
-    } else {
-      port.postMessage({ type: 'error', error: error.message });
+    try {
+      emitLog(port, `> [MIB-API] ERROR: ${error.message}`);
+      if (mode === 'fetch_only') {
+        port.postMessage({ type: 'statement_error', error: error.message });
+      } else {
+        port.postMessage({ type: 'error', error: error.message });
+      }
+    } catch(e) {
+      // port may be disconnected
     }
   }
 }
