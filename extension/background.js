@@ -1247,7 +1247,7 @@ async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode =
     // ═══════════════════════════════════════════════════════════════
     // STEP 7: Scrape History for the amount
     // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [BML] Step 7: Scraping recent transaction history...`);
+    emitLog(port, `> [BML] Step 7: Scraping recent transaction history (Endpoint: ${BASE_URL}/api/account/${bmlAccountId}/history/today)...`);
     // Fetch today's transactions
     const historyUrl = `${BASE_URL}/api/account/${bmlAccountId}/history/today`;
     const histRes = await fetch(historyUrl, {
@@ -2159,7 +2159,7 @@ async function runMibFlow(credentials, targetAccount, port, targetAmount, profil
     // STEP 9: Fetch Transaction History — POST /ajaxAccounts/trxHistory
     // HAR: Status 200, empty fromDate/toDate (no date filtering)
     // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [MIB] Step 9: Fetching transaction history for ${matchedAccountNo}...`);
+    emitLog(port, `> [MIB] Step 9: Fetching transaction history for ${matchedAccountNo} (Endpoint: ${MIB_BASE_URL}/ajaxAccounts/trxHistory)...`);
 
     const historyRes = await mibFetch(`${MIB_BASE_URL}/ajaxAccounts/trxHistory`, {
       method: 'POST',
@@ -2810,7 +2810,7 @@ async function runMibMultiProfileFlow(credentials, targetAccount, targetAccountN
       }
     }
 
-    emitLog(port, `> [MIB] Step 9: Fetching transaction history for ${matchedAccountNo}...`);
+    emitLog(port, `> [MIB] Step 9: Fetching transaction history for ${matchedAccountNo} (Endpoint: ${MIB_BASE_URL}/ajaxAccounts/trxHistory)...`);
 
     const historyRes = await mibFetch(`${MIB_BASE_URL}/ajaxAccounts/trxHistory`, {
       method: 'POST',
@@ -3906,14 +3906,14 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
       return;
     }
 
-    emitLog(port, `> [MIB-API] Fetching transactions from WebView API...`);
+    emitLog(port, `> [MIB-API] Fetching transactions from WebView API (Endpoint: https://faisamobilex-wv.mib.com.mv/ajaxAccounts/trxHistory)...`);
     // WebView fetch
     const trxRes = await fetch('https://faisamobilex-wv.mib.com.mv/ajaxAccounts/trxHistory', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
         'X-Requested-With': 'XMLHttpRequest',
-        'Cookie': `mbmodel=IOS-1.0; xxid=${mibSession.xxid}; IBSID=${mibSession.xxid}; mbnonce=${mibSession.nonceGenerator}; time-tracker=597`
+        'Cookie': `mbmodel=IOS-1.0; xxid=${mibSession.xxid}; IBSID=${mibSession.xxid}; mbnonce=${generateNonce(mibSession.nonceGenerator)}; time-tracker=597`
       },
       body: `accountNo=${targetAccount}&appType=1&pageNo=1&pageSize=50`
     });
