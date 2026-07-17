@@ -3588,9 +3588,9 @@ async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields =
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
-      'User-Agent': 'android/1.0',
     },
     body: formBody,
+    credentials: 'include',
     signal: controller.signal
   });
   
@@ -3721,7 +3721,7 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
     console.log(`[MIB] C41 success=${c41Resp.success} primaryOTPType=${c41Resp.primaryOTPType} otpTypes=${JSON.stringify(c41Resp.otpTypes)} reason=${c41Resp.reasonText}`);
     if (c41Resp.success) {
       if(port) emitLog(port, '> [MIB-API] C41 successful. OTP required.');
-      await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'C42', primaryOTPType: c41Resp.primaryOTPType } });
+      await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'C42', primaryOTPType: c41Resp.primaryOTPType, mibPassword: password, mibUsername } });
       return { success: true, requiresOtp: true };
     } else {
       throw new Error(`C41 failed: ${c41Resp.reasonText || JSON.stringify(c41Resp)}`);
@@ -3755,20 +3755,29 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
         pgf03: pgf03,
         nonce: nonce,
         appId: sessionState.appId,
-        pmodTime: 43200000,
-        requireBankData: 'Y',
-        p_dev_typ: 'A',
-        p_dev_tok: 'test',
+        pmodTime: 0,
+        requireBankData: 1,
       };
 
       const a41Resp = await executeMibSfunc('n', a41Payload, sessionState.sessionKey, { xxid: sessionState.xxid, sfunc: 'n' });
       if (a41Resp.success) {
+        // Extract profile info from A41 response
+        const a41Profiles = a41Resp.operatingProfiles || a41Resp.payload?.login?.operatingProfiles || [];
+        const firstProfile = a41Profiles[0] || {};
+        // Single-profile fast-path: A41 may set selectedProfileId without operatingProfiles
+        const a41ProfileId = firstProfile.profileId || a41Resp.selectedProfileId || a41Resp.payload?.login?.selectedProfileId;
+        const a41ProfileType = firstProfile.profileType || '0';
+
         if (a41Resp.payload && a41Resp.payload.login && a41Resp.payload.login.otpRequired) {
           if(port) emitLog(port, '> [MIB-API] A41 successful. OTP required.');
-          await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'A42', primaryOTPType: a41Resp.primaryOTPType } });
+          await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'A42', primaryOTPType: a41Resp.primaryOTPType, mibPassword: password, mibUsername, mibProfileId: a41ProfileId, mibProfileType: a41ProfileType } });
           return { success: true, requiresOtp: true };
         } else {
-          // Fast path, no OTP needed. Store session.
+          // Fast path, no OTP needed. Save profile and session.
+          if (a41ProfileId) {
+            await chrome.storage.local.set({ mib_profileId: a41ProfileId, mib_profileType: a41ProfileType });
+            if(port) emitLog(port, `> [MIB-API] Saved profile ${a41ProfileId} (type ${a41ProfileType}).`);
+          }
           await chrome.storage.session.set({ mibSession: sessionState });
           if(port) emitLog(port, '> [MIB-API] A41 successful. No OTP required.');
           return { success: true, skipOtp: true };
@@ -3793,7 +3802,7 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
   const { mibAuthTemp } = await chrome.storage.session.get('mibAuthTemp');
   if (!mibAuthTemp) throw new Error("No MIB auth session found in storage.");
   
-  const { sessionState, flow, primaryOTPType } = mibAuthTemp;
+  const { sessionState, flow, primaryOTPType, mibPassword } = mibAuthTemp;
   const sodium = generateSodium();
   const nonce = generateNonce(sessionState.nonceGenerator);
   
@@ -3808,8 +3817,6 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
     otpType: primaryOTPType || '3',
     appId: sessionState.appId,
     nonce: nonce,
-    p_dev_typ: 'A',
-    p_dev_tok: 'test',
   };
   
   const resp = await executeMibSfunc('n', payload, sessionState.sessionKey, { xxid: sessionState.xxid, sfunc: 'n' });
@@ -3822,6 +3829,12 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
       sessionState.key1 = resp.data[0].key1;
       sessionState.key2 = resp.data[0].key2;
       await chrome.storage.local.set({ mib_key1: resp.data[0].key1, mib_key2: resp.data[0].key2 });
+      
+      // Save profile info from A41 (available in mibAuthTemp for A42 path)
+      const { mibProfileId, mibProfileType } = mibAuthTemp;
+      if (mibProfileId) {
+        await chrome.storage.local.set({ mib_profileId: mibProfileId, mib_profileType: mibProfileType || '0' });
+      }
       
       // Store in backend
       if(port) emitLog(port, '> [MIB-API] Storing device keys in backend...');
@@ -3840,6 +3853,54 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
           app_id: sessionState.appId
         })
       });
+    }
+
+    // After C42, use password (still in mibAuthTemp) to establish authenticated web session via A41
+    if (flow === 'C42' && mibPassword && resp.data && resp.data[0] && resp.data[0].key1 && resp.data[0].key2) {
+      try {
+        if(port) emitLog(port, '> [MIB-API] Establishing web session via A41...');
+        // sfunc=i resume with new keys
+        const iPayload = { cmod: computeCmod().toString(), appId: sessionState.appId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
+        const iResp = await executeMibSfunc('i', iPayload, resp.data[0].key1, { key2: resp.data[0].key2, sfunc: 'i' });
+        const webSessionKey = await deriveSessionKey(iResp.smod);
+        const webXxid = String(iResp.xxid);
+        const webNonceGen = iResp.nonceGenerator;
+        // A44 — get userSalt
+        const a44Sodium = generateSodium();
+        const a44Nonce = generateNonce(webNonceGen);
+        const a44Payload = { sodium: a44Sodium, routePath: 'A44', xxid: webXxid, uname: mibUsername, nonce: a44Nonce, appId: sessionState.appId };
+        const a44Resp = await executeMibSfunc('n', a44Payload, webSessionKey, { xxid: webXxid, sfunc: 'n' });
+        if (a44Resp.success) {
+          const userSalt = a44Resp.data?.[0]?.userSalt;
+          if (userSalt) {
+            // A41 — login init
+            const a41Sodium = generateSodium();
+            const a41Nonce = generateNonce(webNonceGen);
+            const webClientSalt = generateClientSalt();
+            const pgf03 = await computePgf03(mibPassword, userSalt, webClientSalt);
+            const a41Payload = {
+              sodium: a41Sodium, routePath: 'A41', xxid: webXxid, uname: mibUsername, clientSalt: webClientSalt, pgf03,
+              nonce: a41Nonce, appId: sessionState.appId, pmodTime: 0,
+              requireBankData: 1,
+            };
+            const a41Resp = await executeMibSfunc('n', a41Payload, webSessionKey, { xxid: webXxid, sfunc: 'n' });
+            if (a41Resp.success) {
+              if(port) emitLog(port, `> [MIB-API] A41 web login successful. Updating session with web xxid.`);
+              sessionState.xxid = webXxid;
+              sessionState.nonceGenerator = webNonceGen;
+              sessionState.sessionKey = webSessionKey;
+              // Save profile info from this A41 response
+              const c42Profiles = a41Resp.operatingProfiles || a41Resp.payload?.login?.operatingProfiles || [];
+              const c42First = c42Profiles[0] || {};
+              if (c42First.profileId) {
+                await chrome.storage.local.set({ mib_profileId: c42First.profileId, mib_profileType: c42First.profileType || '0' });
+              }
+            }
+          }
+        }
+      } catch (e) {
+        if(port) emitLog(port, `> [MIB-API] Web session setup failed (non-fatal): ${e.message}`);
+      }
     }
 
     await chrome.storage.session.set({ mibSession: sessionState });
@@ -3887,6 +3948,39 @@ async function ensureMibSession(port, terminalId, backendUrl) {
     };
     await chrome.storage.session.set({ mibSession });
     if(port) emitLog(port, '> [MIB-API] Session resumed successfully.');
+
+    // Select profile via P47 so WebView recognizes the session
+    try {
+      const { mib_profileId, mib_profileType } = await chrome.storage.local.get(['mib_profileId', 'mib_profileType']);
+      if (mib_profileId) {
+        const p47Sodium = generateSodium();
+        const p47Nonce = generateNonce(mibSession.nonceGenerator);
+        const p47Payload = {
+          profileType: mib_profileType || '0',
+          profileId: mib_profileId,
+          nonce: p47Nonce,
+          appId: mibSession.appId,
+          sodium: p47Sodium,
+          routePath: 'P47',
+          xxid: mibSession.xxid
+        };
+        const p47Resp = await executeMibSfunc('n', p47Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
+        if (p47Resp.success) {
+          if(port) emitLog(port, '> [MIB-API] P47 profile selected successfully.');
+        } else {
+          if(port) emitLog(port, `> [MIB-API] P47 failed: ${p47Resp.reasonText}`);
+        }
+      } else {
+        if(port) emitLog(port, '> [MIB-API] No saved profile. Skipping P47.');
+      }
+    } catch (e) {
+      if(port) emitLog(port, `> [MIB-API] P47 failed (non-fatal): ${e.message}`);
+    }
+
+    // Log cookies set by the encrypted API response
+    chrome.cookies.getAll({ domain: 'mib.com.mv' }, (cookies) => {
+      if(port) emitLog(port, `> [MIB-API] Cookies after sfunc=i: ${cookies.map(c => `${c.name}=${c.value.substring(0,30)}`).join(', ')}`);
+    });
     return mibSession;
   } catch(e) {
     throw new Error("Failed to resume MIB session. Keys may be stale.");
@@ -3906,32 +4000,23 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
       return;
     }
 
-    // Set cookies via cookies API (Cookie header is forbidden in fetch)
-    const webviewDomain = 'faisamobilex-wv.mib.com.mv';
+    // The encrypted API (with credentials:'include') should have set session cookies.
+    // Set explicit cookies for the WebView subdomain so the WebView recognizes the session.
+    const wvDomain = 'faisamobilex-wv.mib.com.mv';
     const setMibCookies = (domain) => new Promise((resolve) => {
       let done = 0;
       const cb = () => { if (++done === 5) resolve(); };
-      chrome.cookies.set({ url: `https://${domain}/`, name: 'mbmodel', value: 'IOS-1.0', domain, path: '/' }, cb);
       chrome.cookies.set({ url: `https://${domain}/`, name: 'xxid', value: mibSession.xxid, domain, path: '/' }, cb);
       chrome.cookies.set({ url: `https://${domain}/`, name: 'IBSID', value: mibSession.xxid, domain, path: '/' }, cb);
-      chrome.cookies.set({ url: `https://${domain}/`, name: 'mbnonce', value: generateNonce(mibSession.nonceGenerator), domain, path: '/' }, cb);
+      chrome.cookies.set({ url: `https://${domain}/`, name: 'mbnonce', value: mibSession.nonceGenerator, domain, path: '/' }, cb);
+      chrome.cookies.set({ url: `https://${domain}/`, name: 'mbmodel', value: 'IOS-1.0', domain, path: '/' }, cb);
       chrome.cookies.set({ url: `https://${domain}/`, name: 'time-tracker', value: '597', domain, path: '/' }, cb);
     });
-    await setMibCookies(webviewDomain);
-    await setMibCookies('faisanet.mib.com.mv');
+    await setMibCookies(wvDomain);
 
-    // Load account details page to establish web session
-    const detailsUrl = `https://${webviewDomain}/accountDetails?aiv=1&dashurl=1&accountNo=${targetAccount}`;
-    emitLog(port, `> [MIB-API] Loading account details page to establish session...`);
-    const detailsRes = await fetch(detailsUrl, { credentials: 'include' });
-    emitLog(port, `> [MIB-API] Account details page: HTTP ${detailsRes.status} finalUrl=${detailsRes.url.substring(0,80)}`);
-    // Log cookies after page load
-    chrome.cookies.getAll({ domain: 'mib.com.mv' }, (cookies) => {
-      emitLog(port, `> [MIB-API] Cookies after page load: ${cookies.map(c => `${c.name}=${c.value.substring(0,30)}`).join(', ')}`);
-    });
-
-    emitLog(port, `> [MIB-API] Fetching transactions from WebView API (Endpoint: https://${webviewDomain}/ajaxAccounts/trxHistory)...`);
-    const trxRes = await fetch(`https://${webviewDomain}/ajaxAccounts/trxHistory`, {
+    const detailsUrl = `https://${wvDomain}//accountDetails?trxh=1&dashurl=1&accountNo=${targetAccount}`;
+    emitLog(port, `> [MIB-API] Fetching transactions from ${wvDomain}/ajaxAccounts/trxHistory...`);
+    const trxRes = await fetch(`https://${wvDomain}/ajaxAccounts/trxHistory`, {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -3963,7 +4048,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     const data = await trxRes.json();
     logApiDebug(port, data, 'MIB-HISTORY');
 
-    if (!data.status) {
+    if (!data.success) {
       throw new Error("WebView API response indicated failure.");
     }
 
@@ -3973,26 +4058,21 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     // Normalize MIB WebView transactions
     // They look like: { trxDate: "29 Aug 2024", trxDesc: "Transfer  | ...", trxRef: "...", trxAmount: "123.00", baseAmount: "CR" }
     const formattedTxs = allTxs.map(t => {
-      let isCredit = (t.baseAmount === 'CR');
-      let dt = t.trxDate; // e.g. "29 Aug 2024"
-      let amtStr = (t.trxAmount || "").toString().replace(/,/g, '');
-      let amt = parseFloat(amtStr);
-      let descRaw = t.trxDesc || "";
+      let isCredit = parseFloat(t.baseAmount || 0) >= 0;
+      let dt = t.trxDate;
+      let amt = parseFloat(t.absAmount || 0);
+      let descRaw = t.descr1 || "";
       
-      let narr2 = "", narr3 = "";
-      if (descRaw.includes('|')) {
-        let parts = descRaw.split('|');
-        narr2 = parts[0].trim();
-        narr3 = parts.slice(1).join('|').trim();
-      } else {
-        narr2 = descRaw;
-      }
+      let narr2 = t.descr2 || "";
+      let narr3 = t.descr3 || "";
+
+      let description = narr2 ? `${descRaw} | ${narr2}` : descRaw;
 
       return {
-        id: String(t.trxRef || Math.random()),
+        id: String(t.trxNumber || t.trxNumber2 || Math.random()),
         date: dt,
-        description: narr2,
-        reference: t.trxRef || "",
+        description: description,
+        reference: t.trxNumber2 || t.trxNumber || "",
         amount: amt,
         balance: 0,
         minus: !isCredit,

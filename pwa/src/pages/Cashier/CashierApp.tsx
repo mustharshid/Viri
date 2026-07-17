@@ -491,7 +491,7 @@ function App() {
   // Removed currentTick state for performance
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.48";
+  const LATEST_EXTENSION_VERSION = "1.2.49";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -2093,7 +2093,8 @@ function App() {
           // Wake up the extension to ping the bank and keep the bank's own idle timer alive
           if (typeof chrome !== 'undefined' && chrome.runtime && extensionId) {
             const heldBankAcc = bankAccounts.find(a => a.id.toString() === sessionHolderAccountId);
-            const isApi = heldBankAcc?.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
+            const isApi = (heldBankAcc?.bank_name === 'BML' && appConfig.bml_login_procedure === 'api') || 
+                          (heldBankAcc?.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api');
             if (!isApi) {
               chrome.runtime.sendMessage(extensionId, { action: 'PING_BANK' }).catch(() => { });
             }
