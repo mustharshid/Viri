@@ -3906,16 +3906,47 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
       return;
     }
 
-    emitLog(port, `> [MIB-API] Fetching transactions from WebView API (Endpoint: https://faisamobilex-wv.mib.com.mv/ajaxAccounts/trxHistory)...`);
-    // WebView fetch
-    const trxRes = await fetch('https://faisamobilex-wv.mib.com.mv/ajaxAccounts/trxHistory', {
+    // Set cookies via cookies API (Cookie header is forbidden in fetch)
+    const setMibCookies = (domain) => new Promise((resolve) => {
+      let done = 0;
+      const cb = () => { if (++done === 5) resolve(); };
+      chrome.cookies.set({ url: `https://${domain}/`, name: 'mbmodel', value: 'IOS-1.0', domain, path: '/' }, cb);
+      chrome.cookies.set({ url: `https://${domain}/`, name: 'xxid', value: mibSession.xxid, domain, path: '/' }, cb);
+      chrome.cookies.set({ url: `https://${domain}/`, name: 'IBSID', value: mibSession.xxid, domain, path: '/' }, cb);
+      chrome.cookies.set({ url: `https://${domain}/`, name: 'mbnonce', value: mibSession.nonceGenerator, domain, path: '/' }, cb);
+      chrome.cookies.set({ url: `https://${domain}/`, name: 'time-tracker', value: '597', domain, path: '/' }, cb);
+    });
+    await setMibCookies('faisamobilex-wv.mib.com.mv');
+    await setMibCookies('faisanet.mib.com.mv');
+
+    // Load account details page to establish web session
+    const detailsUrl = `https://${cookieDomain}/accountDetails?aiv=1&dashurl=1&accountNo=${targetAccount}`;
+    emitLog(port, `> [MIB-API] Loading account details page to establish session...`);
+    const detailsRes = await fetch(detailsUrl, { credentials: 'include' });
+    emitLog(port, `> [MIB-API] Account details page: HTTP ${detailsRes.status}`);
+
+    emitLog(port, `> [MIB-API] Fetching transactions from WebView API (Endpoint: https://${cookieDomain}/ajaxAccounts/trxHistory)...`);
+    const trxRes = await fetch(`https://${cookieDomain}/ajaxAccounts/trxHistory`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
         'X-Requested-With': 'XMLHttpRequest',
-        'Cookie': `mbmodel=IOS-1.0; xxid=${mibSession.xxid}; IBSID=${mibSession.xxid}; mbnonce=${generateNonce(mibSession.nonceGenerator)}; time-tracker=597`
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'Referer': detailsUrl
       },
-      body: `accountNo=${targetAccount}&appType=1&pageNo=1&pageSize=50`
+      body: buildFormBody({
+        accountNo: targetAccount,
+        trxNo: '',
+        trxType: '0',
+        sortTrx: 'date',
+        sortDir: 'desc',
+        fromDate: '',
+        toDate: '',
+        start: '0',
+        end: '20',
+        includeCount: '1'
+      })
     });
 
     if (trxRes.status !== 200) {
