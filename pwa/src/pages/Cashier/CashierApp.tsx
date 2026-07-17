@@ -4384,7 +4384,7 @@ function App() {
                     const failures = acc.login_failures || 0;
                     const isLocked = failures >= 2;
                     const isApiManaged = acc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
-                    const hasCreds = isApiManaged || !!(accountsCreds[acc.id.toString()]?.username);
+                    const hasCreds = isApiManaged || (acc.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api') || !!(accountsCreds[acc.id.toString()]?.username);
                     const isExpanded = expandedCredsAccountId === acc.id.toString();
 
                     return (
