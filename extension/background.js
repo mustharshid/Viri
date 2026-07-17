@@ -4314,23 +4314,37 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
       let dt = t.trxDate;
       let amt = parseFloat(t.absAmount || 0);
       let descRaw = t.descr1 || "";
+      let desc2 = t.descr2 || "";
       let desc3 = t.descr3 || "";
+      let fromAcc = t.fromAcc || "";
+      let benefName = t.benefName || "";
+      let otherAcc = t.otherAccountNo && t.otherAccountNo !== "-" ? t.otherAccountNo : "";
 
-      // details: descr1 as description title, descr3 as narrative text below it
-      // reference: trxNumber shown as copiable chip
-      const trxRef = t.trxNumber || t.trxNumber2 || "";
+      // Build multi-line details: descr1 as title (first line), then extra fields
+      // - fromAcc: sender name
+      // - otherAcc: counterparty account number  
+      // - desc2: transaction reference code
+      // Note: descr3 is already shown as narrative3 below title in Column 3
+      // Note: trxNumber is shown as a copiable chip via reference field
+      const extraLines = [
+        fromAcc ? `From: ${fromAcc}` : "",
+        benefName && benefName !== desc3 ? `Beneficiary: ${benefName}` : "",
+        otherAcc ? `Account: ${otherAcc}` : "",
+        desc2 ? `Ref: ${desc2}` : "",
+      ].filter(Boolean).join('\n');
+      const details = extraLines ? `${descRaw}\n\n${extraLines}` : descRaw;
 
       return {
         id: String(t.trxNumber || t.trxNumber2 || Math.random()),
         date: dt,
-        details: descRaw,      // descr1 = bold description title (first line of tx.details)
-        reference: trxRef,     // trxNumber = copiable chip
+        details: details,
+        reference: t.trxNumber || t.trxNumber2 || "",
         amount: (isCredit ? '+' : '-') + amt.toFixed(2),
         balance: 0,
         minus: !isCredit,
         narrative1: desc3,
-        narrative2: t.descr2 || "",
-        narrative3: desc3,     // descr3 = secondary text below description
+        narrative2: desc2,
+        narrative3: desc3,
         is_pending: false,
         raw: t
       };
