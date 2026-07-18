@@ -288,3 +288,13 @@ h1, h2, h3, h4, h5, h6, .font-heading {
 .animate-scale-bump {
   animation: scale-bump 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
+
+/* Make Date Picker icon visible in dark mode */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.6;
+  cursor: pointer;
+}
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}

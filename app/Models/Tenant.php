@@ -15,7 +15,8 @@ class Tenant extends Model
         'lock_timeout',
         'max_terminals',
         'max_bank_accounts',
-        'features'
+        'features',
+        'custom_verifications_limit'
     ];
 
     protected $casts = [
@@ -24,6 +25,7 @@ class Tenant extends Model
         'max_terminals' => 'integer',
         'max_bank_accounts' => 'integer',
         'features' => 'array',
+        'custom_verifications_limit' => 'integer',
     ];
 
     public function terminals(): HasMany

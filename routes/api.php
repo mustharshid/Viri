@@ -142,7 +142,7 @@ Route::post('/verify-terminal', function (Request $request) {
         '1999' => PHP_INT_MAX,
     ];
     $tier = $tenant->subscription_tier ?? 'free';
-    $limit = $limits[$tier] ?? 20;
+    $limit = $tenant->custom_verifications_limit ?? ($limits[$tier] ?? 20);
 
     $creditsExhausted = ($tenant->verifications_count >= $limit);
 

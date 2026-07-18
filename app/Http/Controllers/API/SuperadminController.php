@@ -16,7 +16,7 @@ class SuperadminController extends Controller
 
     public function listCompanies(Request $request)
     {
-        $perPage = min((int) $request->input('per_page', 50), 200);
+        $perPage = min((int) $request->input('per_page', 10), 200);
         $companies = Tenant::with('terminals', 'bankAccounts', 'users')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
@@ -33,6 +33,7 @@ class SuperadminController extends Controller
             'max_bank_accounts' => 'sometimes|integer|min:1',
             'license_expires_at' => 'sometimes|nullable|date',
             'features' => 'sometimes|array',
+            'custom_verifications_limit' => 'sometimes|nullable|integer|min:0',
         ]);
 
         $tenant = Tenant::findOrFail($id);
@@ -52,6 +53,9 @@ class SuperadminController extends Controller
         }
         if ($request->has('max_bank_accounts')) {
             $tenant->max_bank_accounts = $request->max_bank_accounts;
+        }
+        if ($request->has('custom_verifications_limit')) {
+            $tenant->custom_verifications_limit = $request->custom_verifications_limit;
         }
 
         // Features updates

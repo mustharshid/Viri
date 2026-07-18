@@ -1,0 +1,895 @@
+diff --git a/pwa/src/pages/Dashboard/AdminDashboard.tsx b/pwa/src/pages/Dashboard/AdminDashboard.tsx
+index cef251c..8ab9445 100644
+--- a/pwa/src/pages/Dashboard/AdminDashboard.tsx
++++ b/pwa/src/pages/Dashboard/AdminDashboard.tsx
+@@ -17,6 +17,16 @@ export default function AdminDashboard() {
+   const [loading, setLoading] = useState(true);
+   const navigate = useNavigate();
+ 
++  const [companiesPage, setCompaniesPage] = useState(1);
++  const [companiesTotalPages, setCompaniesTotalPages] = useState(1);
++  const [drafts, setDrafts] = useState<Record<number, any>>({});
++  
++  // Custom Modals State
++  const [pinModalState, setPinModalState] = useState<{isOpen: boolean; resolve: (val: string|null) => void; message: string;}>({isOpen: false, resolve: () => {}, message: ''});
++  const [confirmModalState, setConfirmModalState] = useState<{isOpen: boolean; resolve: (val: boolean) => void; message: string;}>({isOpen: false, resolve: () => {}, message: ''});
++  const [alertModalState, setAlertModalState] = useState<{isOpen: boolean; resolve: () => void; message: string;}>({isOpen: false, resolve: () => {}, message: ''});
++
++
+   const [securityPin] = useState(() => {
+     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+     let result = '';
+@@ -98,7 +108,7 @@ export default function AdminDashboard() {
+ 
+   const handleSaveSystemSettings = async (e: React.FormEvent) => {
+     e.preventDefault();
+-    if (!verifySecurityPin()) return;
++    if (!(await verifySecurityPin())) return;
+     setSettingsSaving(true);
+     setSettingsError(null);
+     setSettingsSuccess(null);
+@@ -144,7 +154,7 @@ export default function AdminDashboard() {
+   };
+ 
+   const handleApprovePayment = async () => {
+-    if (!verifySecurityPin()) return;
++    if (!(await verifySecurityPin())) return;
+     if (!selectedPayment) return;
+     try {
+       const token = localStorage.getItem('viri_token');
+@@ -162,7 +172,7 @@ export default function AdminDashboard() {
+         })
+       });
+       if (res.ok) {
+-        alert("Payment approved and plan updated successfully!");
++        await customAlert("Payment approved and plan updated successfully!");
+         setShowApprovalModal(false);
+         setSelectedPayment(null);
+         setActionRemarks('');
+@@ -170,18 +180,18 @@ export default function AdminDashboard() {
+         fetchData();
+       } else {
+         const data = await res.json().catch(() => ({}));
+-        alert(data.message || "Failed to approve payment");
++        await customAlert(data.message || "Failed to approve payment");
+       }
+     } catch (e) {
+-      alert("Network error approving payment");
++      await customAlert("Network error approving payment");
+     }
+   };
+ 
+   const handleRejectPayment = async () => {
+-    if (!verifySecurityPin()) return;
++    if (!(await verifySecurityPin())) return;
+     if (!selectedPayment) return;
+     if (!actionRemarks.trim()) {
+-      alert("Please provide rejection remarks");
++      await customAlert("Please provide rejection remarks");
+       return;
+     }
+     try {
+@@ -198,17 +208,17 @@ export default function AdminDashboard() {
+         })
+       });
+       if (res.ok) {
+-        alert("Payment rejected successfully!");
++        await customAlert("Payment rejected successfully!");
+         setShowRejectionModal(false);
+         setSelectedPayment(null);
+         setActionRemarks('');
+         fetchPayments();
+       } else {
+         const data = await res.json().catch(() => ({}));
+-        alert(data.message || "Failed to reject payment");
++        await customAlert(data.message || "Failed to reject payment");
+       }
+     } catch (e) {
+-      alert("Network error rejecting payment");
++      await customAlert("Network error rejecting payment");
+     }
+   };
+ 
+@@ -254,6 +264,13 @@ export default function AdminDashboard() {
+     fetchData();
+   }, []);
+ 
++  useEffect(() => {
++    if (activeTab === 'companies') {
++      fetchData();
++    }
++  }, [companiesPage]);
++
++
+   useEffect(() => {
+     if (activeTab === 'logs') {
+       fetchSessionLogs(true);
+@@ -344,9 +361,14 @@ export default function AdminDashboard() {
+         throw new Error('Not an admin');
+       }
+ 
+-      const compRes = await fetch('/api/admin/companies', { headers });
++      const compRes = await fetch(`/api/admin/companies?page=${companiesPage}&per_page=10`, { headers });
+       const compData = await compRes.json();
+-      setCompanies(Array.isArray(compData) ? compData : (Array.isArray(compData.data) ? compData.data : []));
++      if (compData.data !== undefined) {
++        setCompanies(compData.data);
++        setCompaniesTotalPages(compData.last_page || 1);
++      } else {
++        setCompanies(Array.isArray(compData) ? compData : []);
++      }
+ 
+       const plansRes = await fetch('/api/admin/subscription-plans', { headers });
+       if (plansRes.ok) {
+@@ -381,17 +403,35 @@ export default function AdminDashboard() {
+     navigate('/login');
+   };
+ 
+-  const verifySecurityPin = (): boolean => {
+-    const userPin = window.prompt(`To confirm this action, please enter the 4-letter security PIN displayed at the top of the panel (${securityPin}):`);
++  const verifySecurityPin = async (): Promise<boolean> => {
++    const userPin = await new Promise<string | null>((resolve) => {
++      setPinModalState({ isOpen: true, resolve, message: `To confirm this action, please enter the 4-letter security PIN displayed at the top of the panel (${securityPin}):` });
++    });
++    setPinModalState({ isOpen: false, resolve: () => {}, message: '' });
+     if (!userPin || userPin.toUpperCase() !== securityPin) {
+-      alert("Invalid or empty PIN. Action aborted.");
++      await customAlert("Invalid or empty PIN. Action aborted.");
+       return false;
+     }
+     return true;
+   };
+ 
+-  const updateCompany = async (id: number, status: string, tier: string, lockTimeout?: number, maxTerminals?: number, licenseExpiresAt?: string | null, features?: any, maxBankAccounts?: number) => {
+-    if (!verifySecurityPin()) {
++  const customConfirm = async (msg: string): Promise<boolean> => {
++    const confirmed = await new Promise<boolean>((resolve) => {
++      setConfirmModalState({ isOpen: true, resolve, message: msg });
++    });
++    setConfirmModalState({ isOpen: false, resolve: () => {}, message: '' });
++    return confirmed;
++  };
++
++  const customAlert = async (msg: string): Promise<void> => {
++    await new Promise<void>((resolve) => {
++      setAlertModalState({ isOpen: true, resolve, message: msg });
++    });
++    setAlertModalState({ isOpen: false, resolve: () => {}, message: '' });
++  };
++
++  const updateCompany = async (id: number, status: string, tier: string, lockTimeout?: number, maxTerminals?: number, licenseExpiresAt?: string | null, features?: any, maxBankAccounts?: number, customVerificationsLimit?: number | null) => {
++    if (!(await verifySecurityPin())) {
+       fetchData();
+       return;
+     }
+@@ -413,6 +453,9 @@ export default function AdminDashboard() {
+     if (features !== undefined) {
+       payload.features = features;
+     }
++    if (customVerificationsLimit !== undefined) {
++      payload.custom_verifications_limit = customVerificationsLimit;
++    }
+     await fetch(`/api/admin/companies/${id}`, {
+       method: 'PUT',
+       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+@@ -422,8 +465,8 @@ export default function AdminDashboard() {
+   };
+ 
+   const handleDeleteCompany = async (id: number, name: string) => {
+-    if (!verifySecurityPin()) return;
+-    if (!window.confirm(`Are you absolutely sure you want to permanently delete company "${name}" and all of its associated users, terminals, bank accounts, and logs? This cannot be undone.`)) {
++    if (!(await verifySecurityPin())) return;
++    if (!await customConfirm(`Are you absolutely sure you want to permanently delete company "${name}" and all of its associated users, terminals, bank accounts, and logs? This cannot be undone.`)) {
+       return;
+     }
+ 
+@@ -434,22 +477,22 @@ export default function AdminDashboard() {
+         headers: { 'Authorization': `Bearer ${token}` }
+       });
+       if (res.ok) {
+-        alert("Company deleted successfully!");
++        await customAlert("Company deleted successfully!");
+         fetchData();
+       } else {
+-        alert("Failed to delete company.");
++        await customAlert("Failed to delete company.");
+       }
+     } catch (e) {
+-      alert("Network error deleting company.");
++      await customAlert("Network error deleting company.");
+     }
+   };
+ 
+   const handleResetUserPassword = async (userId: number, email: string) => {
+-    if (!verifySecurityPin()) return;
+-    const newPassword = window.prompt(`Enter new dashboard password for ${email} (minimum 8 characters):`);
++    if (!(await verifySecurityPin())) return;
++    const newPassword = await new Promise<string|null>((res) => setPinModalState({isOpen: true, resolve: res, message: `Enter new dashboard password for ${email} (minimum 8 characters):`}));
+     if (!newPassword) return;
+     if (newPassword.length < 8) {
+-      alert("Password must be at least 8 characters long.");
++      await customAlert("Password must be at least 8 characters long.");
+       return;
+     }
+ 
+@@ -464,19 +507,19 @@ export default function AdminDashboard() {
+         body: JSON.stringify({ password: newPassword })
+       });
+       if (res.ok) {
+-        alert("Password reset successfully!");
++        await customAlert("Password reset successfully!");
+       } else {
+         const err = await res.json().catch(() => ({}));
+-        alert(`Error: ${err.error || 'Failed to reset password'}`);
++        await customAlert(`Error: ${err.error || 'Failed to reset password'}`);
+       }
+     } catch (e) {
+-      alert("Network error occurred.");
++      await customAlert("Network error occurred.");
+     }
+   };
+ 
+   const handleSavePlan = async (e: React.FormEvent) => {
+     e.preventDefault();
+-    if (!verifySecurityPin()) return;
++    if (!(await verifySecurityPin())) return;
+ 
+     const token = localStorage.getItem('viri_token');
+     const method = editingPlan ? 'PUT' : 'POST';
+@@ -493,7 +536,7 @@ export default function AdminDashboard() {
+         body: JSON.stringify(planForm)
+       });
+       if (res.ok) {
+-        alert(editingPlan ? "Plan updated successfully!" : "Plan created successfully!");
++        await customAlert(editingPlan ? "Plan updated successfully!" : "Plan created successfully!");
+         setEditingPlan(null);
+         setPlanForm({
+           tier_key: '',
+@@ -513,16 +556,16 @@ export default function AdminDashboard() {
+         fetchData();
+       } else {
+         const err = await res.json().catch(() => ({}));
+-        alert(`Error: ${err.message || 'Failed to save plan'}`);
++        await customAlert(`Error: ${err.message || 'Failed to save plan'}`);
+       }
+     } catch (e) {
+-      alert("Network error saving plan.");
++      await customAlert("Network error saving plan.");
+     }
+   };
+ 
+   const handleDeletePlan = async (id: number) => {
+-    if (!verifySecurityPin()) return;
+-    if (!window.confirm("Are you sure you want to delete this subscription plan? Existing companies on this plan will not be automatically deleted but should be migrated to another plan.")) return;
++    if (!(await verifySecurityPin())) return;
++    if (!await customConfirm("Are you sure you want to delete this subscription plan? Existing companies on this plan will not be automatically deleted but should be migrated to another plan.")) return;
+ 
+     const token = localStorage.getItem('viri_token');
+     try {
+@@ -531,18 +574,18 @@ export default function AdminDashboard() {
+         headers: { 'Authorization': `Bearer ${token}` }
+       });
+       if (res.ok) {
+-        alert("Plan deleted successfully!");
++        await customAlert("Plan deleted successfully!");
+         fetchData();
+       } else {
+-        alert("Failed to delete plan.");
++        await customAlert("Failed to delete plan.");
+       }
+     } catch (e) {
+-      alert("Network error deleting plan.");
++      await customAlert("Network error deleting plan.");
+     }
+   };
+ 
+   const handleRunMigrations = async () => {
+-    if (!verifySecurityPin()) return;
++    if (!(await verifySecurityPin())) return;
+     setMigrationRunning(true);
+     const token = localStorage.getItem('viri_token');
+     try {
+@@ -552,20 +595,20 @@ export default function AdminDashboard() {
+       });
+       if (res.ok) {
+         const data = await res.json();
+-        alert("Migrations run successfully!\n\nOutput:\n" + data.output);
++        await customAlert("Migrations run successfully!\n\nOutput:\n" + data.output);
+         fetchData();
+       } else {
+-        alert("Failed to run migrations.");
++        await customAlert("Failed to run migrations.");
+       }
+     } catch (e) {
+-      alert("Network error running migrations.");
++      await customAlert("Network error running migrations.");
+     } finally {
+       setMigrationRunning(false);
+     }
+   };
+ 
+   const updateTerminalPermission = async (terminalId: number, showVbtl: boolean) => {
+-    if (!verifySecurityPin()) return;
++    if (!(await verifySecurityPin())) return;
+ 
+     const token = localStorage.getItem('viri_token');
+     try {
+@@ -581,11 +624,11 @@ export default function AdminDashboard() {
+       if (response.ok) {
+         fetchData();
+       } else {
+-        alert("Failed to update terminal settings.");
++        await customAlert("Failed to update terminal settings.");
+       }
+     } catch (err) {
+       console.error(err);
+-      alert("Network error updating terminal settings.");
++      await customAlert("Network error updating terminal settings.");
+     }
+   };
+ 
+@@ -633,12 +676,61 @@ export default function AdminDashboard() {
+     }
+   };
+ 
++  const handleDraftChange = (companyId: number, field: string, value: any) => {
++    setDrafts(prev => ({
++      ...prev,
++      [companyId]: {
++        ...(prev[companyId] || {}),
++        [field]: value
++      }
++    }));
++  };
++
++  const handleSaveCompanyChanges = async (company: any) => {
++    const draft = drafts[company.id];
++    if (!draft || Object.keys(draft).length === 0) return;
++    
++    // verify pin before saving
++    if (!(await verifySecurityPin())) return;
++
++    const tier = draft.subscription_tier !== undefined ? draft.subscription_tier : company.subscription_tier;
++    const lockTimeout = draft.lock_timeout !== undefined ? draft.lock_timeout : company.lock_timeout;
++    const maxTerminals = draft.max_terminals !== undefined ? draft.max_terminals : company.max_terminals;
++    const maxBankAccounts = draft.max_bank_accounts !== undefined ? draft.max_bank_accounts : company.max_bank_accounts;
++    const licenseExpiresAt = draft.license_expires_at !== undefined ? draft.license_expires_at : company.license_expires_at;
++    const customVerificationsLimit = draft.custom_verifications_limit !== undefined ? draft.custom_verifications_limit : company.custom_verifications_limit;
++    
++    // Skip passing features so it uses existing or updates based on tier
++    await updateCompany(company.id, company.status, tier, lockTimeout, maxTerminals, licenseExpiresAt, undefined, maxBankAccounts, customVerificationsLimit);
++    
++    // Clear draft
++    setDrafts(prev => {
++      const next = { ...prev };
++      delete next[company.id];
++      return next;
++    });
++  };
++
+   const renderCompanyCard = (company: any) => {
+     const adminUser = company.users?.find((u: any) => u.role === 'company_admin') || company.users?.[0];
++    const draft = drafts[company.id] || {};
++    
++    const currentTier = draft.subscription_tier !== undefined ? draft.subscription_tier : company.subscription_tier;
++    const currentLockTimeout = draft.lock_timeout !== undefined ? draft.lock_timeout : company.lock_timeout;
++    const currentMaxTerminals = draft.max_terminals !== undefined ? draft.max_terminals : company.max_terminals;
++    const currentMaxBankAccounts = draft.max_bank_accounts !== undefined ? draft.max_bank_accounts : company.max_bank_accounts;
++    const currentLicenseExpiresAt = draft.license_expires_at !== undefined ? draft.license_expires_at : company.license_expires_at;
++    const currentCustomVerificationsLimit = draft.custom_verifications_limit !== undefined ? draft.custom_verifications_limit : (company.custom_verifications_limit ?? '');
++    
++    const hasChanges = Object.keys(draft).length > 0;
++
+     return (
+-      <div key={company.id} className="glass-panel p-6 border border-zinc-800 hover:border-zinc-700 transition-all flex flex-col gap-6 bg-black/20 rounded-2xl text-left">
++      <div key={company.id} className="glass-panel p-6 border border-white/10 hover:border-white/20 transition-all flex flex-col gap-6 bg-gradient-to-br from-white/5 to-white/0 backdrop-blur-xl rounded-2xl shadow-xl text-left relative overflow-hidden group">
++        {/* Glow effect */}
++        <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
++        
+         {/* Header: Company Name & Status */}
+-        <div className="flex flex-wrap justify-between items-center gap-4 border-b border-zinc-800/80 pb-4">
++        <div className="flex flex-wrap justify-between items-center gap-4 border-b border-white/10 pb-4 relative z-10">
+           <div>
+             <h3 className="text-xl font-bold text-white tracking-tight">{company.name}</h3>
+             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-400 mt-1">
+@@ -662,14 +754,14 @@ export default function AdminDashboard() {
+           </div>
+           <div className="flex items-center gap-2 flex-wrap">
+             {/* Status Badge */}
+-            <span className={`px-2.5 py-1 rounded text-xs font-bold ${
++            <span className={`px-2.5 py-1 rounded-full text-xs font-bold shadow-lg ${
+               company.status === 'active' 
+-                ? 'bg-green-900/40 text-green-300 border border-green-500/20' 
++                ? 'bg-green-900/40 text-green-300 border border-green-500/30' 
+                 : company.status === 'suspended'
+-                  ? 'bg-orange-900/40 text-orange-300 border border-orange-500/20'
++                  ? 'bg-orange-900/40 text-orange-300 border border-orange-500/30'
+                   : company.status === 'archived'
+-                    ? 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+-                    : 'bg-yellow-900/40 text-yellow-300 border border-yellow-500/20'
++                    ? 'bg-zinc-800/80 text-zinc-400 border border-zinc-700'
++                    : 'bg-yellow-900/40 text-yellow-300 border border-yellow-500/30'
+             }`}>
+               {company.status === 'pending' ? 'PENDING APPROVAL' : company.status.toUpperCase()}
+             </span>
+@@ -677,7 +769,7 @@ export default function AdminDashboard() {
+             {/* Actions */}
+             {company.status !== 'active' && (
+               <button 
+-                onClick={() => updateCompany(company.id, 'active', company.subscription_tier, company.lock_timeout, company.max_terminals, company.license_expires_at, company.features)}
++                onClick={() => updateCompany(company.id, 'active', company.subscription_tier, company.lock_timeout, company.max_terminals, company.license_expires_at, company.features, company.max_bank_accounts, company.custom_verifications_limit)}
+                 className="btn btn-success text-xs py-1.5 px-3 flex items-center gap-1.5 font-semibold"
+               >
+                 Activate
+@@ -685,7 +777,7 @@ export default function AdminDashboard() {
+             )}
+             {company.status !== 'suspended' && (
+               <button 
+-                onClick={() => updateCompany(company.id, 'suspended', company.subscription_tier, company.lock_timeout, company.max_terminals, company.license_expires_at, company.features)}
++                onClick={() => updateCompany(company.id, 'suspended', company.subscription_tier, company.lock_timeout, company.max_terminals, company.license_expires_at, company.features, company.max_bank_accounts, company.custom_verifications_limit)}
+                 className="btn btn-outline text-xs py-1.5 px-3 border-orange-500/50 text-orange-400 hover:bg-orange-500/10 font-semibold"
+               >
+                 Suspend
+@@ -693,7 +785,7 @@ export default function AdminDashboard() {
+             )}
+             {company.status !== 'archived' && (
+               <button 
+-                onClick={() => updateCompany(company.id, 'archived', company.subscription_tier, company.lock_timeout, company.max_terminals, company.license_expires_at, company.features)}
++                onClick={() => updateCompany(company.id, 'archived', company.subscription_tier, company.lock_timeout, company.max_terminals, company.license_expires_at, company.features, company.max_bank_accounts, company.custom_verifications_limit)}
+                 className="btn btn-outline text-xs py-1.5 px-3 border-zinc-700 text-zinc-400 hover:bg-zinc-800 font-semibold"
+               >
+                 Archive
+@@ -711,31 +803,17 @@ export default function AdminDashboard() {
+         </div>
+ 
+         {/* Grid Section: Key settings */}
+-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
++        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 relative z-10">
+           {/* Subscription Plan/Tier Selector */}
+-          <div className="input-group">
++          <div className="input-group col-span-2 xl:col-span-1">
+             <label className="input-label flex items-center gap-1">
+               Subscription Tier
+               <Tooltip text="Billing plan selection controlling account limits and default features." />
+             </label>
+             <select 
+-              className="input-field w-full text-sm font-medium"
+-              value={company.subscription_tier}
+-              onChange={(e) => {
+-                const selectedTier = e.target.value;
+-                const matchedPlan = subscriptionPlans.find(p => p.tier_key === selectedTier);
+-                const defaultFeatures = matchedPlan ? matchedPlan.features : {};
+-                updateCompany(
+-                  company.id,
+-                  company.status,
+-                  selectedTier,
+-                  matchedPlan ? matchedPlan.lock_timeout : company.lock_timeout,
+-                  matchedPlan ? matchedPlan.max_terminals : company.max_terminals,
+-                  company.license_expires_at,
+-                  defaultFeatures,
+-                  matchedPlan ? matchedPlan.max_bank_accounts : company.max_bank_accounts
+-                );
+-              }}
++              className="input-field w-full text-sm font-medium bg-black/40 border-white/10"
++              value={currentTier}
++              onChange={(e) => handleDraftChange(company.id, 'subscription_tier', e.target.value)}
+             >
+               {subscriptionPlans.map(plan => (
+                 <option key={plan.id} value={plan.tier_key}>
+@@ -744,50 +822,63 @@ export default function AdminDashboard() {
+               ))}
+             </select>
+           </div>
++          
++          {/* Plan Expiry Date */}
++          <div className="input-group col-span-2 xl:col-span-1">
++            <label className="input-label flex items-center gap-1">
++              Plan Expiry Date
++            </label>
++            <input 
++              type="date"
++              className="input-field w-full text-sm font-medium bg-black/40 border-white/10"
++              value={currentLicenseExpiresAt ? new Date(currentLicenseExpiresAt).toISOString().split('T')[0] : ''}
++              onChange={(e) => handleDraftChange(company.id, 'license_expires_at', e.target.value || null)}
++            />
++          </div>
+ 
+           {/* Verifications Count */}
+           <div className="input-group">
+             <label className="input-label flex items-center gap-1">
+-              Verifications (Used / Limit)
+-              <Tooltip text="Total checks processed vs billing cycle limit." />
++              Verifications (Used)
+             </label>
+-            <div className="input-field bg-black/40 flex items-center justify-between text-sm font-mono opacity-80 cursor-not-allowed select-none">
++            <div className="input-field bg-black/40 flex items-center justify-between text-sm font-mono opacity-80 cursor-not-allowed select-none border-white/10">
+               <span>{company.verifications_count}</span>
+-              <span className="text-zinc-500">/</span>
+-              <span>
+-                {(() => {
+-                  const matchedPlan = subscriptionPlans.find(p => p.tier_key === company.subscription_tier);
+-                  if (!matchedPlan) return 'Unlimited';
+-                  return matchedPlan.price === 0 ? 20 : (matchedPlan.tier_key === '499' ? 300 : 'Unlimited');
+-                })()}
+-              </span>
+             </div>
+           </div>
++          
++          {/* Custom Verifications Limit */}
++          <div className="input-group">
++            <label className="input-label flex items-center gap-1">
++              Custom Verif. Limit
++              <Tooltip text="Overrides the plan's default verification limit. Leave empty for default." />
++            </label>
++            <input 
++              type="number"
++              min="0"
++              placeholder="Default"
++              className="input-field text-sm font-mono w-full bg-black/40 border-white/10"
++              value={currentCustomVerificationsLimit}
++              onChange={(e) => {
++                const val = e.target.value === '' ? null : parseInt(e.target.value);
++                handleDraftChange(company.id, 'custom_verifications_limit', val);
++              }}
++            />
++          </div>
+ 
+           {/* Max Terminals limit */}
+           <div className="input-group">
+             <label className="input-label flex items-center gap-1">
+               Terminals Limit
+-              <Tooltip text="Current active terminals vs the max terminals limit (editable by superadmin)." />
+             </label>
+             <div className="flex items-center gap-2">
+               <input 
+                 type="number"
+                 min="1"
+-                className="input-field text-sm font-mono text-center w-24"
+-                value={company.max_terminals ?? 1}
++                className="input-field text-sm font-mono text-center w-24 bg-black/40 border-white/10"
++                value={currentMaxTerminals ?? 1}
+                 onChange={(e) => {
+                   const val = parseInt(e.target.value);
+-                  if (!isNaN(val)) {
+-                    const updated = companies.map(c => c.id === company.id ? { ...c, max_terminals: val } : c);
+-                    setCompanies(updated);
+-                  }
+-                }}
+-                onBlur={(e) => {
+-                  const val = parseInt(e.target.value);
+-                  if (!isNaN(val)) {
+-                    updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, val, company.license_expires_at, company.features, company.max_bank_accounts);
+-                  }
++                  if (!isNaN(val)) handleDraftChange(company.id, 'max_terminals', val);
+                 }}
+               />
+               <span className="text-xs text-zinc-400 font-mono">({company.terminals?.length ?? 0} active)</span>
+@@ -797,239 +888,35 @@ export default function AdminDashboard() {
+           {/* Max Bank Accounts limit */}
+           <div className="input-group">
+             <label className="input-label flex items-center gap-1">
+-              Bank Accounts Limit
+-              <Tooltip text="Maximum number of bank accounts allowed for this company." />
++              Accounts Limit
+             </label>
+             <div className="flex items-center gap-2">
+               <input 
+                 type="number"
+                 min="1"
+-                className="input-field text-sm font-mono text-center w-24"
+-                value={company.max_bank_accounts ?? 1}
++                className="input-field text-sm font-mono text-center w-24 bg-black/40 border-white/10"
++                value={currentMaxBankAccounts ?? 1}
+                 onChange={(e) => {
+                   const val = parseInt(e.target.value);
+-                  if (!isNaN(val)) {
+-                    const updated = companies.map(c => c.id === company.id ? { ...c, max_bank_accounts: val } : c);
+-                    setCompanies(updated);
+-                  }
+-                }}
+-                onBlur={(e) => {
+-                  const val = parseInt(e.target.value);
+-                  if (!isNaN(val)) {
+-                    updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, company.max_terminals, company.license_expires_at, company.features, val);
+-                  }
++                  if (!isNaN(val)) handleDraftChange(company.id, 'max_bank_accounts', val);
+                 }}
+               />
+               <span className="text-xs text-zinc-400 font-mono">({company.bank_accounts?.length ?? 0} active)</span>
+             </div>
+           </div>
+-
+-          {/* Lock Timeout */}
+-          <div className="input-group">
+-            <label className="input-label flex items-center gap-1">
+-              Lock Timeout
+-              <Tooltip text="Maximum inactive duration (seconds) before terminals lock automatically." />
+-            </label>
+-            <div className="flex items-center gap-2">
+-              <input 
+-                type="number"
+-                min="5"
+-                max="300"
+-                className="input-field text-sm font-mono text-center w-24"
+-                value={company.lock_timeout ?? 20}
+-                onChange={(e) => {
+-                  const val = parseInt(e.target.value);
+-                  if (!isNaN(val)) {
+-                    const updated = companies.map(c => c.id === company.id ? { ...c, lock_timeout: val } : c);
+-                    setCompanies(updated);
+-                  }
+-                }}
+-                onBlur={(e) => {
+-                  const val = parseInt(e.target.value);
+-                  if (!isNaN(val)) {
+-                    updateCompany(company.id, company.status, company.subscription_tier, val, company.max_terminals, company.license_expires_at, company.features, company.max_bank_accounts);
+-                  }
+-                }}
+-              />
+-              <span className="text-xs text-zinc-400 font-mono">seconds</span>
+-            </div>
+-          </div>
+-
+-          {/* Plan Expiry Date */}
+-          <div className="input-group">
+-            <label className="input-label flex items-center gap-1 text-red-400 font-semibold">
+-              Plan Expiry Date
+-              <Tooltip text="The date when this company's subscription will expire. Select a date then click Set." />
+-            </label>
+-            <div className="flex gap-2 items-center">
+-              <input 
+-                type="date"
+-                className="input-field flex-1 text-sm font-mono text-white bg-zinc-900 border-zinc-800"
+-                value={pendingExpiry[company.id] ?? (company.license_expires_at ? String(company.license_expires_at).substring(0, 10) : '')}
+-                onChange={(e) => {
+-                  setPendingExpiry(prev => ({ ...prev, [company.id]: e.target.value }));
+-                }}
+-              />
+-              <button
+-                type="button"
+-                className="btn btn-success text-xs py-1.5 px-3 whitespace-nowrap"
+-                onClick={() => {
+-                  const val = pendingExpiry[company.id] ?? (company.license_expires_at ? String(company.license_expires_at).substring(0, 10) : '');
+-                  updateCompany(company.id, company.status, company.subscription_tier, company.lock_timeout, company.max_terminals, val || null, company.features, company.max_bank_accounts);
+-                  setPendingExpiry(prev => { const n = {...prev}; delete n[company.id]; return n; });
+-                }}
+-              >
+-                Set
+-              </button>
+-            </div>
+-          </div>
+-
+-          {/* Custom Feature Overrides Section */}
+-          <div className="col-span-full border-t border-zinc-800/80 pt-4 mt-2 text-left">
+-            <h4 className="text-xs font-bold text-zinc-400 mb-3 flex items-center gap-1.5">
+-              <Shield size={14} className="text-yellow-500 animate-pulse" />
+-              Individual Feature Overrides
+-            </h4>
+-            <div className="flex flex-wrap gap-x-6 gap-y-3">
+-              {[
+-                { key: 'verification_enabled', label: 'Verification Module' },
+-                { key: 'ledger_enabled', label: 'Transaction Ledger' },
+-                { key: 'ledger_show_balance', label: 'Ledger Show Balance' },
+-                { key: 'ledger_show_debit', label: 'Ledger Show Debit (Outgoing)' },
+-                { key: 'reports_enabled', label: 'Reports & Analytics' }
+-              ].map(f => {
+-                const isChecked = company.features?.[f.key] ?? false;
+-                return (
+-                  <label key={f.key} className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer hover:text-white select-none">
+-                    <input
+-                      type="checkbox"
+-                      className="rounded bg-black border-zinc-700 text-yellow-500 focus:ring-yellow-500"
+-                      checked={isChecked}
+-                      onChange={(e) => {
+-                        const updatedFeatures = {
+-                          ...(company.features || {}),
+-                          [f.key]: e.target.checked
+-                        };
+-                        updateCompany(
+-                          company.id,
+-                          company.status,
+-                          company.subscription_tier,
+-                          company.lock_timeout,
+-                          company.max_terminals,
+-                          company.license_expires_at,
+-                          updatedFeatures
+-                        );
+-                      }}
+-                    />
+-                    {f.label}
+-                  </label>
+-                );
+-              })}
+-            </div>
+-          </div>
+-        </div>
+-
+-        {/* Terminals list sub-section inside card */}
+-        <div className="bg-black/35 rounded-xl border border-zinc-800/80 p-4">
+-          <h4 className="text-sm font-bold text-zinc-300 mb-3 flex items-center gap-2">
+-            <MonitorSmartphone size={16} className="text-zinc-400" />
+-            Terminal Instances ({company.terminals?.length ?? 0})
+-          </h4>
+-          {company.terminals && company.terminals.length > 0 ? (
+-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+-              {company.terminals.map((term: any) => {
+-                const showVbtl = term.permissions?.show_vbtl ?? false;
+-                return (
+-                  <div key={term.id} className="flex flex-wrap items-center justify-between gap-3 p-3 bg-zinc-950/40 border border-zinc-800 rounded-lg">
+-                    <div className="flex items-center gap-2 min-w-0">
+-                      <span className="font-semibold text-xs text-white truncate" title={term.terminal_name}>
+-                        {term.terminal_name}
+-                      </span>
+-                      <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-mono shrink-0">
+-                        {term.hardware_id ? term.hardware_id.substring(0, 8) + '...' : 'Unpaired'}
+-                      </span>
+-                    </div>
+-                    
+-                    <div className="flex items-center gap-4">
+-                      {/* Toggle switch for VBTL show logs */}
+-                      <label className="flex items-center gap-2 text-xs text-zinc-400 select-none cursor-pointer">
+-                        <span>Show VBTL Logs</span>
+-                        <input 
+-                          type="checkbox"
+-                          className="toggle-switch-checkbox opacity-0 absolute w-0 h-0"
+-                          checked={showVbtl}
+-                          onChange={() => updateTerminalPermission(term.id, !showVbtl)}
+-                        />
+-                        <div className={`w-8 h-4 rounded-full p-0.5 transition-colors ${showVbtl ? 'bg-emerald-500' : 'bg-zinc-700'}`}>
+-                          <div className={`w-3 h-3 rounded-full bg-white transition-transform ${showVbtl ? 'translate-x-4' : 'translate-x-0'}`} />
+-                        </div>
+-                      </label>
+-
+-                      {/* View Logs Button */}
+-                      <button 
+-                        onClick={() => openDebugLogModal(term)} 
+-                        className="text-[10px] text-blue-400 hover:text-blue-300 border border-blue-500/30 px-2.5 py-1 rounded hover:bg-blue-500/10 transition-all flex items-center gap-1 font-mono font-medium"
+-                      >
+-                        <Terminal size={10} /> View Logs
+-                      </button>
+-                    </div>
+-                  </div>
+-                );
+-              })}
+-            </div>
+-          ) : (
+-            <p className="text-zinc-500 italic text-xs py-1">No active cashier terminals linked to this company.</p>
+-          )}
+         </div>
+ 
+-        {/* Bank Accounts management sub-section inside card */}
+-        <div className="bg-black/35 rounded-xl border border-zinc-800/80 p-4 mt-4">
+-          <h4 className="text-sm font-bold text-zinc-300 mb-3 flex items-center gap-2">
+-            <Database size={16} className="text-zinc-400" />
+-            Bank Accounts & Session Locks ({company.bank_accounts?.length ?? 0})
+-          </h4>
+-          {company.bank_accounts && company.bank_accounts.length > 0 ? (
+-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+-              {company.bank_accounts.map((acct: any) => {
+-                const isFetchLocked = acct.fetch_in_progress_until && new Date(acct.fetch_in_progress_until).getTime() > Date.now();
+-                return (
+-                  <div key={acct.id} className="flex flex-col gap-2 p-3 bg-zinc-950/40 border border-zinc-800 rounded-lg text-xs">
+-                    <div className="flex items-center justify-between font-mono">
+-                      <span className="font-semibold text-white">
+-                        {acct.bank_name} ({acct.account_number})
+-                      </span>
+-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+-                        isFetchLocked ? 'bg-amber-950 text-amber-400 border border-amber-500/25 animate-pulse' : 'bg-zinc-800 text-zinc-500'
+-                      }`}>
+-                        {isFetchLocked ? 'Fetching Lock' : 'Idle'}
+-                      </span>
+-                    </div>
+-
+-                    <div className="text-zinc-400 flex flex-col gap-1 font-mono text-[10px]">
+-                      <div>
+-                        Holder Terminal ID: <span className="text-zinc-300">{acct.session_holder_terminal_id || 'None'}</span>
+-                      </div>
+-                      <div>
+-                        Last Heartbeat: <span className="text-zinc-300">
+-                          {acct.session_last_heartbeat_at ? new Date(acct.session_last_heartbeat_at).toLocaleTimeString() : 'N/A'}
+-                        </span>
+-                      </div>
+-                      {isFetchLocked && (
+-                        <div>
+-                          Lock Expires: <span className="text-amber-400">
+-                            {new Date(acct.fetch_in_progress_until).toLocaleTimeString()}
+-                          </span>
+-                        </div>
+-                      )}
+-                    </div>
+-                  </div>
+-                );
+-              })}
+-            </div>
+-          ) : (
+-            <p className="text-zinc-500 italic text-xs py-1">No bank accounts linked to this company.</p>
+-          )}
+-        </div>
++        {/* Footer: Save Button */}
++        {hasChanges && (
++          <div className="flex justify-end pt-4 border-t border-white/10 relative z-10 animate-fade-in-up">
++            <button 
++              onClick={() => handleSaveCompanyChanges(company)}
++              className="btn btn-primary px-6 py-2 shadow-lg shadow-blue-500/20"
++            >
++              Save Changes
++            </button>
++          </div>
++        )}
+       </div>
+     );
+   };
+@@ -2514,12 +2401,12 @@ export default function AdminDashboard() {
+                   </div>
+                   <div className="flex gap-3 mt-4">
+                     <button 
+-                      onClick={() => {
++                      onClick={async () => {
+                         const currentRunLogs = (modalLogs.length > 0 && typeof modalLogs[0] === 'object')
+                           ? (modalLogs[selectedRunIdx]?.logs || [])
+                           : modalLogs;
+                         navigator.clipboard.writeText(currentRunLogs.join('\n'));
+-                        alert('Logs copied to clipboard!');
++                        await customAlert('Logs copied to clipboard!');
+                       }}
+                       className="btn btn-outline text-xs py-2 px-4 flex-1 justify-center gap-1.5"
+                       disabled={modalLogs.length === 0}
+@@ -2712,6 +2599,58 @@ export default function AdminDashboard() {
+         )}
+ 
+       </div>
++
++      {/* Custom Modals */}
++      {pinModalState.isOpen && (
++        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
++          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm flex flex-col gap-4 animate-scale-in">
++            <div className="flex items-center gap-3 text-blue-400 mb-2">
++              <Shield size={24} />
++              <h3 className="text-lg font-bold text-white">Security Verification</h3>
++            </div>
++            <p className="text-sm text-zinc-300">{pinModalState.message}</p>
++            <input 
++              type="password"
++              autoFocus
++              className="input-field text-center tracking-[1em] font-mono text-xl py-3"
++              maxLength={4}
++              onKeyDown={(e) => {
++                if (e.key === 'Enter') pinModalState.resolve(e.currentTarget.value);
++                if (e.key === 'Escape') pinModalState.resolve(null);
++              }}
++            />
++            <div className="flex justify-end gap-3 mt-4">
++              <button className="btn btn-outline border-zinc-700 text-zinc-400" onClick={() => pinModalState.resolve(null)}>Cancel</button>
++            </div>
++          </div>
++        </div>
++      )}
++
++      {confirmModalState.isOpen && (
++        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
++          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-4 animate-scale-in">
++            <h3 className="text-lg font-bold text-white">Confirm Action</h3>
++            <p className="text-sm text-zinc-300">{confirmModalState.message}</p>
++            <div className="flex justify-end gap-3 mt-4">
++              <button className="btn btn-outline border-zinc-700 text-zinc-400" onClick={() => confirmModalState.resolve(false)}>Cancel</button>
++              <button className="btn btn-primary" onClick={() => confirmModalState.resolve(true)}>Confirm</button>
++            </div>
++          </div>
++        </div>
++      )}
++
++      {alertModalState.isOpen && (
++        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
++          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm flex flex-col gap-4 animate-scale-in">
++            <h3 className="text-lg font-bold text-white">Alert</h3>
++            <p className="text-sm text-zinc-300">{alertModalState.message}</p>
++            <div className="flex justify-end mt-4">
++              <button className="btn btn-primary" onClick={() => alertModalState.resolve()}>OK</button>
++            </div>
++          </div>
++        </div>
++      )}
++
+     </div>
+   );
+ }
