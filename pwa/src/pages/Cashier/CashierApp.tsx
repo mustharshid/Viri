@@ -690,125 +690,6 @@ function App() {
 
     let pollInterval: ReturnType<typeof setInterval>;
 
-    const processEvent = async (eventType: string, payloadStr: string) => {
-      try {
-        const payload = JSON.parse(payloadStr || '{}');
-        if (eventType === 'verify_request_queued') {
-          addLog(`> [Realtime] Received instant verification request signal. Querying pending queue...`);
-          if (checkPendingRequestsRef.current) {
-            await checkPendingRequestsRef.current();
-          }
-        } else if (eventType === 'cache_refresh_requested') {
-          const { request_id, bank_account_id, bank_name, account_number, account_name, mib_profile_type, requester_name } = payload;
-
-          addLog(`> [Realtime] Received cache refresh request ID ${request_id} from counter "${requester_name}". Acknowledging...`);
-
-          // 1. Acknowledge the request immediately to let follower know we're active
-          await fetch(`${backendUrl}/terminal/session/acknowledge`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              hardware_id: hardwareId,
-              request_id: request_id
-            })
-          });
-
-          // 2. Trigger background sync via extension using local client-side credentials (ZK compliance)
-          const activeCreds = accountsCreds[bank_account_id.toString()];
-          if (!activeCreds) {
-            throw new Error(`No saved credentials for account ID ${bank_account_id}`);
-          }
-          if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
-            throw new Error("Local extension not connected/detected.");
-          }
-
-          addLog(`> [Realtime] Initiating background bank sync for request ID ${request_id}...`);
-          const port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
-
-          const responseData = await new Promise<any>((resolve, reject) => {
-            const disconnectHandler = () => reject(new Error("Extension port disconnected unexpectedly."));
-            port.onDisconnect.addListener(disconnectHandler);
-
-            port.onMessage.addListener((msg) => {
-              if (msg.type === 'log') {
-                addLog(`> [Realtime Leader Sync] ${msg.message}`);
-              } else if (msg.type === 'success') {
-                port.onDisconnect.removeListener(disconnectHandler);
-                addLog(`> [Realtime Leader Sync] Raw history size: ${msg.raw_history ? msg.raw_history.length : 0} items.`);
-                if (msg.raw_history && msg.raw_history.length > 0) {
-                  addLog(`> [Realtime Leader Sync] Raw history sample: ${JSON.stringify(msg.raw_history.slice(0, 1))}`);
-                }
-                resolve(msg.payload || msg);
-              } else if (msg.type === 'error') {
-                port.onDisconnect.removeListener(disconnectHandler);
-                reject(new Error(msg.error));
-              }
-            });
-
-            port.postMessage({
-              action: 'FULFILL_DELEGATED_REQUEST',
-              payload: {
-                req: {
-                  id: request_id,
-                  bank_account_id,
-                  bank_name,
-                  account_number,
-                  account_name,
-                  mib_profile_type,
-                  request_type: 'ledger'
-                },
-                credentials: {
-                  username: activeCreds.username,
-                  password: activeCreds.password,
-                  totpSeed: activeCreds.totpSeed
-                },
-                bankName: bank_name,
-                debugLogMibHtml: appConfig.debug_log_mib_html
-              }
-            });
-          });
-
-          port.disconnect();
-
-          // Update local cache with fetched data
-          addLog(`> [Realtime] Sync succeeded for request ID ${request_id}. Updating local cache...`);
-          setLedgerCache(prev => ({
-            ...prev,
-            [bank_account_id.toString()]: {
-              balance: responseData.balance || '0.00',
-              lastUpdated: new Date().toLocaleTimeString(),
-              lastUpdatedTimestamp: Date.now(),
-              transactions: responseData.transactions || [],
-            }
-          }));
-
-        } else if (eventType === 'verify_request_completed') {
-          addLog(`> [Realtime] Sync request ID ${payload.request_id} resolved with status: ${payload.status}`);
-
-          const customEvent = new CustomEvent(`sync_request_${payload.request_id}`, {
-            detail: payload
-          });
-          window.dispatchEvent(customEvent);
-        } else if (eventType === 'verify_request_acknowledged') {
-          addLog(`> [Realtime] Sync request ID ${payload.request_id} acknowledged by leader.`);
-
-          const customEvent = new CustomEvent(`sync_request_ack_${payload.request_id}`, {
-            detail: payload
-          });
-          window.dispatchEvent(customEvent);
-        } else if (eventType === 'transaction_checked') {
-          setCheckedHashes(prev => {
-            const next = new Set(prev);
-            next.add(payload.hash);
-            return next;
-          });
-        }
-      } catch (err: any) {
-        console.error("Realtime event process failed:", err);
-        addLog(`> [Realtime Sync Failed] ${err.message}`);
-      }
-    };
-
     const poll = async () => {
       // Visibility-Based Throttling: Pause polling completely when tab is hidden/minimized
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
@@ -816,14 +697,8 @@ function App() {
       }
 
       try {
-        const res = await fetch(`${backendUrl}/terminal/events/poll?hardware_id=${encodeURIComponent(hardwareId)}`);
-        if (!res.ok) return;
-        const events = await res.json();
-        if (Array.isArray(events)) {
-          for (const evt of events) {
-            await processEvent(evt.event_type, evt.payload);
-          }
-        }
+        // SSE polling endpoint was removed with legacy cache system
+        return;
       } catch (err) {
         console.error("Realtime event polling error:", err);
       }
@@ -2298,211 +2173,6 @@ function App() {
     }
   }, [selectedAccountId, activeTab]);
 
-  const resolveSessionStrategy = async (accountId: string) => {
-    try {
-      const response = await fetch(`${backendUrl}/terminal/session/status`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hardware_id: hardwareId,
-          bank_account_id: parseInt(accountId)
-        })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        if (data.is_self && data.is_live) {
-          return 'FETCH_ONLY';
-        } else if (data.is_live) {
-          return 'DELEGATE';
-        }
-      }
-    } catch (e) {
-      console.error("Failed to check session status:", e);
-    }
-    return 'CLAIM_AND_LOGIN';
-  };
-
-  const executeDelegation = async (accountId: string, requestType: 'search' | 'ledger' | 'history', targetAmount?: string) => {
-    try {
-      setProgress({
-        stage: 'init',
-        text: 'Another cashier counter has active session. Routing request...',
-        percent: 30,
-        isIndeterminate: true
-      });
-
-      const reqRes = await fetch(`${backendUrl}/terminal/session/request`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hardware_id: hardwareId,
-          bank_account_id: parseInt(accountId),
-          request_type: requestType,
-          target_amount: targetAmount ? parseFloat(targetAmount) : null
-        })
-      });
-
-      if (!reqRes.ok) {
-        throw new Error("Failed to queue request on backend.");
-      }
-
-      const { request_id } = await reqRes.json();
-      addLog(`> [Session] Request queued (ID: ${request_id}). Waiting for active session holder...`);
-
-      // Wait for verify_request_completed event via custom event instead of polling!
-      const resultData = await new Promise<{ status: string, result_json?: any, error_message?: string }>((resolve) => {
-        let resolved = false;
-
-        const eventHandler = (e: any) => {
-          const detail = e.detail;
-          cleanup({ status: detail.status, result_json: detail.result_json, error_message: detail.error });
-        };
-
-        const cleanup = (res: { status: string, result_json?: any, error_message?: string }) => {
-          if (resolved) return;
-          resolved = true;
-          clearTimeout(timeoutId);
-          window.removeEventListener(`sync_request_${request_id}`, eventHandler);
-          resolve(res);
-        };
-
-        window.addEventListener(`sync_request_${request_id}`, eventHandler);
-
-        // Fallback timeout limit of 12 seconds
-        const timeoutId = setTimeout(async () => {
-          addLog("> [Session] SSE signal wait timed out. Checking server once before failure.");
-          try {
-            const pollRes = await fetch(`${backendUrl}/terminal/session/result/${request_id}?hardware_id=${hardwareId}`);
-            if (pollRes.ok) {
-              const pollData = await pollRes.json();
-              cleanup({ status: pollData.status, result_json: pollData.result_json, error_message: pollData.error_message });
-              return;
-            }
-          } catch (err) { }
-          cleanup({ status: 'timeout' });
-        }, 12000);
-      });
-
-      if (!isVerifyingRef.current) {
-        addLog("> [Session] Delegation cancelled by user.");
-        return;
-      }
-
-      if (resultData.status === 'fulfilled') {
-        const response = resultData.result_json;
-        addLog(`> [Session] Delegation fulfilled. Raw result_json: ${JSON.stringify(response)}`);
-        setProgress({
-          stage: 'success',
-          text: requestType === 'ledger' ? '✅ Ledger Synced!' : '✅ Transfer Verified!',
-          percent: 100,
-          isIndeterminate: false
-        });
-        setTimeout(async () => {
-          setLoading(false);
-          setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
-          setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
-
-          const resData = response ? (response.data || null) : null;
-          setResult(resData);
-
-          const acc3 = bankAccounts.find(a => a.id.toString() === accountId);
-          const labelVal = acc3 ? `${acc3.bank_name} ${acc3.account_number}` : '';
-
-          const getTxKey = (tx: any) => {
-            return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || ''}`;
-          };
-
-          const newTxs = response ? (Array.isArray(response.transactions) ? response.transactions : []) : [];
-          addLog(`> [Session] Extracted transactions count: ${newTxs.length}`);
-          const currentKeys = new Set(
-            (requestType === 'ledger'
-              ? ledgerCache[accountId]?.transactions
-              : recentTxCache[accountId]?.transactions
-            )?.map((tx) => getTxKey(tx)) || []
-          );
-
-          const incomingKeys = newTxs.map((tx: any) => getTxKey(tx));
-          const newlyAddedKeys = incomingKeys.filter((k: string) => !currentKeys.has(k));
-
-          if (newlyAddedKeys.length > 0) {
-            setNewTransactionKeys(prev => {
-              const next = new Set(prev);
-              newlyAddedKeys.forEach((k: string) => next.add(k));
-              return next;
-            });
-          }
-
-          // Update recent transactions cache (only keeping the 3 most recent)
-          setRecentTxCache(prev => ({
-            ...prev,
-            [accountId]: {
-              transactions: newTxs.slice(0, 3),
-              label: labelVal,
-              lastUpdated: new Date().toLocaleTimeString(),
-              timestamp: Date.now()
-            }
-          }));
-
-          if (response.balance && requestType === 'ledger') {
-            // Direct fetch completed — local cache updated via success handler
-            addLog(`> [System] Ledger data synced locally.`);
-          } else if (response.balance) {
-            setLedgerCache(prev => {
-              const prevAcc = prev[accountId] || {};
-              return {
-                ...prev,
-                [accountId]: {
-                  ...prevAcc,
-                  balance: response.balance,
-                  lastUpdated: new Date().toLocaleTimeString(),
-                  lastUpdatedTimestamp: Date.now(),
-                  transactions: prevAcc.transactions || []
-                }
-              };
-            });
-          }
-          if (requestType === 'search' && response.data) {
-            setAmount('');
-          }
-          releaseLock();
-          isVerifyingRef.current = false;
-          uploadLogsToServer();
-        }, 1500);
-        return;
-      } else if (resultData.status === 'failed') {
-        throw new Error(resultData.error_message || "Holder failed to fetch data.");
-      } else {
-        addLog("> [Session] Active holder did not respond. Releasing current holder and claiming session lock...");
-        const claimRes = await fetch(`${backendUrl}/terminal/session/claim`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            hardware_id: hardwareId,
-            bank_account_id: parseInt(accountId),
-            force: true
-          })
-        });
-        if (claimRes.ok) {
-          addLog("> [Session] Reclaimed session successfully. Re-running transaction sync locally...");
-          setSessionStatus('holder');
-          setSessionHolderAccountId(accountId);
-          setTimeout(() => {
-            handleVerify(requestType === 'ledger' || requestType === 'history' ? 'history' : 'search');
-          }, 500);
-          return;
-        } else {
-          throw new Error("Request timed out. Active session holder did not respond, and reclamation failed.");
-        }
-      }
-    } catch (err: any) {
-      setError(`Delegated Fetch Failed: ${err.message}`);
-      setLoading(false);
-      setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
-      isVerifyingRef.current = false;
-      setProgress({ stage: 'error', text: 'Fetch failed', percent: 100, isIndeterminate: false });
-      uploadLogsToServer();
-    }
-  };
 
   const handleVerify = async (mode: 'search' | 'history' = 'search') => {
     const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
@@ -2541,44 +2211,11 @@ function App() {
     });
     setTimeLeft(25);
 
-    // Resolve persistent session strategy
-    const strategy = await resolveSessionStrategy(selectedAccountId);
-    addLog(`> [Session] Resolved Strategy: ${strategy}`);
+    setTimeLeft(25);
 
-    if (strategy === 'DELEGATE') {
-      setSessionStatus('delegating');
-      await executeDelegation(selectedAccountId, mode, mode === 'search' ? amount : undefined);
-      return;
-    }
-
-    let claimSuccess = false;
-    if (strategy === 'CLAIM_AND_LOGIN') {
-      setSessionStatus('claiming');
-      try {
-        const claimRes = await fetch(`${backendUrl}/terminal/session/claim`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            hardware_id: hardwareId,
-            bank_account_id: parseInt(selectedAccountId)
-          })
-        });
-        if (claimRes.ok) {
-          const claimData = await claimRes.json();
-          if (claimData.status === 'delegating') {
-            // Lost race - switch to delegation
-            setSessionStatus('delegating');
-            await executeDelegation(selectedAccountId, mode, mode === 'search' ? amount : undefined);
-            return;
-          }
-          claimSuccess = true;
-        }
-      } catch (err) {
-        console.error("Failed to claim session:", err);
-      }
-    } else {
-      setSessionStatus('holder');
-    }
+    // Step 2: Proceed directly - no centralized cache strategy/lock needed
+    
+    // Step 3: Send message to the local extension using a persistent port
 
     // Step 1: License Guard (Query the Laravel backend)
     try {
@@ -2871,7 +2508,7 @@ function App() {
             setAmount(''); // clear input on success
           }
           // Register session holder to extension
-          if (sessionStatus === 'claiming' || claimSuccess) {
+          if (sessionStatus === 'claiming') {
             port.postMessage({
               action: 'CLAIM_SESSION',
               payload: {
@@ -3028,7 +2665,7 @@ function App() {
         action: 'VERIFY_TRANSFER',
         payload: {
           mode: mode,
-          sessionMode: strategy === 'FETCH_ONLY' ? 'fetch_only' : 'fresh_login',
+          sessionMode: 'fresh_login',
           amount: mode === 'search' ? parseFloat(amount).toFixed(2) : '0.00',
           bank: selectedBankName,
           accountId: selectedAccountId,
@@ -3060,37 +2697,6 @@ function App() {
   };
 
   const syncLedgerLocally = async (targetAccountId: string, selectedAccount: any, selectedBankName: string) => {
-    let claimSuccess = false;
-    let strategy = 'CLAIM_AND_LOGIN';
-
-    if (operationMode === 'Single Counter' || operationMode === 'Single Terminal') {
-      addLog("> [Session] Single Terminal Mode - skipping session claim.");
-    } else {
-      addLog("> [Session] Claiming session on backend...");
-      try {
-        const claimRes = await fetch(`${backendUrl}/terminal/session/claim`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            hardware_id: hardwareId,
-            bank_account_id: parseInt(targetAccountId)
-          })
-        });
-        if (claimRes.ok) {
-          const claimData = await claimRes.json();
-          if (claimData.status === 'delegating') {
-            throw new Error("Active session claimed by another counter. Try again.");
-          }
-          claimSuccess = true;
-          addLog("> [Session] Session claim succeeded.");
-        } else {
-          addLog(`> [Session] Session claim returned HTTP ${claimRes.status}, proceeding with fresh login.`);
-        }
-      } catch (err) {
-        console.error("Failed to claim session:", err);
-        addLog("> [Session] Session claim failed (network error), proceeding with fresh login.");
-      }
-    }
 
     addLog("> [System] Validating cashier counter license...");
     if (subscriptionExpired) {
@@ -3238,7 +2844,7 @@ function App() {
                 extension_version: extensionVersion || LATEST_EXTENSION_VERSION
               })
             });
-            if (sessionStatus === 'claiming' || claimSuccess) {
+          if (sessionStatus === 'claiming') {
               port.postMessage({
                 action: 'CLAIM_SESSION',
                 payload: {
@@ -3390,7 +2996,7 @@ function App() {
           action: 'VERIFY_TRANSFER',
           payload: {
             mode: 'ledger',
-            sessionMode: strategy === 'FETCH_ONLY' ? 'fetch_only' : 'fresh_login',
+          sessionMode: 'fresh_login',
             amount: '0.00',
             bank: selectedBankName,
             accountId: targetAccountId,

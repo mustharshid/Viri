@@ -3281,7 +3281,8 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
 
     // Find match for search mode
     let match = null;
-    formattedTxs
+    const targetAmtClean = targetAmount.replace(/,/g, '');
+    for (const tx of formattedTxs) {
       if (tx.amount.replace(/,/g, '') === targetAmtClean && !tx.amount.startsWith('-')) {
         match = tx;
         break;
@@ -3881,7 +3882,21 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials) {
 
     // If P47 failed (None Authenticated Session) and credentials available, try A40 fallback
     const hasCreds = credentials?.username?.length > 0 && credentials?.password?.length > 0;
-    if (!profileSelected && hasCreds) {
+
+    // Fallback: check chrome.storage.session for cached credentials from a prior flow
+    if (!hasCreds) {
+      try {
+        const { mib_stored_creds } = await chrome.storage.session.get('mib_stored_creds');
+        if (mib_stored_creds?.username?.length > 0 && mib_stored_creds?.password?.length > 0) {
+          credentials = mib_stored_creds;
+          if(port) emitLog(port, '> [MIB-API] Using stored fallback credentials for A40.');
+        }
+      } catch(e) {}
+    }
+    const username = credentials?.username?.length > 0 ? credentials.username : '';
+    const password = credentials?.password?.length > 0 ? credentials.password : '';
+
+    if (!profileSelected && username && password) {
       if(port) emitLog(port, '> [MIB-API] Attempting A40 authentication fallback...');
       try {
         const a40Sodium = generateSodium();
@@ -4000,6 +4015,16 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials) {
           const { mib_profileId, mib_profileType } = await chrome.storage.local.get(['mib_profileId', 'mib_profileType']);
           if (mib_profileId) profileSelected = await attemptP47(port, mibSession, mib_profileId, mib_profileType || '0');
         } catch (pe) { /* ignore */ }
+        // Try fallback credentials from session storage if PWA didn't provide them
+        if (!profileSelected && (!credentials?.username?.length || !credentials?.password?.length)) {
+          try {
+            const { mib_stored_creds } = await chrome.storage.session.get('mib_stored_creds');
+            if (mib_stored_creds?.username?.length > 0 && mib_stored_creds?.password?.length > 0) {
+              if(port) emitLog(port, '> [MIB-API] Using stored fallback credentials for A40 (re-registration path).');
+              credentials = mib_stored_creds;
+            }
+          } catch(e) {}
+        }
         if (!profileSelected && credentials?.username?.length > 0 && credentials?.password?.length > 0) {
           try {
             const a40Sodium = generateSodium();
@@ -4073,6 +4098,11 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
   let last3Txs = [];
   
   try {
+    // Cache valid credentials from PWA for A40 fallback on subsequent calls
+    if (credentials?.username?.length > 0 && credentials?.password?.length > 0) {
+      chrome.storage.session.set({ mib_stored_creds: credentials });
+    }
+    
     const mibSession = await ensureMibSession(port, hardwareId, backendUrl, credentials);
 
     if (sessionMode === 'claim_and_login') {
