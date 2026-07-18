@@ -4125,6 +4125,54 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     });
     await setMibCookies(wvDomain);
 
+    // Fetch account balance from dashboard/accounts endpoint
+    let accountBalance = null;
+    try {
+      const acctRes = await fetch(`https://${wvDomain}/ajaxAccounts/accountDetails`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': 'application/json, text/javascript, */*; q=0.01'
+        },
+        body: buildFormBody({ accountNo: targetAccount })
+      });
+      if (acctRes.ok) {
+        const acctData = await acctRes.json();
+        if (acctData.success && acctData.data) {
+          accountBalance = acctData.data.accountBalance || acctData.data.balance || null;
+        }
+      }
+    } catch(e) {
+      emitLog(port, `> [MIB-API] WebView balance fetch failed, trying A80...`);
+    }
+
+    // Fallback: fetch balance via encrypted A80 API
+    if (!accountBalance) {
+      try {
+        const a80Sodium = generateSodium();
+        const a80Nonce = generateNonce(mibSession.nonceGenerator);
+        const a80Payload = {
+          nonce: a80Nonce, appId: mibSession.appId, sodium: a80Sodium,
+          routePath: 'A80', xxid: mibSession.xxid
+        };
+        const a80Resp = await executeMibSfunc('n', a80Payload, mibSession.sessionKey,
+          { xxid: mibSession.xxid, sfunc: 'n' });
+        if (a80Resp.success && Array.isArray(a80Resp.data)) {
+          const match = a80Resp.data.find(a => String(a.accountNo) === String(targetAccount));
+          if (match) {
+            accountBalance = match.accountBalance || match.balance || match.availableBalance || null;
+          }
+        }
+      } catch(e) {
+        emitLog(port, `> [MIB-API] A80 balance fetch failed (non-fatal): ${e.message}`);
+      }
+    }
+    if (accountBalance) {
+      emitLog(port, `> [MIB-API] Retrieved account balance: ${accountBalance}`);
+    }
+
     const detailsUrl = `https://${wvDomain}//accountDetails?trxh=1&dashurl=1&accountNo=${targetAccount}`;
     emitLog(port, `> [MIB-API] Fetching transactions from ${wvDomain}/ajaxAccounts/trxHistory...`);
     const trxRes = await fetch(`https://${wvDomain}/ajaxAccounts/trxHistory`, {
@@ -4209,7 +4257,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     });
 
     if (mode === 'fetch_only') {
-      port.postMessage({ type: 'statement_success', transactions: formattedTxs });
+      port.postMessage({ type: 'statement_success', transactions: formattedTxs, balance: accountBalance || '0.00' });
       return;
     }
 
@@ -4218,6 +4266,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
         type: 'success',
         match: null,
         transactions: formattedTxs,
+        balance: accountBalance || '0.00',
         login_success: true
       });
       return;
@@ -4236,7 +4285,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
 
     if (matchedTx) {
       emitLog(port, `> [MIB-API] Match FOUND for ${targetAmount}.`);
-      port.postMessage({ type: 'success', match: matchedTx, login_success: true, transactions: formattedTxs.slice(0, 3) });
+      port.postMessage({ type: 'success', match: matchedTx, login_success: true, transactions: formattedTxs.slice(0, 3), balance: accountBalance || '0.00' });
     } else {
       emitLog(port, `> [MIB-API] No match found for ${targetAmount}.`);
       port.postMessage({ type: 'not_found', transactions: formattedTxs.slice(0, 3), login_success: true });
