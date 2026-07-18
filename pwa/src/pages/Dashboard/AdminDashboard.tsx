@@ -235,7 +235,6 @@ export default function AdminDashboard() {
   const [expandedLogId, setExpandedLogId] = useState<number | null>(null);
   
   const [activeTerminalsCount, setActiveTerminalsCount] = useState<number>(0);
-  const [sessionHolders, setSessionHolders] = useState<any[]>([]);
 
   // Subscription Tiers State
   const [subscriptionPlans, setSubscriptionPlans] = useState<any[]>([]);
@@ -317,7 +316,6 @@ export default function AdminDashboard() {
         setSessionLogs(data.data || []);
         setLogsTotalPages(data.last_page || 1);
         if (data.active_terminals !== undefined) setActiveTerminalsCount(data.active_terminals);
-        if (data.session_holders !== undefined) setSessionHolders(data.session_holders);
       }
     } catch (err) {
       console.error(err);
@@ -1027,36 +1025,12 @@ export default function AdminDashboard() {
           {company.bank_accounts && company.bank_accounts.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {company.bank_accounts.map((acct: any) => {
-                const isFetchLocked = acct.fetch_in_progress_until && new Date(acct.fetch_in_progress_until).getTime() > Date.now();
                 return (
                   <div key={acct.id} className="flex flex-col gap-2 p-3 bg-white/5 border border-white/10 rounded-lg text-xs">
                     <div className="flex items-center justify-between font-mono">
                       <span className="font-semibold text-white">
                         {acct.bank_name} ({acct.account_number})
                       </span>
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                        isFetchLocked ? 'bg-amber-950 text-amber-400 border border-amber-500/25 animate-pulse' : 'bg-black/50 text-zinc-500 border border-white/5'
-                      }`}>
-                        {isFetchLocked ? 'Fetching Lock' : 'Idle'}
-                      </span>
-                    </div>
-
-                    <div className="text-zinc-400 flex flex-col gap-1 font-mono text-[10px]">
-                      <div>
-                        Holder Terminal ID: <span className="text-zinc-300">{acct.session_holder_terminal_id || 'None'}</span>
-                      </div>
-                      <div>
-                        Last Heartbeat: <span className="text-zinc-300">
-                          {acct.session_last_heartbeat_at ? new Date(acct.session_last_heartbeat_at).toLocaleTimeString() : 'N/A'}
-                        </span>
-                      </div>
-                      {isFetchLocked && (
-                        <div>
-                          Lock Expires: <span className="text-amber-400">
-                            {new Date(acct.fetch_in_progress_until).toLocaleTimeString()}
-                          </span>
-                        </div>
-                      )}
                     </div>
                   </div>
                 );
@@ -2083,41 +2057,6 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Active Terminals and Session Holders Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800 flex items-center gap-4">
-            <div className="p-3 bg-emerald-900/30 text-emerald-400 rounded-full">
-              <MonitorSmartphone size={24} />
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-white">{activeTerminalsCount}</div>
-              <div className="text-xs text-zinc-400 uppercase tracking-wider font-semibold">Active Terminals</div>
-            </div>
-          </div>
-
-          <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800 flex items-center gap-4">
-            <div className="p-3 bg-blue-900/30 text-blue-400 rounded-full">
-              <Shield size={24} />
-            </div>
-            <div className="flex-1">
-              <div className="text-2xl font-bold text-white">{sessionHolders.length}</div>
-              <div className="text-xs text-zinc-400 uppercase tracking-wider font-semibold">Session Holding Terminals</div>
-            </div>
-            {sessionHolders.length > 0 && (
-              <div className="text-right">
-                <div className="text-[10px] text-zinc-500 mb-1">Current Holders:</div>
-                {sessionHolders.slice(0, 2).map((acc: any) => (
-                  <div key={acc.id} className="text-[10px] text-zinc-300 font-mono">
-                    {acc.session_holder_terminal?.terminal_name || 'Terminal'} ({acc.tenant?.name})
-                  </div>
-                ))}
-                {sessionHolders.length > 2 && (
-                  <div className="text-[10px] text-zinc-500 italic">+{sessionHolders.length - 2} more</div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
 
         {logsLoading ? (
           <div className="text-center py-12 text-zinc-500 font-medium animate-pulse">Loading session activity logs...</div>

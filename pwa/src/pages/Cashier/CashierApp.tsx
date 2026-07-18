@@ -1356,19 +1356,7 @@ function App() {
     const handleVisibility = () => {
       setVisibility(document.visibilityState);
       if (document.visibilityState === 'hidden') {
-        if (sessionStatus === 'holder' && sessionHolderAccountId) {
-          addLog(`> [Session] Tab backgrounded. Proactively releasing session lock for account ID ${sessionHolderAccountId}...`);
-          fetch(`${backendUrl}/terminal/session/release`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              hardware_id: hardwareId,
-              bank_account_id: parseInt(sessionHolderAccountId)
-            })
-          }).catch(() => {});
-          setSessionStatus('idle');
-          setSessionHolderAccountId(null);
-        }
+        // Tab backgrounded — no session lock to release (centralized cache system removed)
       } else if (document.visibilityState === 'visible') {
         if (checkPendingRequestsRef.current) {
           checkPendingRequestsRef.current();
@@ -1965,39 +1953,6 @@ function App() {
 
     return () => clearTimeout(timeoutId);
   }, [hardwareId, backendUrl, isSetupMode, selectedAccountId, visibility]);
-
-  // Keep-alive bank session heartbeat loop (every 15s, pause when hidden)
-  useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
-    if (sessionStatus === 'holder' && hardwareId && backendUrl && sessionHolderAccountId) {
-      interval = setInterval(async () => {
-        if (visibility === 'hidden') return;
-        try {
-          await fetch(`${backendUrl}/terminal/session/heartbeat`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              hardware_id: hardwareId,
-              bank_account_id: parseInt(sessionHolderAccountId)
-            })
-          });
-
-          // Wake up the extension to ping the bank and keep the bank's own idle timer alive
-          if (typeof chrome !== 'undefined' && chrome.runtime && extensionId) {
-            const heldBankAcc = bankAccounts.find(a => a.id.toString() === sessionHolderAccountId);
-            const isApi = (heldBankAcc?.bank_name === 'BML' && appConfig.bml_login_procedure === 'api') || 
-                          (heldBankAcc?.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api');
-            if (!isApi) {
-              chrome.runtime.sendMessage(extensionId, { action: 'PING_BANK' }).catch(() => { });
-            }
-          }
-        } catch (e) {
-          console.error("PWA Heartbeat failed:", e);
-        }
-      }, 15000);
-    }
-    return () => clearInterval(interval);
-  }, [sessionStatus, hardwareId, backendUrl, sessionHolderAccountId, extensionId, visibility]);
 
   useEffect(() => {
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.connect) {

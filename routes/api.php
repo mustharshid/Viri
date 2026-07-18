@@ -91,11 +91,25 @@ Route::middleware('auth:sanctum')->group(function () {
 |
 */
 
-// Session Holder Management Routes
-Route::post('/terminal/session/claim',      [\App\Http\Controllers\API\SessionController::class, 'claimSession']);
-Route::post('/terminal/session/heartbeat',  [\App\Http\Controllers\API\SessionController::class, 'heartbeat']);
-Route::post('/terminal/session/release',    [\App\Http\Controllers\API\SessionController::class, 'releaseSession']);
-Route::post('/terminal/session/status',     [\App\Http\Controllers\API\SessionController::class, 'getStatus']);
+// Real-Time Signaling Endpoints (non-cache)
+Route::post('/terminal/session/acknowledge', function (\Illuminate\Http\Request $request) {
+    $request->validate([
+        'hardware_id' => 'required|string',
+        'request_id'  => 'required|integer',
+    ]);
+    $terminal = \App\Models\Terminal::where('hardware_id', $request->hardware_id)
+        ->where('status', 'active')->first();
+    if (!$terminal) return response()->json(['error' => 'Terminal unauthorized'], 403);
+    $fetchReq = \App\Models\SessionFetchRequest::find($request->request_id);
+    if (!$fetchReq) return response()->json(['error' => 'Request not found'], 404);
+    $account = $fetchReq->bankAccount;
+    if (!$account || $account->session_holder_terminal_id !== $terminal->id)
+        return response()->json(['error' => 'Not the session holder for this account'], 403);
+    $fetchReq->update(['status' => 'syncing']);
+    return response()->json(['status' => 'ok']);
+});
+
+// Session Request & Fulfillment Routes (used by extension-based verification)
 Route::post('/terminal/session/request',    [\App\Http\Controllers\API\SessionController::class, 'submitRequest']);
 Route::post('/terminal/session/pending',    [\App\Http\Controllers\API\SessionController::class, 'getPendingRequests']);
 Route::post('/terminal/session/fulfill',    [\App\Http\Controllers\API\SessionController::class, 'fulfillRequest']);
@@ -324,22 +338,6 @@ Route::post('/terminal/credential-sync/{id}/upload',           [CredentialSyncCo
 Route::post('/terminal/credential-sync/{id}/confirm-import',   [CredentialSyncController::class, 'confirmImport']);
 
 // Real-Time Signaling Endpoints (non-cache)
-Route::post('/terminal/session/acknowledge', function (\Illuminate\Http\Request $request) {
-    $request->validate([
-        'hardware_id' => 'required|string',
-        'request_id'  => 'required|integer',
-    ]);
-    $terminal = \App\Models\Terminal::where('hardware_id', $request->hardware_id)
-        ->where('status', 'active')->first();
-    if (!$terminal) return response()->json(['error' => 'Terminal unauthorized'], 403);
-    $fetchReq = \App\Models\SessionFetchRequest::find($request->request_id);
-    if (!$fetchReq) return response()->json(['error' => 'Request not found'], 404);
-    $account = $fetchReq->bankAccount;
-    if (!$account || $account->session_holder_terminal_id !== $terminal->id)
-        return response()->json(['error' => 'Not the session holder for this account'], 403);
-    $fetchReq->update(['status' => 'syncing']);
-    return response()->json(['status' => 'ok']);
-});
 
 
 Route::post('/terminal/update-pin', function (Request $request) {

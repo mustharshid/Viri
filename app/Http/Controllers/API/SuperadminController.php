@@ -153,8 +153,7 @@ class SuperadminController extends Controller
         
         $response = $logs->toArray();
         $response['active_terminals'] = \App\Models\Terminal::where('status', 'active')->count();
-        $response['session_holders'] = \App\Models\BankAccount::whereNotNull('session_holder_terminal_id')->with('tenant')->limit(100)->get();
-        
+
         return response()->json($response);
     }
 
