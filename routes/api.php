@@ -316,12 +316,6 @@ Route::post('/terminal/bank-accounts/increment-failures', [BankAccountLockContro
 Route::post('/terminal/bank-accounts/reset-failures', [BankAccountLockController::class, 'resetFailures']);
 Route::post('/terminal/bank-accounts/clear-api-token', [BankAccountLockController::class, 'clearApiToken']);
 Route::post('/terminal/bank-accounts/map-credentials', [BankAccountLockController::class, 'mapCredentials']);
-Route::post('/terminal/bank-accounts/{id}/internal-id', function (\Illuminate\Http\Request $request, $id) {
-    $request->validate(['bml_internal_id' => 'required|string']);
-    $account = \App\Models\BankAccount::findOrFail($id);
-    $account->update(['bml_internal_id' => $request->bml_internal_id]);
-    return response()->json(['success' => true]);
-});
 
 // Credential Sync (Terminal side — hardware_id auth)
 Route::get('/terminal/credential-sync/sse',                    [CredentialSyncController::class, 'sseStream']);

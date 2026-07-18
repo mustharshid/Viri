@@ -133,7 +133,6 @@ interface BankAccount {
   account_number: string;
   mib_profile_type?: string;
   bml_profile_type?: string;
-  bml_internal_id?: string;
   bml_auth_state?: any;
   has_api_token?: boolean;
   is_default: boolean;
@@ -2213,7 +2212,6 @@ function App() {
                         password: activeCreds.password,
                         totpSeed: activeCreds.totpSeed
                       },
-                      bmlInternalId: bankAccounts.find(a => a.id.toString() === sessionHolderAccountId)?.bml_internal_id,
                       bankName: bankAccounts.find(a => a.id.toString() === sessionHolderAccountId)?.bank_name || 'BML',
                       debugLogMibHtml: appConfig.debug_log_mib_html
                     }
@@ -2407,21 +2405,6 @@ function App() {
           const resData = response ? (response.data || null) : null;
           setResult(resData);
 
-          if (response && response.internal_id) {
-            const accToUpdate = bankAccounts.find(a => a.id.toString() === accountId);
-            if (accToUpdate && accToUpdate.bml_internal_id !== response.internal_id) {
-              try {
-                await fetch(`${backendUrl}/terminal/bank-accounts/${accountId}/internal-id`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ bml_internal_id: response.internal_id })
-                });
-                console.log("Saved BML Internal ID successfully");
-              } catch (e) {
-                console.error("Failed to save internal ID", e);
-              }
-            }
-          }
           const acc3 = bankAccounts.find(a => a.id.toString() === accountId);
           const labelVal = acc3 ? `${acc3.bank_name} ${acc3.account_number}` : '';
 
@@ -2834,22 +2817,6 @@ function App() {
             setResult(response.data);
           }
 
-          // Save internal_id if returned
-          if (response.internal_id) {
-            const accToUpdate = bankAccounts.find(a => a.id.toString() === selectedAccountId);
-            if (accToUpdate && accToUpdate.bml_internal_id !== response.internal_id) {
-              try {
-                await fetch(`${backendUrl}/terminal/bank-accounts/${selectedAccountId}/internal-id`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ bml_internal_id: response.internal_id })
-                });
-                console.log("Saved BML Internal ID successfully");
-              } catch (e) {
-                console.error("Failed to save internal ID", e);
-              }
-            }
-          }
           const acc1 = bankAccounts.find(a => a.id.toString() === selectedAccountId);
           const labelVal = acc1 ? `${acc1.bank_name} ${acc1.account_number}` : '';
 
@@ -2915,7 +2882,6 @@ function App() {
                 credentials: activeCreds,
                 bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
                 bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
-                bmlInternalId: selectedAccount ? selectedAccount.bml_internal_id : null
               }
             });
             setSessionStatus('holder');
@@ -3071,7 +3037,6 @@ function App() {
           mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
           bmlProfileType: selectedAccount ? (selectedAccount.bml_profile_type || '0') : '0',
           bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
-          bmlInternalId: selectedAccount ? selectedAccount.bml_internal_id : null,
           credentials: activeCreds,
           debugLogMibHtml: appConfig.debug_log_mib_html,
           bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
@@ -3211,22 +3176,6 @@ function App() {
           setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
           setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
 
-          // Save internal_id if returned
-          if (response.internal_id) {
-            const accToUpdate = bankAccounts.find(a => a.id.toString() === targetAccountId);
-            if (accToUpdate && accToUpdate.bml_internal_id !== response.internal_id) {
-              try {
-                await fetch(`${backendUrl}/terminal/bank-accounts/${targetAccountId}/internal-id`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ bml_internal_id: response.internal_id })
-                });
-                console.log("Saved BML Internal ID successfully");
-              } catch (e) {
-                console.error("Failed to save internal ID", e);
-              }
-            }
-          }
           const getTxKey = (tx: any) => {
             return `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || ''}`;
           };
@@ -3300,7 +3249,6 @@ function App() {
                   credentials: activeCreds,
                   bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
                   bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
-                  bmlInternalId: selectedAccount ? selectedAccount.bml_internal_id : null,
                   debugLogMibHtml: appConfig.debug_log_mib_html
                 }
               });
@@ -3405,7 +3353,6 @@ function App() {
               mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
               bmlProfileType: selectedAccount ? (selectedAccount.bml_profile_type || '0') : '0',
               bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
-              bmlInternalId: selectedAccount ? selectedAccount.bml_internal_id : null,
               credentials: activeCreds,
               debugLogMibHtml: appConfig.debug_log_mib_html,
               bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
@@ -3452,7 +3399,6 @@ function App() {
             mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
             bmlProfileType: selectedAccount ? (selectedAccount.bml_profile_type || '0') : '0',
             bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
-            bmlInternalId: selectedAccount ? selectedAccount.bml_internal_id : null,
             credentials: activeCreds,
             debugLogMibHtml: appConfig.debug_log_mib_html,
             bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',

@@ -16,7 +16,6 @@ class BankAccount extends Model
         'account_number',
         'mib_profile_type',
         'bml_profile_type',
-        'bml_internal_id',
         'bml_auth_state',
         'is_default',
         'label',
