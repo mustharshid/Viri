@@ -185,6 +185,32 @@ export default function CompanyDashboard() {
     return () => clearInterval(interval);
   }, [credSync.state, credSync.syncId]);
 
+  // Poll for terminal updates when active (handles pairing code sync)
+  useEffect(() => {
+    if (activeTab !== 'companies') return;
+    
+    const token = localStorage.getItem('viri_token');
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/company/terminals', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const newTerminals = await res.json();
+          setTerminals(prev => {
+            // Only update state if something actually changed to avoid re-renders
+            if (JSON.stringify(prev) !== JSON.stringify(newTerminals)) {
+              return newTerminals;
+            }
+            return prev;
+          });
+        }
+      } catch (e) { /* ignore */ }
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, [activeTab]);
+
 
   const navigateToHelp = (sectionId: string) => {
     setActiveTab('help');
@@ -206,6 +232,7 @@ export default function CompanyDashboard() {
   const [isTerminalModalOpen, setIsTerminalModalOpen] = useState(false);
   const [editingTerminal, setEditingTerminal] = useState<any>(null);
   const [terminalFormName, setTerminalFormName] = useState('');
+  const [isSavingTerminal, setIsSavingTerminal] = useState(false);
   const [terminalSettingsPin, setTerminalSettingsPin] = useState('');
   const [terminalLockPin, setTerminalLockPin] = useState('');
 
@@ -514,6 +541,7 @@ export default function CompanyDashboard() {
     const url = isEdit ? `/api/company/terminals/${editingTerminal.id}` : '/api/company/terminals';
     const method = isEdit ? 'PUT' : 'POST';
 
+    setIsSavingTerminal(true);
     try {
       const response = await fetch(url, {
         method: method,
@@ -529,12 +557,22 @@ export default function CompanyDashboard() {
       });
 
       if (response.ok) {
+        const data = await response.json();
+        setTerminals(prev => {
+          if (isEdit) {
+            return prev.map(t => t.id === editingTerminal.id ? { ...t, ...data.terminal } : t);
+          }
+          return [data.terminal, ...prev];
+        });
+        
         setIsTerminalModalOpen(false);
         setNewTerminalName('');
         setTerminalFormName('');
         setTerminalSettingsPin('');
         setTerminalLockPin('');
         setEditingTerminal(null);
+        
+        // Background refresh to keep in sync
         fetchData();
       } else {
         const errData = await response.json().catch(() => ({}));
@@ -543,6 +581,8 @@ export default function CompanyDashboard() {
     } catch (err: any) {
       console.error(err);
       alert('An error occurred while saving terminal settings.');
+    } finally {
+      setIsSavingTerminal(false);
     }
   };
 
@@ -2310,9 +2350,16 @@ export default function CompanyDashboard() {
                 </button>
                 <button 
                   type="submit" 
-                  className="btn btn-success py-2 px-6 text-sm font-semibold"
+                  disabled={isSavingTerminal}
+                  className="btn btn-success py-2 px-6 text-sm font-semibold flex items-center justify-center gap-2"
                 >
-                  Save Changes
+                  {isSavingTerminal ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" /> Saving...
+                    </>
+                  ) : (
+                    'Save Changes'
+                  )}
                 </button>
               </div>
             </form>
