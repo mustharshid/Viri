@@ -133,6 +133,8 @@ interface BankAccount {
   account_number: string;
   mib_profile_type?: string;
   bml_profile_type?: string;
+  mib_credential_profile_id?: number | null;
+  bml_credential_group_id?: number | null;
   bml_auth_state?: any;
   has_api_token?: boolean;
   is_default: boolean;
@@ -257,6 +259,13 @@ const TransactionRow = React.memo(({
   permissions: any;
   handleCheckTransaction: (accountId: string, hash: string) => void;
 }) => {
+  const [copiedRef, setCopiedRef] = useState<string | null>(null);
+  const handleCopyRef = (ref: string) => {
+    navigator.clipboard.writeText(ref);
+    setCopiedRef(ref);
+    setTimeout(() => setCopiedRef(null), 1500);
+  };
+
   const detailsParts = (tx.details || '').split('\n');
   const description = (detailsParts[0] || '').trim();
   let details = detailsParts.slice(1).join('\n').trim();
@@ -323,13 +332,17 @@ const TransactionRow = React.memo(({
               <div key={idx} className="inline-flex items-center gap-2 bg-zinc-900 px-2 py-1 rounded">
                 <span className="font-semibold">{ref}</span>
                 <button
-                  onClick={() => navigator.clipboard.writeText(ref)}
-                  className="text-zinc-500 hover:text-white transition-colors cursor-pointer"
-                  title="Copy Reference"
+                  onClick={() => handleCopyRef(ref)}
+                  className={`transition-colors cursor-pointer ${copiedRef === ref ? 'text-emerald-400' : 'text-zinc-500 hover:text-white'}`}
+                  title={copiedRef === ref ? "Copied!" : "Copy Reference"}
                 >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
+                  {copiedRef === ref ? (
+                    <Check size={14} className="text-emerald-400 animate-scale-bump" />
+                  ) : (
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  )}
                 </button>
               </div>
             ))}
@@ -508,7 +521,8 @@ function App() {
   // Removed currentTick state for performance
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
   const [terminalId, setTerminalId] = useState<number | null>(null);
-  const LATEST_EXTENSION_VERSION = "1.2.51";
+  const [accountToClear, setAccountToClear] = useState<any | null>(null);
+  const LATEST_EXTENSION_VERSION = "1.2.67";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -622,9 +636,20 @@ function App() {
     return localStorage.getItem('viri_sidebar_collapsed') === 'true';
   });
   const [ledgerPage, setLedgerPage] = useState(1);
+  const [copiedRef, setCopiedRef] = useState<string | null>(null);
+  const handleCopyRef = (ref: string) => {
+    navigator.clipboard.writeText(ref);
+    setCopiedRef(ref);
+    setTimeout(() => setCopiedRef(null), 1500);
+  };
   const [ledgerFilter, setLedgerFilter] = useState<'all' | 'in' | 'out'>('all');
   const [ledgerSearch, setLedgerSearch] = useState('');
   const [ledgerPageSize, setLedgerPageSize] = useState(25);
+  const [bmlCurrentPage, setBmlCurrentPage] = useState<number>(1);
+  const [bmlTotalPages, setBmlTotalPages] = useState<number>(1);
+  const [bmlPaginatedCache, setBmlPaginatedCache] = useState<Record<string, Record<number, any[]>>>(() => {
+    return safeJsonParse(localStorage.getItem('viri_bml_paginated_cache'), {});
+  });
   const [ledgerDateFilter, setLedgerDateFilter] = useState<string | null>(null); // "YYYY-MM-DD" or null
   const [ledgerDatePickerOpen, setLedgerDatePickerOpen] = useState(false);
   const [ledgerPickerYear, setLedgerPickerYear] = useState(() => new Date().getFullYear());
@@ -635,11 +660,6 @@ function App() {
     return safeJsonParse(localStorage.getItem('viri_accounts_creds'), {});
   });
 
-  // Forms States for Inline Config
-  const [tempUsername, setTempUsername] = useState('');
-  const [tempPassword, setTempPassword] = useState('');
-  const [tempTotpSeed, setTempTotpSeed] = useState('');
-  const [expandedCredsAccountId, setExpandedCredsAccountId] = useState<string | null>(null);
 
   // Standalone/On-demand Credential Sync States
   const [importPending, setImportPending] = useState(false);
@@ -715,40 +735,38 @@ function App() {
   }, [hardwareId, backendUrl, accountsCreds, extensionId]);
 
 
-  const saveAccountCredentials = async (accId: string, uName: string, pWord: string, seed: string) => {
-    const updated = {
-      ...accountsCreds,
-      [accId]: {
-        username: uName,
-        password: pWord,
-        totpSeed: seed
-      }
-    };
-    setAccountsCreds(updated);
-    localStorage.setItem('viri_accounts_creds', JSON.stringify(updated));
-    // Credentials are stored locally only (ZK architecture — not transmitted to server)
-    logActivityToServer('settings_changed', { action: 'saved_credentials', account_id: accId });
-  };
-
   const clearAccountCredentials = async (accId: string) => {
+    // 1. Optimistically clear local credentials in state and localStorage
     const updated = { ...accountsCreds };
     delete updated[accId];
     setAccountsCreds(updated);
     localStorage.setItem('viri_accounts_creds', JSON.stringify(updated));
-    // Credentials are stored locally only (ZK architecture — not transmitted to server)
+
+    // 2. Optimistically clear has_api_token from state so UI and buttons disable immediately
+    setBankAccounts(prev =>
+      prev.map(a =>
+        a.id.toString() === accId ? { ...a, has_api_token: false } : a
+      )
+    );
+
     logActivityToServer('settings_changed', { action: 'cleared_credentials', account_id: accId });
 
     try {
-      await fetch(`${backendUrl}/terminal/bank-accounts/clear-api-token`, {
+      const res = await fetch(`${backendUrl}/terminal/bank-accounts/clear-api-token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ hardware_id: hardwareId, bank_account_id: parseInt(accId) })
       });
+      if (!res.ok) {
+        console.error("Server-side clear failed, reverting optimistic update");
+        fetchAccounts();
+        return;
+      }
     } catch (err) {
       console.error("Failed to clear API tokens", err);
     }
 
-    // Clear extension-side MIB keys and cookies
+    // 3. Clear extension-side MIB keys and cookies
     if (typeof chrome !== 'undefined' && chrome.runtime && extensionId) {
       try {
         const acc = bankAccounts.find(a => a.id.toString() === accId);
@@ -761,7 +779,7 @@ function App() {
       }
     }
 
-    // Refresh account list to update badge status
+    // 4. Re-fetch from server to confirm
     fetchAccounts();
   };
 
@@ -1157,6 +1175,21 @@ function App() {
 
   const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<string>('');
 
+  useEffect(() => {
+    if (selectedLedgerAccountId) {
+      const cached = bmlPaginatedCache[selectedLedgerAccountId];
+      if (cached && Object.keys(cached).length > 0) {
+        // If we have cached pages for this account, restore to page 1 from cache if present
+        setBmlCurrentPage(1);
+        const pages = Object.keys(cached).map(Number);
+        setBmlTotalPages(Math.max(...pages, 1));
+      } else {
+        setBmlCurrentPage(1);
+        setBmlTotalPages(1);
+      }
+    }
+  }, [selectedLedgerAccountId]);
+
   // Auto-center selected ledger card in carousel when it changes
   useEffect(() => {
     if (activeTab === 'ledger' && selectedLedgerAccountId && carouselRef.current) {
@@ -1195,13 +1228,13 @@ function App() {
       if (storedCreds) {
         const credsObj = JSON.parse(storedCreds) as Record<string, { username?: string; password?: string; totpSeed?: string }>;
         Object.values(credsObj).forEach(creds => {
-          if (creds.username && creds.username.trim() !== '') {
+          if (creds.username && creds.username.trim().length >= 6) {
             msg = msg.split(creds.username).join('*'.repeat(creds.username.length));
           }
-          if (creds.password && creds.password.trim() !== '') {
+          if (creds.password && creds.password.trim().length >= 6) {
             msg = msg.split(creds.password).join('*'.repeat(creds.password.length));
           }
-          if (creds.totpSeed && creds.totpSeed.trim() !== '') {
+          if (creds.totpSeed && creds.totpSeed.trim().length >= 6) {
             msg = msg.split(creds.totpSeed).join('*'.repeat(creds.totpSeed.length));
           }
         });
@@ -1222,7 +1255,7 @@ function App() {
   const [tenantName, setTenantName] = useState<string>('');
   const [subscriptionTier, setSubscriptionTier] = useState<string>('');
   const [terminalName, setTerminalName] = useState<string>('');
-  const [lockTimeout, setLockTimeout] = useState<number>(20);
+
 
   // Distributed Lock State & Refs
   const isVerifyingRef = useRef<boolean>(false);
@@ -1355,16 +1388,42 @@ function App() {
   useEffect(() => {
     const handleVisibility = () => {
       setVisibility(document.visibilityState);
-      if (document.visibilityState === 'hidden') {
-        // Tab backgrounded — no session lock to release (centralized cache system removed)
-      } else if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible') {
+        const savedCreds = localStorage.getItem('viri_accounts_creds');
+        if (savedCreds) {
+          try {
+            setAccountsCreds(JSON.parse(savedCreds));
+          } catch (e) {}
+        }
+        if (hardwareId && backendUrl) {
+          fetch(`${backendUrl}/verify-terminal`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hardware_id: hardwareId })
+          }).then(r => r.json()).then(data => {
+            const accounts = data.tenant?.bank_accounts || [];
+            if (accounts.length > 0) setBankAccounts(accounts);
+          }).catch(() => {});
+        }
         if (checkPendingRequestsRef.current) {
           checkPendingRequestsRef.current();
         }
       }
     };
+    const handleFocus = () => {
+      const savedCreds = localStorage.getItem('viri_accounts_creds');
+      if (savedCreds) {
+        try {
+          setAccountsCreds(JSON.parse(savedCreds));
+        } catch (e) {}
+      }
+    };
     document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [sessionStatus, sessionHolderAccountId, hardwareId, backendUrl]);
 
   // ---------------------------------------------------------------------------
@@ -1567,7 +1626,7 @@ function App() {
 
         if (data.tenant?.name) setTenantName(data.tenant.name);
         if (data.tenant?.tier) setSubscriptionTier(data.tenant.tier);
-        if (data.tenant?.lock_timeout) setLockTimeout(data.tenant.lock_timeout);
+
         if (data.tenant?.extension_id && data.tenant.extension_id !== 'viri_default_extension_id') {
           setExtensionId(data.tenant.extension_id);
           localStorage.setItem('viri_extension_id', data.tenant.extension_id);
@@ -2217,126 +2276,9 @@ function App() {
       return;
     }
 
-    // Step 2: Acquire Distributed Lease Lock
+    // Step 2: Distributed Lease Lock (Removed for on-demand API model)
     const targetAccountId = selectedAccountId;
     lockedAccountIdRef.current = targetAccountId;
-
-    setProgress({
-      stage: 'lock',
-      text: 'Preparing secure session...',
-      percent: 20,
-      isIndeterminate: true
-    });
-    addLog("> [Lock] Requesting session lock for bank account...");
-
-    let lockAcquired = false;
-    const startTime = Date.now();
-    const pollInterval = 2500; // poll every 2.5 seconds
-    const maxTimeoutMs = lockTimeout * 1000;
-    let attempts = 0;
-
-    while (Date.now() - startTime < maxTimeoutMs) {
-      // Check if user clicked cancel during wait
-      if (!isVerifyingRef.current) {
-        addLog("> [Lock] Wait cancelled by user.");
-        lockedAccountIdRef.current = null;
-        setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
-        setTimeLeft(null);
-        return;
-      }
-
-      try {
-        const lockRes = await fetch(`${backendUrl}/terminal/lock-account`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            hardware_id: hardwareId,
-            bank_account_id: parseInt(targetAccountId)
-          })
-        });
-
-        if (lockRes.ok) {
-          const lockData = await lockRes.json();
-          if (lockData.status === 'acquired') {
-            lockAcquired = true;
-            setProgress({
-              stage: 'init',
-              text: 'Preparing secure session...',
-              percent: 25,
-              isIndeterminate: true
-            });
-            addLog("> [Lock] Session lock acquired successfully.");
-            break;
-          }
-        } else if (lockRes.status === 409) {
-          const lockData = await lockRes.json().catch(() => ({}));
-          const heldBy = lockData.held_by ? `cashier counter ${lockData.held_by.substring(0, 8)}...` : "another cashier counter";
-          const expiresSeconds = lockData.expires_in ?? "?";
-
-          attempts++;
-          if (attempts > 2) {
-            setProgress({
-              stage: 'lock',
-              text: 'This account is busy. Retrying in 5 seconds...',
-              percent: 15,
-              isIndeterminate: true
-            });
-          } else {
-            setProgress({
-              stage: 'lock',
-              text: 'Another cashier counter is currently using this account. You are next in line...',
-              percent: 15,
-              isIndeterminate: true
-            });
-          }
-
-          addLog(`> [Lock] Session busy: Held by ${heldBy}. Retrying in 2.5s (expires in ${expiresSeconds}s)...`);
-        } else {
-          const errText = await lockRes.text();
-          console.error("Lock error response:", errText);
-          addLog(`> [Lock] Server returned error ${lockRes.status}. Retrying...`);
-        }
-      } catch (err) {
-        console.error("Lock request exception:", err);
-        addLog("> [Lock] Connection issue while locking. Retrying...");
-      }
-
-      // Wait 2.5s before next attempt
-      await new Promise(resolve => setTimeout(resolve, pollInterval));
-    }
-
-    if (!lockAcquired) {
-      setErrorAndLog("Bank session busy: Held by another cashier counter. Please try again later.");
-      addLog("> [Lock] Timeout: Could not acquire bank session lock.");
-      setLoading(false);
-      lockedAccountIdRef.current = null;
-      isVerifyingRef.current = false;
-      setProgress({ stage: 'error', text: 'Session busy', percent: 100, isIndeterminate: false });
-      setTimeLeft(null);
-      return;
-    }
-
-    // Start Heartbeat interval
-    heartbeatIntervalRef.current = setInterval(async () => {
-      if (!lockedAccountIdRef.current) return;
-      try {
-        const hbRes = await fetch(`${backendUrl}/terminal/heartbeat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            hardware_id: hardwareId,
-            bank_account_id: parseInt(targetAccountId)
-          })
-        });
-        if (!hbRes.ok) {
-          console.warn("Heartbeat failed, lock might be lost");
-          addLog("> [Lock Warning] Heartbeat failed. Lock may have been stolen or expired.");
-        }
-      } catch (hbErr) {
-        console.error("Heartbeat exception:", hbErr);
-      }
-    }, appConfig.active_session_heartbeat_interval * 1000);
-
     // Step 3: Send message to the local extension using a persistent port
     if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
       setErrorAndLog("Browser extension API not detected. Make sure you are using Chrome and the extension is loaded.");
@@ -2468,6 +2410,7 @@ function App() {
               action: 'CLAIM_SESSION',
               payload: {
                 accountId: selectedAccountId,
+                accountNumber: selectedAccount ? selectedAccount.account_number : '',
                 bankName: selectedBankName,
                 backendUrl: backendUrl,
                 hardwareId: hardwareId,
@@ -2651,7 +2594,7 @@ function App() {
     }
   };
 
-  const syncLedgerLocally = async (targetAccountId: string, selectedAccount: any, selectedBankName: string) => {
+  const syncLedgerLocally = async (targetAccountId: string, selectedAccount: any, selectedBankName: string, pageNum: number = 1) => {
 
     addLog("> [System] Validating cashier counter license...");
     if (subscriptionExpired) {
@@ -2714,6 +2657,8 @@ function App() {
       activePortRef.current = null;
       return;
     }
+
+    const isBmlApi = selectedBankName === 'BML' && appConfig.bml_login_procedure === 'api';
 
     port.onMessage.addListener((response: any) => {
       if (response.type === 'log') {
@@ -2799,11 +2744,12 @@ function App() {
                 extension_version: extensionVersion || LATEST_EXTENSION_VERSION
               })
             });
-          if (sessionStatus === 'claiming') {
+            if (sessionStatus === 'claiming') {
               port.postMessage({
                 action: 'CLAIM_SESSION',
                 payload: {
                   accountId: targetAccountId,
+                  accountNumber: selectedAccount ? selectedAccount.account_number : '',
                   bankName: selectedBankName,
                   backendUrl: backendUrl,
                   hardwareId: hardwareId,
@@ -2820,6 +2766,93 @@ function App() {
             console.error("Failed to reset failures:", e);
           }
         }, 1500);
+      } else if (response.type === 'history_page_success') {
+        addLog(`> [System] History page ${response.page} synced successfully.`);
+        setProgress({
+          stage: 'success',
+          text: `✅ Page ${response.page} Synced Successfully!`,
+          percent: 100,
+          isIndeterminate: false
+        });
+        setTimeout(async () => {
+          setLoading(false);
+          setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
+          setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+
+          let newTxs = Array.isArray(response.transactions) ? response.transactions : [];
+          newTxs = await Promise.all(newTxs.map(async (tx: any) => {
+            if (!tx.hash) {
+              const rawStr = `${targetAccountId}|${tx.date || ''}|${tx.amount || ''}|${tx.details || ''}|${tx.reference || ''}`;
+              tx.hash = await sha256(rawStr);
+            }
+            return tx;
+          }));
+
+          setBmlPaginatedCache(prev => {
+            const accCache = prev[targetAccountId] || {};
+            const updatedAccCache = { ...accCache, [response.page]: newTxs };
+            const next = { ...prev, [targetAccountId]: updatedAccCache };
+            localStorage.setItem('viri_bml_paginated_cache', JSON.stringify(next));
+            return next;
+          });
+
+          setBmlCurrentPage(response.page);
+          setBmlTotalPages(response.totalPages);
+
+          // Update local cache with fetched transactions for active page view
+          setLedgerCache(prev => ({
+            ...prev,
+            [targetAccountId]: {
+              balance: response.balance || 'Not found',
+              lastUpdated: new Date().toLocaleTimeString(),
+              lastUpdatedTimestamp: Date.now(),
+              transactions: newTxs,
+            }
+          }));
+
+          // Also update recent transactions cache with the top 3
+          const accLabel = selectedAccount ? `${selectedAccount.bank_name} ${selectedAccount.account_number}` : '';
+          setRecentTxCache(prev => ({
+            ...prev,
+            [targetAccountId]: {
+              transactions: newTxs.slice(0, 3),
+              label: accLabel,
+              lastUpdated: new Date().toLocaleTimeString(),
+              timestamp: Date.now()
+            }
+          }));
+
+          try {
+            const hash = await computeCredsHash(selectedBankName, activeCreds.username);
+            await fetch(`${backendUrl}/terminal/bank-accounts/reset-failures`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                hardware_id: hardwareId, 
+                bank_account_id: parseInt(targetAccountId), 
+                credentials_hash: hash, 
+                pwa_logs: logsRef.current,
+                extension_version: extensionVersion || LATEST_EXTENSION_VERSION
+              })
+            });
+          } catch (e) {
+            console.error("Failed to reset failures:", e);
+          }
+        }, 1500);
+      } else if (response.type === 'history_page_error') {
+        setError(response.error || "An unknown error occurred during page sync.");
+        setProgress({ 
+          stage: 'error', 
+          text: 'Page sync failed', 
+          percent: 100, 
+          isIndeterminate: false 
+        });
+        setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
+        setLoading(false);
+        port.disconnect();
+        activePortRef.current = null;
+        releaseLock();
+        isVerifyingRef.current = false;
       } else if (response.type === 'error') {
         const isSearchNotFound = /No recent credit transaction found/i.test(response.error || '');
         setError(isSearchNotFound ? "Search not found" : (response.error || "An unknown error occurred during sync."));
@@ -2901,25 +2934,42 @@ function App() {
           addLog("> [System] Valid local session detected. Proceeding...");
         }
         try {
-          port.postMessage({
-            action: 'VERIFY_TRANSFER',
-            payload: {
-              mode: 'ledger',
-              sessionMode: finalSessionMode,
-              amount: '0.00',
-              bank: selectedBankName,
-              accountId: targetAccountId,
-              accountNumber: selectedAccount ? selectedAccount.account_number : '',
-              accountName: selectedAccount ? selectedAccount.account_name : '',
-              mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
-              bmlProfileType: selectedAccount ? (selectedAccount.bml_profile_type || '0') : '0',
-              bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
-              credentials: activeCreds,
-              debugLogMibHtml: appConfig.debug_log_mib_html,
-              bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
-              mibLoginProcedure: appConfig.mib_login_procedure || 'legacy'
-            }
-          });
+          if (isBmlApi) {
+            port.postMessage({
+              action: 'FETCH_BML_HISTORY_PAGE',
+              payload: {
+                page: pageNum,
+                bank: selectedBankName,
+                accountId: targetAccountId,
+                accountNumber: selectedAccount ? selectedAccount.account_number : '',
+                accountName: selectedAccount ? selectedAccount.account_name : '',
+                bmlProfileType: selectedAccount ? (selectedAccount.bml_profile_type || '0') : '0',
+                credentials: activeCreds,
+                hardwareId: hardwareId,
+                backendUrl: backendUrl
+              }
+            });
+          } else {
+            port.postMessage({
+              action: 'VERIFY_TRANSFER',
+              payload: {
+                mode: 'ledger',
+                sessionMode: finalSessionMode,
+                amount: '0.00',
+                bank: selectedBankName,
+                accountId: targetAccountId,
+                accountNumber: selectedAccount ? selectedAccount.account_number : '',
+                accountName: selectedAccount ? selectedAccount.account_name : '',
+                mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
+                bmlProfileType: selectedAccount ? (selectedAccount.bml_profile_type || '0') : '0',
+                bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
+                credentials: activeCreds,
+                debugLogMibHtml: appConfig.debug_log_mib_html,
+                bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
+                mibLoginProcedure: appConfig.mib_login_procedure || 'legacy'
+              }
+            });
+          }
         } catch (msgErr: any) {
           setError(`Failed to start sync: ${msgErr.message}`);
           addLog(`> [System] Failed to send message to extension: ${msgErr.message}`);
@@ -2945,27 +2995,44 @@ function App() {
         isVerifyingRef.current = false;
       }
     } else {
-      addLog("> [System] Sending VERIFY_TRANSFER (ledger mode) to extension...");
+      addLog(isBmlApi ? `> [System] Sending FETCH_BML_HISTORY_PAGE (page ${pageNum}) to extension...` : "> [System] Sending VERIFY_TRANSFER (ledger mode) to extension...");
       try {
-        port.postMessage({
-          action: 'VERIFY_TRANSFER',
-          payload: {
-            mode: 'ledger',
-          sessionMode: 'fresh_login',
-            amount: '0.00',
-            bank: selectedBankName,
-            accountId: targetAccountId,
-            accountNumber: selectedAccount ? selectedAccount.account_number : '',
-            accountName: selectedAccount ? selectedAccount.account_name : '',
-            mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
-            bmlProfileType: selectedAccount ? (selectedAccount.bml_profile_type || '0') : '0',
-            bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
-            credentials: activeCreds,
-            debugLogMibHtml: appConfig.debug_log_mib_html,
-            bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
-            mibLoginProcedure: appConfig.mib_login_procedure || 'legacy'
-          }
-        });
+        if (isBmlApi) {
+          port.postMessage({
+            action: 'FETCH_BML_HISTORY_PAGE',
+            payload: {
+              page: pageNum,
+              bank: selectedBankName,
+              accountId: targetAccountId,
+              accountNumber: selectedAccount ? selectedAccount.account_number : '',
+              accountName: selectedAccount ? selectedAccount.account_name : '',
+              bmlProfileType: selectedAccount ? (selectedAccount.bml_profile_type || '0') : '0',
+              credentials: activeCreds,
+              hardwareId: hardwareId,
+              backendUrl: backendUrl
+            }
+          });
+        } else {
+          port.postMessage({
+            action: 'VERIFY_TRANSFER',
+            payload: {
+              mode: 'ledger',
+              sessionMode: 'fresh_login',
+              amount: '0.00',
+              bank: selectedBankName,
+              accountId: targetAccountId,
+              accountNumber: selectedAccount ? selectedAccount.account_number : '',
+              accountName: selectedAccount ? selectedAccount.account_name : '',
+              mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
+              bmlProfileType: selectedAccount ? (selectedAccount.bml_profile_type || '0') : '0',
+              bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
+              credentials: activeCreds,
+              debugLogMibHtml: appConfig.debug_log_mib_html,
+              bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
+              mibLoginProcedure: appConfig.mib_login_procedure || 'legacy'
+            }
+          });
+        }
       } catch (msgErr: any) {
         setError(`Failed to start sync: ${msgErr.message}`);
         addLog(`> [System] Failed to send message to extension: ${msgErr.message}`);
@@ -2978,7 +3045,7 @@ function App() {
     }
   };
 
-  const syncLedger = async (targetAccountId: string) => {
+  const syncLedger = async (targetAccountId: string, pageNum: number = 1) => {
     if (!targetAccountId) return;
     const selectedAccount = bankAccounts.find(a => a.id.toString() === targetAccountId);
     if (!selectedAccount) return;
@@ -3006,8 +3073,8 @@ function App() {
     isVerifyingRef.current = true;
 
     // Cache is stale or expired, sync directly
-    addLog("> [Cache] Syncing transactions directly from bank...");
-    await syncLedgerLocally(targetAccountId, selectedAccount, selectedBankName);
+    addLog(`> [Cache] Syncing page ${pageNum} transactions directly from bank...`);
+    await syncLedgerLocally(targetAccountId, selectedAccount, selectedBankName, pageNum);
   };
 
   const companyName = tenantName || "Unregistered Cashier Counter";
@@ -3019,11 +3086,13 @@ function App() {
   const selectedAccountCreds = selectedAccountId ? (accountsCreds[selectedAccountId] || {}) : {};
   const isSelectedApiManaged = (selectedAccount?.bank_name === 'BML' && appConfig.bml_login_procedure === 'api') || 
                                (selectedAccount?.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api');
-  const isCredentialsComplete = isSelectedApiManaged || (
-    !!selectedAccountCreds.username?.trim() &&
-    !!selectedAccountCreds.password?.trim() &&
-    !!selectedAccountCreds.totpSeed?.trim()
-  );
+  const isCredentialsComplete = isSelectedApiManaged 
+    ? !!selectedAccount?.has_api_token
+    : (
+        !!selectedAccountCreds.username?.trim() &&
+        !!selectedAccountCreds.password?.trim() &&
+        !!selectedAccountCreds.totpSeed?.trim()
+      );
 
   const isSelectedAccountLocked = selectedAccount ? (selectedAccount.login_failures || 0) >= 2 : false;
 
@@ -3032,6 +3101,12 @@ function App() {
     : bankAccounts[0];
   const isLockedByVerify = loading && loadingMode !== 'ledger';
   const isLedgerSyncing = loading && loadingMode === 'ledger';
+  const isActiveLedgerConfigured = activeLedgerAcc ? (
+    ((activeLedgerAcc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api') || 
+     (activeLedgerAcc.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api')) 
+      ? !!activeLedgerAcc.has_api_token 
+      : !!(accountsCreds[activeLedgerAcc.id.toString()]?.username)
+  ) : false;
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -3048,7 +3123,7 @@ function App() {
             handleVerify('history');
           }
         } else if (activeTab === 'ledger') {
-          if (activeLedgerAcc && !isLedgerSyncing && !isLockedByVerify) {
+          if (activeLedgerAcc && !isLedgerSyncing && !isLockedByVerify && isActiveLedgerConfigured) {
             syncLedger(activeLedgerAcc.id.toString());
           }
         }
@@ -3573,11 +3648,20 @@ function App() {
                   bankAccounts.map(acc => {
                     const failures = acc.login_failures || 0;
                     const isLocked = failures >= 2;
-                    const isBmlApiManaged = acc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
-                    const isMibApiManaged = acc.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api';
-                    const isApiManaged = isBmlApiManaged;
+                    const isBmlApiManaged = acc.bank_name === 'BML';
+                    const isMibApiManaged = acc.bank_name === 'MIB';
+                    const isApiManaged = isBmlApiManaged || isMibApiManaged;
                     const hasCreds = acc.has_api_token || !!(accountsCreds[acc.id.toString()]?.username);
-                    const isExpanded = expandedCredsAccountId === acc.id.toString();
+
+                    // Sibling detection: accounts sharing the same credential group/profile
+                    const siblingGroupId = acc.bml_credential_group_id ?? acc.mib_credential_profile_id ?? null;
+                    const siblingCount = siblingGroupId
+                      ? bankAccounts.filter(b => b.id !== acc.id && (
+                          (acc.bml_credential_group_id && b.bml_credential_group_id === acc.bml_credential_group_id) ||
+                          (acc.mib_credential_profile_id && b.mib_credential_profile_id === acc.mib_credential_profile_id)
+                        )).length
+                      : 0;
+                    const hasSiblings = siblingCount > 0;
 
                     return (
                       <div key={acc.id} className="p-4 bg-[var(--bg-canvas)] border border-[var(--border-color)] rounded-xl text-sm flex flex-col gap-4">
@@ -3592,6 +3676,12 @@ function App() {
                                 {acc.label && (
                                   <span className="text-[10px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium">
                                     {acc.label}
+                                  </span>
+                                )}
+                                {hasSiblings && (
+                                  <span className="text-[9px] font-bold text-sky-400 bg-sky-950/40 border border-sky-500/30 px-1.5 py-0.5 rounded uppercase flex items-center gap-1" title={`Shares login credentials with ${siblingCount} other account${siblingCount > 1 ? 's' : ''}`}>
+                                    <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                                    Linked ×{siblingCount}
                                   </span>
                                 )}
                                 {isLocked ? (
@@ -3627,172 +3717,79 @@ function App() {
                                 Token Synced
                               </span>
                             )}
-                            {!isExpanded && isApiManaged && (
+                            {isApiManaged && !acc.has_api_token && (
+                              <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider bg-orange-950/40 text-orange-400 border border-orange-500/30 flex items-center gap-1">
+                                <div className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse-glow" />
+                                Disconnected
+                              </span>
+                            )}
+                            {isApiManaged && (
                               <div className="flex items-center gap-2">
-                                <button
-                                  className={`btn text-xs py-1.5 px-3 font-semibold ${hasCreds ? 'border border-emerald-500 hover:bg-emerald-950/50 text-emerald-400' : 'btn-success text-black'}`}
-                                  onClick={() => {
-                                    syncLedgerLocally(acc.id.toString(), acc, acc.bank_name);
-                                  }}
-                                  disabled={loading}
-                                >
-                                  {loading ? 'Opening...' : (hasCreds ? 'Login (Browser)' : 'Setup API Auth')}
-                                </button>
-                                <button
-                                  className="text-xs text-red-400 hover:text-red-300 underline font-semibold px-2 py-1"
-                                  onClick={() => {
-                                    if (confirm(`Are you sure you want to clear credentials for account ${acc.account_name}?`)) {
-                                      clearAccountCredentials(acc.id.toString());
-                                    }
-                                  }}
-                                >
-                                  Clear
-                                </button>
-                              </div>
-                            )}
-                            {!isExpanded && !isApiManaged && (
-                              <div className="flex items-center gap-2">
-                                <button
-                                  className={`btn text-xs py-1.5 px-3 font-semibold ${hasCreds
-                                    ? 'border border-zinc-800 hover:bg-zinc-800 text-zinc-300'
-                                    : 'btn-success text-black'
-                                    }`}
-                                  onClick={() => {
-                                    const isMibApi = acc.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api';
-                                    if (isMibApi) {
-                                      window.open(`/cashier/mib-login?accountId=${acc.id}&terminalId=${terminalId}`, '_blank');
-                                      return;
-                                    }
-                                    const creds = accountsCreds[acc.id.toString()] || {};
-                                    setTempUsername(creds.username || '');
-                                    setTempPassword(creds.password || '');
-                                    setTempTotpSeed(creds.totpSeed || '');
-                                    setExpandedCredsAccountId(acc.id.toString());
-                                  }}
-                                >
-                                  {(acc.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api') ? (hasCreds ? 'Authenticate' : 'Setup API Auth') : (hasCreds ? 'Edit' : 'Configure')}
-                                </button>
-                                <button
-                                  className="text-xs text-red-400 hover:text-red-300 underline font-semibold px-2 py-1"
-                                  onClick={() => {
-                                    if (confirm(`Are you sure you want to clear credentials for account ${acc.account_name}?`)) {
-                                      clearAccountCredentials(acc.id.toString());
-                                    }
-                                  }}
-                                >
-                                  Clear
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {isExpanded && (
-                          <div className="pt-4 border-t border-zinc-800/80 space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
-                            {acc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api' ? (
-                              <div className="grid grid-cols-1 sm:grid-cols-1 gap-3">
-                                <div className="input-group">
-                                  <label className="input-label text-[10px]">Username</label>
-                                  <input
-                                    type="text"
-                                    className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5"
-                                    placeholder="Bank portal username"
-                                    value={tempUsername}
-                                    onChange={e => setTempUsername(e.target.value)}
-                                  />
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                <div className="input-group">
-                                  <label className="input-label text-[10px]">Username</label>
-                                  <input
-                                    type="text"
-                                    className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5"
-                                    placeholder="Bank portal username"
-                                    value={tempUsername}
-                                    onChange={e => setTempUsername(e.target.value)}
-                                  />
-                                </div>
-                                <div className="input-group">
-                                  <label className="input-label text-[10px]">Password</label>
-                                  <input
-                                    type="password"
-                                    className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5"
-                                    placeholder="Bank portal password"
-                                    value={tempPassword}
-                                    onChange={e => setTempPassword(e.target.value)}
-                                  />
-                                </div>
-                                <div className="input-group">
-                                  <label className="input-label text-[10px]">Authenticator Seed (TOTP)</label>
-                                  <input
-                                    type="password"
-                                    className="input-field text-xs bg-zinc-950/50 border-zinc-800 py-1.5 font-mono"
-                                    placeholder="2FA authenticator secret key"
-                                    value={tempTotpSeed}
-                                    onChange={e => setTempTotpSeed(e.target.value.replace(/\s+/g, '').toUpperCase())}
-                                  />
-                                </div>
-                              </div>
-                            )}
-                            <div className="flex justify-end gap-2 text-xs">
-                              <button
-                                type="button"
-                                className="btn border border-zinc-800 hover:bg-zinc-800 text-zinc-300 py-1.5 px-3 font-semibold"
-                                onClick={() => setExpandedCredsAccountId(null)}
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn-success py-1.5 px-5 font-bold"
-                                onClick={() => {
-                                  const isBmlApi = acc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api';
-
-                                  if (!tempUsername.trim() || (!isBmlApi && !tempPassword.trim())) {
-                                    alert(`Username ${!isBmlApi ? 'and Password ' : ''}are required.`);
-                                    return;
-                                  }
-                                  
-                                  if (isBmlApi) {
-                                    saveAccountCredentials(acc.id.toString(), tempUsername, '', '');
-                                    
-                                    // Send START_BML_AUTH to extension
-                                    if (extensionId && typeof window.chrome?.runtime?.sendMessage === 'function') {
-                                      addLog("> [System] Initiating BML OAuth flow via Viri Bridge...");
+                                {isBmlApiManaged && (
+                                  <button
+                                    className={`btn text-xs py-1.5 px-3 font-semibold ${hasCreds ? 'border border-emerald-500 hover:bg-emerald-950/50 text-emerald-400' : 'btn-success text-black'}`}
+                                    onClick={() => {
+                                      if (!extensionId || typeof window.chrome?.runtime?.sendMessage !== 'function') {
+                                        alert('Viri Bridge extension is not connected!');
+                                        return;
+                                      }
+                                      const storedCreds = accountsCreds[acc.id.toString()] || {};
+                                      addLog('> [System] Initiating BML OAuth flow via Viri Bridge...');
                                       chrome.runtime.sendMessage(extensionId, {
                                         action: 'START_BML_AUTH',
                                         payload: {
-                                          terminalId: terminalId,
+                                          terminalId: hardwareId,
                                           bankAccountId: acc.id,
                                           backendUrl: backendUrl,
-                                          bmlUsername: tempUsername,
+                                          bmlUsername: storedCreds.username || '',
                                           profileType: acc.bml_profile_type || '0',
                                           sanctumToken: localStorage.getItem('token') || ''
                                         }
                                       }, (response: any) => {
                                         if (response && response.success) {
-                                          addLog("> [System] BML Account linked successfully!");
+                                          addLog('> [System] BML OAuth flow completed successfully! Refreshing account status...');
+                                          // Immediately re-poll to reflect has_api_token without waiting for next poll cycle
+                                          fetch(`${backendUrl}/verify-terminal`, {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ hardware_id: hardwareId })
+                                          }).then(r => r.json()).then(data => {
+                                            const accounts = data.tenant?.bank_accounts || [];
+                                            if (accounts.length > 0) setBankAccounts(accounts);
+                                          }).catch(() => {});
                                         } else {
-                                          addLog(`> [System] Failed to link BML account: ${response?.error || 'Unknown error'}`);
+                                          addLog(`> [System] BML OAuth flow failed: ${response?.error || 'Unknown error'}`);
+                                          alert(`BML authentication failed: ${response?.error || 'Unknown error'}`);
                                         }
                                       });
-                                    } else {
-                                      alert("Viri Bridge extension is not connected!");
-                                    }
-                                  } else {
-                                    saveAccountCredentials(acc.id.toString(), tempUsername, tempPassword, tempTotpSeed);
-                                  }
-                                  
-                                  setExpandedCredsAccountId(null);
-                                }}
-                              >
-                                {((acc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api') || (acc.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api')) ? 'Save & Link Account' : 'Save Credentials'}
-                              </button>
-                            </div>
+                                    }}
+                                  >
+                                    {hasCreds ? 'Re-authenticate BML' : 'Authenticate with BML'}
+                                  </button>
+                                )}
+                                {isMibApiManaged && (
+                                  <button
+                                    className={`btn text-xs py-1.5 px-3 font-semibold ${hasCreds ? 'border border-emerald-500 hover:bg-emerald-950/50 text-emerald-400' : 'btn-success text-black'}`}
+                                    onClick={() => {
+                                      window.open(`/cashier/mib-login?accountId=${acc.id}&terminalId=${hardwareId}`, '_blank');
+                                    }}
+                                  >
+                                    {hasCreds ? 'Re-authenticate MIB' : 'Authenticate with MIB'}
+                                  </button>
+                                )}
+                                <button
+                                  className="text-xs text-red-400 hover:text-red-300 underline font-semibold px-2 py-1"
+                                  onClick={() => setAccountToClear(acc)}
+                                >
+                                  Clear
+                                </button>
+                              </div>
+                            )}
+
                           </div>
-                        )}
+                        </div>
+
+
                       </div>
                     );
                   })
@@ -4028,7 +4025,10 @@ function App() {
 
                           {!isCredentialsComplete && (
                             <p className="text-xs text-[var(--color-warning)] mt-1 text-center leading-relaxed">
-                              ⚠️ Please complete all bank credentials (username, password, authenticator seed) in settings before proceeding.
+                              {isSelectedApiManaged 
+                                ? '⚠️ Please complete the API authentication process for this account in Settings before proceeding.'
+                                : '⚠️ Please complete all bank credentials (username, password, authenticator seed) in settings before proceeding.'
+                              }
                             </p>
                           )}
 
@@ -4563,13 +4563,17 @@ function App() {
                                           <div key={idx} className="inline-flex items-center gap-2 bg-zinc-900 px-2 py-1 rounded">
                                             <span className="font-semibold">{ref}</span>
                                             <button
-                                              onClick={() => navigator.clipboard.writeText(ref)}
-                                              className="text-zinc-500 hover:text-white transition-colors cursor-pointer"
-                                              title="Copy Reference"
+                                              onClick={() => handleCopyRef(ref)}
+                                              className={`transition-colors cursor-pointer ${copiedRef === ref ? 'text-emerald-400' : 'text-zinc-500 hover:text-white'}`}
+                                              title={copiedRef === ref ? "Copied!" : "Copy Reference"}
                                             >
-                                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                              </svg>
+                                              {copiedRef === ref ? (
+                                                <Check size={14} className="text-emerald-400 animate-scale-bump" />
+                                              ) : (
+                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                                </svg>
+                                              )}
                                             </button>
                                           </div>
                                         ))}
@@ -5104,10 +5108,9 @@ function App() {
 
 
 
-                          {/* Sync Button */}
                           <button
-                            onClick={() => syncLedger(activeLedgerAcc.id.toString())}
-                            disabled={isSyncing || isLockedByVerify || subscriptionExpired}
+                            onClick={() => syncLedger(activeLedgerAcc.id.toString(), activeLedgerAcc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api' ? bmlCurrentPage : 1)}
+                            disabled={isSyncing || isLockedByVerify || subscriptionExpired || !isActiveLedgerConfigured}
                             className="bg-emerald-400 hover:bg-emerald-300 text-zinc-950 font-bold text-xs px-4 py-2 rounded-lg flex items-center gap-2 transition-all shadow-[0_0_15px_rgba(52,211,153,0.15)] disabled:opacity-40"
                           >
                             <RefreshCw size={13} className={isSyncing ? 'animate-spin' : ''} />
@@ -5160,7 +5163,12 @@ function App() {
 
                       {/* Entries Table */}
                       <div className="overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-900/10 flex flex-col font-sans">
-                        {isSyncing && paginatedTransactions.length === 0 ? (
+                        {!isActiveLedgerConfigured ? (
+                          <div className="p-16 text-center text-[var(--color-warning)] text-sm flex flex-col items-center gap-3">
+                            <AlertTriangle size={32} className="text-[var(--color-warning)] shrink-0" />
+                            <span>This account has not been paired/authenticated yet. Please pair it in Settings &gt; Bank Accounts before you can sync or view history.</span>
+                          </div>
+                        ) : isSyncing && paginatedTransactions.length === 0 ? (
                           <div className="p-16 text-center text-zinc-500 flex flex-col items-center gap-3">
                             <Loader2 className="animate-spin text-zinc-600" size={32} />
                             <span className="italic text-sm">Logging into banking portal securely...</span>
@@ -5213,6 +5221,80 @@ function App() {
 
                               {/* Paging controls */}
                               <div className="flex items-center gap-4">
+                                {activeLedgerAcc?.bank_name === 'BML' && appConfig.bml_login_procedure === 'api' ? (
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      disabled={bmlCurrentPage === 1 || isSyncing}
+                                      onClick={() => {
+                                        const nextPage = bmlCurrentPage - 1;
+                                        const cached = bmlPaginatedCache[activeLedgerAcc.id.toString()]?.[nextPage];
+                                        if (cached) {
+                                          setBmlCurrentPage(nextPage);
+                                          setLedgerCache(prev => ({
+                                            ...prev,
+                                            [activeLedgerAcc.id.toString()]: {
+                                              ...prev[activeLedgerAcc.id.toString()],
+                                              transactions: cached
+                                            }
+                                          }));
+                                        } else {
+                                          syncLedger(activeLedgerAcc.id.toString(), nextPage);
+                                        }
+                                      }}
+                                      className="px-2.5 py-1 bg-zinc-900 border border-zinc-800 text-zinc-300 rounded hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed font-medium text-[11px]"
+                                    >
+                                      &larr; Prev Page
+                                    </button>
+                                    <span className="font-mono text-zinc-400 text-[11px]">
+                                      Page <strong className="text-zinc-200">{bmlCurrentPage}</strong> of <strong className="text-zinc-200">{bmlTotalPages}</strong>
+                                    </span>
+                                    <button
+                                      disabled={bmlCurrentPage === bmlTotalPages || isSyncing}
+                                      onClick={() => {
+                                        const nextPage = bmlCurrentPage + 1;
+                                        const cached = bmlPaginatedCache[activeLedgerAcc.id.toString()]?.[nextPage];
+                                        if (cached) {
+                                          setBmlCurrentPage(nextPage);
+                                          setLedgerCache(prev => ({
+                                            ...prev,
+                                            [activeLedgerAcc.id.toString()]: {
+                                              ...prev[activeLedgerAcc.id.toString()],
+                                              transactions: cached
+                                            }
+                                          }));
+                                        } else {
+                                          syncLedger(activeLedgerAcc.id.toString(), nextPage);
+                                        }
+                                      }}
+                                      className="px-2.5 py-1 bg-zinc-900 border border-zinc-800 text-zinc-300 rounded hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed font-medium text-[11px]"
+                                    >
+                                      Next Page &rarr;
+                                    </button>
+                                  </div>
+                                ) : (
+                                  totalPages > 1 && (
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        disabled={currentPage === 1}
+                                        onClick={() => setLedgerPage(currentPage - 1)}
+                                        className="px-2.5 py-1 bg-zinc-900 border border-zinc-800 text-zinc-300 rounded hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed font-medium text-[11px]"
+                                      >
+                                        &larr; Prev
+                                      </button>
+                                      <span className="font-mono text-zinc-400 text-[11px]">
+                                        Page <strong className="text-zinc-200">{currentPage}</strong> of <strong className="text-zinc-200">{totalPages}</strong>
+                                      </span>
+                                      <button
+                                        disabled={currentPage === totalPages}
+                                        onClick={() => setLedgerPage(currentPage + 1)}
+                                        className="px-2.5 py-1 bg-zinc-900 border border-zinc-800 text-zinc-300 rounded hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed font-medium text-[11px]"
+                                      >
+                                        Next &rarr;
+                                      </button>
+                                    </div>
+                                  )
+                                )}
+
                                 <div className="flex items-center gap-1.5">
                                   <span className="text-zinc-500">Show</span>
                                   <select
@@ -5759,7 +5841,49 @@ function App() {
           </>
         )}
 
+        {/* ── Elegant Confirmation Modal for Clearing Credentials ── */}
+        {accountToClear && (
+          <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 transition-all duration-300">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-md w-full p-6 shadow-2xl relative overflow-hidden animate-scale-bump">
+              <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-red-500 via-amber-500 to-red-500" />
+              
+              <div className="flex items-start gap-4">
+                <div className="w-10 h-10 rounded-full bg-red-955/50 border border-red-500/30 flex items-center justify-center shrink-0 text-red-400">
+                  <AlertTriangle size={20} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-base font-bold text-white tracking-tight">Wipe Bank Credentials?</h3>
+                  <p className="text-xs text-zinc-400 mt-2 leading-relaxed">
+                    Are you sure you want to clear credentials for <strong className="text-white">{accountToClear.bank_name} - {accountToClear.account_name}</strong> ({accountToClear.account_number})?
+                  </p>
+                  <p className="text-[11px] text-zinc-500 mt-2 bg-zinc-950/50 p-2.5 rounded-lg border border-zinc-850 text-zinc-400 leading-normal">
+                    This will delete active API tokens, device identifiers, and cached session keys. You will need to complete full bank re-authentication to re-enable verification.
+                  </p>
+                </div>
+              </div>
 
+              <div className="flex items-center justify-end gap-3 mt-6 border-t border-zinc-800/80 pt-4">
+                <button
+                  onClick={() => setAccountToClear(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white bg-zinc-800/40 hover:bg-zinc-800 border border-zinc-800 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    const accId = accountToClear.id.toString();
+                    setAccountToClear(null);
+                    clearAccountCredentials(accId);
+                  }}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.25)] hover:shadow-[0_0_20px_rgba(239,68,68,0.4)] transition-all flex items-center gap-1.5"
+                >
+                  <Trash2 size={13} />
+                  Wipe Credentials
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       </main>
     </div>

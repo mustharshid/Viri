@@ -1,7 +1,5 @@
-const CACHE_NAME = 'viri-admin-v4';
+const CACHE_NAME = 'viri-admin-v5';
 const ASSETS = [
-  '/',
-  '/index.html',
   '/favicon.png',
 ];
 
@@ -19,9 +17,7 @@ self.addEventListener('activate', (e) => {
     caches.keys().then((keys) => {
       return Promise.all(
         keys.map((key) => {
-          if (key !== CACHE_NAME) {
-            return caches.delete(key);
-          }
+          return caches.delete(key);
         })
       );
     })
@@ -29,14 +25,5 @@ self.addEventListener('activate', (e) => {
   self.clients.claim();
 });
 
-self.addEventListener('fetch', (e) => {
-  if (e.request.method !== 'GET' || !e.request.url.startsWith(self.location.origin)) {
-    return;
-  }
-  
-  e.respondWith(
-    fetch(e.request).catch(() => {
-      return caches.match(e.request);
-    })
-  );
-});
+// No fetch handler — let the browser handle all requests natively.
+// This prevents stale cache serving old HTML that references deleted JS bundles.

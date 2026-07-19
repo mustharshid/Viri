@@ -244,16 +244,46 @@ class BankAccountLockController extends Controller
             return response()->json(['error' => $validation['error']], $validation['status']);
         }
 
-        $bankAccountId = $request->bank_account_id;
+        $bankAccount = $validation['bank_account'];
         $terminal = $validation['terminal'];
 
-        // Clear BML OAuth Tokens
-        \App\Models\BmlOAuthToken::where('bank_account_id', $bankAccountId)
+        // 1. BML: detach/cleanup credential groups
+        $bmlGroupId = $bankAccount->bml_credential_group_id;
+        if ($bmlGroupId) {
+            $bankAccount->update(['bml_credential_group_id' => null]);
+
+            $stillReferenced = \App\Models\BankAccount::where('bml_credential_group_id', $bmlGroupId)->exists();
+            if (!$stillReferenced) {
+                \App\Models\BmlCredentialGroup::destroy($bmlGroupId);
+            }
+        }
+
+        // 2. MIB: detach/cleanup credential profiles
+        $mibProfileId = $bankAccount->mib_credential_profile_id;
+        if ($mibProfileId) {
+            $bankAccount->update(['mib_credential_profile_id' => null]);
+
+            $stillReferenced = \App\Models\BankAccount::where('mib_credential_profile_id', $mibProfileId)->exists();
+            if (!$stillReferenced) {
+                $profile = \App\Models\MibCredentialProfile::find($mibProfileId);
+                if ($profile) {
+                    $groupId = $profile->credential_group_id;
+                    $profile->delete();
+
+                    $groupStillUsed = \App\Models\MibCredentialProfile::where('credential_group_id', $groupId)->exists();
+                    if (!$groupStillUsed) {
+                        \App\Models\MibCredentialGroup::destroy($groupId);
+                    }
+                }
+            }
+        }
+
+        // 3. Legacy fallbacks
+        \App\Models\BmlOAuthToken::where('bank_account_id', $bankAccount->id)
             ->where('terminal_id', $terminal->id)
             ->delete();
 
-        // Clear MIB Device Credentials
-        \App\Models\MibDeviceCredential::where('bank_account_id', $bankAccountId)
+        \App\Models\MibDeviceCredential::where('bank_account_id', $bankAccount->id)
             ->where('terminal_id', $terminal->id)
             ->delete();
 

@@ -16,6 +16,8 @@ class BankAccount extends Model
         'account_number',
         'mib_profile_type',
         'bml_profile_type',
+        'mib_credential_profile_id',
+        'bml_credential_group_id',
         'bml_auth_state',
         'is_default',
         'label',
@@ -46,8 +48,8 @@ class BankAccount extends Model
 
     public function getHasApiTokenAttribute()
     {
-        $hasBml = \App\Models\BmlOAuthToken::where('bank_account_id', $this->id)->exists();
-        $hasMib = \App\Models\MibDeviceCredential::where('bank_account_id', $this->id)->exists();
+        $hasBml = $this->bml_credential_group_id !== null || \App\Models\BmlOAuthToken::where('bank_account_id', $this->id)->exists();
+        $hasMib = $this->mib_credential_profile_id !== null || \App\Models\MibDeviceCredential::where('bank_account_id', $this->id)->exists();
         return $hasBml || $hasMib;
     }
 
@@ -71,6 +73,16 @@ class BankAccount extends Model
         return $this->belongsTo(Terminal::class, 'last_successful_fetch_terminal_id');
     }
 
+    public function mibCredentialProfile()
+    {
+        return $this->belongsTo(MibCredentialProfile::class, 'mib_credential_profile_id');
+    }
+
+    public function bmlCredentialGroup()
+    {
+        return $this->belongsTo(BmlCredentialGroup::class, 'bml_credential_group_id');
+    }
+
     /**
      * Returns true if a live session holder exists (heartbeat within 30 seconds).
      */
@@ -81,4 +93,5 @@ class BankAccount extends Model
             && $this->session_last_heartbeat_at->diffInSeconds(now()) <= 20;
     }
 }
+
 

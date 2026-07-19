@@ -60,6 +60,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/company/bank-accounts', [CompanyController::class, 'createBankAccount']);
     Route::delete('/company/bank-accounts/{id}', [CompanyController::class, 'deleteBankAccount']);
     Route::post('/company/bank-accounts/{id}/reset-failures', [CompanyController::class, 'resetBankAccountFailures']);
+    Route::get('/company/bank-accounts/sibling-check', [\App\Http\Controllers\API\MibKeysController::class, 'getSiblingCheck']);
+    Route::get('/company/bank-accounts/credential-siblings', [\App\Http\Controllers\API\MibKeysController::class, 'getCredentialSiblings']);
     Route::put('/company/profile', [CompanyController::class, 'updateProfile']);
     Route::get('/company/payments', [CompanyController::class, 'getPayments']);
     Route::post('/company/payments', [CompanyController::class, 'storePayment']);
@@ -128,6 +130,8 @@ Route::post('/bml/oauth/update', [BmlOAuthController::class, 'updateTokens']);
 // MIB Device Credentials (Keys) Endpoints
 Route::post('/mib/keys/store', [\App\Http\Controllers\API\MibKeysController::class, 'store']);
 Route::get('/mib/keys', [\App\Http\Controllers\API\MibKeysController::class, 'getKeys']);
+Route::get('/terminal/bank-accounts/sibling-check', [\App\Http\Controllers\API\MibKeysController::class, 'getSiblingCheck']);
+Route::get('/terminal/bank-accounts/credential-siblings', [\App\Http\Controllers\API\MibKeysController::class, 'getCredentialSiblings']);
 
 
 Route::post('/verify-terminal', function (Request $request) {
@@ -189,8 +193,8 @@ Route::post('/verify-terminal', function (Request $request) {
         'poll_interval_requesting' => $requestingInterval,
         'poll_interval_idle' => $idleInterval,
         'debug_log_mib_html' => (bool) ($settings['debug_log_mib_html'] ?? false),
-        'bml_login_procedure' => $settings['bml_login_procedure'] ?? 'legacy',
-        'mib_login_procedure' => $settings['mib_login_procedure'] ?? 'legacy',
+        'bml_login_procedure' => 'api',
+        'mib_login_procedure' => 'api',
     ];
 
     $activeTerminalsCount = DB::table('terminal_account_activity')
@@ -288,6 +292,8 @@ Route::post('/verify-terminal', function (Request $request) {
                     'account_number' => $account->account_number,
                     'mib_profile_type' => $account->mib_profile_type ?? '0',
                     'bml_profile_type' => $account->bml_profile_type ?? '0',
+                    'mib_credential_profile_id' => $account->mib_credential_profile_id,
+                    'bml_credential_group_id' => $account->bml_credential_group_id,
                     'bml_auth_state' => $account->bml_auth_state,
                     'has_api_token' => $account->has_api_token,
                     'is_default' => $account->is_default,

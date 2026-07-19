@@ -813,7 +813,7 @@ export default function CompanyDashboard() {
         {/* ─── TAB: DASHBOARD ─── */}
         {activeTab === 'dashboard' && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <div className="grid md:grid-cols-4 gap-6">
+            <div className="grid md:grid-cols-3 gap-6">
               
               {/* Subscription card with dynamic usage metrics */}
               <div className="glass-panel p-6 flex flex-col justify-between min-h-[220px]">
@@ -940,16 +940,7 @@ export default function CompanyDashboard() {
                 </div>
               </div>
 
-              {/* Synchronization Health summary card */}
-              <div className="glass-panel p-6 flex flex-col justify-between min-h-[220px]">
-                <div>
-                  <div className="flex justify-between items-start">
-                    <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Sync Engine</span>
-                  </div>
-                  <h3 className="text-lg font-bold text-white mt-3">Sync Confidence</h3>
-                    <div className="mt-4 text-xs text-zinc-500 font-mono">On-demand fetch active</div>
-                </div>
-              </div>
+
 
             </div>
 
@@ -1119,6 +1110,35 @@ export default function CompanyDashboard() {
                         <option value="MIB">Maldives Islamic Bank (MIB)</option>
                       </select>
                     </div>
+
+                    {bankName === 'MIB' && (
+                      <div className="bg-emerald-950/20 border border-emerald-500/25 p-3 rounded-xl space-y-2">
+                        <label className="text-[9px] font-bold text-emerald-400 uppercase tracking-widest block">MIB Profile Type</label>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => setMibProfileType('0')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${mibProfileType === '0' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-transparent border-zinc-800 text-zinc-400 hover:border-emerald-500/40'}`}>
+                            Personal
+                          </button>
+                          <button type="button" onClick={() => setMibProfileType('1')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${mibProfileType === '1' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-transparent border-zinc-800 text-zinc-400 hover:border-emerald-500/40'}`}>
+                            Business
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {bankName === 'BML' && (
+                      <div className="bg-rose-950/20 border border-rose-500/25 p-3 rounded-xl space-y-2">
+                        <label className="text-[9px] font-bold text-rose-400 uppercase tracking-widest block">BML Profile Type</label>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => setBmlProfileType('0')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${bmlProfileType === '0' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-transparent border-zinc-800 text-zinc-400 hover:border-rose-500/40'}`}>
+                            Personal
+                          </button>
+                          <button type="button" onClick={() => setBmlProfileType('1')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${bmlProfileType === '1' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-transparent border-zinc-800 text-zinc-400 hover:border-rose-500/40'}`}>
+                            Business
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     <div>
                       <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">Account Holder Name</label>
                       <input type="text" required placeholder="Name on account" className="input-field text-sm" value={accountName} onChange={e => setAccountName(e.target.value)} />
@@ -1146,70 +1166,60 @@ export default function CompanyDashboard() {
                       </div>
                     </div>
                   </div>
-
-                  {bankName === 'MIB' && (
-                    <div className="bg-emerald-950/20 border border-emerald-500/25 p-3 rounded-xl space-y-2">
-                      <label className="text-[9px] font-bold text-emerald-400 uppercase tracking-widest block">MIB Profile Type</label>
-                      <div className="flex gap-2">
-                        <button type="button" onClick={() => setMibProfileType('0')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${mibProfileType === '0' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-transparent border-zinc-800 text-zinc-400 hover:border-emerald-500/40'}`}>
-                          Personal
-                        </button>
-                        <button type="button" onClick={() => setMibProfileType('1')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${mibProfileType === '1' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-transparent border-zinc-800 text-zinc-400 hover:border-emerald-500/40'}`}>
-                          Business
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {bankName === 'BML' && (
-                    <div className="bg-rose-950/20 border border-rose-500/25 p-3 rounded-xl space-y-2">
-                      <label className="text-[9px] font-bold text-rose-400 uppercase tracking-widest block">BML Profile Type</label>
-                      <div className="flex gap-2">
-                        <button type="button" onClick={() => setBmlProfileType('0')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${bmlProfileType === '0' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-transparent border-zinc-800 text-zinc-400 hover:border-rose-500/40'}`}>
-                          Personal
-                        </button>
-                        <button type="button" onClick={() => setBmlProfileType('1')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${bmlProfileType === '1' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-transparent border-zinc-800 text-zinc-400 hover:border-rose-500/40'}`}>
-                          Business
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </form>
 
-                <div className="space-y-3">
-                  {bankAccounts.map(acc => (
-                    <div key={acc.id} className="bg-zinc-900/35 border border-zinc-850 hover:border-zinc-800 rounded-xl p-4 flex justify-between items-center transition-all duration-300">
+                {(() => {
+                  // Build credential groups from the relation data returned by the API
+                  type AccType = typeof bankAccounts[0];
+                  const groupMap: Record<string, { label: string; bank: string; accounts: AccType[] }> = {};
+                  const unlinked: AccType[] = [];
+
+                  bankAccounts.forEach(acc => {
+                    if (acc.bml_credential_group_id && acc.bml_credential_group) {
+                      const key = `bml-${acc.bml_credential_group_id}`;
+                      if (!groupMap[key]) {
+                        const pt = acc.bml_credential_group.profile_type === '1' ? 'Business' : 'Personal';
+                        groupMap[key] = { label: `${acc.bml_credential_group.bml_username} · ${pt}`, bank: 'BML', accounts: [] };
+                      }
+                      groupMap[key].accounts.push(acc);
+                    } else if (acc.mib_credential_profile_id && acc.mib_credential_profile) {
+                      const key = `mib-${acc.mib_credential_profile_id}`;
+                      if (!groupMap[key]) {
+                        const username = acc.mib_credential_profile.credential_group?.mib_username ?? '—';
+                        const profileName = acc.mib_credential_profile.profile_name ?? 'Default';
+                        groupMap[key] = { label: `${username} · ${profileName}`, bank: 'MIB', accounts: [] };
+                      }
+                      groupMap[key].accounts.push(acc);
+                    } else {
+                      unlinked.push(acc);
+                    }
+                  });
+
+                  const renderAccRow = (acc: AccType, isNested = false) => (
+                    <div key={acc.id} className={`bg-zinc-900/35 border border-zinc-850 hover:border-zinc-800 rounded-xl p-4 flex justify-between items-center transition-all duration-300 ${isNested ? 'ml-4 border-l-2 border-l-sky-500/30' : ''}`}>
                       <div className="flex gap-3 items-center min-w-0">
                         <div className="w-10 h-10 rounded-xl bg-zinc-950 flex items-center justify-center p-1 border border-zinc-800 shrink-0">
-                          <img 
-                            src={acc.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'} 
-                            alt={acc.bank_name} 
-                            className="w-full h-full object-contain" 
+                          <img
+                            src={acc.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'}
+                            alt={acc.bank_name}
+                            className="w-full h-full object-contain"
                           />
                         </div>
                         <div className="min-w-0">
                           <div className="font-bold text-sm text-white flex items-center gap-1.5 truncate">
                             <span className="truncate">{acc.label ? acc.label : (acc.bank_name === 'BML' ? 'BML Account' : 'MIB Account')}</span>
                             {(acc.login_failures || 0) >= 2 ? (
-                              <span className="text-[8px] font-extrabold text-red-400 bg-red-950/40 border border-red-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">
-                                Locked
-                              </span>
+                              <span className="text-[8px] font-extrabold text-red-400 bg-red-950/40 border border-red-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">Locked</span>
                             ) : (acc.login_failures || 0) > 0 ? (
-                              <span className="text-[8px] font-extrabold text-yellow-500 bg-yellow-950/40 border border-yellow-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">
-                                {acc.login_failures} Fail
-                              </span>
+                              <span className="text-[8px] font-extrabold text-yellow-500 bg-yellow-950/40 border border-yellow-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">{acc.login_failures} Fail</span>
                             ) : (
-                              <span className="text-[8px] font-extrabold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">
-                                Secure
-                              </span>
+                              <span className="text-[8px] font-extrabold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">Secure</span>
                             )}
                           </div>
                           <div className="text-[10px] text-zinc-500 font-mono mt-0.5 truncate">{acc.account_name}</div>
                           <div className="font-mono text-xs text-zinc-400 flex items-center gap-1.5 mt-0.5">
                             <span>{acc.account_number}</span>
-                            <span className="text-[8px] bg-zinc-800 border border-zinc-700 px-1 rounded font-bold font-mono text-zinc-300">
-                              {acc.currency || 'MVR'}
-                            </span>
+                            <span className="text-[8px] bg-zinc-800 border border-zinc-700 px-1 rounded font-bold font-mono text-zinc-300">{acc.currency || 'MVR'}</span>
                             {acc.bank_name === 'BML' && (acc.bml_profile_type === '1' ? (
                               <span className="text-[8px] bg-violet-950/50 border border-violet-500/30 px-1 rounded font-bold font-sans text-violet-300">Business</span>
                             ) : (
@@ -1223,9 +1233,9 @@ export default function CompanyDashboard() {
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {(acc.login_failures || 0) > 0 && (
-                          <button 
+                          <button
                             type="button"
-                            onClick={() => resetBankAccountFailures(acc.id)} 
+                            onClick={() => resetBankAccountFailures(acc.id)}
                             className="text-[9px] font-bold px-2.5 py-1.5 rounded-lg border border-red-500/30 bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 transition-all"
                           >
                             Reset
@@ -1234,13 +1244,44 @@ export default function CompanyDashboard() {
                         <button onClick={() => setDeleteConfirm({isOpen: true, type: 'account', id: acc.id, name: `${acc.bank_name} - ${acc.account_name} (${acc.account_number})`})} className="p-2 text-zinc-500 hover:text-red-400 hover:bg-red-500/5 rounded-lg transition-colors"><Trash2 size={16}/></button>
                       </div>
                     </div>
-                  ))}
-                  {bankAccounts.length === 0 && (
-                    <div className="text-center py-8 bg-zinc-900/10 border border-zinc-800/40 rounded-xl">
-                      <p className="text-xs text-zinc-500">No bank accounts linked.</p>
+                  );
+
+                  return (
+                    <div className="space-y-4">
+                      {/* Credential groups (sibling accounts) */}
+                      {Object.entries(groupMap).map(([key, group]) => (
+                        <div key={key} className="rounded-xl border border-sky-500/20 bg-sky-950/5 overflow-hidden">
+                          {/* Group header */}
+                          <div className="flex items-center gap-2 px-4 py-2.5 bg-sky-950/20 border-b border-sky-500/15">
+                            <KeyRound size={12} className="text-sky-400 shrink-0" />
+                            <span className="text-[10px] font-bold text-sky-300 uppercase tracking-wider">
+                              Shared Credentials
+                            </span>
+                            <span className="text-[10px] text-zinc-400 font-mono">·</span>
+                            <span className="text-[10px] font-mono text-zinc-300 truncate">{group.label}</span>
+                            <span className={`ml-auto text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-wider shrink-0 ${group.bank === 'BML' ? 'text-red-400 bg-red-950/40 border border-red-500/20' : 'text-emerald-400 bg-emerald-950/40 border border-emerald-500/20'}`}>
+                              {group.bank}
+                            </span>
+                            <span className="text-[9px] text-zinc-500 shrink-0">{group.accounts.length} accts</span>
+                          </div>
+                          {/* Accounts in this group */}
+                          <div className="p-3 space-y-2">
+                            {group.accounts.map(acc => renderAccRow(acc, false))}
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Unlinked accounts */}
+                      {unlinked.map(acc => renderAccRow(acc, false))}
+
+                      {bankAccounts.length === 0 && (
+                        <div className="text-center py-8 bg-zinc-900/10 border border-zinc-800/40 rounded-xl">
+                          <p className="text-xs text-zinc-500">No bank accounts linked.</p>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  );
+                })()}
 
               </div>
 

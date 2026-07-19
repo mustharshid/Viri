@@ -17,6 +17,19 @@ function getTimestamp() {
   return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 }
 
+async function computeSha256(text) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function computeCredsHash(bank, username) {
+  if (!username) return '';
+  return await computeSha256(`${bank}_${username.trim().toLowerCase()}`);
+}
+
 function emitLog(port, msg) {
   const formattedMsg = `[${getTimestamp()}] ${msg}`;
   if (port) {
@@ -58,34 +71,10 @@ function logApiDebug(port, data, tag = 'API') {
   });
 }
 
+// enableBankLockdown() — REMOVED. Legacy webscraping lockdown is no longer needed.
+// All bank authentication now uses OAuth/API token flows, not browser automation.
 async function enableBankLockdown() {
-  chrome.storage.local.get(['viri_bml_login_procedure'], async (res) => {
-    const procedure = res.viri_bml_login_procedure || 'legacy';
-    const rules = [];
-    
-    if (procedure !== 'api') {
-      rules.push({
-        id: 10,
-        priority: 1,
-        action: { type: "block" },
-        condition: {
-          urlFilter: "bankofmaldives.com.mv",
-          resourceTypes: ["main_frame", "sub_frame"]
-        }
-      });
-    }
-
-
-    try {
-      await chrome.declarativeNetRequest.updateDynamicRules({
-        removeRuleIds: [10, 11],
-        addRules: rules
-      });
-      console.log("[Viri Bridge] Bank lockdown rules activated. BML procedure:", procedure);
-    } catch (err) {
-      console.error("[Viri Bridge] Failed to activate lockdown rules:", err);
-    }
-  });
+  // No-op: lockdown disabled system-wide
 }
 
 async function disableBankLockdown() {
@@ -117,9 +106,12 @@ async function clearBankSessions() {
   console.log("[Viri Bridge] All bank session cookies destroyed.");
 }
 
-// Clear any left-over lockdown rules or sessions on extension startup/reload
+// Clear any left-over lockdown rules on extension startup/reload.
+// NOTE: clearBankSessions() is intentionally NOT called here anymore.
+// The legacy webscraping flow required a fresh cookie jar, but the new API token
+// flow stores session state in chrome.storage — not browser cookies.
+// Wiping cookies on startup was destroying valid persistent API sessions for MIB.
 disableBankLockdown();
-clearBankSessions();
 
 // Global active port
 let activePort = null;
@@ -272,7 +264,6 @@ chrome.runtime.onConnectExternal.addListener((port) => {
   console.log("[Viri Bridge] PWA Connected via Port:", port.name);
   if (port.name === "viri-verify" || port.name === "bml-auth") {
     activePort = port;
-    enableBankLockdown();
 
     port.onMessage.addListener(async (msg) => {
       if (msg.payload && msg.payload.debugLogMibHtml !== undefined) {
@@ -281,9 +272,7 @@ chrome.runtime.onConnectExternal.addListener((port) => {
       }
 
       if (msg.payload && msg.payload.bmlLoginProcedure) {
-        chrome.storage.local.set({ viri_bml_login_procedure: msg.payload.bmlLoginProcedure }, () => {
-          enableBankLockdown();
-        });
+        chrome.storage.local.set({ viri_bml_login_procedure: msg.payload.bmlLoginProcedure });
       }
 
       if (msg.action === 'UPDATE_CONFIG') {
@@ -302,19 +291,9 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         }
         try {
           if (payload.bank === 'MIB') {
-            if (payload.mibLoginProcedure === 'api') {
-              await runMibApiFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode, sessionMode, payload.hardwareId, payload.backendUrl);
-            } else if (payload.mibProfileType === '1') {
-              await runMibMultiProfileFlow(payload.credentials, targetAcc, payload.accountName, port, payload.amount, mode, sessionMode);
-            } else {
-              await runMibFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode, sessionMode);
-            }
+            await runMibApiFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode, sessionMode, payload.hardwareId, payload.backendUrl);
           } else {
-            if (payload.bmlLoginProcedure === 'api') {
-              await runBmlApiFlow(payload.credentials, targetAcc, payload.accountName, port, payload.amount, payload.bmlProfileType || '0', mode, sessionMode, payload.bmlAuthState, payload.hardwareId, payload.backendUrl);
-            } else {
-              await runBmlFlow(payload.credentials, targetAcc, port, payload.amount, mode, sessionMode);
-            }
+            await runBmlApiFlow(payload.credentials, targetAcc, payload.accountName, port, payload.amount, payload.bmlProfileType || '0', mode, sessionMode, payload.bmlAuthState, payload.hardwareId, payload.backendUrl);
           }
         } catch (error) {
           try { port.postMessage({ type: 'error', error: error.message }); } catch(e) {}
@@ -326,20 +305,11 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         const targetAcc = heldSession ? heldSession.accountId : req.bank_account_id;
         try {
           if (payload.bankName === 'MIB') {
-            if (req.mib_profile_type === '1') {
-              await runMibMultiProfileFlow(payload.credentials, targetAcc, req.account_name, port, req.target_amount || '1.00', req.request_type, 'fetch_only');
-            } else {
-              await runMibFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', '0', req.request_type, 'fetch_only');
-            }
+            await runMibApiFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', req.mib_profile_type || '0', req.request_type, 'fetch_only', req.hardware_id || payload.hardwareId, req.backend_url || payload.backendUrl);
           } else {
-            const bmlLoginProcedure = heldSession ? (heldSession.bmlLoginProcedure || 'legacy') : (req.bmlLoginProcedure || 'legacy');
-            if (bmlLoginProcedure === 'api') {
-              const bmlAuthState = heldSession ? heldSession.bmlAuthState : req.bml_auth_state;
-              const bmlProfileType = heldSession ? (heldSession.bmlProfileType || '0') : (req.bml_profile_type || '0');
-              await runBmlApiFlow(payload.credentials, targetAcc, req.account_name, port, req.target_amount || '1.00', bmlProfileType, req.request_type, 'fetch_only', bmlAuthState, req.hardware_id || payload.hardwareId, req.backend_url || payload.backendUrl);
-            } else {
-              await runBmlFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', req.request_type, 'fetch_only');
-            }
+            const bmlAuthState = heldSession ? heldSession.bmlAuthState : req.bml_auth_state;
+            const bmlProfileType = heldSession ? (heldSession.bmlProfileType || '0') : (req.bml_profile_type || '0');
+            await runBmlApiFlow(payload.credentials, targetAcc, req.account_name, port, req.target_amount || '1.00', bmlProfileType, req.request_type, 'fetch_only', bmlAuthState, req.hardware_id || payload.hardwareId, req.backend_url || payload.backendUrl);
           }
         } catch (error) {
           port.postMessage({ type: 'error', error: error.message });
@@ -355,9 +325,33 @@ chrome.runtime.onConnectExternal.addListener((port) => {
           port.postMessage({ type: 'statement_error', error: error.message });
         }
       }
+      else if (msg.action === 'FETCH_BML_HISTORY_PAGE') {
+        const payload = msg.payload;
+        const targetAcc = payload.accountNumber || (heldSession ? (heldSession.accountNumber || heldSession.accountId) : payload.accountId);
+        const page = payload.page || 1;
+        const bmlProfileType = heldSession ? (heldSession.bmlProfileType || '0') : (payload.bmlProfileType || '0');
+        try {
+          fetchBmlHistoryPage(payload.credentials, targetAcc, port, page, bmlProfileType, payload.hardwareId, payload.backendUrl)
+            .then(res => {
+              port.postMessage({
+                type: 'history_page_success',
+                page: page,
+                transactions: res.transactions,
+                totalPages: res.totalPages,
+                balance: res.balance
+              });
+            })
+            .catch(error => {
+              port.postMessage({ type: 'history_page_error', page: page, error: error.message });
+            });
+        } catch (error) {
+          port.postMessage({ type: 'history_page_error', page: page, error: error.message });
+        }
+      }
       else if (msg.action === 'CLAIM_SESSION') {
         heldSession = {
           accountId: msg.payload.accountId,
+          accountNumber: msg.payload.accountNumber || null,
           bankName: msg.payload.bankName,
           backendUrl: msg.payload.backendUrl,
           hardwareId: msg.payload.hardwareId,
@@ -387,14 +381,6 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         if (heldSession) {
           const url = heldSession.bankName === 'MIB' ? "https://faisanet.mib.com.mv/accounts" : "https://www.bankofmaldives.com.mv/internetbanking/api/dashboard";
           fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => {});
-        }
-      }
-      // Handle legacy test format
-      else if (msg.type === "start_bml_flow") {
-        try {
-          await runBmlFlow(msg.credentials, msg.targetAccount, port, "1.00");
-        } catch (error) {
-          port.postMessage({ type: 'error', error: error.message });
         }
       }
     });
@@ -597,665 +583,7 @@ function normalizeTransactions(rawTxList, bankType, limit = 50) {
 // -------------------------------------------------------------
 // The main BML background flow
 // -------------------------------------------------------------
-async function runBmlFlow(credentials, targetAccount, port, targetAmount, mode = 'search', sessionMode = 'fresh_login') {
-  emitLog(port, `> [BML] Starting background auth flow (sessionMode: ${sessionMode})...`);
-  let last3Txs = [];
 
-  let xsrfToken = null;
-  if (sessionMode !== 'fetch_only') {
-    globalInertiaVersion = "";
-  }
-  let bmlClockOffset = 0;
-
-  async function getXsrfToken() {
-    return new Promise((resolve) => {
-      chrome.cookies.get({ url: "https://www.bankofmaldives.com.mv", name: "XSRF-TOKEN" }, (cookie) => {
-        resolve(cookie ? decodeURIComponent(cookie.value) : null);
-      });
-    });
-  }
-
-  // -- Helper: Follow Inertia 409 redirect chain (matching Python _handle_inertia_response) --
-  async function handleInertiaRedirects(initialRes, currentVersion = '') {
-    let currentRes = initialRes;
-    let version = currentVersion || initialRes.headers.get('X-Inertia-Version') || '';
-    
-    while (currentRes.status === 409) {
-      const redirectUrl = currentRes.headers.get('X-Inertia-Location');
-      if (!redirectUrl) break;
-      
-      let fullUrl;
-      if (redirectUrl.startsWith('http')) {
-        fullUrl = redirectUrl;
-      } else if (redirectUrl.startsWith('/internetbanking')) {
-        fullUrl = `https://www.bankofmaldives.com.mv${redirectUrl}`;
-      } else {
-        fullUrl = `${BASE_URL}${redirectUrl}`;
-      }
-      emitLog(port, `> [BML] Following Inertia redirect to: ${fullUrl}`);
-      
-      let token = await getXsrfToken();
-      // Load the page as a regular GET page load (no X-Inertia header) to bypass the version mismatch 409 Conflict
-      const redirectHeaders = {
-        'Accept': 'text/html, application/xhtml+xml',
-        'X-XSRF-TOKEN': token,
-        'User-Agent': USER_AGENT
-      };
-      
-      currentRes = await loggedFetch(fullUrl, {
-        headers: redirectHeaders
-      });
-      
-      if (currentRes.status === 200) {
-        // Parse the version from the HTML data-page attribute
-        try {
-          const html = await currentRes.clone().text();
-          const match = html.match(/data-page="([^"]+)"/);
-          if (match && match[1]) {
-            const dataPage = JSON.parse(match[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
-            if (dataPage.version) {
-              version = dataPage.version;
-              globalInertiaVersion = version;
-              emitLog(port, `> [BML] Updated Inertia Version from redirect HTML: ${globalInertiaVersion}`);
-            }
-          }
-        } catch (e) {
-          emitLog(port, `> [BML] Could not parse version from redirect HTML: ${e.message}`);
-        }
-        break;
-      }
-    }
-    return currentRes;
-  }
-
-  // -- Helper: Get fresh XSRF token and Inertia Version from a page --
-  async function getFreshXsrfToken(path, isInitialLoad = false) {
-    emitLog(port, `> [BML] Refreshing XSRF token from ${path}...`);
-    
-    const headers = {
-      'Accept': 'text/html, application/xhtml+xml',
-      'User-Agent': USER_AGENT
-    };
-    
-    if (!isInitialLoad) {
-      headers['X-Inertia'] = 'true';
-      headers['X-Requested-With'] = 'XMLHttpRequest';
-      if (globalInertiaVersion) {
-        headers['X-Inertia-Version'] = globalInertiaVersion;
-      }
-    }
-
-    let res = await loggedFetch(`${BASE_URL}${path}`, {
-      cache: 'no-store',
-      headers: headers
-    });
-
-    if (res.status === 409) {
-      emitLog(port, `> [BML] Token refresh returned 409. Following redirects...`);
-      res = await handleInertiaRedirects(res, globalInertiaVersion);
-    }
-    
-    let version = res.headers.get('X-Inertia-Version') || '';
-    if (!version && !isInitialLoad) {
-      try {
-        const data = await res.clone().json();
-        if (data && data.version) {
-          version = data.version;
-        }
-      } catch (e) {
-        emitLog(port, `> [BML] Could not parse Inertia version from body: ${e.message}`);
-      }
-    } else if (isInitialLoad) {
-      // On initial HTML load, extract version from the data-page attribute
-      try {
-        const html = await res.clone().text();
-        const match = html.match(/data-page="([^"]+)"/);
-        if (match && match[1]) {
-          const dataPage = JSON.parse(match[1].replace(/&quot;/g, '"'));
-          if (dataPage.version) version = dataPage.version;
-        }
-      } catch (e) {
-        emitLog(port, `> [BML] Could not parse Inertia version from HTML: ${e.message}`);
-      }
-    }
-
-    // Wait 10ms to ensure Chrome's cookie store reflects any Set-Cookie headers
-    await new Promise(r => setTimeout(r, 10));
-    const token = await getXsrfToken();
-    
-    // Calculate BML server clock offset dynamically from the response Date header
-    const serverDateHeader = res.headers.get('date');
-    if (serverDateHeader) {
-      const serverTime = new Date(serverDateHeader).getTime();
-      const clientTime = Date.now();
-      bmlClockOffset = serverTime - clientTime;
-    }
-
-    xsrfToken = token;
-    if (version) {
-      globalInertiaVersion = version;
-    }
-    return token;
-  }
-
-  let loginSuccess = sessionMode === 'fetch_only';
-  try {
-    if (sessionMode === 'fresh_login' || sessionMode === 'claim_and_login') {
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 0: Clear Previous Session State
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [BML] Step 0: Clearing previous session cookies...`);
-    const cookies = await chrome.cookies.getAll({ domain: "bankofmaldives.com.mv" });
-    for (const cookie of cookies) {
-      const protocol = cookie.secure ? "https://" : "http://";
-      const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
-      const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
-      await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 1: Initialize Session
-    // ═══════════════════════════════════════════════════════════════
-    await getFreshXsrfToken('/web/login', true);
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 2: Submit Username/Password
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [BML] Step 2: Submitting Primary Credentials...`);
-    const headers = {
-      'Accept': 'text/html, application/xhtml+xml',
-      'Content-Type': 'application/json',
-      'X-Inertia': 'true',
-      'X-Requested-With': 'XMLHttpRequest',
-      'X-XSRF-TOKEN': xsrfToken,
-      'Referer': `${BASE_URL}/web/login`,
-      'User-Agent': USER_AGENT
-    };
-    if (globalInertiaVersion) {
-      headers['X-Inertia-Version'] = globalInertiaVersion;
-    }
-
-    const loginRes = await loggedFetch(`${BASE_URL}/web/login`, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({
-        username: credentials.username,
-        password: credentials.password,
-        code: ""
-      })
-    });
-
-    let finalLoginRes = loginRes;
-    if (loginRes.status === 409) {
-      emitLog(port, `> [BML] Login returned 409. Following Inertia redirects...`);
-      finalLoginRes = await handleInertiaRedirects(loginRes, globalInertiaVersion);
-    }
-
-    if (finalLoginRes.status === 200) {
-      const loginBody = await finalLoginRes.clone().text();
-      let is2faPage = false;
-      let parsed = null;
-      try {
-        parsed = JSON.parse(loginBody);
-        if (parsed.component === 'Auth/2FA') {
-          is2faPage = true;
-          if (parsed.version) {
-            globalInertiaVersion = parsed.version;
-          }
-        }
-      } catch (err) {
-        emitLog(port, `> [BML] WARNING: Login response not valid JSON: ${err.message}`);
-      }
-
-      if (is2faPage) {
-        emitLog(port, `> [BML] Login credentials accepted. Transitioning to 2FA stage...`);
-        // Wait 10ms and refresh XSRF token from cookies (which might have changed on successful login)
-        await new Promise(r => setTimeout(r, 10));
-        xsrfToken = await getXsrfToken();
-      } else {
-        let errorMsg = "Login failed: Invalid credentials or server rejected login. HTTP 200 re-render.";
-        if (parsed && parsed.props && parsed.props.errors) {
-          const errs = JSON.stringify(parsed.props.errors);
-          errorMsg = `Login failed: ${errs}`;
-        }
-        emitLog(port, `> [BML] WARNING: ${errorMsg}`);
-        throw new Error(errorMsg);
-      }
-    } else if (!finalLoginRes.ok) {
-      const loginBody = await finalLoginRes.clone().text();
-      throw new Error(`HTTP ${finalLoginRes.status} on login POST.`);
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 3: Verify OTP
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [BML] Step 3: Loading 2FA Stage...`);
-    
-    // Load the 2FA page as an Inertia request to initialize/sync state
-    const mfaHeaders = {
-      'Accept': 'text/html, application/xhtml+xml',
-      'X-Inertia': 'true',
-      'X-Requested-With': 'XMLHttpRequest',
-      'X-XSRF-TOKEN': xsrfToken,
-      'Referer': `${BASE_URL}/web/login`,
-      'User-Agent': USER_AGENT
-    };
-    if (globalInertiaVersion) {
-      mfaHeaders['X-Inertia-Version'] = globalInertiaVersion;
-    }
-
-    let mfaPageRes = await loggedFetch(`${BASE_URL}/web/login/2fa`, {
-      headers: mfaHeaders
-    });
-
-    if (mfaPageRes.status === 409) {
-      emitLog(port, `> [BML] 2FA page returned 409. Following redirects...`);
-      mfaPageRes = await handleInertiaRedirects(mfaPageRes, globalInertiaVersion);
-    }
-
-    if (mfaPageRes.status === 200) {
-      const mfaPageBody = await mfaPageRes.clone().text();
-      try {
-        const parsed = JSON.parse(mfaPageBody);
-        if (parsed.version) {
-          globalInertiaVersion = parsed.version;
-        }
-      } catch (err) {
-        emitLog(port, `> [BML] WARNING: 2FA page response not valid JSON: ${err.message}`);
-      }
-    }
-
-    await new Promise(r => setTimeout(r, 10));
-    xsrfToken = await getXsrfToken();
-
-    loginSuccess = true;
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 4: Fetch and Select Profile
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [BML] Step 4: Fetching Profiles...`);
-    await getFreshXsrfToken('/web/profile');
-
-    let profileRes = await loggedFetch(`${BASE_URL}/web/profile`, {
-      headers: {
-        'Accept': 'text/html, application/xhtml+xml',
-        'X-Inertia': 'true',
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-XSRF-TOKEN': xsrfToken,
-        'Referer': `${BASE_URL}/web/login/2fa`,
-        'User-Agent': USER_AGENT
-      }
-    });
-
-    if (profileRes.status === 409) {
-      emitLog(port, `> [BML] Profile page returned 409. Following redirects...`);
-      profileRes = await handleInertiaRedirects(profileRes);
-    }
-
-    const responseText = await profileRes.clone().text();
-    let profiles = [];
-
-    // Extract profiles helper function to check multiple locations
-    function extractProfilesFromObject(obj) {
-      if (!obj) return null;
-      // Possible locations for profiles list
-      const candidates = [
-        obj.props?.user_profiles,
-        obj.props?.profiles,
-        obj.props?.profile,
-        obj.payload?.user_profiles,
-        obj.payload?.profiles,
-        obj.payload?.profile,
-        obj.user_profiles,
-        obj.profiles,
-        obj.profile
-      ];
-      for (const cand of candidates) {
-        if (cand && Array.isArray(cand) && cand.length > 0) return cand;
-        if (cand && typeof cand === 'object' && !Array.isArray(cand)) return [cand];
-      }
-      return null;
-    }
-
-    try {
-      const profileData = JSON.parse(responseText);
-      profiles = extractProfilesFromObject(profileData) || [];
-    } catch (err) {
-      const dataPageMatch = /data-page=(['"])(.*?)\1/.exec(responseText);
-      if (dataPageMatch) {
-        try {
-          const decoded = dataPageMatch[2].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-          const pageData = JSON.parse(decoded);
-          profiles = extractProfilesFromObject(pageData) || [];
-        } catch (e) { }
-      }
-    }
-
-    if (profiles.length === 0) {
-      const patterns = [
-        /\/internetbanking\/web\/profile\/([a-fA-F0-9\-]{36})/gi,
-        /"profileId":\s*"([a-fA-F0-9\-]{36})"/gi,
-        /data-profile-id="([a-fA-F0-9\-]{36})"/gi,
-        /"profile":\s*"([a-fA-F0-9\-]{36})"/gi,
-        /"guid":\s*"([a-fA-F0-9\-]{36})"/gi
-      ];
-      const uniqueIds = new Set();
-      for (const pattern of patterns) {
-        let match;
-        while ((match = pattern.exec(responseText)) !== null) { uniqueIds.add(match[1]); }
-      }
-      profiles = Array.from(uniqueIds).map(id => ({ id, name: id }));
-    }
-
-    let selectedProfileId = null;
-    if (profiles.length > 0) {
-      const selectedProfile = profiles[0];
-      const profStr = typeof selectedProfile === 'string' ? selectedProfile : JSON.stringify(selectedProfile);
-      const uuidMatch = profStr.match(/[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}/);
-      if (uuidMatch) {
-        selectedProfileId = uuidMatch[0];
-      }
-    }
-
-    if (!selectedProfileId) {
-      emitLog(port, `> [BML] Profiles not found in /web/profile. Fetching from /api/profile...`);
-      try {
-        const apiProfileRes = await loggedFetch(`${BASE_URL}/api/profile`, {
-          headers: {
-            'Accept': 'application/json, text/plain, */*',
-            'Authorization': 'Bearer',
-            'X-XSRF-TOKEN': xsrfToken,
-            'Referer': `${BASE_URL}/web/profile`,
-            'User-Agent': USER_AGENT
-          }
-        });
-        if (apiProfileRes.ok) {
-          const apiProfileData = await apiProfileRes.json();
-          // Extract from api response
-          const profileList = apiProfileData.payload?.profile || apiProfileData.profile || [];
-          if (Array.isArray(profileList) && profileList.length > 0) {
-            const firstProf = profileList[0];
-            selectedProfileId = firstProf.profile || firstProf.guid || firstProf.id || firstProf.profileId;
-          }
-          if (!selectedProfileId && apiProfileData.payload?.userInfo?.profile) {
-            const up = apiProfileData.payload.userInfo.profile;
-            selectedProfileId = up.guid || up.profile || up.id || up.profileId;
-          }
-          if (!selectedProfileId && apiProfileData.payload?.userInfo?.user_profiles) {
-            const upList = apiProfileData.payload.userInfo.user_profiles;
-            if (Array.isArray(upList) && upList.length > 0) {
-              selectedProfileId = upList[0].profile || upList[0].guid || upList[0].id || upList[0].profileId;
-            }
-          }
-          emitLog(port, `> [BML] Found profile ID from API fallback: ${selectedProfileId}`);
-        }
-      } catch (err) {
-        emitLog(port, `> [BML] API profile fallback failed: ${err.message}`);
-      }
-    }
-
-    if (selectedProfileId) {
-      emitLog(port, `> [BML] Selected Profile: ${selectedProfileId}`);
-      await getFreshXsrfToken('/web/profile');
-
-      let selectProfileRes = await loggedFetch(`${BASE_URL}/web/profile/${selectedProfileId}`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'text/html, application/xhtml+xml',
-          'X-Inertia': 'true',
-          'X-Requested-With': 'XMLHttpRequest',
-          'X-XSRF-TOKEN': xsrfToken,
-          'Referer': `${BASE_URL}/web/profile`,
-          'User-Agent': USER_AGENT
-        }
-      });
-
-      if (selectProfileRes.status === 409) {
-        emitLog(port, `> [BML] Profile selection returned 409. Following redirects...`);
-        await handleInertiaRedirects(selectProfileRes);
-      } else if (!selectProfileRes.ok) {
-        throw new Error(`Profile selection failed: HTTP ${selectProfileRes.status}`);
-      }
-    } else {
-      emitLog(port, `> [BML] No profiles found. Proceeding with single-profile assumption...`);
-    }
-
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 5: Navigate to accounts overview  
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [BML] Step 5: Loading Accounts Overview...`);
-    const preOverviewVersion = globalInertiaVersion;
-    await getFreshXsrfToken('/vf/accounts/overview');
-
-    // Detect session expiry in fetch_only mode: if the Inertia version is still blank after
-    // the token refresh, BML served an HTML login redirect (200 + <!doctype>) instead of JSON.
-    if (sessionMode === 'fetch_only' && !globalInertiaVersion && !preOverviewVersion) {
-      emitLog(port, `> [BML] ⚠ Session appears expired (no Inertia version after overview refresh in fetch_only mode). Falling back to fresh_login...`);
-      return await runBmlFlow(credentials, targetAccount, port, targetAmount, mode, 'fresh_login');
-    }
-
-    const accountsOverviewRes = await loggedFetch(`${BASE_URL}/vf/accounts/overview`, {
-      headers: {
-        'Accept': 'text/html, application/xhtml+xml',
-        'X-Inertia': 'true',
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-XSRF-TOKEN': xsrfToken,
-        'Referer': `${BASE_URL}/web/redirect`,
-        'User-Agent': USER_AGENT
-      }
-    });
-
-    if (accountsOverviewRes.status === 409) {
-      emitLog(port, `> [BML] Accounts overview returned 409. Following redirects...`);
-      await handleInertiaRedirects(accountsOverviewRes);
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 6: Fetch Dashboard
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [BML] Step 6: Loading Dashboard...`);
-    xsrfToken = await getXsrfToken() || xsrfToken;
-    const dashboardRes = await loggedFetch(`${BASE_URL}/api/dashboard`, {
-      headers: {
-        'Accept': 'application/json, text/plain, */*',
-        'Authorization': 'Bearer',
-        'X-XSRF-TOKEN': xsrfToken,
-        'Referer': `${BASE_URL}/vf/accounts/overview`,
-        'User-Agent': USER_AGENT
-      }
-    });
-
-    const dashText = await dashboardRes.text();
-    if (!dashboardRes.ok) {
-      // In fetch_only mode a 401 means the bank session expired — fall back to a fresh login
-      // rather than reporting failure, so the user's request still succeeds.
-      if (sessionMode === 'fetch_only') {
-        emitLog(port, `> [BML] ⚠ Dashboard returned HTTP ${dashboardRes.status} in fetch_only mode. Session expired — falling back to fresh_login...`);
-        return await runBmlFlow(credentials, targetAccount, port, targetAmount, mode, 'fresh_login');
-      }
-      throw new Error(`Dashboard retrieval failed: HTTP ${dashboardRes.status}`);
-    }
-
-    let dashboardData;
-    try {
-      dashboardData = JSON.parse(dashText);
-    } catch (e) {
-      throw new Error(`Failed to parse Dashboard JSON.`);
-    }
-
-    const accounts = dashboardData.payload?.dashboard || dashboardData.accounts || [];
-    
-    // If fetch_only mode returned 0 accounts, the session has expired — fall back to fresh login
-    if (sessionMode === 'fetch_only' && accounts.length === 0) {
-      emitLog(port, `> [BML] ⚠ Session appears expired (0 accounts in fetch_only mode). Falling back to fresh_login...`);
-      return await runBmlFlow(credentials, targetAccount, port, targetAmount, mode, 'fresh_login');
-    }
-
-    let bmlAccountId = null;
-    let balance = "Not found";
-
-    for (const group of accounts) {
-      const accList = group.accounts || [group]; // handle both nested and flat structures
-      for (const acc of accList) {
-        const accNo = String(acc.account || acc.account_number || acc.id || '').replace(/\s+/g, '');
-        const targetNo = String(targetAccount || '').replace(/\s+/g, '');
-        if (accNo === targetNo || accNo.includes(targetNo) || targetNo.includes(accNo)) {
-          bmlAccountId = acc.id || acc.account;
-          balance = acc.available_balance || acc.availableBalance || acc.working_balance || acc.balance || acc.current_balance || "Found";
-          break;
-        }
-      }
-      if (bmlAccountId) break;
-    }
-
-    if (!bmlAccountId) {
-      bmlAccountId = targetAccount;
-    }
-
-    emitLog(port, `> [BML] 💰 Balance for ${targetAccount}: ${balance} MVR`);
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 7: Scrape History for the amount
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [BML] Step 7: Scraping recent transaction history (Endpoint: ${BASE_URL}/api/account/${bmlAccountId}/history/today)...`);
-    // Fetch today's transactions
-    const historyUrl = `${BASE_URL}/api/account/${bmlAccountId}/history/today`;
-    const histRes = await fetch(historyUrl, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json, text/plain, */*',
-        'Authorization': 'Bearer',
-        'X-XSRF-TOKEN': xsrfToken,
-        'Referer': `${BASE_URL}/vf/accounts/${bmlAccountId}`,
-        'User-Agent': USER_AGENT
-      }
-    });
-
-    // Fetch pending transactions
-    const pendingUrl = `${BASE_URL}/api/history/pending/${bmlAccountId}`;
-    const pendingRes = await fetch(pendingUrl, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json, text/plain, */*',
-        'Authorization': 'Bearer',
-        'X-XSRF-TOKEN': xsrfToken,
-        'Referer': `${BASE_URL}/vf/accounts/${bmlAccountId}`,
-        'User-Agent': USER_AGENT
-      }
-    });
-
-    if (!histRes.ok && !pendingRes.ok) {
-      const errText = await histRes.clone().text().catch(() => "");
-      emitLog(port, `> [BML] History & Pending fetch failed: HTTP ${histRes.status} / ${pendingRes.status} - ${errText.substring(0, 200)}`);
-      throw new Error(`Failed to fetch BML account history: HTTP ${histRes.status}`);
-    }
-
-    let history = [];
-    if (histRes.ok) {
-      const histData = await histRes.json();
-      emitLog(port, `> [BML] Raw history response: ${JSON.stringify(histData)}`);
-      history = histData.transactions || histData.payload?.history || [];
-    }
-
-    let pendingTxs = [];
-    if (pendingRes.ok) {
-      const pendingData = await pendingRes.json();
-      emitLog(port, `> [BML] Raw pending response: ${JSON.stringify(pendingData)}`);
-      pendingTxs = pendingData.transactions || pendingData.payload?.history || pendingData.payload?.pending || pendingData.payload?.transactions || [];
-    }
-
-    const mergedHistory = [...pendingTxs, ...history];
-    if (mergedHistory.length > 0) {
-      emitLog(port, `> [BML] Diagnostic - First transaction keys: ${Object.keys(mergedHistory[0]).join(', ')}`);
-      emitLog(port, `> [BML] Diagnostic - First transaction raw: ${JSON.stringify(mergedHistory[0])}`);
-    }
-    const targetAmtNum = parseFloat(targetAmount) || 0;
-
-    let matchFound = null;
-    if (mode === 'search') {
-      const matchingTxs = mergedHistory.filter(tx => {
-        const isCredit = tx.type === 'credit' || !tx.minus || parseFloat(tx.amount) > 0;
-        return targetAmtNum > 0 && Math.abs(parseFloat(tx.amount) - targetAmtNum) < 0.01 && isCredit;
-      });
-      last3Txs = normalizeTransactions(matchingTxs, 'BML', 3);
-      if (matchingTxs.length > 0) {
-        matchFound = matchingTxs[0];
-      }
-    } else if (mode === 'ledger') {
-      last3Txs = normalizeTransactions(mergedHistory, 'BML', 50);
-    } else {
-      // mode === 'history'
-      last3Txs = normalizeTransactions(mergedHistory, 'BML', 3);
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 8: Cleanup and Report
-    // ═══════════════════════════════════════════════════════════════
-    if (!heldSession && sessionMode !== 'claim_and_login') {
-      try {
-        await loggedFetch(`${BASE_URL}/web/2fa/logout`, {
-          method: 'GET',
-          headers: {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-            'Upgrade-Insecure-Requests': '1',
-            'X-XSRF-TOKEN': xsrfToken,
-            'Referer': `${BASE_URL}/vf/accounts/overview`,
-            'User-Agent': USER_AGENT
-          }
-        });
-        emitLog(port, `> [BML] Session destroyed.`);
-      } catch (e) {
-        emitLog(port, `> [BML] Session destruction failed or skipped: ${e.message}`);
-      }
-    } else {
-      emitLog(port, `> [BML] Session holder mode active: keeping BML session alive.`);
-    }
-
-    if (mode === 'history' || mode === 'ledger') {
-      emitLog(port, `> [Viri Bridge] BML ${mode.toUpperCase()} FETCH SUCCESS.`);
-      port.postMessage({
-        type: 'success',
-        data: null,
-        balance: balance,
-        transactions: last3Txs,
-        raw_history: mergedHistory
-      });
-    } else {
-      if (matchFound) {
-        emitLog(port, `> [Viri Bridge] EXACT MATCH: Ref ${matchFound.reference || matchFound.id}`);
-        const normalizedMatch = normalizeTransactions([matchFound], 'BML', 1)[0];
-        port.postMessage({
-          type: 'success',
-          data: {
-            status: 'CREDITED',
-            reference: matchFound.reference || matchFound.id || "BML-MATCH",
-            amount: Math.abs(matchFound.amount).toFixed(2),
-            timestamp: parseBmlNarrativeDate(matchFound)?.toISOString() || matchFound.date || matchFound.bookingDate || new Date().toISOString(),
-            transaction: normalizedMatch
-          },
-          balance: balance,
-          transactions: last3Txs,
-          raw_history: mergedHistory
-        });
-      } else {
-        throw new Error(`Verification Failed: No recent credit transaction found for ${targetAmount} MVR.`);
-      }
-    }
-
-  } catch (error) {
-    emitLog(port, `> [BML] FATAL ERROR: ${error.message}`);
-    const isAuth = !!error.auth_failed || /invalid credentials|mfa failed|incorrect|unauthorized|auth/i.test(error.message);
-    port.postMessage({ 
-      type: "error", 
-      error: error.message, 
-      transactions: last3Txs || [],
-      login_success: loginSuccess,
-      auth_failed: isAuth
-    });
-  }
-}
 
 // ─── CORS Header Rules ─────────────────────────────────────────────────────────
 chrome.declarativeNetRequest.updateDynamicRules({
@@ -1306,21 +634,7 @@ chrome.declarativeNetRequest.updateDynamicRules({
 /**
  * Extract rTag CSRF token from MIB HTML page
  */
-function extractRTag(html) {
-  // Try multiple patterns for rTag extraction
-  const patterns = [
-    /rTag\s*=\s*["']([^"']+)["']/,
-    /name=["']rTag["']\s+value=["']([^"']+)["']/,
-    /value=["']([^"']+)["']\s+name=["']rTag["']/,
-    /"rTag"\s*:\s*["']([^"']+)["']/,
-    /data-rt=["']([^"']+)["']/
-  ];
-  for (const pattern of patterns) {
-    const match = html.match(pattern);
-    if (match) return match[1];
-  }
-  throw new Error('Failed to extract rTag from MIB page');
-}
+
 
 /**
  * SHA-256 hash a password using Web Crypto API (available in service workers)
@@ -1333,190 +647,17 @@ async function hashPasswordSHA256(password) {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
 }
 
-function extractNameAroundId(html, id) {
-  const index = html.indexOf(id);
-  if (index === -1) return '';
 
-  const start = Math.max(0, index - 300);
-  const end = Math.min(html.length, index + 300);
-  const snippet = html.substring(start, end);
-
-  // 1. Try to find if it is inside a tag with text content:
-  // e.g. <a ...onclick="...ID...">Name</a>
-  const tagPattern = new RegExp(`<[^>]+(?:switchProfile|profileid|profile-id|value|id)[^>]*?${id}[^>]*>([^<]{2,100})<\/[a-z0-9]+>`, 'i');
-  const tagMatch = tagPattern.exec(snippet);
-  if (tagMatch && tagMatch[1]) {
-    const text = tagMatch[1].trim();
-    if (text && !/^(switch|select|go|click|here|view|details|active)$/i.test(text)) {
-      return text;
-    }
-  }
-
-  // 2. Try to find the closest text block of capitalized/alphanumeric words in the snippet
-  const cleanText = snippet
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, '\n')
-    .replace(/\s+/g, '\n');
-  
-  const lines = cleanText.split('\n')
-    .map(line => line.trim())
-    .filter(line => line.length > 2);
-
-  const candidateNames = lines.filter(line => {
-    if (/^[0-9\s]+$/.test(line)) return false;
-    if (/(?:function|switchProfile|javascript|void|null|true|false|return|var|const|let|document|window)/i.test(line)) return false;
-    if (/^(switch|select|go|click|here|view|details|active|profile|type|id|rtag|tag)$/i.test(line)) return false;
-    return /^[a-z0-9\s,&.\'-]{3,50}$/i.test(line);
-  });
-
-  if (candidateNames.length > 0) {
-    let bestName = '';
-    let minDist = 999999;
-    for (const name of candidateNames) {
-      const nameIndex = snippet.indexOf(name);
-      if (nameIndex !== -1) {
-        const dist = Math.abs(nameIndex - 300);
-        if (dist < minDist) {
-          minDist = dist;
-          bestName = name;
-        }
-      }
-    }
-    if (bestName) return bestName;
-  }
-
-  return '';
-}
 
 /**
  * Parse profiles from MIB profiles HTML page
  */
-function parseProfilesFromHtml(html) {
-  // Strip img tags to remove massive base64 inline images that break regex lookaheads
-  html = html.replace(/<img[^>]*>/gi, '');
-  const profiles = [];
-  
-  // 1. Parse profile cards from elements with class="profile-card"
-  const cardTagPattern = /<[^>]+class=["'][^"']*profile-card[^"']*["'][^>]*>/gi;
-  let match;
-  while ((match = cardTagPattern.exec(html)) !== null) {
-    const startTag = match[0];
-    const startIndex = match.index + startTag.length;
-    
-    const rtMatch = /data-rt=["']([^"']+)["']/i.exec(startTag);
-    const typeMatch = /data-profiletype\s*=\s*["']([^"']+)["']/i.exec(startTag);
-    const idMatch = /data-profileid=["']([^"']+)["']/i.exec(startTag);
-    
-    if (idMatch) {
-      const windowContent = html.substring(startIndex, startIndex + 2000);
-      const nameMatch = /class=["']profile-name["'][^>]*>([^<]+)/i.exec(windowContent);
-      
-      profiles.push({
-        id: idMatch[1],
-        type: typeMatch ? typeMatch[1].trim() : '0',
-        rTag: rtMatch ? rtMatch[1] : null,
-        name: nameMatch ? nameMatch[1].trim() : (typeMatch ? typeMatch[1].trim() : 'unknown')
-      });
-    }
-  }
-  
-  // 1.5 Parse option elements (e.g. select dropdown options)
-  if (profiles.length === 0) {
-    const optionPattern = /<option[^>]+value=["'](\d+)["'][^>]*>([\s\S]*?)<\/option>/gi;
-    let optMatch;
-    while ((optMatch = optionPattern.exec(html)) !== null) {
-      const id = optMatch[1];
-      const name = optMatch[2].replace(/<[^>]+>/g, '').trim();
-      if (name && !name.toLowerCase().includes('select')) {
-        profiles.push({
-          id,
-          type: '1',
-          rTag: null,
-          name
-        });
-      }
-    }
-  }
-  
-  // 2. Fallback for other structures
-  if (profiles.length === 0) {
-    const patterns = [
-      /profileId["']?\s*[:=]\s*["']?(\d+)["']?/gi,
-      /switchProfile\s*\(\s*["']?(\d+)["']?/gi,
-      /data-profile-id=["'](\d+)["']/gi,
-      /data-profileid=["'](\d+)["']/gi,
-      /name=["']profileId["']\s+value=["'](\d+)["']/gi
-    ];
-    const uniqueIds = new Set();
-    for (const pattern of patterns) {
-      let match;
-      while ((match = pattern.exec(html)) !== null) {
-        uniqueIds.add(match[1]);
-      }
-    }
-    for (const id of uniqueIds) {
-      const name = extractNameAroundId(html, id) || `ID: ${id}`;
-      profiles.push({ id, type: '1', rTag: null, name });
-    }
-  }
-  
-  return profiles;
-}
+
 /**
  * Parse account numbers from MIB accounts HTML page
  */
-function parseAccountsFromHtml(html) {
-  const accounts = [];
-  // Look for account numbers (long numeric strings typical of MIB)
-  const patterns = [
-    /accountNo["']?\s*[:=]\s*["']?(\d{10,20})["']?/gi,
-    /data-account-no=["'](\d{10,20})["']/gi,
-    /account_number["']?\s*[:=]\s*["']?(\d{10,20})["']?/gi,
-    /accountDetails\?accountNo=(\d{10,20})/gi
-  ];
-  const uniqueNos = new Set();
-  for (const pattern of patterns) {
-    let match;
-    while ((match = pattern.exec(html)) !== null) {
-      uniqueNos.add(match[1]);
-    }
-  }
-  for (const no of uniqueNos) {
-    accounts.push({ accountNo: no });
-  }
-  return accounts;
-}
 
-/**
- * MIB-specific logged fetch with form-urlencoded support
- */
-async function mibFetch(url, options = {}, port) {
-  const method = options.method || 'GET';
-  let bodyLog = '';
-  if (options.body && typeof options.body === 'string') {
-    let sanitizedBody = options.body;
-    try {
-      const urlParams = new URLSearchParams(options.body);
-      sanitizedBody = urlParams.toString();
-    } catch (e) {
-      sanitizedBody = options.body.replace(/(pgf02|otp)=([^&]*)/gi, '$1=[REDACTED]');
-    }
-    bodyLog = `\n    Body: ${sanitizedBody}`;
-  }
-  emitLog(port, `> [MIB] Request: ${method} ${url}${bodyLog}`);
 
-  options.credentials = 'include';
-
-  try {
-    const res = await fetch(url, options);
-    emitLog(port, `> [MIB] Response: HTTP ${res.status} from ${url}`);
-    return res;
-  } catch (error) {
-    emitLog(port, `> [MIB] Fetch failed: ${error.message} for ${url}`);
-    throw error;
-  }
-}
 
 /**
  * Build form-urlencoded body string from an object
@@ -1540,1315 +681,11 @@ chrome.storage.local.get(['viri_mib_rtag'], (res) => {
  * @param {string} targetAmount - Amount to verify
  * @param {string} profileType - '0' for Personal, '1' for Business
  */
-async function runMibFlow(credentials, targetAccount, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login') {
-  emitLog(port, `> [MIB] Starting MIB Faisanet auth flow (sessionMode: ${sessionMode})...`);
-  let last3Txs = [];
 
-  const mibHeaders = {
-    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-    'X-Requested-With': 'XMLHttpRequest',
-    'User-Agent': USER_AGENT
-  };
 
-  // MIB uses HTTP 203 for "success with redirect" (observed in HAR)
-  function isMibSuccess(status) { return status === 200 || status === 203; }
 
-  let rTag = null;
-  if (sessionMode !== 'fresh_login' && sessionMode !== 'claim_and_login') {
-    if (currentMibRTag) {
-      rTag = currentMibRTag;
-    } else {
-      const res = await chrome.storage.local.get(['viri_mib_rtag']);
-      if (res.viri_mib_rtag) {
-        currentMibRTag = res.viri_mib_rtag;
-        rTag = currentMibRTag;
-      }
-    }
-  }
-  
-  function updateRTag(newTag) {
-    if (newTag) {
-      rTag = newTag;
-      currentMibRTag = newTag;
-      chrome.storage.local.set({ viri_mib_rtag: newTag });
-    }
-  }
 
-  let mibClockOffset = 0;
-  let loginSuccess = sessionMode === 'fetch_only';
 
-  try {
-    if (sessionMode === 'fresh_login' || sessionMode === 'claim_and_login') {
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 0: Clear Previous MIB Session Cookies
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [MIB] Step 0: Clearing previous MIB session cookies...`);
-    const mibCookies = await chrome.cookies.getAll({ domain: "mib.com.mv" });
-    for (const cookie of mibCookies) {
-      const protocol = cookie.secure ? "https://" : "http://";
-      const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
-      const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
-      await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
-    }
-    emitLog(port, `> [MIB] Cleared ${mibCookies.length} MIB cookies.`);
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 1: Initialize Session — GET /auth
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [MIB] Step 1: Initializing session...`);
-    const t0 = Date.now();
-    const authPageRes = await mibFetch(`${MIB_BASE_URL}/auth`, {
-      headers: { 'User-Agent': USER_AGENT }
-    }, port);
-    const t3 = Date.now();
-
-    if (!authPageRes.ok) {
-      throw new Error(`MIB auth page load failed: HTTP ${authPageRes.status}`);
-    }
-
-    // Calculate MIB server clock offset dynamically from the response Date header using RTT-aware NTP calculation
-    mibClockOffset = 0;
-    const serverDateHeader = authPageRes.headers.get('date');
-    if (serverDateHeader) {
-      const rtt = t3 - t0;
-      const serverTime = new Date(serverDateHeader).getTime() + Math.round(rtt / 2);
-      mibClockOffset = serverTime - t3;
-      emitLog(port, `> [MIB] Calculated MIB server clock offset (RTT-aware): ${mibClockOffset}ms (RTT: ${rtt}ms)`);
-    }
-
-    const authPageHtml = await authPageRes.text();
-    updateRTag(extractRTag(authPageHtml));
-    emitLog(port, `> [MIB] ✓ Session initialized. rTag: ${rTag.substring(0, 8)}...`);
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 2: Get Auth Type — POST /aAuth/getAuthType
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [MIB] Step 2: Checking auth type for user...`);
-    const authTypeRes = await mibFetch(`${MIB_BASE_URL}/aAuth/getAuthType`, {
-      method: 'POST',
-      headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth` },
-      body: buildFormBody({ rTag, pgf01: credentials.username, retain: '1' })
-    }, port);
-
-    if (!authTypeRes.ok) {
-      const errText = await authTypeRes.text().catch(() => "");
-      emitLog(port, `> [MIB] getAuthType error body: ${errText}`);
-      throw new Error(`MIB getAuthType failed: HTTP ${authTypeRes.status}. Details: ${errText.substring(0, 200)}`);
-    }
-
-    let authTypeData;
-    try {
-      authTypeData = await authTypeRes.json();
-    } catch (e) {
-      // Some responses may not be JSON, try to read as text
-      const text = await authTypeRes.clone().text();
-      emitLog(port, `> [MIB] Auth type response (non-JSON): ${text.substring(0, 200)}`);
-      // Continue anyway — older versions may not return JSON here
-      authTypeData = { status: 'success' };
-    }
-
-    if (authTypeData.status === 'error') {
-      throw new Error(`MIB auth type error: ${authTypeData.message || 'Unknown error'}`);
-    }
-    emitLog(port, `> [MIB] ✓ Auth type confirmed: ${JSON.stringify(authTypeData)}`);
-
-    const loginTypeParams = authTypeData?.data?.[0] || {};
-    const loginType = loginTypeParams.loginType;
-    const userSalt = loginTypeParams.userSalt;
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 3: Primary Auth — POST /aAuth (Simple) or /aAuth/xAuth (Salted)
-    // ═══════════════════════════════════════════════════════════════
-    let xAuthRes;
-    if (loginType === 0) {
-      emitLog(port, `> [MIB] Step 3: Submitting primary credentials (simple auth)...`);
-      xAuthRes = await mibFetch(`${MIB_BASE_URL}/aAuth`, {
-        method: 'POST',
-        headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth` },
-        body: buildFormBody({
-          rTag,
-          pgf01: credentials.username,
-          pgf02: credentials.password,
-          retain: '1'
-        })
-      }, port);
-    } else {
-      emitLog(port, `> [MIB] Step 3: Submitting primary credentials (salted auth)...`);
-      emitLog(port, `> [MIB] Plain credentials validation: username provided, password provided`);
-      const clientSalt = generateClientSalt(32);
-      
-      // Hashing formula:
-      // h1 = sha256(password)
-      // h2 = sha256(h1 + userSalt)
-      // pgf03 = sha256(clientSalt + h2)
-      const passHash = await hashPasswordSHA256(credentials.password);
-      const saltedHash = await hashPasswordSHA256(passHash + (userSalt || ""));
-      const clientSaltedHash = await hashPasswordSHA256(clientSalt + saltedHash);
-      
-      emitLog(port, `> [MIB] Computed Client Salt: "${clientSalt}"`);
-      emitLog(port, `> [MIB] Computed SHA-256 Pass Hash: "${passHash}"`);
-      emitLog(port, `> [MIB] Computed Salted Hash: "${saltedHash}"`);
-      emitLog(port, `> [MIB] Computed pgf03 Hash: "${clientSaltedHash}"`);
-
-      xAuthRes = await mibFetch(`${MIB_BASE_URL}/aAuth/xAuth`, {
-        method: 'POST',
-        headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth` },
-        body: buildFormBody({
-          rTag,
-          pgf01: credentials.username,
-          retain: '1',
-          pgf03: clientSaltedHash,
-          clientSalt: clientSalt
-        })
-      }, port);
-    }
-
-    if (!xAuthRes.ok) {
-      const errText = await xAuthRes.text().catch(() => "");
-      emitLog(port, `> [MIB] xAuth failed: HTTP ${xAuthRes.status}. Details: ${errText}`);
-      throw new Error(`MIB xAuth failed: HTTP ${xAuthRes.status}. Details: ${errText.substring(0, 200)}`);
-    }
-
-    let xAuthData;
-    try {
-      xAuthData = await xAuthRes.json();
-    } catch (e) {
-      const text = await xAuthRes.clone().text();
-      emitLog(port, `> [MIB] xAuth response (non-JSON): ${text.substring(0, 200)}`);
-      // HAR: after xAuth, browser goes to /dashboard (not /auth2FA as old doc said)
-      if (text.includes('dashboard') || text.includes('2FA') || text.includes('redirect') || text.includes('success')) {
-        xAuthData = { status: 'success', redirect: '/dashboard' };
-      } else {
-        throw new Error(`MIB xAuth response not parseable: ${text.substring(0, 100)}`);
-      }
-    }
-
-    if (xAuthData && (xAuthData.success === false || xAuthData.status === 'error')) {
-      const err = new Error(`MIB authentication failed: ${xAuthData.reasonText || xAuthData.message || 'Invalid credentials'}`);
-      err.auth_failed = true;
-      throw err;
-    }
-    emitLog(port, `> [MIB] ✓ Primary authentication successful.`);
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 4: Load Dashboard — GET /dashboard
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [MIB] Step 4: Loading dashboard...`);
-    const dashboardPageRes = await mibFetch(`${MIB_BASE_URL}/dashboard`, {
-      headers: {
-        'Referer': `${MIB_BASE_URL}/auth`,
-        'User-Agent': USER_AGENT
-      }
-    }, port);
-
-    if (!dashboardPageRes.ok) {
-      throw new Error(`MIB dashboard page load failed: HTTP ${dashboardPageRes.status}`);
-    }
-
-    const dashHtml = await dashboardPageRes.text();
-    try { updateRTag(extractRTag(dashHtml)); } catch (e) {
-      emitLog(port, `> [MIB] Could not extract rTag from dashboard — keeping previous.`);
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 4.5: Load 2FA Page — GET /auth2FA
-    // HAR: The browser is redirected or navigates to /auth2FA.
-    // We must load /auth2FA to initialize the 2FA state on the server and get the correct rTag.
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [MIB] Step 4.5: Loading 2FA page...`);
-    const auth2faRes = await mibFetch(`${MIB_BASE_URL}/auth2FA`, {
-      headers: {
-        'Referer': `${MIB_BASE_URL}/dashboard`,
-        'User-Agent': USER_AGENT
-      }
-    }, port);
-
-    if (!auth2faRes.ok) {
-      throw new Error(`MIB 2FA page load failed: HTTP ${auth2faRes.status}`);
-    }
-
-    const auth2faHtml = await auth2faRes.text();
-    try { updateRTag(extractRTag(auth2faHtml)); } catch (e) {
-      emitLog(port, `> [MIB] Could not extract rTag from auth2FA — keeping previous.`);
-    }
-    emitLog(port, `> [MIB] ✓ 2FA page loaded. rTag: ${rTag ? rTag.substring(0, 8) + '...' : 'none'}`);
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 5: Verify OTP — POST /aAuth2FA/verifyOTP
-    // HAR: Returns HTTP 203 (success with redirect). Referer: /auth2FA
-    // ═══════════════════════════════════════════════════════════════
-    // Boundary Safety Delay: check if current epoch has less than 4 seconds remaining
-    const msInWindow = (Date.now() + mibClockOffset) % 30000;
-    const msRemaining = 30000 - msInWindow;
-    if (msRemaining < 4000) {
-      emitLog(port, `> [MIB] OTP window boundary safety: only ${Math.round(msRemaining / 100) / 10}s remaining in epoch. Waiting for next window...`);
-      await new Promise(resolve => setTimeout(resolve, msRemaining + 500));
-    }
-
-    emitLog(port, `> [MIB] Step 5: Generating and submitting TOTP...`);
-    const otpCode = "000000";
-
-    const otpRes = await mibFetch(`${MIB_BASE_URL}/aAuth2FA/verifyOTP`, {
-      method: 'POST',
-      headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth2FA` },
-      body: buildFormBody({ otpType: '3', otp: otpCode })
-    }, port);
-
-    // HAR shows HTTP 203 = success with redirect to /profiles
-    if (!isMibSuccess(otpRes.status)) {
-      throw new Error(`MIB OTP verification request failed: HTTP ${otpRes.status}`);
-    }
-
-    let otpData;
-    try {
-      otpData = await otpRes.json();
-    } catch (e) {
-      // HTTP 203 may have empty body — treat as success
-      if (otpRes.status === 203) {
-        otpData = { status: 'success', redirect: '/profiles' };
-      } else {
-        const text = await otpRes.clone().text();
-        if (text.includes('/profiles') || text.includes('success')) {
-          otpData = { status: 'success', redirect: '/profiles' };
-        } else {
-          throw new Error(`MIB OTP response not parseable (HTTP ${otpRes.status}): ${text.substring(0, 100)}`);
-        }
-      }
-    }
-
-    if (otpData.status === 'error') {
-      const err = new Error(`MIB OTP verification failed: ${otpData.message || 'Invalid OTP'}`);
-      err.auth_failed = true;
-      throw err;
-    }
-    emitLog(port, `> [MIB] ✓ OTP verified successfully (HTTP ${otpRes.status}).`);
-    loginSuccess = true;
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 6: Load Profiles — GET /profiles
-    // HAR: Referer: /auth2FA
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [MIB] Step 6: Loading profiles page...`);
-    const profilesRes = await mibFetch(`${MIB_BASE_URL}/profiles`, {
-      headers: {
-        'Referer': `${MIB_BASE_URL}/auth2FA`,
-        'User-Agent': USER_AGENT
-      }
-    }, port);
-
-    if (!profilesRes.ok) {
-      throw new Error(`MIB profiles page load failed: HTTP ${profilesRes.status}`);
-    }
-
-    const profilesHtml = await profilesRes.text();
-    logApiDebug(port, profilesHtml, 'MIB');
-    try {
-      rTag = extractRTag(profilesHtml);
-    } catch (e) {
-      emitLog(port, `> [MIB] DEBUG: profilesHtml content snippet: ${profilesHtml.substring(0, 1000)}`);
-      throw e;
-    }
-    const profiles = parseProfilesFromHtml(profilesHtml);
-    const profileNames = profiles.map(p => p.name || 'Unknown').join(', ');
-    emitLog(port, `> [MIB] Found ${profiles.length} profile(s): [${profileNames}]`);
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 7: Switch Profile — POST /aProfileHandler/switchProfile
-    // ═══════════════════════════════════════════════════════════════
-    if (profiles.length > 0) {
-      // Find matching profile type if possible, otherwise default to first
-      const selectedProfile = profiles.find(p => p.type === profileType) || profiles[0];
-      const activeRTag = selectedProfile.rTag || rTag;
-      emitLog(port, `> [MIB] Step 7: Switching to profile ${selectedProfile.id} (type: ${selectedProfile.type}, payload profileType requested: ${profileType})...`);
-
-      const switchRes = await mibFetch(`${MIB_BASE_URL}/aProfileHandler/switchProfile`, {
-        method: 'POST',
-        headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/profiles` },
-        body: buildFormBody({
-          rTag: activeRTag,
-          profileId: selectedProfile.id,
-          profileType: profileType
-        })
-      }, port);
-
-      // HAR shows HTTP 203 = success with redirect to /accounts
-      if (!isMibSuccess(switchRes.status)) {
-        throw new Error(`MIB profile switch failed: HTTP ${switchRes.status}`);
-      }
-
-      let switchData;
-      try {
-        switchData = await switchRes.json();
-      } catch (e) {
-        // HTTP 203 may have empty body — treat as success
-        if (switchRes.status === 203) {
-          switchData = { status: 'success', redirect: '/accounts' };
-        } else {
-          switchData = { status: 'success' };
-        }
-      }
-
-      if (switchData.status === 'error') {
-        throw new Error(`MIB profile switch failed: ${switchData.message || 'Unknown error'}`);
-      }
-      emitLog(port, `> [MIB] ✓ Profile switched successfully (HTTP ${switchRes.status}).`);
-    } else {
-      emitLog(port, `> [MIB] No profiles found. Proceeding with default profile...`);
-    }
-
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 8: Load Accounts — GET /accounts
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [MIB] Step 8: Loading accounts dashboard...`);
-    const accountsRes = await mibFetch(`${MIB_BASE_URL}/accounts`, {
-      headers: {
-        'Referer': `${MIB_BASE_URL}/profiles`,
-        'User-Agent': USER_AGENT
-      }
-    }, port);
-
-    if (!accountsRes.ok) {
-      throw new Error(`MIB accounts page load failed: HTTP ${accountsRes.status}`);
-    }
-
-    const accountsHtml = await accountsRes.text();
-    const parsedAccounts = parseAccountsFromHtml(accountsHtml);
-    const foundAccNos = parsedAccounts.map(a => a.accountNo).join(', ');
-    emitLog(port, `> [MIB] Found ${parsedAccounts.length} account(s) in dashboard: [${foundAccNos}]`);
-
-    // If fetch_only mode returned 0 accounts, the session has expired — fall back to fresh login
-    if (sessionMode === 'fetch_only' && parsedAccounts.length === 0) {
-      emitLog(port, `> [MIB] ⚠ Session appears expired (0 accounts in fetch_only mode). Falling back to fresh_login...`);
-      return await runMibFlow(credentials, targetAccount, port, targetAmount, profileType, mode, 'fresh_login');
-    }
-
-    // Extract rTag from accounts page if we don't have one yet (e.g. fetch_only mode)
-    if (!rTag) {
-      try {
-        updateRTag(extractRTag(accountsHtml));
-        emitLog(port, `> [MIB] ✓ Extracted rTag from accounts page: ${rTag.substring(0, 8)}...`);
-      } catch (e) {
-        emitLog(port, `> [MIB] ⚠ Could not extract rTag from accounts page.`);
-      }
-    }
-
-    // Find the target account
-    let matchedAccountNo = null;
-    for (const acc of parsedAccounts) {
-      if (acc.accountNo === targetAccount || acc.accountNo.includes(targetAccount) || targetAccount.includes(acc.accountNo)) {
-        matchedAccountNo = acc.accountNo;
-        break;
-      }
-    }
-
-    // If no match found in parsed accounts, use the target directly
-    if (!matchedAccountNo) {
-      emitLog(port, `> [MIB] Target account ${targetAccount} not found in parsed accounts. Using directly...`);
-      matchedAccountNo = targetAccount;
-    } else {
-      emitLog(port, `> [MIB] ✓ Matched account: ${matchedAccountNo}`);
-    }
-
-    // Attempt parsing balance directly from dashboard overview card first
-    let dashboardBalance = null;
-    try {
-      const accountIndex = accountsHtml.indexOf(matchedAccountNo);
-      if (accountIndex !== -1) {
-        const start = Math.max(0, accountIndex - 800);
-        const end = Math.min(accountsHtml.length, accountIndex + 800);
-        const section = accountsHtml.substring(start, end);
-        const balMatch = section.match(/Available\s+Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
-                      || section.match(/Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
-                      || section.match(/(?:MVR|USD)\s*(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
-                      || section.match(/(\b\d+(?:,\d{3})*\.\d{2}\b)/);
-        if (balMatch) {
-          dashboardBalance = balMatch[1];
-          emitLog(port, `> [MIB] ✓ Extracted balance from dashboard card for ${matchedAccountNo}: ${dashboardBalance} MVR`);
-        }
-      }
-    } catch (err) {
-      emitLog(port, `> [MIB] Error extracting balance from dashboard HTML: ${err.message}`);
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 8B: Load Account Details — GET /accountDetails
-    // HAR: trxHistory was called from /accountDetails page context
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [MIB] Step 8B: Loading account details page...`);
-    const accDetailsRes = await mibFetch(`${MIB_BASE_URL}/accountDetails?accountNo=${matchedAccountNo}`, {
-      headers: {
-        'Referer': `${MIB_BASE_URL}/accounts`,
-        'User-Agent': USER_AGENT
-      }
-    }, port);
-
-    let mibBalance = dashboardBalance || "Not found";
-    if (!accDetailsRes.ok) {
-      emitLog(port, `> [MIB] Account details returned ${accDetailsRes.status}. Continuing anyway...`);
-    } else {
-      emitLog(port, `> [MIB] ✓ Account details page loaded.`);
-      try {
-        const detailsHtml = await accDetailsRes.clone().text();
-        const balanceMatch = detailsHtml.match(/Available\s+Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
-                          || detailsHtml.match(/Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
-                          || detailsHtml.match(/(?:MVR|USD)\s*(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
-                          || detailsHtml.match(/(\b\d+(?:,\d{3})*\.\d{2}\b)/);
-        if (balanceMatch) {
-          mibBalance = balanceMatch[1];
-          emitLog(port, `> [MIB] 💰 Balance parsed from details page: ${mibBalance} MVR`);
-        } else {
-          emitLog(port, `> [MIB] No balance parsed from details page. Available fallback: ${mibBalance}`);
-        }
-        // Extract rTag from details page for the trxHistory POST only if missing
-        if (!rTag) {
-          try {
-            updateRTag(extractRTag(detailsHtml));
-            emitLog(port, `> [MIB] ✓ Refreshed rTag from details page: ${rTag.substring(0, 8)}...`);
-          } catch (e) {
-            emitLog(port, `> [MIB] Could not extract rTag from details page — keeping previous.`);
-          }
-        }
-      } catch (err) {
-        emitLog(port, `> [MIB] Error parsing balance: ${err.message}`);
-      }
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 9: Fetch Transaction History — POST /ajaxAccounts/trxHistory
-    // HAR: Status 200, empty fromDate/toDate (no date filtering)
-    // ═══════════════════════════════════════════════════════════════
-    emitLog(port, `> [MIB] Step 9: Fetching transaction history for ${matchedAccountNo} (Endpoint: ${MIB_BASE_URL}/ajaxAccounts/trxHistory)...`);
-
-    const historyRes = await mibFetch(`${MIB_BASE_URL}/ajaxAccounts/trxHistory`, {
-      method: 'POST',
-      headers: {
-        ...mibHeaders,
-        'Referer': `${MIB_BASE_URL}/accountDetails?accountNo=${matchedAccountNo}`
-      },
-      body: buildFormBody({
-        accountNo: matchedAccountNo,
-        trxNo: '',
-        trxType: '0',
-        sortTrx: 'date',
-        sortDir: 'desc',
-        fromDate: '',
-        toDate: '',
-        start: '1',
-        end: '10',
-        includeCount: '1'
-      })
-    }, port);
-
-    if (!historyRes.ok) {
-      throw new Error(`MIB transaction history failed: HTTP ${historyRes.status}`);
-    }
-
-    // Parse the transaction history response
-    let historyData;
-    try {
-      historyData = await historyRes.json();
-    } catch (e) {
-      const text = await historyRes.clone().text();
-      emitLog(port, `> [MIB] Transaction history response (non-JSON): ${text.substring(0, 300)}`);
-      throw new Error('MIB transaction history response was not valid JSON');
-    }
-
-    emitLog(port, `> [MIB] Raw history response: ${JSON.stringify(historyData)}`);
-
-    let transactions = [];
-    if (historyData) {
-      if (Array.isArray(historyData.data)) {
-        transactions = historyData.data;
-      } else if (historyData.data && Array.isArray(historyData.data.transactions)) {
-        transactions = historyData.data.transactions;
-      } else if (Array.isArray(historyData.transactions)) {
-        transactions = historyData.transactions;
-      } else if (Array.isArray(historyData)) {
-        transactions = historyData;
-      }
-    }
-
-    const targetAmtNum = parseFloat(targetAmount) || 0;
-
-    let matchFound = null;
-    if (mode === 'search') {
-      emitLog(port, `> [MIB] Found ${transactions.length} transaction(s). Searching for ${targetAmount} MVR credit...`);
-      const matchingTxs = transactions.filter(tx => {
-        // Use foreignAmount for non-MVR accounts (e.g. USD) to match against actual currency values
-        const rawAmt = (tx.foreignAmount !== undefined && tx.foreignAmount !== null && tx.curCodeDesc && tx.curCodeDesc !== 'MVR')
-          ? parseFloat(tx.foreignAmount) || 0
-          : parseFloat(tx.amount || tx.baseAmount) || 0;
-        const txAmount = Math.abs(rawAmt);
-        const isCredit = rawAmt > 0 || tx.type === 'credit' || tx.credit || tx.trxType === 'credit';
-        return targetAmtNum > 0 && Math.abs(txAmount - targetAmtNum) < 0.01 && isCredit;
-      });
-      last3Txs = normalizeTransactions(matchingTxs, 'MIB', 3);
-      if (matchingTxs.length > 0) {
-        matchFound = matchingTxs[0];
-        emitLog(port, `> [MIB] ✓ MATCH FOUND: ${matchFound.description || matchFound.descr1 || matchFound.reference || 'Transaction'} — ${matchFound.amount || matchFound.baseAmount}`);
-      }
-    } else if (mode === 'ledger') {
-      emitLog(port, `> [MIB] Found ${transactions.length} transaction(s). Fetching ledger history...`);
-      last3Txs = normalizeTransactions(transactions, 'MIB', 50);
-    } else {
-      // mode === 'history'
-      emitLog(port, `> [MIB] Found ${transactions.length} transaction(s). Fetching recent history...`);
-      last3Txs = normalizeTransactions(transactions, 'MIB', 3);
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // STEP 10: Logout and Report
-    // ═══════════════════════════════════════════════════════════════
-    if (!heldSession && sessionMode !== 'claim_and_login') {
-      emitLog(port, `> [MIB] Step 10: Logging out and cleaning up...`);
-      try {
-        await mibFetch(`${MIB_BASE_URL}/aAuth/logout`, {
-          method: 'POST',
-          headers: {
-            ...mibHeaders,
-            'Referer': `${MIB_BASE_URL}/accountDetails?accountNo=${matchedAccountNo}`
-          },
-          body: ''
-        }, port);
-        emitLog(port, `> [MIB] ✓ Session destroyed.`);
-      } catch (e) {
-        emitLog(port, `> [MIB] Session destruction failed: ${e.message}`);
-      }
-
-      // Clear MIB cookies after logout
-      const postLogoutCookies = await chrome.cookies.getAll({ domain: "mib.com.mv" });
-      for (const cookie of postLogoutCookies) {
-        const protocol = cookie.secure ? "https://" : "http://";
-        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
-        const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
-        await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
-      }
-    } else {
-      emitLog(port, `> [MIB] Session holder mode active: keeping MIB session alive.`);
-    }
-
-    // Report result
-    if (mode === 'history' || mode === 'ledger') {
-      emitLog(port, `> [Viri Bridge] MIB ${mode.toUpperCase()} FETCH SUCCESS.`);
-      port.postMessage({
-        type: 'success',
-        data: null,
-        balance: mibBalance,
-        transactions: last3Txs,
-        raw_history: transactions
-      });
-    } else {
-      if (matchFound) {
-        emitLog(port, `> [Viri Bridge] MIB VERIFICATION SUCCESS: ${matchFound.reference || matchFound.description || 'Transaction matched'}`);
-        const normalizedMatch = normalizeTransactions([matchFound], 'MIB', 1)[0];
-        port.postMessage({
-          type: 'success',
-          data: {
-            status: 'CREDITED',
-            reference: matchFound.reference || matchFound.descr1 || matchFound.description || 'MIB-MATCH',
-            amount: Math.abs(parseFloat(
-              (matchFound.foreignAmount !== undefined && matchFound.foreignAmount !== null && matchFound.curCodeDesc && matchFound.curCodeDesc !== 'MVR')
-                ? matchFound.foreignAmount
-                : (matchFound.amount || matchFound.baseAmount)
-            )).toFixed(2),
-            timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString(),
-            transaction: normalizedMatch
-          },
-          balance: mibBalance,
-          transactions: last3Txs,
-          raw_history: transactions
-        });
-      } else {
-        throw new Error(`Verification Failed: No recent credit transaction found for ${targetAmount} MVR on MIB account ${targetAccount}.`);
-      }
-    }
-
-  } catch (error) {
-    if (port) {
-      emitLog(port, `> [MIB] FATAL ERROR: ${error.message}`);
-    }
-
-    // Attempt cleanup on error
-    try {
-      await fetch(`${MIB_BASE_URL}/aAuth/logout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-          'X-Requested-With': 'XMLHttpRequest',
-          'User-Agent': USER_AGENT
-        },
-        body: '',
-        credentials: 'include'
-      });
-    } catch (e) { /* ignore cleanup errors */ }
-
-    // Clear MIB cookies
-    try {
-      const errorCookies = await chrome.cookies.getAll({ domain: "mib.com.mv" });
-      for (const cookie of errorCookies) {
-        const protocol = cookie.secure ? "https://" : "http://";
-        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
-        const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
-        await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
-      }
-    } catch (e) { /* ignore cleanup errors */ }
-
-    if (port) {
-      try {
-        const isAuth = !!error.auth_failed || /auth failed|otp verification failed|invalid credentials/i.test(error.message);
-        port.postMessage({ 
-          type: 'error', 
-          error: error.message, 
-          transactions: last3Txs || [],
-          login_success: loginSuccess,
-          auth_failed: isAuth
-        });
-      } catch (e) { /* port might already be dead */ }
-    }
-  }
-}
-
-function findMostSimilarProfile(profiles, targetName) {
-  if (!profiles || profiles.length === 0) return null;
-  if (!targetName) return profiles[0];
-
-  const normalize = (str) => {
-    return str.toLowerCase()
-      .replace(/[^a-z0-9\s]/g, '')
-      .replace(/\b(pvt|ltd|co|private|limited|investments|holdings|group|company)\b/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-  };
-
-  const normTarget = normalize(targetName);
-  const targetTokens = normTarget.split(' ').filter(t => t.length > 0);
-
-  let bestProfile = profiles[0];
-  let maxScore = -1;
-
-  for (const profile of profiles) {
-    const profileName = profile.name || '';
-    const normProfile = normalize(profileName);
-    const profileTokens = normProfile.split(' ').filter(t => t.length > 0);
-
-    let score = 0;
-    for (const t of targetTokens) {
-      if (profileTokens.includes(t)) {
-        score += 2;
-      } else if (profileTokens.some(pt => pt.includes(t) || t.includes(pt))) {
-        score += 1;
-      }
-    }
-
-    const lengthDiff = Math.abs(normTarget.length - normProfile.length);
-    score -= lengthDiff * 0.05;
-
-    if (score > maxScore) {
-      maxScore = score;
-      bestProfile = profile;
-    }
-  }
-
-  return bestProfile;
-}
-
-async function runMibMultiProfileFlow(credentials, targetAccount, targetAccountName, port, targetAmount, mode = 'search', sessionMode = 'fresh_login') {
-  emitLog(port, `> [MIB] Starting MIB Faisanet Multi-Profile Auth Flow (sessionMode: ${sessionMode}, targetAccountName: "${targetAccountName}")...`);
-  let last3Txs = [];
-  let loginSuccess = sessionMode === 'fetch_only';
-
-  const mibHeaders = {
-    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-    'X-Requested-With': 'XMLHttpRequest',
-    'User-Agent': USER_AGENT
-  };
-
-  function isMibSuccess(status) { return status === 200 || status === 203; }
-
-  let rTag = null;
-  if (sessionMode !== 'fresh_login' && sessionMode !== 'claim_and_login') {
-    if (currentMibRTag) {
-      rTag = currentMibRTag;
-    } else {
-      const res = await chrome.storage.local.get(['viri_mib_rtag']);
-      if (res.viri_mib_rtag) {
-        currentMibRTag = res.viri_mib_rtag;
-        rTag = currentMibRTag;
-      }
-    }
-  }
-  
-  function updateRTag(newTag) {
-    if (newTag) {
-      rTag = newTag;
-      currentMibRTag = newTag;
-      chrome.storage.local.set({ viri_mib_rtag: newTag });
-    }
-  }
-
-  let mibClockOffset = 0;
-
-  try {
-    if (sessionMode === 'fresh_login' || sessionMode === 'claim_and_login') {
-      emitLog(port, `> [MIB] Step 0: Clearing previous MIB session cookies...`);
-      const mibCookies = await chrome.cookies.getAll({ domain: "mib.com.mv" });
-      for (const cookie of mibCookies) {
-        const protocol = cookie.secure ? "https://" : "http://";
-        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
-        const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
-        await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
-      }
-      emitLog(port, `> [MIB] Cleared ${mibCookies.length} MIB cookies.`);
-
-      emitLog(port, `> [MIB] Step 1: Initializing session...`);
-      const t0 = Date.now();
-      const authPageRes = await mibFetch(`${MIB_BASE_URL}/auth`, {
-        headers: { 'User-Agent': USER_AGENT }
-      }, port);
-      const t3 = Date.now();
-
-      if (!authPageRes.ok) {
-        throw new Error(`MIB auth page load failed: HTTP ${authPageRes.status}`);
-      }
-
-      mibClockOffset = 0;
-      const serverDateHeader = authPageRes.headers.get('date');
-      if (serverDateHeader) {
-        const rtt = t3 - t0;
-        const serverTime = new Date(serverDateHeader).getTime() + Math.round(rtt / 2);
-        mibClockOffset = serverTime - t3;
-        emitLog(port, `> [MIB] Calculated MIB server clock offset (RTT-aware): ${mibClockOffset}ms (RTT: ${rtt}ms)`);
-      }
-
-      const authPageHtml = await authPageRes.text();
-      updateRTag(extractRTag(authPageHtml));
-      emitLog(port, `> [MIB] ✓ Session initialized. rTag: ${rTag.substring(0, 8)}...`);
-
-      emitLog(port, `> [MIB] Step 2: Checking auth type for user...`);
-      const authTypeRes = await mibFetch(`${MIB_BASE_URL}/aAuth/getAuthType`, {
-        method: 'POST',
-        headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth` },
-        body: buildFormBody({ rTag, pgf01: credentials.username, retain: '1' })
-      }, port);
-
-      if (!authTypeRes.ok) {
-        const errText = await authTypeRes.text().catch(() => "");
-        emitLog(port, `> [MIB] getAuthType error body: ${errText}`);
-        throw new Error(`MIB getAuthType failed: HTTP ${authTypeRes.status}. Details: ${errText.substring(0, 200)}`);
-      }
-
-      let authTypeData;
-      try {
-        authTypeData = await authTypeRes.json();
-      } catch (e) {
-        const text = await authTypeRes.clone().text();
-        emitLog(port, `> [MIB] Auth type response (non-JSON): ${text.substring(0, 200)}`);
-        authTypeData = { status: 'success' };
-      }
-
-      if (authTypeData.status === 'error') {
-        throw new Error(`MIB auth type error: ${authTypeData.message || 'Unknown error'}`);
-      }
-      emitLog(port, `> [MIB] ✓ Auth type confirmed: ${JSON.stringify(authTypeData)}`);
-
-      const loginTypeParams = authTypeData?.data?.[0] || {};
-      const loginType = loginTypeParams.loginType;
-      const userSalt = loginTypeParams.userSalt;
-
-      let xAuthRes;
-      if (loginType === 0) {
-        emitLog(port, `> [MIB] Step 3: Submitting primary credentials (simple auth)...`);
-        xAuthRes = await mibFetch(`${MIB_BASE_URL}/aAuth`, {
-          method: 'POST',
-          headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth` },
-          body: buildFormBody({
-            rTag,
-            pgf01: credentials.username,
-            pgf02: credentials.password,
-            retain: '1'
-          })
-        }, port);
-      } else {
-        emitLog(port, `> [MIB] Step 3: Submitting primary credentials (salted auth)...`);
-      emitLog(port, `> [MIB] Plain credentials validation: username provided, password provided`);
-        const clientSalt = generateClientSalt(32);
-        
-        const passHash = await hashPasswordSHA256(credentials.password);
-        const saltedHash = await hashPasswordSHA256(passHash + (userSalt || ""));
-        const clientSaltedHash = await hashPasswordSHA256(clientSalt + saltedHash);
-        
-        emitLog(port, `> [MIB] Computed Client Salt: "${clientSalt}"`);
-        emitLog(port, `> [MIB] Computed SHA-256 Pass Hash: "${passHash}"`);
-        emitLog(port, `> [MIB] Computed Salted Hash: "${saltedHash}"`);
-        emitLog(port, `> [MIB] Computed pgf03 Hash: "${clientSaltedHash}"`);
-
-        xAuthRes = await mibFetch(`${MIB_BASE_URL}/aAuth/xAuth`, {
-          method: 'POST',
-          headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth` },
-          body: buildFormBody({
-            rTag,
-            pgf01: credentials.username,
-            retain: '1',
-            pgf03: clientSaltedHash,
-            clientSalt: clientSalt
-          })
-        }, port);
-      }
-
-      if (!xAuthRes.ok) {
-        const errText = await xAuthRes.text().catch(() => "");
-        emitLog(port, `> [MIB] xAuth failed: HTTP ${xAuthRes.status}. Details: ${errText}`);
-        throw new Error(`MIB xAuth failed: HTTP ${xAuthRes.status}. Details: ${errText.substring(0, 200)}`);
-      }
-
-      let xAuthData;
-      try {
-        xAuthData = await xAuthRes.json();
-      } catch (e) {
-        const text = await xAuthRes.clone().text();
-        emitLog(port, `> [MIB] xAuth response (non-JSON): ${text.substring(0, 200)}`);
-        if (text.includes('dashboard') || text.includes('2FA') || text.includes('redirect') || text.includes('success')) {
-          xAuthData = { status: 'success', redirect: '/dashboard' };
-        } else {
-          throw new Error(`MIB xAuth response not parseable: ${text.substring(0, 100)}`);
-        }
-      }
-
-      if (xAuthData && (xAuthData.success === false || xAuthData.status === 'error')) {
-        const err = new Error(`MIB authentication failed: ${xAuthData.reasonText || xAuthData.message || 'Invalid credentials'}`);
-        err.auth_failed = true;
-        throw err;
-      }
-      emitLog(port, `> [MIB] ✓ Primary authentication successful.`);
-
-      emitLog(port, `> [MIB] Step 4: Loading dashboard...`);
-      const dashboardPageRes = await mibFetch(`${MIB_BASE_URL}/dashboard`, {
-        headers: {
-          'Referer': `${MIB_BASE_URL}/auth`,
-          'User-Agent': USER_AGENT
-        }
-      }, port);
-
-      if (!dashboardPageRes.ok) {
-        throw new Error(`MIB dashboard page load failed: HTTP ${dashboardPageRes.status}`);
-      }
-
-      const dashHtml = await dashboardPageRes.text();
-      try { updateRTag(extractRTag(dashHtml)); } catch (e) {
-        emitLog(port, `> [MIB] Could not extract rTag from dashboard — keeping previous.`);
-      }
-
-      emitLog(port, `> [MIB] Step 4.5: Loading 2FA page...`);
-      const auth2faRes = await mibFetch(`${MIB_BASE_URL}/auth2FA`, {
-        headers: {
-          'Referer': `${MIB_BASE_URL}/dashboard`,
-          'User-Agent': USER_AGENT
-        }
-      }, port);
-
-      if (!auth2faRes.ok) {
-        throw new Error(`MIB 2FA page load failed: HTTP ${auth2faRes.status}`);
-      }
-
-      const auth2faHtml = await auth2faRes.text();
-      try { updateRTag(extractRTag(auth2faHtml)); } catch (e) {
-        emitLog(port, `> [MIB] Could not extract rTag from auth2FA — keeping previous.`);
-      }
-      emitLog(port, `> [MIB] ✓ 2FA page loaded. rTag: ${rTag ? rTag.substring(0, 8) + '...' : 'none'}`);
-
-      const msInWindow = (Date.now() + mibClockOffset) % 30000;
-      const msRemaining = 30000 - msInWindow;
-      if (msRemaining < 4000) {
-        emitLog(port, `> [MIB] OTP window boundary safety: only ${Math.round(msRemaining / 100) / 10}s remaining in epoch. Waiting for next window...`);
-        await new Promise(resolve => setTimeout(resolve, msRemaining + 500));
-      }
-
-      emitLog(port, `> [MIB] Step 5: Generating and submitting TOTP...`);
-      const otpCode = "000000";
-      emitLog(port, `> [MIB] Generated OTP Code submitted`);
-
-      const otpRes = await mibFetch(`${MIB_BASE_URL}/aAuth2FA/verifyOTP`, {
-        method: 'POST',
-        headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/auth2FA` },
-        body: buildFormBody({ otpType: '3', otp: otpCode })
-      }, port);
-
-      if (!isMibSuccess(otpRes.status)) {
-        throw new Error(`MIB OTP verification request failed: HTTP ${otpRes.status}`);
-      }
-
-      let otpData;
-      try {
-        otpData = await otpRes.json();
-      } catch (e) {
-        if (otpRes.status === 203) {
-          otpData = { status: 'success', redirect: '/profiles' };
-        } else {
-          const text = await otpRes.clone().text();
-          if (text.includes('/profiles') || text.includes('success')) {
-            otpData = { status: 'success', redirect: '/profiles' };
-          } else {
-            throw new Error(`MIB OTP response not parseable (HTTP ${otpRes.status}): ${text.substring(0, 100)}`);
-          }
-        }
-      }
-
-      if (otpData.status === 'error') {
-        const err = new Error(`MIB OTP verification failed: ${otpData.message || 'Invalid OTP'}`);
-        err.auth_failed = true;
-        throw err;
-      }
-      emitLog(port, `> [MIB] ✓ OTP verified successfully (HTTP ${otpRes.status}).`);
-      loginSuccess = true;
-
-      emitLog(port, `> [MIB] Step 6: Loading profiles page...`);
-      const profilesRes = await mibFetch(`${MIB_BASE_URL}/profiles`, {
-        headers: {
-          'Referer': `${MIB_BASE_URL}/auth2FA`,
-          'User-Agent': USER_AGENT
-        }
-      }, port);
-
-      if (!profilesRes.ok) {
-        throw new Error(`MIB profiles page load failed: HTTP ${profilesRes.status}`);
-      }
-
-      const profilesHtml = await profilesRes.text();
-      logApiDebug(port, profilesHtml, 'MIB');
-      try {
-        rTag = extractRTag(profilesHtml);
-      } catch (e) {
-        throw e;
-      }
-      const profiles = parseProfilesFromHtml(profilesHtml);
-      const profileNames = profiles.map(p => p.name || 'Unknown').join(', ');
-      emitLog(port, `> [MIB] Found ${profiles.length} profile(s): [${profileNames}]`);
-
-      if (profiles.length > 0) {
-        const selectedProfile = findMostSimilarProfile(profiles, targetAccountName) || profiles[0];
-        const activeRTag = selectedProfile.rTag || rTag;
-        emitLog(port, `> [MIB] Step 7: Selecting profile "${selectedProfile.name}" (ID: ${selectedProfile.id}, type: ${selectedProfile.type}) matching Viri account name "${targetAccountName}"...`);
-
-        const switchRes = await mibFetch(`${MIB_BASE_URL}/aProfileHandler/switchProfile`, {
-          method: 'POST',
-          headers: { ...mibHeaders, 'Referer': `${MIB_BASE_URL}/profiles` },
-          body: buildFormBody({
-            rTag: activeRTag,
-            profileId: selectedProfile.id,
-            profileType: selectedProfile.type || '1'
-          })
-        }, port);
-
-        if (!isMibSuccess(switchRes.status)) {
-          throw new Error(`MIB profile switch failed: HTTP ${switchRes.status}`);
-        }
-
-        let switchData;
-        try {
-          switchData = await switchRes.json();
-        } catch (e) {
-          if (switchRes.status === 203) {
-            switchData = { status: 'success', redirect: '/accounts' };
-          } else {
-            switchData = { status: 'success' };
-          }
-        }
-
-        if (switchData.status === 'error') {
-          throw new Error(`MIB profile switch failed: ${switchData.message || 'Unknown error'}`);
-        }
-        emitLog(port, `> [MIB] ✓ Profile switched successfully (HTTP ${switchRes.status}).`);
-      } else {
-        emitLog(port, `> [MIB] No profiles found. Proceeding with default profile...`);
-      }
-    }
-
-    emitLog(port, `> [MIB] Step 8: Loading accounts dashboard...`);
-    const accountsRes = await mibFetch(`${MIB_BASE_URL}/accounts`, {
-      headers: {
-        'Referer': `${MIB_BASE_URL}/profiles`,
-        'User-Agent': USER_AGENT
-      }
-    }, port);
-
-    if (!accountsRes.ok) {
-      throw new Error(`MIB accounts page load failed: HTTP ${accountsRes.status}`);
-    }
-
-    const accountsHtml = await accountsRes.text();
-    const parsedAccounts = parseAccountsFromHtml(accountsHtml);
-    const foundAccNos = parsedAccounts.map(a => a.accountNo).join(', ');
-    emitLog(port, `> [MIB] Found ${parsedAccounts.length} account(s) in dashboard: [${foundAccNos}]`);
-
-    if (sessionMode === 'fetch_only' && parsedAccounts.length === 0) {
-      emitLog(port, `> [MIB] ⚠ Session appears expired (0 accounts in fetch_only mode). Falling back to fresh_login...`);
-      return await runMibMultiProfileFlow(credentials, targetAccount, targetAccountName, port, targetAmount, mode, 'fresh_login');
-    }
-
-    if (!rTag) {
-      try {
-        updateRTag(extractRTag(accountsHtml));
-        emitLog(port, `> [MIB] ✓ Extracted rTag from accounts page: ${rTag.substring(0, 8)}...`);
-      } catch (e) {
-        emitLog(port, `> [MIB] ⚠ Could not extract rTag from accounts page.`);
-      }
-    }
-
-    let matchedAccountNo = null;
-    for (const acc of parsedAccounts) {
-      if (acc.accountNo === targetAccount || acc.accountNo.includes(targetAccount) || targetAccount.includes(acc.accountNo)) {
-        matchedAccountNo = acc.accountNo;
-        break;
-      }
-    }
-
-    if (!matchedAccountNo) {
-      emitLog(port, `> [MIB] Target account ${targetAccount} not found in parsed accounts. Using directly...`);
-      matchedAccountNo = targetAccount;
-    } else {
-      emitLog(port, `> [MIB] ✓ Matched account: ${matchedAccountNo}`);
-    }
-
-    let dashboardBalance = null;
-    try {
-      const accountIndex = accountsHtml.indexOf(matchedAccountNo);
-      if (accountIndex !== -1) {
-        const start = Math.max(0, accountIndex - 800);
-        const end = Math.min(accountsHtml.length, accountIndex + 800);
-        const section = accountsHtml.substring(start, end);
-        const balMatch = section.match(/Available\s+Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
-                      || section.match(/Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
-                      || section.match(/(?:MVR|USD)\s*(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
-                      || section.match(/(\b\d+(?:,\d{3})*\.\d{2}\b)/);
-        if (balMatch) {
-          dashboardBalance = balMatch[1];
-          emitLog(port, `> [MIB] ✓ Extracted balance from dashboard card for ${matchedAccountNo}: ${dashboardBalance} MVR`);
-        }
-      }
-    } catch (err) {
-      emitLog(port, `> [MIB] Error extracting balance from dashboard HTML: ${err.message}`);
-    }
-
-    emitLog(port, `> [MIB] Step 8B: Loading account details page...`);
-    const accDetailsRes = await mibFetch(`${MIB_BASE_URL}/accountDetails?accountNo=${matchedAccountNo}`, {
-      headers: {
-        'Referer': `${MIB_BASE_URL}/accounts`,
-        'User-Agent': USER_AGENT
-      }
-    }, port);
-
-    let mibBalance = dashboardBalance || "Not found";
-    if (!accDetailsRes.ok) {
-      emitLog(port, `> [MIB] Account details returned ${accDetailsRes.status}. Continuing anyway...`);
-    } else {
-      emitLog(port, `> [MIB] ✓ Account details page loaded.`);
-      try {
-        const detailsHtml = await accDetailsRes.clone().text();
-        const balanceMatch = detailsHtml.match(/Available\s+Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
-                          || detailsHtml.match(/Balance[^]*?(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
-                          || detailsHtml.match(/(?:MVR|USD)\s*(\b\d+(?:,\d{3})*\.\d{2}\b)/i)
-                          || detailsHtml.match(/(\b\d+(?:,\d{3})*\.\d{2}\b)/);
-        if (balanceMatch) {
-          mibBalance = balanceMatch[1];
-          emitLog(port, `> [MIB] 💰 Balance parsed from details page: ${mibBalance} MVR`);
-        } else {
-          emitLog(port, `> [MIB] No balance parsed from details page. Available fallback: ${mibBalance}`);
-        }
-        if (!rTag) {
-          try {
-            updateRTag(extractRTag(detailsHtml));
-            emitLog(port, `> [MIB] ✓ Refreshed rTag from details page: ${rTag.substring(0, 8)}...`);
-          } catch (e) {
-            emitLog(port, `> [MIB] Could not extract rTag from details page — keeping previous.`);
-          }
-        }
-      } catch (err) {
-        emitLog(port, `> [MIB] Error parsing balance: ${err.message}`);
-      }
-    }
-
-    emitLog(port, `> [MIB] Step 9: Fetching transaction history for ${matchedAccountNo} (Endpoint: ${MIB_BASE_URL}/ajaxAccounts/trxHistory)...`);
-
-    const historyRes = await mibFetch(`${MIB_BASE_URL}/ajaxAccounts/trxHistory`, {
-      method: 'POST',
-      headers: {
-        ...mibHeaders,
-        'Referer': `${MIB_BASE_URL}/accountDetails?accountNo=${matchedAccountNo}`
-      },
-      body: buildFormBody({
-        accountNo: matchedAccountNo,
-        trxNo: '',
-        trxType: '0',
-        sortTrx: 'date',
-        sortDir: 'desc',
-        fromDate: '',
-        toDate: '',
-        start: '1',
-        end: '10',
-        includeCount: '1'
-      })
-    }, port);
-
-    if (!historyRes.ok) {
-      throw new Error(`MIB transaction history failed: HTTP ${historyRes.status}`);
-    }
-
-    let historyData;
-    try {
-      historyData = await historyRes.json();
-    } catch (e) {
-      const text = await historyRes.clone().text();
-      emitLog(port, `> [MIB] Transaction history response (non-JSON): ${text.substring(0, 300)}`);
-      throw new Error('MIB transaction history response was not valid JSON');
-    }
-
-    emitLog(port, `> [MIB] Raw history response: ${JSON.stringify(historyData)}`);
-
-    let transactions = [];
-    if (historyData) {
-      if (Array.isArray(historyData.data)) {
-        transactions = historyData.data;
-      } else if (historyData.data && Array.isArray(historyData.data.transactions)) {
-        transactions = historyData.data.transactions;
-      } else if (Array.isArray(historyData.transactions)) {
-        transactions = historyData.transactions;
-      } else if (Array.isArray(historyData)) {
-        transactions = historyData;
-      }
-    }
-
-    const targetAmtNum = parseFloat(targetAmount) || 0;
-
-    let matchFound = null;
-    if (mode === 'search') {
-      emitLog(port, `> [MIB] Found ${transactions.length} transaction(s). Searching for ${targetAmount} MVR credit...`);
-      const matchingTxs = transactions.filter(tx => {
-        const rawAmt = (tx.foreignAmount !== undefined && tx.foreignAmount !== null && tx.curCodeDesc && tx.curCodeDesc !== 'MVR')
-          ? parseFloat(tx.foreignAmount) || 0
-          : parseFloat(tx.amount || tx.baseAmount) || 0;
-        const txAmount = Math.abs(rawAmt);
-        const isCredit = rawAmt > 0 || tx.type === 'credit' || tx.credit || tx.trxType === 'credit';
-        return targetAmtNum > 0 && Math.abs(txAmount - targetAmtNum) < 0.01 && isCredit;
-      });
-      last3Txs = normalizeTransactions(matchingTxs, 'MIB', 3);
-      if (matchingTxs.length > 0) {
-        matchFound = matchingTxs[0];
-        emitLog(port, `> [MIB] ✓ MATCH FOUND: ${matchFound.description || matchFound.descr1 || matchFound.reference || 'Transaction'} — ${matchFound.amount || matchFound.baseAmount}`);
-      }
-    } else if (mode === 'ledger') {
-      emitLog(port, `> [MIB] Found ${transactions.length} transaction(s). Fetching ledger history...`);
-      last3Txs = normalizeTransactions(transactions, 'MIB', 50);
-    } else {
-      emitLog(port, `> [MIB] Found ${transactions.length} transaction(s). Fetching recent history...`);
-      last3Txs = normalizeTransactions(transactions, 'MIB', 3);
-    }
-
-    if (!heldSession && sessionMode !== 'claim_and_login') {
-      emitLog(port, `> [MIB] Step 10: Logging out and cleaning up...`);
-      try {
-        await mibFetch(`${MIB_BASE_URL}/aAuth/logout`, {
-          method: 'POST',
-          headers: {
-            ...mibHeaders,
-            'Referer': `${MIB_BASE_URL}/accountDetails?accountNo=${matchedAccountNo}`
-          },
-          body: ''
-        }, port);
-        emitLog(port, `> [MIB] ✓ Session destroyed.`);
-      } catch (e) {
-        emitLog(port, `> [MIB] Session destruction failed: ${e.message}`);
-      }
-
-      const postLogoutCookies = await chrome.cookies.getAll({ domain: "mib.com.mv" });
-      for (const cookie of postLogoutCookies) {
-        const protocol = cookie.secure ? "https://" : "http://";
-        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
-        const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
-        await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
-      }
-    } else {
-      emitLog(port, `> [MIB] Session holder mode active: keeping MIB session alive.`);
-    }
-
-    if (mode === 'history' || mode === 'ledger') {
-      emitLog(port, `> [Viri Bridge] MIB ${mode.toUpperCase()} FETCH SUCCESS.`);
-      port.postMessage({
-        type: 'success',
-        data: null,
-        balance: mibBalance,
-        transactions: last3Txs,
-        raw_history: transactions
-      });
-    } else {
-      if (matchFound) {
-        emitLog(port, `> [Viri Bridge] MIB VERIFICATION SUCCESS: ${matchFound.reference || matchFound.description || 'Transaction matched'}`);
-        const normalizedMatch = normalizeTransactions([matchFound], 'MIB', 1)[0];
-        port.postMessage({
-          type: 'success',
-          data: {
-            status: 'CREDITED',
-            reference: matchFound.reference || matchFound.descr1 || matchFound.description || 'MIB-MATCH',
-            amount: Math.abs(parseFloat(
-              (matchFound.foreignAmount !== undefined && matchFound.foreignAmount !== null && matchFound.curCodeDesc && matchFound.curCodeDesc !== 'MVR')
-                ? matchFound.foreignAmount
-                : (matchFound.amount || matchFound.baseAmount)
-            )).toFixed(2),
-            timestamp: matchFound.date || matchFound.bookingDate || new Date().toISOString(),
-            transaction: normalizedMatch
-          },
-          balance: mibBalance,
-          transactions: last3Txs,
-          raw_history: transactions
-        });
-      } else {
-        throw new Error(`Verification Failed: No recent credit transaction found for ${targetAmount} MVR on MIB account ${targetAccount}.`);
-      }
-    }
-
-  } catch (error) {
-    if (port) {
-      emitLog(port, `> [MIB] FATAL ERROR: ${error.message}`);
-    }
-
-    try {
-      await fetch(`${MIB_BASE_URL}/aAuth/logout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-          'X-Requested-With': 'XMLHttpRequest',
-          'User-Agent': USER_AGENT
-        },
-        body: '',
-        credentials: 'include'
-      });
-    } catch (e) { }
-
-    try {
-      const errorCookies = await chrome.cookies.getAll({ domain: "mib.com.mv" });
-      for (const cookie of errorCookies) {
-        const protocol = cookie.secure ? "https://" : "http://";
-        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
-        const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
-        await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
-      }
-    } catch (e) { }
-
-    if (port) {
-      try {
-        const isAuth = !!error.auth_failed || /auth failed|otp verification failed|invalid credentials/i.test(error.message);
-        port.postMessage({ 
-          type: 'error', 
-          error: error.message, 
-          transactions: last3Txs || [],
-          login_success: loginSuccess,
-          auth_failed: isAuth
-        });
-      } catch (e) { }
-    }
-  }
-}
 
 // -------------------------------------------------------------
 // BML OAuth Persistence Helpers
@@ -2872,9 +709,16 @@ async function generatePKCE() {
 
 async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken) {
     const port = activePort;
-    if(port) emitLog(port, '> [BML-OAuth] Initiating new tab login flow...');
+    const log = (msg) => {
+        console.log('[BML-OAuth]', msg);
+        if (port) emitLog(port, `> [BML-OAuth] ${msg}`);
+    };
+
+    log(`Starting OAuth flow. terminalId=${terminalId} bankAccountId=${bankAccountId} backendUrl=${backendUrl} bmlUsername=${bmlUsername} profileType=${profileType}`);
     
+    // Clear any stale BML cookies first
     const oldCookies = await chrome.cookies.getAll({ domain: "bankofmaldives.com.mv" });
+    log(`Clearing ${oldCookies.length} old BML cookies...`);
     for (const cookie of oldCookies) {
       const protocol = cookie.secure ? "https://" : "http://";
       const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
@@ -2889,41 +733,53 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
     if (tab.windowId) {
         chrome.windows.update(tab.windowId, { focused: true });
     }
-
-    if(port) emitLog(port, '> [BML-OAuth] Please complete the login and OTP verification in the new tab.');
+    log(`Opened BML login tab id=${tab.id}. Waiting for user to log in...`);
 
     return new Promise((resolve, reject) => {
         let isResolved = false;
         
         const tabUpdateListener = async (tabId, changeInfo, updatedTab) => {
+            if (tabId !== tab.id) return;
+            
             let isSuccessUrl = false;
             if (updatedTab.url) {
-                if (port) emitLog(port, `> [BML-OAuth-Debug] Tab URL updated to: ${updatedTab.url}`);
                 try {
                     const u = new URL(updatedTab.url);
                     const fullPath = u.pathname + u.search + u.hash;
                     const isLoginFlow = fullPath.includes('/web/login') || fullPath.includes('/web/profile') || fullPath.includes('/web/redirect') || fullPath.includes('/oauth/');
                     
-                    if (port) emitLog(port, `> [BML-OAuth-Debug] fullPath: ${fullPath} | isLoginFlow: ${isLoginFlow}`);
+                    // Log all navigations for debugging
+                    console.log(`[BML-OAuth] Tab ${tabId} nav: status=${changeInfo.status} path=${fullPath} isLoginFlow=${isLoginFlow}`);
                     
                     if (!isLoginFlow && (fullPath.includes('/accounts') || fullPath.includes('/dashboard') || fullPath.includes('/home') || fullPath.includes('/overview') || fullPath.includes('/vf/'))) {
                         isSuccessUrl = true;
                     }
-                } catch(e) {}
+                    
+                    // Also accept any non-BML/non-login URL as success (catches future redirects)
+                    if (!isSuccessUrl && !isLoginFlow && u.hostname !== 'www.bankofmaldives.com.mv') {
+                        isSuccessUrl = true;
+                        console.log(`[BML-OAuth] Non-BML URL detected as success: ${updatedTab.url}`);
+                    }
+                } catch(e) { console.error('[BML-OAuth] URL parse error:', e); }
             }
             
-            if (tabId === tab.id && isSuccessUrl) {
+            if (changeInfo.status === 'complete' && isSuccessUrl) {
                 if (!isResolved) {
                     isResolved = true;
                     chrome.tabs.onUpdated.removeListener(tabUpdateListener);
                     chrome.tabs.onRemoved.removeListener(tabRemoveListener);
-                    if(port) emitLog(port, '> [BML-OAuth] Login successful! Performing PKCE exchange...');
+                    log('Login successful! Waiting 1s then performing PKCE exchange...');
+                    
+                    // Small delay to ensure cookies are fully committed after page load
+                    await new Promise(r => setTimeout(r, 1000));
                     
                     try {
                         const pkce = await generatePKCE();
+                        log(`PKCE generated. deviceId=${pkce.deviceId}`);
                         
                         const cookies = await chrome.cookies.getAll({ domain: "bankofmaldives.com.mv" });
                         const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+                        log(`Got ${cookies.length} BML cookies: ${cookies.map(c => c.name).join(', ')}`);
 
                         const authUrl = 'https://www.bankofmaldives.com.mv/internetbanking/oauth/authorize?' + new URLSearchParams({
                             redirect_uri: 'https://app.bankofmaldives.com.mv/oauth/mobile-callback',
@@ -2959,13 +815,17 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                             }]
                         });
                         
+                        log(`Calling oauth/authorize: ${authUrl.substring(0, 120)}...`);
                         const authRes = await fetch(authUrl, {
+                            redirect: 'follow',
                             headers: {
-                                'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0'
+                                'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0',
+                                'Cookie': cookieStr
                             }
                         });
                         
                         await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [ruleId] });
+                        log(`oauth/authorize response: status=${authRes.status} finalUrl=${authRes.url}`);
                         
                         let authCode = null;
                         if (authRes.url && authRes.url.includes('/oauth/mobile-callback')) {
@@ -2973,7 +833,13 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                             authCode = finalUrl.searchParams.get('code');
                         }
                         
-                        if (!authCode) throw new Error("Failed to get auth code from BML. HTTP Status: " + authRes.status);
+                        if (!authCode) {
+                            const body = await authRes.text().catch(() => '(unreadable)');
+                            log(`FAILED to get auth code. Status=${authRes.status} URL=${authRes.url} Body(200)=${body.substring(0,300)}`);
+                            throw new Error(`Failed to get auth code from BML. HTTP Status: ${authRes.status} Final URL: ${authRes.url}`);
+                        }
+                        
+                        log(`Auth code obtained: ${authCode.substring(0, 20)}...`);
                         
                         const tokenBody = new URLSearchParams({
                             'grant_type': 'authorization_code',
@@ -2986,6 +852,7 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                             'x-app-version': '2.1.44.348'
                         });
                         
+                        log('Exchanging auth code for tokens...');
                         const tokenRes = await fetch('https://www.bankofmaldives.com.mv/internetbanking/oauth/token', {
                             method: 'POST',
                             headers: {
@@ -2997,9 +864,13 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                             body: tokenBody.toString()
                         });
                         
-                        const tokenData = await tokenRes.json();
-                        if (!tokenData.access_token) throw new Error("Failed to get access token");
+                        const tokenRawText = await tokenRes.text();
+                        log(`Token endpoint response: status=${tokenRes.status} body=${tokenRawText.substring(0, 200)}`);
+                        let tokenData;
+                        try { tokenData = JSON.parse(tokenRawText); } catch(e) { throw new Error('Token response was not JSON: ' + tokenRawText.substring(0, 200)); }
+                        if (!tokenData.access_token) throw new Error(`Token response missing access_token: ${tokenRawText.substring(0, 200)}`);
                         
+                        log('Tokens obtained! Saving to chrome.storage...');
                         const cacheKey = `bml_oauth_${bmlUsername}_${profileType}`;
                         await chrome.storage.local.set({
                             [cacheKey]: {
@@ -3011,7 +882,10 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                             }
                         });
                         
-                        await fetch(`${backendUrl}/api/bml/oauth/store`, {
+                        const credsHash = await computeCredsHash('BML', bmlUsername);
+                        const storeUrl = `${backendUrl}/bml/oauth/store`;
+                        log(`Saving tokens to backend: ${storeUrl}`);
+                        const storeRes = await fetch(storeUrl, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
@@ -3025,16 +899,20 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                                 access_token: tokenData.access_token,
                                 refresh_token: tokenData.refresh_token,
                                 device_id: pkce.deviceId,
-                                expires_in: tokenData.expires_in
+                                expires_in: tokenData.expires_in,
+                                credentials_hash: credsHash
                             })
-                        }).catch(e => console.error(e));
+                        });
+                        const storeBody = await storeRes.text();
+                        log(`Backend store response: status=${storeRes.status} body=${storeBody}`);
                         
-                        if(port) emitLog(port, '> [BML-OAuth] Tokens acquired and stored successfully.');
+                        log('✅ BML OAuth complete! Tokens acquired and stored successfully.');
                         setTimeout(() => chrome.tabs.remove(tab.id).catch(() => {}), 1000);
                         resolve(true);
                     } catch (e) {
                         chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [9999] }).catch(() => {});
-                        if(port) emitLog(port, '> [BML-OAuth] Error during PKCE exchange: ' + e.message);
+                        console.error('[BML-OAuth] ❌ Error during PKCE exchange:', e);
+                        log(`Error during PKCE exchange: ${e.message}`);
                         setTimeout(() => chrome.tabs.remove(tab.id).catch(() => {}), 1000);
                         reject(e);
                     }
@@ -3047,6 +925,7 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                 isResolved = true;
                 chrome.tabs.onUpdated.removeListener(tabUpdateListener);
                 chrome.tabs.onRemoved.removeListener(tabRemoveListener);
+                console.warn('[BML-OAuth] Tab was closed before completing authentication.');
                 reject(new Error("Login tab was closed before completing authentication."));
             }
         };
@@ -3206,13 +1085,14 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     // --- FETCH DATA ---
 
     // Always fetch dashboard to resolve account UUID and balance
-    emitLog(port, `> [BML-API] Fetching dashboard to resolve account UUID and balance...`);
+    emitLog(port, `> [BML-API] GET ${BASE_URL}/api/mobile/dashboard`);
     const dashRes = await authFetch(`${BASE_URL}/api/mobile/dashboard`);
     if (dashRes.status !== 200) {
       throw new Error(`Failed to load dashboard (HTTP ${dashRes.status}). Maybe token expired.`);
     }
     
     const dashData = await dashRes.json();
+    logApiDebug(port, dashData, 'BML-DASHBOARD');
     if (!dashData.success || !dashData.payload || !dashData.payload.dashboard) {
       throw new Error("Invalid dashboard response format.");
     }
@@ -3227,11 +1107,11 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
       throw new Error(`Account ${targetAccount} not found on this BML profile.`);
     }
     const accountInternalId = accountObj.id;
-    const dashboardBalance = accountObj.balance || null;
+    const dashboardBalance = accountObj.balance || accountObj.available_balance || accountObj.availableBalance || accountObj.working_balance || accountObj.current_balance || null;
     emitLog(port, `> [BML-API] Resolved account UUID: ${accountInternalId}${dashboardBalance !== null ? `, dashboard balance: ${dashboardBalance}` : ''}`);
 
     // Fetch history
-    emitLog(port, `> [BML-API] Fetching today's history from: ${BASE_URL}/api/mobile/account/${accountInternalId}/history/today`);
+    emitLog(port, `> [BML-API] GET ${BASE_URL}/api/mobile/account/${accountInternalId}/history/today`);
     const historyRes = await authFetch(`${BASE_URL}/api/mobile/account/${accountInternalId}/history/today`);
     
     let pendingData = null;
@@ -3420,6 +1300,68 @@ async function fetchBmlStatementRange(credentials, bankAccountId, port, fromDate
       type: 'statement_error',
       error: error.message
     });
+  }
+}
+
+async function fetchBmlHistoryPage(credentials, bankAccountId, port, page, profileType, payloadHardwareId, payloadBackendUrl) {
+  emitLog(port, `> [BML-API] Starting page fetch for account ${bankAccountId}, page ${page}...`);
+  const BASE_URL = 'https://www.bankofmaldives.com.mv/internetbanking';
+  try {
+    const backendUrl = heldSession ? heldSession.backendUrl : (payloadBackendUrl || credentials.backendUrl || '');
+    const terminalId = heldSession ? heldSession.hardwareId : (payloadHardwareId || credentials.terminalId || '');
+    const bmlUsername = credentials?.username || '';
+    const sanctumToken = credentials?.token || '';
+
+    const authFetch = async (url, options = {}) => {
+        const token = await getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken);
+        const headers = options.headers || {};
+        headers['Authorization'] = `Bearer ${token}`;
+        headers['Accept'] = 'application/json';
+        headers['User-Agent'] = 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)';
+        headers['x-app-version'] = '2.1.44.348';
+        return await fetch(url, { ...options, headers });
+    };
+
+    emitLog(port, `> [BML-API] GET ${BASE_URL}/api/mobile/dashboard`);
+    const dashboardRes = await authFetch(`${BASE_URL}/api/mobile/dashboard`);
+    if (dashboardRes.status !== 200) throw new Error("Dashboard fetch failed.");
+    const dashboardData = await dashboardRes.json();
+    logApiDebug(port, dashboardData, 'BML-DASHBOARD');
+    
+    // Find account by matching account or endsWith or matching database id
+    const accountObj = dashboardData.payload?.dashboard?.find(a => 
+      a.account === bankAccountId || 
+      a.account.replace(/X/g, '').endsWith(bankAccountId.slice(-4)) || 
+      (a.id === bankAccountId)
+    );
+    if (!accountObj) throw new Error(`Target account ${bankAccountId} not found.`);
+    const accountInternalId = accountObj.id;
+    const balance = accountObj.balance || accountObj.availableBalance || '0.00';
+
+    emitLog(port, `> [BML-API] GET ${BASE_URL}/api/mobile/account/${accountInternalId}/history/${page}`);
+    const pageRes = await authFetch(`${BASE_URL}/api/mobile/account/${accountInternalId}/history/${page}`);
+    if (pageRes.status !== 200) throw new Error(`History page ${page} failed with status: ${pageRes.status}`);
+    const pageData = await pageRes.json();
+    logApiDebug(port, pageData, 'BML-PAGE-HISTORY');
+
+    if (!pageData.success || !pageData.payload) {
+      throw new Error("Invalid response payload from BML API.");
+    }
+
+    const rawTxs = pageData.payload.history || [];
+    const formattedTxs = normalizeTransactions(rawTxs, 'BML', null);
+    const totalPages = pageData.payload.totalPages || 1;
+
+    emitLog(port, `> [BML-API] Page ${page} fetched successfully. Total pages: ${totalPages}. Transactions found: ${formattedTxs.length}`);
+
+    return {
+      transactions: formattedTxs,
+      totalPages: totalPages,
+      balance: balance
+    };
+  } catch (error) {
+    emitLog(port, `> [BML-API] Error during page fetch: ${error.message}`);
+    throw error;
   }
 }
 
@@ -3656,27 +1598,96 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
         // But if profileSelected is true (single-profile fast-path), OTP is always skipped.
         if (a41Resp.profileSelected) {
           if(port) emitLog(port, '> [MIB-API] A41 single-profile fast-path. No OTP required.');
-          const spProfileId = a41Resp.selectedProfileId || a41ProfileId;
+          const spProfileId = a41Resp.selectedProfileId || a41ProfileId || 'default_profile';
           const spProfileType = a41Resp.selectedProfileType || a41ProfileType || '0';
+          const spProfileName = firstProfile.profileName || a41Resp.selectedProfileName || 'Legacy Profile';
+          const credsHash = await computeCredsHash('MIB', mibUsername);
           if (spProfileId) {
             await chrome.storage.local.set({ mib_profileId: spProfileId, mib_profileType: spProfileType });
             if(port) emitLog(port, `> [MIB-API] Saved profile ${spProfileId} (type ${spProfileType}).`);
           }
           await chrome.storage.session.set({ mibSession: sessionState });
+          
+          try {
+            if(port) emitLog(port, '> [MIB-API] Storing device keys in backend...');
+            const storeResp = await fetch(`${backendUrl}/mib/keys/store`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${sanctumToken}`
+              },
+              body: JSON.stringify({
+                hardware_id: terminalId,
+                bank_account_id: bankAccountId,
+                mib_username: mibUsername,
+                key1: sessionState.key1,
+                key2: sessionState.key2,
+                app_id: sessionState.appId,
+                profile_id: spProfileId,
+                profile_type: spProfileType,
+                profile_name: spProfileName,
+                credentials_hash: credsHash
+              })
+            });
+            if (!storeResp.ok) {
+              const errText = await storeResp.text();
+              throw new Error(`Server failed to store keys: Status ${storeResp.status} - ${errText}`);
+            }
+          } catch (err) {
+            if(port) emitLog(port, `> [MIB-API] Failed to store keys on fast-path: ${err.message}`);
+            throw err;
+          }
+
           return { success: true, skipOtp: true };
         }
         const needsOtp = a41Resp.primaryOTPType || (a41Resp.otpTypes && a41Resp.otpTypes.length > 0);
         if (needsOtp) {
           if(port) emitLog(port, '> [MIB-API] A41 successful. OTP required.');
-          await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'C42', primaryOTPType: a41Resp.primaryOTPType || '3', mibPassword: password, mibUsername, mibProfileId: a41ProfileId, mibProfileType: a41ProfileType } });
+          const spProfileName = firstProfile.profileName || 'Legacy Profile';
+          await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'C42', primaryOTPType: a41Resp.primaryOTPType || '3', mibPassword: password, mibUsername, mibProfileId: a41ProfileId, mibProfileType: a41ProfileType, mibProfileName: spProfileName } });
           return { success: true, requiresOtp: true };
         } else {
           // Fast path, no OTP needed. Save profile and session.
+          const spProfileId = a41ProfileId || 'default_profile';
+          const spProfileType = a41ProfileType || '0';
+          const spProfileName = firstProfile.profileName || 'Legacy Profile';
+          const credsHash = await computeCredsHash('MIB', mibUsername);
           if (a41ProfileId) {
             await chrome.storage.local.set({ mib_profileId: a41ProfileId, mib_profileType: a41ProfileType });
             if(port) emitLog(port, `> [MIB-API] Saved profile ${a41ProfileId} (type ${a41ProfileType}).`);
           }
           await chrome.storage.session.set({ mibSession: sessionState });
+          
+          try {
+            if(port) emitLog(port, '> [MIB-API] Storing device keys in backend...');
+            const storeResp = await fetch(`${backendUrl}/mib/keys/store`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${sanctumToken}`
+              },
+              body: JSON.stringify({
+                hardware_id: terminalId,
+                bank_account_id: bankAccountId,
+                mib_username: mibUsername,
+                key1: sessionState.key1,
+                key2: sessionState.key2,
+                app_id: sessionState.appId,
+                profile_id: spProfileId,
+                profile_type: spProfileType,
+                profile_name: spProfileName,
+                credentials_hash: credsHash
+              })
+            });
+            if (!storeResp.ok) {
+              const errText = await storeResp.text();
+              throw new Error(`Server failed to store keys: Status ${storeResp.status} - ${errText}`);
+            }
+          } catch (err) {
+            if(port) emitLog(port, `> [MIB-API] Failed to store keys on fast-path: ${err.message}`);
+            throw err;
+          }
+
           if(port) emitLog(port, '> [MIB-API] A41 successful. No OTP required.');
           return { success: true, skipOtp: true };
         }
@@ -3722,21 +1733,28 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
   if (resp.success) {
     if(port) emitLog(port, '> [MIB-API] OTP Verified successfully.');
     
-    // C42/A42 returns key1/key2 in data[0]. We save them.
-    if ((flow === 'C42' || flow === 'A42') && resp.data && resp.data[0] && resp.data[0].key1 && resp.data[0].key2) {
-      sessionState.key1 = resp.data[0].key1;
-      sessionState.key2 = resp.data[0].key2;
-      await chrome.storage.local.set({ mib_key1: resp.data[0].key1, mib_key2: resp.data[0].key2 });
+    // Resolve key1/key2 (from C42/A42 response data or fallback to cached sessionState keys)
+    const key1ToSave = (resp.data && resp.data[0] && resp.data[0].key1) ? resp.data[0].key1 : sessionState.key1;
+    const key2ToSave = (resp.data && resp.data[0] && resp.data[0].key2) ? resp.data[0].key2 : sessionState.key2;
+
+    if (key1ToSave && key2ToSave) {
+      sessionState.key1 = key1ToSave;
+      sessionState.key2 = key2ToSave;
+      await chrome.storage.local.set({ mib_key1: key1ToSave, mib_key2: key2ToSave });
       
       // Save profile info from A41 (available in mibAuthTemp for A42 path)
-      const { mibProfileId, mibProfileType } = mibAuthTemp;
+      const { mibProfileId, mibProfileType, mibProfileName } = mibAuthTemp;
+      const spProfileId = mibProfileId || 'default_profile';
+      const spProfileType = mibProfileType || '0';
+      const spProfileName = mibProfileName || 'Legacy Profile';
+      const credsHash = await computeCredsHash('MIB', mibUsername);
       if (mibProfileId) {
         await chrome.storage.local.set({ mib_profileId: mibProfileId, mib_profileType: mibProfileType || '0' });
       }
       
       // Store in backend
       if(port) emitLog(port, '> [MIB-API] Storing device keys in backend...');
-      await fetch(`${backendUrl}/api/mib/keys/store`, {
+      const storeResp = await fetch(`${backendUrl}/mib/keys/store`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -3746,20 +1764,28 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
           hardware_id: terminalId,
           bank_account_id: bankAccountId,
           mib_username: mibUsername,
-          key1: resp.data[0].key1,
-          key2: resp.data[0].key2,
-          app_id: sessionState.appId
+          key1: key1ToSave,
+          key2: key2ToSave,
+          app_id: sessionState.appId,
+          profile_id: spProfileId,
+          profile_type: spProfileType,
+          profile_name: spProfileName,
+          credentials_hash: credsHash
         })
       });
+      if (!storeResp.ok) {
+        const errText = await storeResp.text();
+        throw new Error(`Server failed to store keys: Status ${storeResp.status} - ${errText}`);
+      }
     }
 
     // After C42, use password (still in mibAuthTemp) to establish authenticated web session via A41
-    if (flow === 'C42' && mibPassword && resp.data && resp.data[0] && resp.data[0].key1 && resp.data[0].key2) {
+    if (flow === 'C42' && mibPassword && key1ToSave && key2ToSave) {
       try {
         if(port) emitLog(port, '> [MIB-API] Establishing web session via A41...');
         // sfunc=i resume with new keys
         const iPayload = { cmod: computeCmod().toString(), appId: sessionState.appId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
-        const iResp = await executeMibSfunc('i', iPayload, resp.data[0].key1, { key2: resp.data[0].key2, sfunc: 'i' });
+        const iResp = await executeMibSfunc('i', iPayload, key1ToSave, { key2: key2ToSave, sfunc: 'i' });
         const webSessionKey = await deriveSessionKey(iResp.smod);
         const webXxid = String(iResp.xxid);
         const webNonceGen = iResp.nonceGenerator;
@@ -3809,7 +1835,7 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
   }
 }
 
-async function ensureMibSession(port, terminalId, backendUrl, credentials) {
+async function ensureMibSession(port, terminalId, backendUrl, credentials, targetAccount) {
   let { mibSession } = await chrome.storage.session.get('mibSession');
   if (mibSession && mibSession.sessionKey) {
     // Validate cached session is still alive via lightweight A80 call
@@ -3818,7 +1844,6 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials) {
         nonce: generateNonce(mibSession.nonceGenerator),
         appId: mibSession.appId,
         sodium: generateSodium(),
-        routePath: 'A80',
         xxid: mibSession.xxid
       };
       const a80Resp = await executeMibSfunc('n', a80Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
@@ -3843,13 +1868,22 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials) {
     const tokenRes = await chrome.storage.local.get('sanctumToken');
     if (!tokenRes.sanctumToken) throw new Error("Missing MIB device credentials and no auth token.");
     const params = new URLSearchParams({ hardware_id: terminalId });
-    const keysResp = await fetch(`${backendUrl}/api/mib/keys?${params}`, {
+    if (targetAccount) {
+      params.append('account_number', targetAccount);
+    }
+    const keysResp = await fetch(`${backendUrl}/mib/keys?${params}`, {
       headers: { 'Authorization': `Bearer ${tokenRes.sanctumToken}` }
     });
     if (!keysResp.ok) throw new Error("Missing MIB device credentials. Please link account again.");
     const keysData = await keysResp.json();
     if (!keysData.key1 || !keysData.key2) throw new Error("Server has no MIB keys. Please link account again.");
-    await chrome.storage.local.set({ mib_key1: keysData.key1, mib_key2: keysData.key2, mib_appId: keysData.appId });
+    await chrome.storage.local.set({
+      mib_key1: keysData.key1,
+      mib_key2: keysData.key2,
+      mib_appId: keysData.appId,
+      mib_profileId: keysData.profileId || '',
+      mib_profileType: keysData.profileType || '0'
+    });
     localRes = { mib_appId: keysData.appId, mib_key1: keysData.key1, mib_key2: keysData.key2 };
   }
 
@@ -3872,7 +1906,13 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials) {
     try {
       const { mib_profileId, mib_profileType } = await chrome.storage.local.get(['mib_profileId', 'mib_profileType']);
       if (mib_profileId) {
-        profileSelected = await attemptP47(port, mibSession, mib_profileId, mib_profileType || '0');
+        // FIX 2: Use the returned object to capture accountBalance from the P47 call
+        const p47Result = await attemptP47(port, mibSession, mib_profileId, mib_profileType || '0');
+        profileSelected = p47Result.selected;
+        if (p47Result.accountBalance.length > 0) {
+          await chrome.storage.session.set({ mib_accountBalance: p47Result.accountBalance });
+          if(port) emitLog(port, `> [MIB-API] Cached ${p47Result.accountBalance.length} account balance(s) from P47.`);
+        }
       } else {
         if(port) emitLog(port, '> [MIB-API] No saved profile. Skipping P47.');
       }
@@ -3890,11 +1930,14 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials) {
         if (mib_stored_creds?.username?.length > 0 && mib_stored_creds?.password?.length > 0) {
           credentials = mib_stored_creds;
           if(port) emitLog(port, '> [MIB-API] Using stored fallback credentials for A40.');
+        } else {
+          if(port) emitLog(port, `> [MIB-API] No stored credentials found for A40 fallback.`);
         }
       } catch(e) {}
     }
     const username = credentials?.username?.length > 0 ? credentials.username : '';
     const password = credentials?.password?.length > 0 ? credentials.password : '';
+    if(port && !hasCreds && !username) emitLog(port, '> [MIB-API] WARNING: No MIB credentials available. A40 authentication will be skipped.');
 
     if (!profileSelected && username && password) {
       if(port) emitLog(port, '> [MIB-API] Attempting A40 authentication fallback...');
@@ -3917,40 +1960,70 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials) {
           if(port) emitLog(port, '> [MIB-API] A40 authentication successful.');
 
           // Extract and save profile from A40 response
-          const a40Profiles = a40Resp.operatingProfiles || [];
-          if (a40Profiles.length > 0) {
-            const profileId = a40Profiles[0].profileId || a40Profiles[0].customerProfileId;
-            const profileType = a40Profiles[0].profileType || '0';
-            await chrome.storage.local.set({ mib_profileId: profileId, mib_profileType: profileType });
-            if(port) emitLog(port, `> [MIB-API] Saved profile from A40: ${profileId} (type ${profileType}).`);
-            // Retry P47 with the saved profile
-            profileSelected = await attemptP47(port, mibSession, profileId, profileType);
-          } else {
-            // Single-profile fast-path — A40 may return accountBalance directly
+          // If profileSelected is true (single-profile fast-path), skip P47 and use accountBalance directly
+          if (a40Resp.profileSelected) {
+            if(port) emitLog(port, '> [MIB-API] A40 single-profile fast-path. Profile already selected.');
+            profileSelected = true;
+            // FIX 3: Capture the accountBalance returned directly by A40 on the single-profile fast-path
+            if (Array.isArray(a40Resp.accountBalance) && a40Resp.accountBalance.length > 0) {
+              await chrome.storage.session.set({ mib_accountBalance: a40Resp.accountBalance });
+              if(port) emitLog(port, `> [MIB-API] A40 fast-path: cached ${a40Resp.accountBalance.length} account balance(s).`);
+            }
+            // Also save the selectedProfileId so future P47 calls use the right profile
             if (a40Resp.selectedProfileId) {
               await chrome.storage.local.set({
                 mib_profileId: a40Resp.selectedProfileId,
                 mib_profileType: a40Resp.selectedProfileType || '0'
               });
-              profileSelected = await attemptP47(port, mibSession, a40Resp.selectedProfileId, a40Resp.selectedProfileType || '0');
+            }
+
+          } else {
+            const a40Profiles = a40Resp.operatingProfiles || [];
+            if (a40Profiles.length > 0) {
+              // FIX 4: Always use customerProfileId (P47 payload field) — fall back to profileId only if missing
+              const prof = a40Profiles[0];
+              const profileId = prof.customerProfileId || prof.profileId;
+              const profileType = prof.profileType || '0';
+              await chrome.storage.local.set({ mib_profileId: profileId, mib_profileType: profileType });
+              if(port) emitLog(port, `> [MIB-API] Saved profile from A40: customerProfileId=${profileId} (type ${profileType}).`);
+              // Retry P47 with the saved profile; capture and store the returned balance
+              const p47Result = await attemptP47(port, mibSession, profileId, profileType);
+              profileSelected = p47Result.selected;
+              if (p47Result.accountBalance.length > 0) {
+                await chrome.storage.session.set({ mib_accountBalance: p47Result.accountBalance });
+                if(port) emitLog(port, `> [MIB-API] Cached ${p47Result.accountBalance.length} account balance(s) from P47.`);
+              }
             } else {
-              if(port) emitLog(port, '> [MIB-API] A40 returned no profiles. Trying A80...');
-              // Try A80 fallback to see if session is usable
-              try {
-                const a80Payload = {
-                  nonce: generateNonce(mibSession.nonceGenerator),
-                  appId: mibSession.appId,
-                  sodium: generateSodium(),
-                  routePath: 'A80',
-                  xxid: mibSession.xxid
-                };
-                const a80Resp = await executeMibSfunc('n', a80Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
-                if (a80Resp.success) {
-                  if(port) emitLog(port, '> [MIB-API] A80 fallback succeeded.');
-                  profileSelected = true; // session is authenticated even without explicit profile
+              // Single-profile fast-path — A40 may return accountBalance directly
+              if (a40Resp.selectedProfileId) {
+                await chrome.storage.local.set({
+                  mib_profileId: a40Resp.selectedProfileId,
+                  mib_profileType: a40Resp.selectedProfileType || '0'
+                });
+                const p47Result = await attemptP47(port, mibSession, a40Resp.selectedProfileId, a40Resp.selectedProfileType || '0');
+                profileSelected = p47Result.selected;
+                if (p47Result.accountBalance.length > 0) {
+                  await chrome.storage.session.set({ mib_accountBalance: p47Result.accountBalance });
+                  if(port) emitLog(port, `> [MIB-API] Cached ${p47Result.accountBalance.length} account balance(s) from P47.`);
                 }
-              } catch (a80e) {
-                if(port) emitLog(port, `> [MIB-API] A80 fallback also failed: ${a80e.message}`);
+              } else {
+                if(port) emitLog(port, '> [MIB-API] A40 returned no profiles. Trying A80...');
+                // Try A80 fallback to see if session is usable
+                try {
+                  const a80Payload = {
+                    nonce: generateNonce(mibSession.nonceGenerator),
+                    appId: mibSession.appId,
+                    sodium: generateSodium(),
+                    xxid: mibSession.xxid
+                  };
+                  const a80Resp = await executeMibSfunc('n', a80Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
+                  if (a80Resp.success) {
+                    if(port) emitLog(port, '> [MIB-API] A80 fallback succeeded.');
+                    profileSelected = true; // session is authenticated even without explicit profile
+                  }
+                } catch (a80e) {
+                  if(port) emitLog(port, `> [MIB-API] A80 fallback also failed: ${a80e.message}`);
+                }
               }
             }
           }
@@ -3984,16 +2057,24 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials) {
         await chrome.storage.local.set({ mib_key1: rResp.key1, mib_key2: rResp.key2, mib_appId: freshAppId });
         // Upload fresh keys to server
         try {
-          const { sanctumToken } = await chrome.storage.local.get('sanctumToken');
+          const { sanctumToken, mib_profileId, mib_profileType } = await chrome.storage.local.get(['sanctumToken', 'mib_profileId', 'mib_profileType']);
           if (sanctumToken) {
-            await fetch(`${backendUrl}/api/mib/keys/store`, {
+            const mibUsername = credentials?.username || '';
+            const credsHash = await computeCredsHash('MIB', mibUsername);
+            await fetch(`${backendUrl}/mib/keys/store`, {
               method: 'POST',
               headers: { 'Authorization': `Bearer ${sanctumToken}`, 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 hardware_id: terminalId,
                 bank_account_id: 0,
-                mib_username: credentials?.username || '',
-                key1: rResp.key1, key2: rResp.key2, app_id: freshAppId,
+                mib_username: mibUsername,
+                key1: rResp.key1,
+                key2: rResp.key2,
+                app_id: freshAppId,
+                profile_id: mib_profileId || 'default_profile',
+                profile_type: mib_profileType || '0',
+                profile_name: 'Re-registered Profile',
+                credentials_hash: credsHash
               })
             });
           }
@@ -4036,19 +2117,26 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials) {
             };
             const a40Resp = await executeMibSfunc('n', a40Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
             if (a40Resp.success) {
-              const a40Profiles = a40Resp.operatingProfiles || [];
-              if (a40Profiles.length > 0) {
-                const pid = a40Profiles[0].profileId || a40Profiles[0].customerProfileId;
-                const pt = a40Profiles[0].profileType || '0';
-                await chrome.storage.local.set({ mib_profileId: pid, mib_profileType: pt });
-                profileSelected = await attemptP47(port, mibSession, pid, pt);
-              } else if (a40Resp.selectedProfileId) {
-                await chrome.storage.local.set({ mib_profileId: a40Resp.selectedProfileId, mib_profileType: a40Resp.selectedProfileType || '0' });
-                profileSelected = await attemptP47(port, mibSession, a40Resp.selectedProfileId, a40Resp.selectedProfileType || '0');
+
+              if (a40Resp.profileSelected) {
+                if(port) emitLog(port, '> [MIB-API] Re-auth A40 fast-path. Profile already selected.');
+                profileSelected = true;
+              // Extract balance for current targetAccount from A40 (removed in favor of dynamic A80 fetch)
               } else {
-                const a80Payload = { nonce: generateNonce(mibSession.nonceGenerator), appId: mibSession.appId, sodium: generateSodium(), routePath: 'A80', xxid: mibSession.xxid };
-                const a80Resp = await executeMibSfunc('n', a80Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
-                if (a80Resp.success) profileSelected = true;
+                const a40Profiles = a40Resp.operatingProfiles || [];
+                if (a40Profiles.length > 0) {
+                  const pid = a40Profiles[0].profileId || a40Profiles[0].customerProfileId;
+                  const pt = a40Profiles[0].profileType || '0';
+                  await chrome.storage.local.set({ mib_profileId: pid, mib_profileType: pt });
+                  profileSelected = await attemptP47(port, mibSession, pid, pt);
+                } else if (a40Resp.selectedProfileId) {
+                  await chrome.storage.local.set({ mib_profileId: a40Resp.selectedProfileId, mib_profileType: a40Resp.selectedProfileType || '0' });
+                  profileSelected = await attemptP47(port, mibSession, a40Resp.selectedProfileId, a40Resp.selectedProfileType || '0');
+                } else {
+                  const a80Payload = { nonce: generateNonce(mibSession.nonceGenerator), appId: mibSession.appId, sodium: generateSodium(), xxid: mibSession.xxid };
+                  const a80Resp = await executeMibSfunc('n', a80Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
+                  if (a80Resp.success) profileSelected = true;
+                }
               }
             }
           } catch (a40e) { if(port) emitLog(port, `> [MIB-API] Re-auth A40 failed: ${a40e.message}`); }
@@ -4082,14 +2170,15 @@ async function attemptP47(port, mibSession, profileId, profileType) {
     const p47Resp = await executeMibSfunc('n', p47Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
     if (p47Resp.success) {
       if(port) emitLog(port, '> [MIB-API] P47 profile selected successfully.');
-      return true;
+      // FIX 1: Return the full accountBalance array instead of a bare boolean
+      return { selected: true, accountBalance: Array.isArray(p47Resp.accountBalance) ? p47Resp.accountBalance : [] };
     } else {
       if(port) emitLog(port, `> [MIB-API] P47 failed: ${p47Resp.reasonText}`);
-      return false;
+      return { selected: false, accountBalance: [] };
     }
   } catch (e) {
     if(port) emitLog(port, `> [MIB-API] P47 error: ${e.message}`);
-    return false;
+    return { selected: false, accountBalance: [] };
   }
 }
 
@@ -4100,10 +2189,14 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
   try {
     // Cache valid credentials from PWA for A40 fallback on subsequent calls
     if (credentials?.username?.length > 0 && credentials?.password?.length > 0) {
-      chrome.storage.session.set({ mib_stored_creds: credentials });
+      await chrome.storage.session.set({ mib_stored_creds: credentials });
+      if(port) emitLog(port, `> [MIB-API] Cached credentials for A40 fallback.`);
     }
     
-    const mibSession = await ensureMibSession(port, hardwareId, backendUrl, credentials);
+    const mibSession = await ensureMibSession(port, hardwareId, backendUrl, credentials, targetAccount);
+    
+    // Check if ensureMibSession saved a balance from A40 into session storage
+    let accountBalance = null;
 
     if (sessionMode === 'claim_and_login') {
       emitLog(port, `> [MIB-API] Session claimed. Auth sequence complete.`);
@@ -4125,52 +2218,47 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     });
     await setMibCookies(wvDomain);
 
-    // Fetch account balance from dashboard/accounts endpoint
-    let accountBalance = null;
-    try {
-      const acctRes = await fetch(`https://${wvDomain}/ajaxAccounts/accountDetails`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-          'X-Requested-With': 'XMLHttpRequest',
-          'Accept': 'application/json, text/javascript, */*; q=0.01'
-        },
-        body: buildFormBody({ accountNo: targetAccount })
-      });
-      if (acctRes.ok) {
-        const acctData = await acctRes.json();
-        if (acctData.success && acctData.data) {
-          accountBalance = acctData.data.accountBalance || acctData.data.balance || null;
+    // FIX 5: Read the balance cached during session setup (from A40 fast-path or P47 inside ensureMibSession)
+    // This avoids a redundant P47 call and ensures we use the balance already fetched.
+    {
+      const { mib_accountBalance } = await chrome.storage.session.get('mib_accountBalance');
+      if (Array.isArray(mib_accountBalance) && mib_accountBalance.length > 0) {
+        const match = mib_accountBalance.find(a => String(a.accountNumber).trim() === String(targetAccount).trim());
+        if (match) {
+          accountBalance = match.availableBalance || match.currentBalance || null;
+          if (port) emitLog(port, `> [MIB-API] 💰 Balance from session cache: ${accountBalance}`);
+        } else {
+          if (port) emitLog(port, `> [MIB-API] Session cache has ${mib_accountBalance.length} account(s) but none matched ${targetAccount}. Accounts: ${mib_accountBalance.map(a => a.accountNumber).join(', ')}`);
         }
       }
-    } catch(e) {
-      emitLog(port, `> [MIB-API] WebView balance fetch failed, trying A80...`);
     }
 
-    // Fallback: fetch balance via encrypted A80 API
+    // If still no balance, make a fresh P47 call (e.g. session was restored from a previous flow that didn't cache balance)
     if (!accountBalance) {
       try {
-        const a80Sodium = generateSodium();
-        const a80Nonce = generateNonce(mibSession.nonceGenerator);
-        const a80Payload = {
-          nonce: a80Nonce, appId: mibSession.appId, sodium: a80Sodium,
-          routePath: 'A80', xxid: mibSession.xxid
-        };
-        const a80Resp = await executeMibSfunc('n', a80Payload, mibSession.sessionKey,
-          { xxid: mibSession.xxid, sfunc: 'n' });
-        if (a80Resp.success && Array.isArray(a80Resp.data)) {
-          const match = a80Resp.data.find(a => String(a.accountNo) === String(targetAccount));
-          if (match) {
-            accountBalance = match.accountBalance || match.balance || match.availableBalance || null;
+        const { mib_profileId, mib_profileType } = await chrome.storage.local.get(['mib_profileId', 'mib_profileType']);
+        if (mib_profileId) {
+          if (port) emitLog(port, `> [MIB-API] Querying live bank balance via P47 (no cached balance)...`);
+          const p47Result = await attemptP47(port, mibSession, mib_profileId, mib_profileType || '0');
+          if (p47Result.selected && p47Result.accountBalance.length > 0) {
+            // Store for future use
+            await chrome.storage.session.set({ mib_accountBalance: p47Result.accountBalance });
+            const match = p47Result.accountBalance.find(a => String(a.accountNumber).trim() === String(targetAccount).trim());
+            if (match) {
+              accountBalance = match.availableBalance || match.currentBalance || null;
+              if (port) emitLog(port, `> [MIB-API] 💰 Live balance from bank: ${accountBalance}`);
+            } else {
+              if (port) emitLog(port, `> [MIB-API] ⚠️ P47 returned ${p47Result.accountBalance.length} account(s) but none matched ${targetAccount}. Accounts in response: ${p47Result.accountBalance.map(a => a.accountNumber).join(', ')}`);
+            }
           }
         }
-      } catch(e) {
-        emitLog(port, `> [MIB-API] A80 balance fetch failed (non-fatal): ${e.message}`);
+      } catch (e) {
+        if (port) emitLog(port, `> [MIB-API] P47 balance query failed: ${e.message}`);
       }
     }
+
     if (accountBalance) {
-      emitLog(port, `> [MIB-API] Retrieved account balance: ${accountBalance}`);
+      emitLog(port, `> [MIB-API] Final resolved balance: ${accountBalance}`);
     }
 
     const detailsUrl = `https://${wvDomain}//accountDetails?trxh=1&dashurl=1&accountNo=${targetAccount}`;

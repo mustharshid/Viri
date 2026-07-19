@@ -243,7 +243,9 @@ class CompanyController extends Controller
     public function getBankAccounts(Request $request)
     {
         $tenantId = $request->user()->tenant_id;
-        $accounts = BankAccount::where('tenant_id', $tenantId)->get();
+        $accounts = BankAccount::where('tenant_id', $tenantId)
+            ->with(['mibCredentialProfile.credentialGroup', 'bmlCredentialGroup'])
+            ->get();
         return response()->json($accounts);
     }
 

@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2, Server, Database, Code, Zap, Activity } from 'lucide-react';
 
 const Tooltip = ({ text }: { text: string }) => (
-  <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
+  <div className="relative inline-flex items-center group/tooltip ml-1.5 cursor-help align-middle">
     <Info size={14} className="text-[var(--text-secondary)] hover:text-white transition-colors" />
-    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-3 bg-zinc-900 border border-zinc-700 text-white text-xs leading-relaxed rounded shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 font-normal normal-case">
+    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-3 bg-zinc-900 border border-zinc-700 text-white text-xs leading-relaxed rounded shadow-xl opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none z-50 font-normal normal-case">
       {text}
       <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-zinc-700"></div>
     </div>
@@ -453,11 +453,23 @@ export default function AdminDashboard() {
     if (customVerificationsLimit !== undefined) {
       payload.custom_verifications_limit = customVerificationsLimit;
     }
-    await fetch(`/api/admin/companies/${id}`, {
-      method: 'PUT',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+    console.log('Sending PUT request for company id:', id, 'payload:', payload);
+    try {
+      const res = await fetch(`/api/admin/companies/${id}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error('Update company error response:', res.status, errText);
+        let err;
+        try { err = JSON.parse(errText); } catch(e) { err = { message: errText }; }
+        await customAlert(`Failed to update company: ${err.message || res.statusText}`);
+      }
+    } catch (e: any) {
+      await customAlert(`Error updating company: ${e.message}`);
+    }
     fetchData();
   };
 
@@ -767,7 +779,7 @@ export default function AdminDashboard() {
             {/* Actions */}
             {company.status !== 'active' && (
               <button 
-                onClick={() => updateCompany(company.id, 'active', company.subscription_tier, company.lock_timeout, company.max_terminals, company.license_expires_at, company.features, company.max_bank_accounts, company.custom_verifications_limit)}
+                onClick={() => updateCompany(company.id, 'active', currentTier || subscriptionPlans[0]?.tier_key || 'free_plan', currentLockTimeout, currentMaxTerminals, currentLicenseExpiresAt, company.features, currentMaxBankAccounts, currentCustomVerificationsLimit)}
                 className="btn btn-success text-xs py-1.5 px-3 flex items-center gap-1.5 font-semibold"
               >
                 Activate
@@ -775,7 +787,7 @@ export default function AdminDashboard() {
             )}
             {company.status !== 'suspended' && (
               <button 
-                onClick={() => updateCompany(company.id, 'suspended', company.subscription_tier, company.lock_timeout, company.max_terminals, company.license_expires_at, company.features, company.max_bank_accounts, company.custom_verifications_limit)}
+                onClick={() => updateCompany(company.id, 'suspended', currentTier || subscriptionPlans[0]?.tier_key || 'free_plan', currentLockTimeout, currentMaxTerminals, currentLicenseExpiresAt, company.features, currentMaxBankAccounts, currentCustomVerificationsLimit)}
                 className="btn btn-outline text-xs py-1.5 px-3 border-orange-500/50 text-orange-400 hover:bg-orange-500/10 font-semibold"
               >
                 Suspend
@@ -783,8 +795,8 @@ export default function AdminDashboard() {
             )}
             {company.status !== 'archived' && (
               <button 
-                onClick={() => updateCompany(company.id, 'archived', company.subscription_tier, company.lock_timeout, company.max_terminals, company.license_expires_at, company.features, company.max_bank_accounts, company.custom_verifications_limit)}
-                className="btn btn-outline text-xs py-1.5 px-3 border-zinc-700 text-zinc-400 hover:bg-zinc-800 font-semibold"
+                onClick={() => updateCompany(company.id, 'archived', currentTier || subscriptionPlans[0]?.tier_key || 'free_plan', currentLockTimeout, currentMaxTerminals, currentLicenseExpiresAt, company.features, currentMaxBankAccounts, currentCustomVerificationsLimit)}
+                className="btn btn-outline text-xs py-1.5 px-3 border-zinc-500/50 text-zinc-400 hover:bg-zinc-500/10 font-semibold"
               >
                 Archive
               </button>
@@ -905,7 +917,7 @@ export default function AdminDashboard() {
               <span className="text-xs text-zinc-400 font-mono">seconds</span>
             </div>
           </div>
-\n          {/* Max Bank Accounts limit */}
+          {/* Max Bank Accounts limit */}
           <div className="input-group">
             <label className="input-label flex items-center gap-1">
               Accounts Limit
@@ -1614,62 +1626,6 @@ export default function AdminDashboard() {
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* BML Login Procedure */}
-              <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-colors">
-                <div className="flex justify-between items-start mb-2">
-                  <label className="text-sm font-bold text-white block">BML Login Procedure</label>
-                  <span className="text-xs text-yellow-500 font-mono font-bold bg-yellow-500/10 px-2 py-0.5 rounded uppercase">
-                    {systemSettings.find(s => s.key === 'bml_login_procedure')?.value || 'legacy'}
-                  </span>
-                </div>
-                <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
-                  Toggle between the legacy browser automation script and the new persistent API session with OTP flow.
-                </p>
-                <select
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-yellow-500"
-                  value={systemSettings.find(s => s.key === 'bml_login_procedure')?.value || 'legacy'}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (!systemSettings.find(s => s.key === 'bml_login_procedure')) {
-                        setSystemSettings(prev => [...prev, { id: Date.now(), key: 'bml_login_procedure', value: val, type: 'string' }]);
-                    } else {
-                        setSystemSettings(prev => prev.map(s => s.key === 'bml_login_procedure' ? { ...s, value: val } : s));
-                    }
-                  }}
-                >
-                  <option value="legacy">Legacy (V1 Script)</option>
-                  <option value="api">API (Browser + Persistent Session)</option>
-                </select>
-              </div>
-
-              {/* MIB Login Procedure */}
-              <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-colors">
-                <div className="flex justify-between items-start mb-2">
-                  <label className="text-sm font-bold text-white block">MIB Login Procedure</label>
-                  <span className="text-xs text-green-500 font-mono font-bold bg-green-500/10 px-2 py-0.5 rounded uppercase">
-                    {systemSettings.find(s => s.key === 'mib_login_procedure')?.value || 'legacy'}
-                  </span>
-                </div>
-                <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
-                  Toggle between the legacy browser automation script and the new persistent API session with OTP flow for MIB.
-                </p>
-                <select
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-green-500"
-                  value={systemSettings.find(s => s.key === 'mib_login_procedure')?.value || 'legacy'}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (!systemSettings.find(s => s.key === 'mib_login_procedure')) {
-                        setSystemSettings(prev => [...prev, { id: Date.now(), key: 'mib_login_procedure', value: val, type: 'string' }]);
-                    } else {
-                        setSystemSettings(prev => prev.map(s => s.key === 'mib_login_procedure' ? { ...s, value: val } : s));
-                    }
-                  }}
-                >
-                  <option value="legacy">Legacy (V1 Script)</option>
-                  <option value="api">API (Device Auth + Persistent Session)</option>
-                </select>
-              </div>
-
               {/* Terminal Operation Mode */}
               <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-colors">
                 <div className="flex justify-between items-start mb-2">
