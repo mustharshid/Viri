@@ -32,7 +32,7 @@ class SuperadminController extends Controller
             'max_terminals' => 'sometimes|integer|min:1',
             'max_bank_accounts' => 'sometimes|integer|min:1',
             'license_expires_at' => 'sometimes|nullable|date',
-            'features' => 'sometimes|array',
+            'features' => 'sometimes|nullable|array',
             'custom_verifications_limit' => 'sometimes|nullable|integer|min:0',
         ]);
 
@@ -60,14 +60,16 @@ class SuperadminController extends Controller
 
         // Features updates
         $plan = \App\Models\SubscriptionPlan::where('tier_key', $request->subscription_tier)->first();
-        if ($request->has('features')) {
+        if ($request->filled('features') && is_array($request->features)) {
             $tenant->features = $request->features;
-        } elseif ($oldTier !== $request->subscription_tier && $plan) {
-            // Tier changed and no custom features sent, auto-apply defaults from new tier
-            $tenant->features = $plan->features;
-            $tenant->max_terminals = $plan->max_terminals;
-            $tenant->max_bank_accounts = $plan->max_bank_accounts;
-            $tenant->lock_timeout = $plan->lock_timeout;
+        } else {
+            // If features is missing or empty, or tier changed, apply plan defaults if tenant has no features
+            if (($oldTier !== $request->subscription_tier || empty($tenant->features)) && $plan) {
+                $tenant->features = $plan->features ?? [];
+                if (!$request->has('max_terminals')) $tenant->max_terminals = $plan->max_terminals;
+                if (!$request->has('max_bank_accounts')) $tenant->max_bank_accounts = $plan->max_bank_accounts;
+                if (!$request->has('lock_timeout')) $tenant->lock_timeout = $plan->lock_timeout;
+            }
         }
 
         $tenant->save();
@@ -448,36 +450,46 @@ class SuperadminController extends Controller
 
     public function getDebugInfo()
     {
-        $mibKeys = \App\Models\MibDeviceCredential::with('terminal', 'bankAccount')->get()->map(function ($key) {
+        $mibKeys = \App\Models\MibCredentialGroup::with(['terminal', 'profiles.bankAccounts'])->get()->map(function ($group) {
+            $accounts = [];
+            foreach ($group->profiles as $profile) {
+                foreach ($profile->bankAccounts as $acc) {
+                    $accounts[] = "{$acc->bank_name} {$acc->account_number} ({$profile->profile_name})";
+                }
+            }
             return [
-                'id' => $key->id,
-                'terminal_id' => $key->terminal_id,
-                'terminal_name' => $key->terminal->terminal_name ?? null,
-                'bank_account_id' => $key->bank_account_id,
-                'account_name' => $key->bankAccount->account_name ?? null,
-                'mib_username' => $key->mib_username,
-                'key1_prefix' => substr($key->key1 ?? '', 0, 8) . '...',
-                'key2_prefix' => substr($key->key2 ?? '', 0, 8) . '...',
-                'app_id' => $key->app_id,
-                'obtained_at' => $key->obtained_at,
+                'id' => $group->id,
+                'terminal_id' => $group->terminal_id,
+                'terminal_name' => $group->terminal->terminal_name ?? null,
+                'bank_account_id' => null,
+                'account_name' => count($accounts) > 0 ? implode(', ', $accounts) : 'None linked',
+                'mib_username' => $group->mib_username,
+                'key1_prefix' => substr($group->key1 ?? '', 0, 8) . '...',
+                'key2_prefix' => substr($group->key2 ?? '', 0, 8) . '...',
+                'app_id' => $group->app_id,
+                'obtained_at' => $group->obtained_at ? $group->obtained_at->toIso8601String() : null,
             ];
         });
 
-        $bmlTokens = \App\Models\BmlOAuthToken::with('terminal', 'bankAccount')->get()->map(function ($token) {
+        $bmlTokens = \App\Models\BmlCredentialGroup::with(['terminal', 'bankAccounts'])->get()->map(function ($group) {
+            $accounts = [];
+            foreach ($group->bankAccounts as $acc) {
+                $accounts[] = "{$acc->bank_name} {$acc->account_number}";
+            }
             return [
-                'id' => $token->id,
-                'terminal_id' => $token->terminal_id,
-                'terminal_name' => $token->terminal->terminal_name ?? null,
-                'bank_account_id' => $token->bank_account_id,
-                'account_name' => $token->bankAccount->account_name ?? null,
-                'bml_username' => $token->bml_username,
-                'device_id' => $token->device_id,
-                'token_type' => $token->token_type,
-                'last_grant' => $token->last_grant,
-                'obtained_at' => $token->obtained_at,
-                'expires_at' => $token->expires_at,
-                'has_access_token' => !empty($token->access_token),
-                'has_refresh_token' => !empty($token->refresh_token),
+                'id' => $group->id,
+                'terminal_id' => $group->terminal_id,
+                'terminal_name' => $group->terminal->terminal_name ?? null,
+                'bank_account_id' => null,
+                'account_name' => count($accounts) > 0 ? implode(', ', $accounts) : 'None linked',
+                'bml_username' => $group->bml_username,
+                'device_id' => $group->device_id,
+                'token_type' => $group->token_type,
+                'last_grant' => $group->last_grant,
+                'obtained_at' => $group->obtained_at ? $group->obtained_at->toIso8601String() : null,
+                'expires_at' => $group->expires_at ? $group->expires_at->toIso8601String() : null,
+                'has_access_token' => !empty($group->access_token),
+                'has_refresh_token' => !empty($group->refresh_token),
             ];
         });
 

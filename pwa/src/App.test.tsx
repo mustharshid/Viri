@@ -7,8 +7,8 @@ describe('Viri Dashboard PWA', () => {
     render(<App />);
   });
 
-  it('renders the Viri Zero-Knowledge trust badge', () => {
-    expect(screen.getByText(/Viri Zero-Knowledge Architecture/i)).toBeDefined();
+  it('renders the Viri Cashier Counter PWA subtitle', () => {
+    expect(screen.getByText(/Cashier Counter PWA/i)).toBeDefined();
   });
 
   it('allows selecting the receiving account', () => {

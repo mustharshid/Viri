@@ -11,24 +11,6 @@ use App\Models\AuditLog;
 
 class CompanyController extends Controller
 {
-    public function getSyncHealth(Request $request)
-    {
-        $tenant = $request->user()->tenant;
-        if (!$tenant) {
-            return response()->json(['error' => 'Tenant not found'], 404);
-        }
-
-        return response()->json([
-            'confidence_score' => 100,
-            'efficiency_score' => 1.0,
-            'status' => 'healthy',
-            'failures_24h' => 0,
-            'avg_latency_ms' => 0,
-            'total_requests' => $totalRequests,
-            'total_fetches' => $totalFetches,
-            'backlog' => $totalBacklog,
-        ]);
-    }
     public function getAuditLogs(Request $request)
     {
         $tenantId = $request->user()->tenant_id;

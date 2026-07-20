@@ -67,7 +67,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/company/payments', [CompanyController::class, 'storePayment']);
     
     Route::get('/company/audit-logs', [CompanyController::class, 'getAuditLogs']);
-    Route::get('/company/sync-health', [CompanyController::class, 'getSyncHealth']);
 
     // Session activity logs for Superadmin
     Route::get('/admin/session-logs', [SuperadminController::class, 'getSessionLogs']);
@@ -197,22 +196,8 @@ Route::post('/verify-terminal', function (Request $request) {
         'mib_login_procedure' => 'api',
     ];
 
-    $activeTerminalsCount = DB::table('terminal_account_activity')
-        ->join('terminals', 'terminal_account_activity.terminal_id', '=', 'terminals.id')
-        ->where('terminals.tenant_id', $tenant->id)
-        ->where('terminal_account_activity.updated_at', '>=', DB::raw('NOW() - INTERVAL 30 SECOND'))
-        ->distinct()
-        ->count('terminal_account_activity.terminal_id');
-    $activeTerminalsCount = max(1, $activeTerminalsCount); // fallback to 1 as current terminal is active
-    
-    $forcedMode = $settings['terminal_operation_mode'] ?? 'auto';
-    if ($forcedMode === 'single') {
-        $operationMode = 'Single Terminal';
-    } elseif ($forcedMode === 'multi') {
-        $operationMode = 'Multi-Terminal';
-    } else {
-        $operationMode = $activeTerminalsCount > 1 ? 'Multi-Terminal' : 'Single Terminal';
-    }
+    $activeTerminalsCount = 1;
+    $operationMode = 'Single Terminal';
 
     $bankAccounts = $tenant->bankAccounts;
     $totalConfidence = 0;

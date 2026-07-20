@@ -189,26 +189,23 @@ class SessionController extends Controller
             ->where('expires_at', '<=', now())
             ->update(['status' => 'expired']);
 
-        // Check version gap to see if we should skip fetching
-        $pending = SessionFetchRequest::with(['bankAccount', 'requestingTerminal'])
+        $pending = SessionFetchRequest::with([
+                'bankAccount:id,account_number,account_name,bank_name,mib_profile_type,bml_profile_type,bml_auth_state',
+                'requestingTerminal:id,terminal_name',
+            ])
             ->whereIn('bank_account_id', $accountIds)
             ->where('status', 'pending')
             ->where('expires_at', '>', now())
             ->orderBy('created_at')
             ->get();
 
-        $filteredPending = collect();
-
-        foreach ($pending as $r) {
-            $filteredPending->push($r);
-        }
-
-        if ($filteredPending->isEmpty()) {
+        if ($pending->isEmpty()) {
             return response()->json(['requests' => []]);
         }
 
         // Acquire fetch lock for the accounts we are about to fetch
-        foreach ($filteredPending->unique('bank_account_id') as $r) {
+        $acquiredRequestIds = [];
+        foreach ($pending->unique('bank_account_id') as $r) {
             $acc = $r->bankAccount;
             if ($acc) {
                 // Try to acquire lock
@@ -225,26 +222,30 @@ class SessionController extends Controller
                     ]);
 
                 if ($acquired) {
-                    $r->update([
-                        'holder_received_at' => now(),
-                        'bank_fetch_started_at' => now(),
-                    ]);
+                    $acquiredRequestIds[] = $r->id;
                 }
             }
         }
 
-        $pendingData = $filteredPending->map(fn($r) => [
-            'id'           => $r->id,
-            'bank_account_id' => $r->bank_account_id,
-            'account_number' => $r->bankAccount?->account_number,
-            'account_name'   => $r->bankAccount?->account_name,
-            'bank_name'    => $r->bankAccount?->bank_name,
+        if (!empty($acquiredRequestIds)) {
+            SessionFetchRequest::whereIn('id', $acquiredRequestIds)->update([
+                'holder_received_at' => now(),
+                'bank_fetch_started_at' => now(),
+            ]);
+        }
+
+        $pendingData = $pending->map(fn($r) => [
+            'id'               => $r->id,
+            'bank_account_id'  => $r->bank_account_id,
+            'account_number'   => $r->bankAccount?->account_number,
+            'account_name'     => $r->bankAccount?->account_name,
+            'bank_name'        => $r->bankAccount?->bank_name,
             'mib_profile_type' => $r->bankAccount?->mib_profile_type ?? '0',
             'bml_profile_type' => $r->bankAccount?->bml_profile_type ?? '0',
             'bml_auth_state'   => $r->bankAccount?->bml_auth_state,
-            'request_type' => $r->request_type,
-            'target_amount'=> $r->target_amount,
-            'requester_name' => $r->requestingTerminal?->terminal_name,
+            'request_type'     => $r->request_type,
+            'target_amount'    => $r->target_amount,
+            'requester_name'   => $r->requestingTerminal?->terminal_name,
         ]);
 
         return response()->json(['requests' => $pendingData]);

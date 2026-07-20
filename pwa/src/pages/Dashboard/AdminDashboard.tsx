@@ -447,7 +447,7 @@ export default function AdminDashboard() {
     if (licenseExpiresAt !== undefined) {
       payload.license_expires_at = licenseExpiresAt;
     }
-    if (features !== undefined) {
+    if (features !== undefined && features !== null && (Array.isArray(features) || typeof features === 'object')) {
       payload.features = features;
     }
     if (customVerificationsLimit !== undefined) {

@@ -308,7 +308,7 @@ chrome.runtime.onConnectExternal.addListener((port) => {
             await runMibApiFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', req.mib_profile_type || '0', req.request_type, 'fetch_only', req.hardware_id || payload.hardwareId, req.backend_url || payload.backendUrl);
           } else {
             const bmlAuthState = heldSession ? heldSession.bmlAuthState : req.bml_auth_state;
-            const bmlProfileType = heldSession ? (heldSession.bmlProfileType || '0') : (req.bml_profile_type || '0');
+            const bmlProfileType = payload.bmlProfileType || req.bml_profile_type || (heldSession ? heldSession.bmlProfileType : '0') || '0';
             await runBmlApiFlow(payload.credentials, targetAcc, req.account_name, port, req.target_amount || '1.00', bmlProfileType, req.request_type, 'fetch_only', bmlAuthState, req.hardware_id || payload.hardwareId, req.backend_url || payload.backendUrl);
           }
         } catch (error) {
@@ -317,21 +317,23 @@ chrome.runtime.onConnectExternal.addListener((port) => {
       }
       else if (msg.action === 'FETCH_STATEMENT_RANGE') {
         const payload = msg.payload;
-        const targetAcc = heldSession ? heldSession.accountId : payload.accountId;
+        const targetAccId = payload.accountId || (heldSession ? heldSession.accountId : '');
+        const targetAccNum = payload.accountNumber || (heldSession ? heldSession.accountNumber : null) || targetAccId;
         try {
-          const bmlProfileType = heldSession ? (heldSession.bmlProfileType || '0') : (payload.bmlProfileType || '0');
-          await fetchBmlStatementRange(payload.credentials, targetAcc, port, payload.fromDate, payload.toDate, bmlProfileType, payload.hardwareId, payload.backendUrl);
+          const bmlProfileType = payload.bmlProfileType || (heldSession ? heldSession.bmlProfileType : '0') || '0';
+          await fetchBmlStatementRange(payload.credentials, targetAccId, targetAccNum, port, payload.fromDate, payload.toDate, bmlProfileType, payload.hardwareId, payload.backendUrl);
         } catch (error) {
           port.postMessage({ type: 'statement_error', error: error.message });
         }
       }
       else if (msg.action === 'FETCH_BML_HISTORY_PAGE') {
         const payload = msg.payload;
-        const targetAcc = payload.accountNumber || (heldSession ? (heldSession.accountNumber || heldSession.accountId) : payload.accountId);
+        const targetAccId = payload.accountId || (heldSession ? heldSession.accountId : '');
+        const targetAccNum = payload.accountNumber || (heldSession ? heldSession.accountNumber : null) || targetAccId;
         const page = payload.page || 1;
-        const bmlProfileType = heldSession ? (heldSession.bmlProfileType || '0') : (payload.bmlProfileType || '0');
+        const bmlProfileType = payload.bmlProfileType || (heldSession ? heldSession.bmlProfileType : '0') || '0';
         try {
-          fetchBmlHistoryPage(payload.credentials, targetAcc, port, page, bmlProfileType, payload.hardwareId, payload.backendUrl)
+          fetchBmlHistoryPage(payload.credentials, targetAccId, targetAccNum, port, page, bmlProfileType, payload.hardwareId, payload.backendUrl)
             .then(res => {
               port.postMessage({
                 type: 'history_page_success',
@@ -905,8 +907,11 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                         });
                         const storeBody = await storeRes.text();
                         log(`Backend store response: status=${storeRes.status} body=${storeBody}`);
+                        if (!storeRes.ok) {
+                            throw new Error(`Backend rejected token store (HTTP ${storeRes.status}): ${storeBody.substring(0, 300)}`);
+                        }
                         
-                        log('✅ BML OAuth complete! Tokens acquired and stored successfully.');
+                        log('\u2705 BML OAuth complete! Tokens acquired and stored successfully.');
                         setTimeout(() => chrome.tabs.remove(tab.id).catch(() => {}), 1000);
                         resolve(true);
                     } catch (e) {
@@ -947,7 +952,7 @@ async function getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bml
         // Fetch from server
         try {
             const profileTypeParam = profileType === '1' ? 'business' : 'personal';
-            const res = await fetch(`${backendUrl}/api/bml/oauth/tokens?hardware_id=${terminalId}&bank_account_id=${bankAccountId}&profile_type=${profileTypeParam}`, {
+            const res = await fetch(`${backendUrl}/bml/oauth/tokens?hardware_id=${terminalId}&bank_account_id=${bankAccountId}&profile_type=${profileTypeParam}`, {
                 headers: {
                     'Accept': 'application/json',
                     'Authorization': `Bearer ${sanctumToken}`
@@ -998,7 +1003,7 @@ async function getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bml
             await chrome.storage.local.set({ [cacheKey]: tokens });
             
             // Sync to server
-            fetch(`${backendUrl}/api/bml/oauth/update`, {
+            fetch(`${backendUrl}/bml/oauth/update`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1200,8 +1205,8 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
   }
 }
 
-async function fetchBmlStatementRange(credentials, bankAccountId, port, fromDate, toDate, profileType, payloadHardwareId, payloadBackendUrl) {
-  emitLog(port, `> [BML-API] Starting statement fetch for ${bankAccountId} from ${fromDate} to ${toDate}...`);
+async function fetchBmlStatementRange(credentials, bankAccountId, accountNumber, port, fromDate, toDate, profileType, payloadHardwareId, payloadBackendUrl) {
+  emitLog(port, `> [BML-API] Starting statement fetch for ${accountNumber} from ${fromDate} to ${toDate}...`);
   const BASE_URL = 'https://www.bankofmaldives.com.mv/internetbanking';
   try {
     const backendUrl = heldSession ? heldSession.backendUrl : (payloadBackendUrl || credentials.backendUrl || '');
@@ -1209,10 +1214,21 @@ async function fetchBmlStatementRange(credentials, bankAccountId, port, fromDate
     const bmlUsername = credentials?.username || '';
     const sanctumToken = credentials?.token || '';
 
+    // Verify token exists and is valid. Trigger OAuth fallback if needed.
+    let token = await getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken);
+    if (!token) {
+        emitLog(port, `> [BML-API] Token expired or not present. Initiating OAuth flow...`);
+        await startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken);
+        token = await getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken);
+        if (!token) {
+            throw new Error("Failed to acquire OAuth token after login.");
+        }
+    }
+
     const authFetch = async (url, options = {}) => {
-        const token = await getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken);
+        const currentToken = await getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken) || token;
         const headers = options.headers || {};
-        headers['Authorization'] = `Bearer ${token}`;
+        headers['Authorization'] = `Bearer ${currentToken}`;
         headers['Accept'] = 'application/json';
         headers['User-Agent'] = 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)';
         headers['x-app-version'] = '2.1.44.348';
@@ -1223,13 +1239,21 @@ async function fetchBmlStatementRange(credentials, bankAccountId, port, fromDate
     if (dashboardRes.status !== 200) throw new Error("Dashboard fetch failed.");
     const dashboardData = await dashboardRes.json();
     
-    // Find account by looking for account property ending with the last 4 digits of bankAccountId or matching it
-    const accountObj = dashboardData.payload?.dashboard?.find(a => 
-      a.account === bankAccountId || 
-      a.account.replace(/X/g, '').endsWith(bankAccountId.slice(-4)) || 
-      (a.id === bankAccountId)
+    // Safely match target account: exact match first, or CASA fallback matching only for valid 4+ digit numbers
+    const cleanNum = String(accountNumber || '').trim();
+    const cleanDbId = String(bankAccountId || '').trim();
+    
+    let accountObj = dashboardData.payload?.dashboard?.find(a => 
+      a.account === cleanNum || a.id === cleanNum || a.id === cleanDbId
     );
-    if (!accountObj) throw new Error(`Target account ${bankAccountId} not found.`);
+
+    if (!accountObj && cleanNum.length >= 4) {
+      accountObj = dashboardData.payload?.dashboard?.find(a => 
+        (a.category === 'currentAndSavingAccounts' || a.account_type === 'CASA') &&
+        a.account && a.account.replace(/X/g, '').endsWith(cleanNum.slice(-4))
+      );
+    }
+    if (!accountObj) throw new Error(`Target account ${accountNumber} not found.`);
     const accountInternalId = accountObj.id;
 
     let page = 1;
@@ -1303,8 +1327,8 @@ async function fetchBmlStatementRange(credentials, bankAccountId, port, fromDate
   }
 }
 
-async function fetchBmlHistoryPage(credentials, bankAccountId, port, page, profileType, payloadHardwareId, payloadBackendUrl) {
-  emitLog(port, `> [BML-API] Starting page fetch for account ${bankAccountId}, page ${page}...`);
+async function fetchBmlHistoryPage(credentials, bankAccountId, accountNumber, port, page, profileType, payloadHardwareId, payloadBackendUrl) {
+  emitLog(port, `> [BML-API] Starting page fetch for account ${accountNumber}, page ${page}...`);
   const BASE_URL = 'https://www.bankofmaldives.com.mv/internetbanking';
   try {
     const backendUrl = heldSession ? heldSession.backendUrl : (payloadBackendUrl || credentials.backendUrl || '');
@@ -1312,10 +1336,21 @@ async function fetchBmlHistoryPage(credentials, bankAccountId, port, page, profi
     const bmlUsername = credentials?.username || '';
     const sanctumToken = credentials?.token || '';
 
+    // Verify token exists and is valid. Trigger OAuth fallback if needed.
+    let token = await getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken);
+    if (!token) {
+        emitLog(port, `> [BML-API] Token expired or not present. Initiating OAuth flow...`);
+        await startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken);
+        token = await getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken);
+        if (!token) {
+            throw new Error("Failed to acquire OAuth token after login.");
+        }
+    }
+
     const authFetch = async (url, options = {}) => {
-        const token = await getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken);
+        const currentToken = await getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken) || token;
         const headers = options.headers || {};
-        headers['Authorization'] = `Bearer ${token}`;
+        headers['Authorization'] = `Bearer ${currentToken}`;
         headers['Accept'] = 'application/json';
         headers['User-Agent'] = 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)';
         headers['x-app-version'] = '2.1.44.348';
@@ -1328,13 +1363,21 @@ async function fetchBmlHistoryPage(credentials, bankAccountId, port, page, profi
     const dashboardData = await dashboardRes.json();
     logApiDebug(port, dashboardData, 'BML-DASHBOARD');
     
-    // Find account by matching account or endsWith or matching database id
-    const accountObj = dashboardData.payload?.dashboard?.find(a => 
-      a.account === bankAccountId || 
-      a.account.replace(/X/g, '').endsWith(bankAccountId.slice(-4)) || 
-      (a.id === bankAccountId)
+    // Safely match target account: exact match first, or CASA fallback matching only for valid 4+ digit numbers
+    const cleanNum = String(accountNumber || '').trim();
+    const cleanDbId = String(bankAccountId || '').trim();
+    
+    let accountObj = dashboardData.payload?.dashboard?.find(a => 
+      a.account === cleanNum || a.id === cleanNum || a.id === cleanDbId
     );
-    if (!accountObj) throw new Error(`Target account ${bankAccountId} not found.`);
+
+    if (!accountObj && cleanNum.length >= 4) {
+      accountObj = dashboardData.payload?.dashboard?.find(a => 
+        (a.category === 'currentAndSavingAccounts' || a.account_type === 'CASA') &&
+        a.account && a.account.replace(/X/g, '').endsWith(cleanNum.slice(-4))
+      );
+    }
+    if (!accountObj) throw new Error(`Target account ${accountNumber} not found.`);
     const accountInternalId = accountObj.id;
     const balance = accountObj.balance || accountObj.availableBalance || '0.00';
 

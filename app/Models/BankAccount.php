@@ -48,9 +48,10 @@ class BankAccount extends Model
 
     public function getHasApiTokenAttribute()
     {
-        $hasBml = $this->bml_credential_group_id !== null || \App\Models\BmlOAuthToken::where('bank_account_id', $this->id)->exists();
-        $hasMib = $this->mib_credential_profile_id !== null || \App\Models\MibDeviceCredential::where('bank_account_id', $this->id)->exists();
-        return $hasBml || $hasMib;
+        // Zero-query check: FK columns are always set alongside token storage,
+        // so there is no valid state where the FK is null but a token exists.
+        return $this->bml_credential_group_id !== null
+            || $this->mib_credential_profile_id !== null;
     }
 
     public function tenant()

@@ -21,59 +21,81 @@ class BmlOAuthController extends Controller
             'refresh_token'  => 'required|string',
             'device_id'      => 'required|string',
             'expires_in'     => 'required|integer',
-            'credentials_hash' => 'sometimes|string',
+            'credentials_hash' => 'sometimes|nullable|string',
         ]);
 
         $terminal = \App\Models\Terminal::where('hardware_id', $validated['hardware_id'])->first();
         if (!$terminal) return response()->json(['error' => 'Unauthorized terminal'], 403);
 
         $expiresAt = Carbon::now()->addSeconds($validated['expires_in']);
-        $bmlUsername = $validated['bml_username'] ?? '';
 
-        // 1. Upsert credential group (one per terminal, username, and profile_type)
-        $group = \App\Models\BmlCredentialGroup::updateOrCreate(
-            [
-                'terminal_id'  => $terminal->id,
-                'bml_username' => $bmlUsername,
-                'profile_type' => $validated['profile_type'],
-            ],
-            [
-                'tenant_id'     => $terminal->tenant_id,
+        // Normalize empty username to NULL. Empty string and NULL are semantically the same
+        // (username not yet known), but MySQL treats each NULL as unique in a unique index,
+        // preventing separate accounts from colliding into the same group row.
+        $bmlUsername = ($validated['bml_username'] ?? '') ?: null;
+
+        // Look up the account first — needed for both group resolution and linking.
+        $account = \App\Models\BankAccount::where('id', $validated['bank_account_id'])
+            ->where('tenant_id', $terminal->tenant_id)
+            ->first();
+
+        if ($bmlUsername !== null) {
+            // --- Username known: upsert the tenant-scoped shared group ---------------
+            // Same credentials across multiple accounts (siblings) correctly share ONE
+            // group and therefore ONE token/device_id.
+            $group = \App\Models\BmlCredentialGroup::updateOrCreate(
+                [
+                    'tenant_id'    => $terminal->tenant_id,
+                    'bml_username' => $bmlUsername,
+                    'profile_type' => $validated['profile_type'],
+                ],
+                [
+                    'terminal_id'   => $terminal->id,
+                    'access_token'  => $validated['access_token'],
+                    'refresh_token' => $validated['refresh_token'],
+                    'device_id'     => $validated['device_id'],
+                    'expires_in'    => $validated['expires_in'],
+                    'expires_at'    => $expiresAt,
+                    'obtained_at'   => Carbon::now(),
+                ]
+            );
+        } else {
+            // --- Username unknown: anchor to this account's existing group -----------
+            // The cashier hasn't entered credentials yet (ZK store is empty for this
+            // account), so bml_username is null. We cannot share with siblings because
+            // we don't know the username. Reuse this account's own group if it already
+            // has one; otherwise create a new standalone group (bml_username = NULL).
+            // NULL groups are NOT subject to the username-based unique constraint, so
+            // they never collide with other null-username accounts.
+            $group = $account?->bml_credential_group_id
+                ? \App\Models\BmlCredentialGroup::find($account->bml_credential_group_id)
+                : null;
+
+            $tokenFields = [
+                'terminal_id'   => $terminal->id,
                 'access_token'  => $validated['access_token'],
                 'refresh_token' => $validated['refresh_token'],
                 'device_id'     => $validated['device_id'],
                 'expires_in'    => $validated['expires_in'],
                 'expires_at'    => $expiresAt,
                 'obtained_at'   => Carbon::now(),
-            ]
-        );
+            ];
 
-        // 2. Link bank account to this group
-        $account = \App\Models\BankAccount::where('id', $validated['bank_account_id'])
-            ->where('tenant_id', $terminal->tenant_id)
-            ->first();
+            if ($group) {
+                $group->update($tokenFields);
+            } else {
+                $group = \App\Models\BmlCredentialGroup::create(array_merge($tokenFields, [
+                    'tenant_id'    => $terminal->tenant_id,
+                    'bml_username' => null,
+                    'profile_type' => $validated['profile_type'],
+                ]));
+            }
+        }
+
+        // Link requesting bank account to this group
 
         if ($account) {
             $account->update(['bml_credential_group_id' => $group->id]);
-        }
-
-        // 3. Auto-link siblings by credentials_hash and matching profile_type
-        $hash = $validated['credentials_hash'] ?? null;
-        if ($hash) {
-            $accountProfileType = ($validated['profile_type'] === 'business') ? '1' : '0';
-
-            \App\Models\BankAccount::where('tenant_id', $terminal->tenant_id)
-                ->where('login_credentials_hash', $hash)
-                ->whereNull('bml_credential_group_id')
-                ->where(function ($q) use ($accountProfileType) {
-                    if ($accountProfileType === '0') {
-                        $q->where('bml_profile_type', '0')
-                          ->orWhereNull('bml_profile_type');
-                    } else {
-                        $q->where('bml_profile_type', '1');
-                    }
-                })
-                ->update(['bml_credential_group_id' => $group->id]);
         }
 
         return response()->json(['success' => true]);
@@ -91,8 +113,10 @@ class BmlOAuthController extends Controller
         $group = null;
         $account = null;
 
-        if ($request->has('bml_username') && $request->has('profile_type')) {
-            $group = \App\Models\BmlCredentialGroup::where('terminal_id', $terminal->id)
+        if ($request->has('bml_username') && $request->has('profile_type') && $request->bml_username !== null && $request->bml_username !== '') {
+            // Groups are now keyed by tenant, not terminal — look up by tenant scope.
+            // Only use this path when a real (non-null/non-empty) username is provided.
+            $group = \App\Models\BmlCredentialGroup::where('tenant_id', $terminal->tenant_id)
                 ->where('bml_username', $request->bml_username)
                 ->where('profile_type', $request->profile_type)
                 ->first();

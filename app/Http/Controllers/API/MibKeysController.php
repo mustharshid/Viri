@@ -19,26 +19,28 @@ class MibKeysController extends Controller
             'key1' => 'required|string',
             'key2' => 'required|string',
             'app_id' => 'required|string|max:64',
-            'profile_id' => 'sometimes|string',
-            'profile_type' => 'sometimes|string|max:4',
-            'profile_name' => 'sometimes|string',
-            'credentials_hash' => 'sometimes|string',
+            'profile_id' => 'sometimes|nullable|string',
+            'profile_type' => 'sometimes|nullable|string|max:4',
+            'profile_name' => 'sometimes|nullable|string',
+            'credentials_hash' => 'sometimes|nullable|string',
         ]);
 
         $terminal = \App\Models\Terminal::where('hardware_id', $validated['hardware_id'])->first();
         if (!$terminal) return response()->json(['error' => 'Unauthorized terminal'], 403);
 
-        // 1. Upsert credential group (one per username per terminal)
+        // 1. Upsert credential group — keyed by (tenant_id, mib_username) so the same credentials
+        //    share ONE group across all terminals. terminal_id tracks whichever terminal most
+        //    recently registered or refreshed the device keys.
         $group = \App\Models\MibCredentialGroup::updateOrCreate(
             [
-                'terminal_id' => $terminal->id,
+                'tenant_id'    => $terminal->tenant_id,
                 'mib_username' => $validated['mib_username'],
             ],
             [
-                'tenant_id' => $terminal->tenant_id,
-                'key1' => $validated['key1'],
-                'key2' => $validated['key2'],
-                'app_id' => $validated['app_id'],
+                'terminal_id' => $terminal->id,
+                'key1'        => $validated['key1'],
+                'key2'        => $validated['key2'],
+                'app_id'      => $validated['app_id'],
                 'obtained_at' => Carbon::now(),
             ]
         );
@@ -51,7 +53,7 @@ class MibKeysController extends Controller
         $profile = \App\Models\MibCredentialProfile::updateOrCreate(
             [
                 'credential_group_id' => $group->id,
-                'profile_id' => $profileId,
+                'profile_id'          => $profileId,
             ],
             [
                 'profile_type' => $profileType,
@@ -66,15 +68,6 @@ class MibKeysController extends Controller
 
         if ($account) {
             $account->update(['mib_credential_profile_id' => $profile->id]);
-        }
-
-        // 4. Auto-link siblings by credentials_hash
-        $hash = $validated['credentials_hash'] ?? null;
-        if ($hash) {
-            \App\Models\BankAccount::where('tenant_id', $terminal->tenant_id)
-                ->where('login_credentials_hash', $hash)
-                ->whereNull('mib_credential_profile_id')
-                ->update(['mib_credential_profile_id' => $profile->id]);
         }
 
         return response()->json(['success' => true, 'group_id' => $group->id, 'profile_id' => $profile->id]);
@@ -94,7 +87,8 @@ class MibKeysController extends Controller
         $account = null;
 
         if ($request->has('mib_username')) {
-            $group = \App\Models\MibCredentialGroup::where('terminal_id', $terminal->id)
+            // Groups are now keyed by tenant, not terminal — look up by tenant scope.
+            $group = \App\Models\MibCredentialGroup::where('tenant_id', $terminal->tenant_id)
                 ->where('mib_username', $request->mib_username)
                 ->first();
         } else if ($request->has('bank_account_id')) {
@@ -115,9 +109,9 @@ class MibKeysController extends Controller
             }
         }
 
-        // Fallback 1: any group on this terminal (for legacy accounts not yet linked)
+        // Fallback 1: any group for this tenant (for legacy accounts not yet linked)
         if (!$group) {
-            $group = \App\Models\MibCredentialGroup::where('terminal_id', $terminal->id)->first();
+            $group = \App\Models\MibCredentialGroup::where('tenant_id', $terminal->tenant_id)->first();
             if ($group && $account) {
                 $profile = $account->mibCredentialProfile;
             }

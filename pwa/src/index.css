@@ -21,82 +21,96 @@
 
 /* ─── Light Mode Overrides ─────────────────────────────────────────────────── */
 [data-theme="light"] {
-  --bg-base: #f0f4f8;
-  --bg-surface: rgba(255, 255, 255, 0.85);
+  --bg-base: #f8fafc;
+  --bg-surface: #ffffff;
   --bg-canvas: #ffffff;
 
   --text-primary: #0f172a;
   --text-secondary: #475569;
 
-  --border-color: rgba(0, 0, 0, 0.10);
+  --border-color: rgba(15, 23, 42, 0.12);
   --color-success: #059669;
-  --color-success-glow: rgba(5, 150, 105, 0.35);
+  --color-success-glow: rgba(5, 150, 105, 0.25);
   --color-accent: #2563eb;
   --color-warning: #d97706;
 }
 
 [data-theme="light"] body {
+  background-color: #f1f5f9;
+  color: #0f172a;
   background-image:
-    radial-gradient(circle at 15% 50%, rgba(5, 150, 105, 0.06), transparent 25%),
-    radial-gradient(circle at 85% 30%, rgba(37, 99, 235, 0.06), transparent 25%);
+    radial-gradient(circle at 15% 50%, rgba(5, 150, 105, 0.05), transparent 25%),
+    radial-gradient(circle at 85% 30%, rgba(37, 99, 235, 0.05), transparent 25%);
 }
 
-/* Light Mode specific Tailwind color overrides */
-[data-theme="light"] .text-white { color: var(--text-primary) !important; }
-[data-theme="light"] .text-zinc-200,
+/* Light Mode specific text contrast overrides */
+[data-theme="light"] .text-white,
+[data-theme="light"] .text-zinc-100,
+[data-theme="light"] .text-zinc-200 { color: #0f172a !important; }
+
 [data-theme="light"] .text-zinc-300,
-[data-theme="light"] .text-zinc-400,
-[data-theme="light"] .text-zinc-500,
-[data-theme="light"] .text-zinc-600 { color: var(--text-secondary) !important; }
+[data-theme="light"] .text-zinc-400 { color: #334155 !important; }
 
-[data-theme="light"] [class*="bg-zinc-"],
-[data-theme="light"] [class*="bg-black"] {
-  background-color: rgba(255, 255, 255, 0.7) !important;
+[data-theme="light"] .text-zinc-500,
+[data-theme="light"] .text-zinc-600 { color: #64748b !important; }
+
+/* Light Mode background containers */
+[data-theme="light"] [class*="bg-zinc-950"],
+[data-theme="light"] [class*="bg-zinc-900"],
+[data-theme="light"] [class*="bg-zinc-800"] {
+  background-color: #f8fafc !important;
 }
 
-[data-theme="light"] [class*="border-zinc-"] {
-  border-color: rgba(0, 0, 0, 0.1) !important;
+[data-theme="light"] [class*="bg-black"] {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+}
+
+/* Borders in light mode */
+[data-theme="light"] [class*="border-zinc-"],
+[data-theme="light"] [class*="border-zinc-850"] {
+  border-color: rgba(15, 23, 42, 0.12) !important;
 }
 
 /* Scrollbar in light mode */
 [data-theme="light"] ::-webkit-scrollbar-track { background: #e2e8f0; }
-[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.18); }
-[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.30); }
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(15, 23, 42, 0.25); }
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(15, 23, 42, 0.40); }
 
 /* Inputs in light mode */
 [data-theme="light"] .input-field {
-  background: rgba(255, 255, 255, 0.9);
-  color: #0f172a;
-  border-color: rgba(0, 0, 0, 0.12);
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: rgba(15, 23, 42, 0.15) !important;
 }
-[data-theme="light"] .input-field::placeholder { color: #94a3b8; }
+[data-theme="light"] .input-field::placeholder { color: #94a3b8 !important; }
 [data-theme="light"] .input-field:focus {
-  border-color: var(--color-success);
-  --tw-ring-color: var(--color-success);
+  border-color: #059669 !important;
+  --tw-ring-color: #059669 !important;
 }
 
 /* btn-outline in light mode */
 [data-theme="light"] .btn-outline {
-  border-color: rgba(0, 0, 0, 0.15);
+  border-color: rgba(15, 23, 42, 0.15);
   color: #0f172a;
-  background: rgba(255, 255, 255, 0.7);
+  background: #ffffff;
 }
 [data-theme="light"] .btn-outline:hover {
-  border-color: var(--color-success);
+  border-color: #059669;
   background: rgba(5, 150, 105, 0.08);
 }
 
 /* glass-panel in light mode */
 [data-theme="light"] .glass-panel {
-  background: rgba(255, 255, 255, 0.85);
-  border-color: rgba(0, 0, 0, 0.09);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+  background: #ffffff !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.06);
 }
 
 /* Toggle label in light mode */
 [data-theme="light"] .toggle-label {
   background-color: #e2e8f0;
-  border-color: rgba(0, 0, 0, 0.12);
+  border-color: rgba(15, 23, 42, 0.15);
 }
 
 /* ─── End Light Mode ────────────────────────────────────────────────────────── */

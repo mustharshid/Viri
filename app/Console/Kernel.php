@@ -15,6 +15,10 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\SyncHealthAggregationJob)
                  ->everyMinute()
                  ->timezone('Asia/Maldives');
+
+        $schedule->command('viri:prune-logs')
+                 ->daily()
+                 ->timezone('Asia/Maldives');
     }
 
     /**
