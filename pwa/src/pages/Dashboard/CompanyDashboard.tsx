@@ -76,6 +76,8 @@ export default function CompanyDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [now, setNow] = useState(Date.now());
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [activityLogsPage, setActivityLogsPage] = useState(1);
+  const activityLogsPageSize = 20;
                   {/* Balance sync status removed - now using on-demand fetch only */}
 
   const [deleteConfirm, setDeleteConfirm] = useState<{isOpen: boolean, type: 'terminal' | 'account' | null, id: number | null, name: string}>({isOpen: false, type: null, id: null, name: ''});
@@ -726,8 +728,12 @@ export default function CompanyDashboard() {
       {/* ── Sidebar Navigation ── */}
       <aside className="w-64 border-r border-zinc-800/60 bg-zinc-950/40 backdrop-blur-xl p-6 hidden md:flex flex-col justify-between h-screen sticky top-0 shrink-0">
         <div>
-          <div className="mb-8 flex items-center justify-center p-3 rounded-2xl bg-zinc-900/20 border border-zinc-800/40 shadow-inner">
-            <img src="/logo_en.png" alt="Viri Logo" className="h-16 object-contain filter drop-shadow-[0_0_15px_rgba(16,185,129,0.15)]" />
+          <div className="mb-6 flex items-center justify-start">
+            <img 
+              src={theme === 'light' ? '/logo_en_black.png' : '/logo_en.png'} 
+              alt="Viri Logo" 
+              className="h-10 md:h-12 object-contain" 
+            />
           </div>
           <nav className="space-y-1.5">
             <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'dashboard' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
@@ -766,36 +772,38 @@ export default function CompanyDashboard() {
 
       {/* ── Main Content Area ── */}
       <main className="flex-1 p-6 lg:p-10 overflow-y-auto">
-        <header className="flex justify-between items-center mb-8 bg-zinc-900/10 border border-zinc-800/30 p-5 rounded-2xl backdrop-blur-md">
+        <header className="flex justify-between items-center mb-8 bg-[var(--bg-card)] border border-[var(--border-color)] p-5 rounded-2xl backdrop-blur-md shadow-sm">
           <div>
-            <h1 className="text-2xl font-bold text-white tracking-tight capitalize flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight capitalize flex items-center gap-2">
               {activeTab === 'dashboard' ? 'Overview' : activeTab}
             </h1>
-            <p className="text-zinc-400 text-xs mt-0.5">Manage and monitor cashier counters and local banking setups</p>
+            <p className="text-[var(--text-secondary)] text-xs mt-0.5">Manage and monitor cashier counters and local banking setups</p>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2.5 bg-zinc-900/60 border border-zinc-800/80 px-4 py-2 rounded-xl">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5 bg-[var(--bg-surface)] border border-[var(--border-color)] px-4 py-2 rounded-xl">
               <div className="w-7 h-7 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center font-bold text-xs uppercase shadow-sm">
                 {user?.name?.slice(0, 2) || 'US'}
               </div>
               <div className="text-left hidden sm:block">
-                <div className="text-xs font-bold text-white leading-none">{user?.name}</div>
-                <div className="text-[10px] text-zinc-500 mt-0.5 leading-none">{user?.tenant?.name}</div>
+                <div className="text-xs font-bold text-[var(--text-primary)] leading-none">{user?.name}</div>
+                <div className="text-[10px] text-[var(--text-secondary)] mt-0.5 leading-none">{user?.tenant?.name}</div>
               </div>
               <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded uppercase">
                 {user?.tenant?.subscription_tier === 'free' ? 'Free' : `Tier: ${user?.tenant?.subscription_tier}`}
               </span>
             </div>
             
+            <button onClick={handleLogout} className="btn btn-outline text-xs py-2 flex items-center gap-2 hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-400 transition-all rounded-xl">
+              <LogOut size={14} /> Logout
+            </button>
+
+            {/* Theme Toggle - Positioned in Far Top Right Corner */}
             <button
               onClick={toggleTheme}
               title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-              className="w-10 h-10 flex items-center justify-center rounded-xl border border-zinc-800/80 bg-zinc-900/40 text-zinc-400 hover:text-white hover:border-emerald-500/40 transition-all shadow-sm"
+              className="w-10 h-10 flex items-center justify-center rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-emerald-500/40 transition-all shadow-sm shrink-0"
             >
               {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-            </button>
-            <button onClick={handleLogout} className="btn btn-outline text-xs py-2.5 flex items-center gap-2 hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-400 transition-all rounded-xl">
-              <LogOut size={14} /> Logout
             </button>
           </div>
         </header>
@@ -816,15 +824,15 @@ export default function CompanyDashboard() {
             <div className="grid md:grid-cols-3 gap-6">
               
               {/* Subscription card with dynamic usage metrics */}
-              <div className="glass-panel p-6 flex flex-col justify-between min-h-[220px]">
+              <div className="glass-panel p-6 flex flex-col justify-between min-h-[220px] border border-[var(--border-color)]">
                 <div>
                   <div className="flex justify-between items-start">
-                    <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Subscription</span>
+                    <span className="text-[10px] uppercase font-bold text-[var(--text-secondary)] tracking-wider">Subscription</span>
                     <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full uppercase">
                       {user?.tenant?.subscription_tier === 'free' ? 'Free Trial' : `MVR ${user?.tenant?.subscription_tier}`}
                     </span>
                   </div>
-                  <h3 className="text-lg font-bold text-white mt-3">Monthly Usage</h3>
+                  <h3 className="text-lg font-bold text-[var(--text-primary)] mt-3">Monthly Usage</h3>
                   
                   {/* Dynamic Progress Bar */}
                   {(() => {
@@ -834,13 +842,13 @@ export default function CompanyDashboard() {
                     const percent = limitNum === Infinity ? 0 : Math.min(100, (used / limitNum) * 100);
                     return (
                       <div className="mt-4">
-                        <div className="flex justify-between text-xs text-zinc-400 mb-1.5 font-mono">
+                        <div className="flex justify-between text-xs text-[var(--text-secondary)] mb-1.5 font-mono">
                           <span>{used} / {limitVal} Verifications</span>
                           <span>{percent > 0 ? `${Math.round(percent)}%` : 'Active'}</span>
                         </div>
-                        <div className="w-full bg-zinc-800/80 h-2.5 rounded-full overflow-hidden border border-zinc-700/30">
+                        <div className="w-full bg-zinc-800/20 h-2.5 rounded-full overflow-hidden border border-[var(--border-color)]">
                           <div 
-                            className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-500" 
+                            className="bg-gradient-to-r from-blue-500 to-indigo-400 h-full rounded-full transition-all duration-500" 
                             style={{ width: limitVal === 'Unlimited' ? '10%' : `${percent}%` }}
                           />
                         </div>
@@ -849,33 +857,33 @@ export default function CompanyDashboard() {
                   })()}
                 </div>
                 
-                <div className="border-t border-zinc-800/60 pt-3 mt-4 flex justify-between text-xs text-zinc-500">
+                <div className="border-t border-[var(--border-color)] pt-3 mt-4 flex justify-between text-xs text-[var(--text-secondary)]">
                   <span>Expires:</span>
-                  <span className="font-mono text-zinc-300">{user?.tenant?.license_expires_at ? new Date(user.tenant.license_expires_at).toLocaleDateString() : 'Never'}</span>
+                  <span className="font-mono text-[var(--text-primary)]">{user?.tenant?.license_expires_at ? new Date(user.tenant.license_expires_at).toLocaleDateString() : 'Never'}</span>
                 </div>
               </div>
 
               {/* Terminals summary card */}
-              <div className="glass-panel p-6 flex flex-col justify-between min-h-[220px]">
+              <div className="glass-panel p-6 flex flex-col justify-between min-h-[220px] border border-[var(--border-color)]">
                 <div>
                   <div className="flex justify-between items-start">
-                    <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Counter Limits</span>
-                    <span className="text-xs font-bold text-zinc-300 bg-zinc-800/60 border border-zinc-700/60 px-2 py-0.5 rounded-full">
+                    <span className="text-[10px] uppercase font-bold text-[var(--text-secondary)] tracking-wider">Counter Limits</span>
+                    <span className="text-xs font-bold text-[var(--text-primary)] bg-[var(--bg-surface)] border border-[var(--border-color)] px-2 py-0.5 rounded-full">
                       {terminals.length} / {user?.tenant?.max_terminals ?? 1} Used
                     </span>
                   </div>
-                  <h3 className="text-lg font-bold text-white mt-3">Cashier Counters</h3>
+                  <h3 className="text-lg font-bold text-[var(--text-primary)] mt-3">Cashier Counters</h3>
                   {(() => {
                     const limit = user?.tenant?.max_terminals ?? 1;
                     const used = terminals.length;
                     const percent = Math.min(100, (used / limit) * 100);
                     return (
                       <div className="mt-4">
-                        <div className="flex justify-between text-xs text-zinc-400 mb-1.5 font-mono">
+                        <div className="flex justify-between text-xs text-[var(--text-secondary)] mb-1.5 font-mono">
                           <span>{used} / {limit} Counters</span>
                           <span>{Math.round(percent)}%</span>
                         </div>
-                        <div className="w-full bg-zinc-800/80 h-2 rounded-full overflow-hidden border border-zinc-700/30">
+                        <div className="w-full bg-zinc-800/20 h-2.5 rounded-full overflow-hidden border border-[var(--border-color)]">
                           <div 
                             className="bg-gradient-to-r from-blue-500 to-indigo-400 h-full rounded-full transition-all duration-500" 
                             style={{ width: `${percent}%` }}
@@ -886,7 +894,7 @@ export default function CompanyDashboard() {
                   })()}
                 </div>
                 
-                <div className="pt-3 border-t border-zinc-800/60 mt-4 flex justify-between items-center text-xs">
+                <div className="pt-3 border-t border-[var(--border-color)] mt-4 flex justify-between items-center text-xs">
                   <a href={`/viri/viri-bridge-${LATEST_EXTENSION_VERSION}.zip`} download className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1 hover:underline">
                     <Download size={13} /> Download Extension
                   </a>
@@ -905,28 +913,28 @@ export default function CompanyDashboard() {
               </div>
 
               {/* Bank accounts summary card */}
-              <div className="glass-panel p-6 flex flex-col justify-between min-h-[220px]">
+              <div className="glass-panel p-6 flex flex-col justify-between min-h-[220px] border border-[var(--border-color)]">
                 <div>
                   <div className="flex justify-between items-start">
-                    <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Banking</span>
-                    <span className="text-xs font-bold text-zinc-300 bg-zinc-800/60 border border-zinc-700/60 px-2 py-0.5 rounded-full">
+                    <span className="text-[10px] uppercase font-bold text-[var(--text-secondary)] tracking-wider">Banking</span>
+                    <span className="text-xs font-bold text-[var(--text-primary)] bg-[var(--bg-surface)] border border-[var(--border-color)] px-2 py-0.5 rounded-full">
                       {bankAccounts.length} / {getBankAccountLimit()} Linked
                     </span>
                   </div>
-                  <h3 className="text-lg font-bold text-white mt-3">Linked Accounts</h3>
+                  <h3 className="text-lg font-bold text-[var(--text-primary)] mt-3">Linked Accounts</h3>
                   {(() => {
                     const limit = getBankAccountLimit();
                     const used = bankAccounts.length;
                     const percent = Math.min(100, (used / limit) * 100);
                     return (
                       <div className="mt-4">
-                        <div className="flex justify-between text-xs text-zinc-400 mb-1.5 font-mono">
+                        <div className="flex justify-between text-xs text-[var(--text-secondary)] mb-1.5 font-mono">
                           <span>{used} / {limit} Accounts</span>
                           <span>{Math.round(percent)}%</span>
                         </div>
-                        <div className="w-full bg-zinc-800/80 h-2 rounded-full overflow-hidden border border-zinc-700/30">
+                        <div className="w-full bg-zinc-800/20 h-2.5 rounded-full overflow-hidden border border-[var(--border-color)]">
                           <div 
-                            className="bg-gradient-to-r from-purple-500 to-pink-400 h-full rounded-full transition-all duration-500" 
+                            className="bg-gradient-to-r from-blue-500 to-indigo-400 h-full rounded-full transition-all duration-500" 
                             style={{ width: `${percent}%` }}
                           />
                         </div>
@@ -935,7 +943,7 @@ export default function CompanyDashboard() {
                   })()}
                 </div>
                 
-                <div className="pt-3 border-t border-zinc-800/60 mt-4 text-xs text-zinc-500">
+                <div className="pt-3 border-t border-[var(--border-color)] mt-4 text-xs text-[var(--text-secondary)]">
                   Secure local browser vault storage
                 </div>
               </div>
@@ -944,347 +952,353 @@ export default function CompanyDashboard() {
 
             </div>
 
-            {/* Grid for detailed management */}
-            <div className="grid lg:grid-cols-3 gap-8">
-              
-              {/* Terminals list & creation (2/3 width) */}
-              <div id="cashier-counters-section" className="lg:col-span-2 space-y-6">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            {/* Horizontal Layout Section 1: Cashier Counters Group Card */}
+            <div id="cashier-counters-section" className="glass-panel p-6 space-y-6 border border-[var(--border-color)]">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--border-color)] pb-4">
+                <div>
+                  <h2 className="text-lg font-bold text-[var(--text-primary)] flex items-center gap-2">
                     Cashier Counters
                     <Tooltip text="Create and configure cashier counter device IDs. Edit permissions or allow debugging. Click to learn more." onClick={() => navigateToHelp('help-terminals')} />
                   </h2>
+                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">Register and manage POS terminals paired to this account</p>
                 </div>
 
-                <form onSubmit={handleAddTerminalClick} className="flex gap-2.5 bg-zinc-900/40 p-2.5 border border-zinc-800/80 rounded-2xl">
+                <form onSubmit={handleAddTerminalClick} className="flex gap-2.5 bg-[var(--bg-surface)] p-2 border border-[var(--border-color)] rounded-2xl w-full sm:max-w-md">
                   <input 
                     type="text" 
                     required 
                     placeholder="Counter name (e.g. Counter 1, Shop Front)" 
-                    className="input-field border-transparent bg-transparent focus:ring-0 focus:border-transparent flex-1 py-2" 
+                    className="input-field border-transparent bg-transparent focus:ring-0 focus:border-transparent flex-1 py-1.5 text-xs text-[var(--text-primary)] placeholder-[var(--text-secondary)]" 
                     value={newTerminalName} 
                     onChange={e => setNewTerminalName(e.target.value)} 
                   />
-                  <button type="submit" className="btn btn-success px-5 py-2.5 text-sm flex items-center gap-1">
-                    <Plus size={16} /> Create
+                  <button type="submit" className="btn btn-success px-4 py-2 text-xs flex items-center gap-1 shrink-0 font-bold">
+                    <Plus size={14} /> Create
                   </button>
                 </form>
-
-                <div className="grid sm:grid-cols-2 gap-4">
-                  {terminals.map(term => {
-                    const isExpired = term.pairing_code_expires_at ? new Date(term.pairing_code_expires_at).getTime() < now : true;
-                    const minutesLeft = term.pairing_code_expires_at ? Math.max(0, Math.floor((new Date(term.pairing_code_expires_at).getTime() - now) / 60000)) : 0;
-                    const secondsLeft = term.pairing_code_expires_at ? Math.max(0, Math.floor(((new Date(term.pairing_code_expires_at).getTime() - now) % 60000) / 1000)) : 0;
-
-                    return (
-                      <div key={term.id} className="bg-zinc-900/35 border border-zinc-850 hover:border-zinc-800 hover:shadow-xl hover:shadow-emerald-500/[0.01] rounded-2xl p-5 flex flex-col justify-between gap-4 transition-all duration-300 group">
-                        
-                        <div className="flex justify-between items-start">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-lg bg-zinc-800/60 border border-zinc-700/30 flex items-center justify-center text-zinc-400 group-hover:text-emerald-400 transition-colors">
-                              <MonitorSmartphone size={16} />
-                            </div>
-                            <div>
-                              <h4 className="text-sm font-bold text-white leading-tight">{term.terminal_name}</h4>
-                              <div className="text-[10px] text-zinc-500 font-mono mt-0.5">
-                                ID: ...{term.hardware_id ? term.hardware_id.slice(-8) : 'Unpaired'}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <button onClick={() => editTerminal(term)} className="p-1 text-zinc-500 hover:text-zinc-200 transition-colors rounded-md hover:bg-white/5" title="Edit Terminal"><Edit size={14}/></button>
-                            <button onClick={() => setDeleteConfirm({isOpen: true, type: 'terminal', id: term.id, name: term.name})} className="p-1 text-red-500/60 hover:text-red-400 transition-colors rounded-md hover:bg-red-500/5" title="Delete Terminal"><Trash2 size={14}/></button>
-                          </div>
-                        </div>
-
-                        {term.pairing_code && !isExpired ? (
-                          <div className="bg-zinc-950/40 p-4 rounded-xl border border-yellow-500/20 flex justify-between items-center">
-                            <div>
-                              <div className="text-[9px] font-bold text-yellow-500 uppercase tracking-widest mb-0.5">Pairing Code</div>
-                              <div className="text-2xl font-mono text-yellow-400 tracking-wider font-extrabold">{term.pairing_code}</div>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-[9px] text-zinc-500 uppercase tracking-widest mb-0.5">Expires</div>
-                              <div className="text-xs font-mono text-yellow-300 bg-yellow-950/60 border border-yellow-500/20 px-2 py-0.5 rounded">
-                                {minutesLeft}:{secondsLeft.toString().padStart(2, '0')}
-                              </div>
-                            </div>
-                          </div>
-                        ) : term.pairing_code && isExpired ? (
-                          <div className="bg-red-950/20 p-3 rounded-xl border border-red-500/20 flex flex-col gap-2">
-                            <span className="text-red-400 text-xs font-medium">Pairing Code Expired</span>
-                            <button onClick={() => regeneratePairingCode(term.id)} className="w-full text-center text-xs py-1.5 border border-yellow-500/30 text-yellow-500 hover:bg-yellow-500 hover:text-black rounded-lg transition-all font-semibold">Regenerate Code</button>
-                          </div>
-                        ) : (
-                          <div className="space-y-3.5">
-                            
-                            {/* Device connected status indicator */}
-                            <div className="flex justify-between items-center bg-emerald-950/10 px-3.5 py-2.5 rounded-xl border border-emerald-500/20">
-                              <span className="flex items-center gap-2 text-xs text-emerald-400 font-semibold uppercase tracking-wider">
-                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
-                                Connected
-                              </span>
-                              <button onClick={() => copyToClipboard(term.hardware_id)} className="text-[10px] text-zinc-400 hover:text-white flex items-center gap-1 font-mono uppercase bg-zinc-800/40 border border-zinc-700/30 px-2 py-0.5 rounded" title="Copy Hardware ID">
-                                Copy ID <Copy size={10} />
-                              </button>
-                            </div>
-
-                            <button type="button" onClick={() => regeneratePairingCode(term.id)} className="w-full border border-yellow-500/30 hover:border-yellow-500 text-yellow-500 hover:bg-yellow-500 hover:text-black py-2.5 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all font-semibold shadow-sm">
-                              <RefreshCw size={12} /> Reconnect / Pair Device
-                            </button>
-
-                            {terminals.filter(t => t.id !== term.id && !t.pairing_code).length > 0 && (
-                              <div className="text-[10px] text-zinc-600 text-center py-1">
-                                Use <button onClick={() => setActiveTab('credential-sync')} className="text-emerald-500 hover:underline">Credential Sync</button> to copy credentials to this terminal.
-                              </div>
-                            )}
-
-                            {term.allow_debug_until && new Date(term.allow_debug_until).getTime() > now && term.debug_one_time_code ? (
-                              <div className="bg-blue-950/20 border border-blue-500/20 p-3 rounded-xl flex flex-col gap-2.5">
-                                <div className="flex justify-between items-center">
-                                  <span className="text-[10px] font-bold text-blue-400 flex items-center gap-1">
-                                    <Bug size={12} /> Debug Access Active
-                                  </span>
-                                  <span className="text-[10px] font-mono text-blue-300 flex items-center gap-1">
-                                    <Clock size={10} />
-                                    {Math.max(0, Math.floor((new Date(term.allow_debug_until).getTime() - now) / 60000))}:
-                                    {Math.max(0, Math.floor(((new Date(term.allow_debug_until).getTime() - now) % 60000) / 1000)).toString().padStart(2, '0')}
-                                  </span>
-                                </div>
-                                <div className="flex justify-between items-center bg-black/40 px-3 py-2 rounded-lg border border-blue-900/30">
-                                  <div>
-                                    <div className="text-[8px] text-zinc-500 uppercase tracking-widest">OTC Code</div>
-                                    <div className="text-md font-mono font-bold text-blue-300 tracking-wider">{term.debug_one_time_code}</div>
-                                  </div>
-                                  <button type="button" onClick={() => {
-                                    navigator.clipboard.writeText(term.debug_one_time_code);
-                                    alert('One-time code copied!');
-                                  }} className="text-[9px] px-2 py-1 border border-blue-500 text-blue-400 hover:bg-blue-500 hover:text-white transition-colors flex items-center gap-1 rounded-md">
-                                    <Copy size={9} /> Copy
-                                  </button>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => disableDebug(term.id)}
-                                  className="w-full border border-red-500/30 hover:border-red-500 text-red-400 hover:bg-red-500 hover:text-white py-1.5 text-[10px] rounded-xl flex items-center justify-center gap-1 transition-all font-bold mt-2 shadow-sm"
-                                >
-                                  <X size={11} /> Revoke Debug Access
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="flex flex-col gap-1">
-                                <button type="button" onClick={() => enableDebug(term.id)} className="w-full border border-blue-500/30 hover:border-blue-500 text-blue-400 hover:bg-blue-500 hover:text-white py-2 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all font-semibold">
-                                  <Bug size={12} /> Allow Superadmin Debug
-                                </button>
-                                <p className="text-[9px] text-zinc-500 text-center mt-0.5 leading-normal">
-                                  Credentials are never sent during debugging
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {terminals.length === 0 && (
-                    <div className="col-span-2 text-center py-10 bg-zinc-900/10 border border-zinc-800/40 rounded-2xl">
-                      <p className="text-sm text-zinc-500">No cashier counters configured.</p>
-                    </div>
-                  )}
-                </div>
               </div>
 
-              {/* Bank accounts management list (1/3 width) */}
-              <div className="space-y-6">
-                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  Linked Accounts
-                  <Tooltip text="Link bank accounts here. The cashier counters use these to scan bank transaction statements dynamically." onClick={() => navigateToHelp('help-banks')} />
-                </h2>
-
-                <form onSubmit={createBankAccount} className="bg-zinc-900/30 border border-zinc-850 p-5 rounded-2xl space-y-4 shadow-xl">
-                  <div className="space-y-3.5">
-                    <div>
-                      <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">Select Bank</label>
-                      <select className="input-field text-sm" value={bankName} onChange={e => setBankName(e.target.value)}>
-                        <option value="BML">Bank of Maldives (BML)</option>
-                        <option value="MIB">Maldives Islamic Bank (MIB)</option>
-                      </select>
-                    </div>
-
-                    {bankName === 'MIB' && (
-                      <div className="bg-emerald-950/20 border border-emerald-500/25 p-3 rounded-xl space-y-2">
-                        <label className="text-[9px] font-bold text-emerald-400 uppercase tracking-widest block">MIB Profile Type</label>
-                        <div className="flex gap-2">
-                          <button type="button" onClick={() => setMibProfileType('0')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${mibProfileType === '0' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-transparent border-zinc-800 text-zinc-400 hover:border-emerald-500/40'}`}>
-                            Personal
-                          </button>
-                          <button type="button" onClick={() => setMibProfileType('1')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${mibProfileType === '1' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-transparent border-zinc-800 text-zinc-400 hover:border-emerald-500/40'}`}>
-                            Business
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {bankName === 'BML' && (
-                      <div className="bg-rose-950/20 border border-rose-500/25 p-3 rounded-xl space-y-2">
-                        <label className="text-[9px] font-bold text-rose-400 uppercase tracking-widest block">BML Profile Type</label>
-                        <div className="flex gap-2">
-                          <button type="button" onClick={() => setBmlProfileType('0')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${bmlProfileType === '0' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-transparent border-zinc-800 text-zinc-400 hover:border-rose-500/40'}`}>
-                            Personal
-                          </button>
-                          <button type="button" onClick={() => setBmlProfileType('1')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${bmlProfileType === '1' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-transparent border-zinc-800 text-zinc-400 hover:border-rose-500/40'}`}>
-                            Business
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    <div>
-                      <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">Account Holder Name</label>
-                      <input type="text" required placeholder="Name on account" className="input-field text-sm" value={accountName} onChange={e => setAccountName(e.target.value)} />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">Account Number</label>
-                      <input type="text" required placeholder="Account number" className="input-field text-sm font-mono" value={accountNumber} onChange={e => setAccountNumber(e.target.value)} />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">Label / Nickname</label>
-                      <input type="text" placeholder="Counter 1, Main Vault..." className="input-field text-sm" value={accountLabel} onChange={e => setAccountLabel(e.target.value)} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">Currency</label>
-                        <select className="input-field text-sm font-mono" value={currency} onChange={e => setCurrency(e.target.value)}>
-                          <option value="MVR">MVR</option>
-                          <option value="USD">USD</option>
-                        </select>
-                      </div>
-                      <div className="flex flex-col justify-end">
-                        <button type="submit" className="btn btn-success w-full py-3 text-xs flex justify-center items-center gap-1.5 font-bold shadow-md">
-                          <Plus size={14}/> Add Account
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </form>
-
-                {(() => {
-                  // Build credential groups from the relation data returned by the API
-                  type AccType = typeof bankAccounts[0];
-                  const groupMap: Record<string, { label: string; bank: string; accounts: AccType[] }> = {};
-                  const unlinked: AccType[] = [];
-
-                  bankAccounts.forEach(acc => {
-                    if (acc.bml_credential_group_id && acc.bml_credential_group) {
-                      const key = `bml-${acc.bml_credential_group_id}`;
-                      if (!groupMap[key]) {
-                        const pt = acc.bml_credential_group.profile_type === '1' ? 'Business' : 'Personal';
-                        groupMap[key] = { label: `${acc.bml_credential_group.bml_username} · ${pt}`, bank: 'BML', accounts: [] };
-                      }
-                      groupMap[key].accounts.push(acc);
-                    } else if (acc.mib_credential_profile_id && acc.mib_credential_profile) {
-                      const key = `mib-${acc.mib_credential_profile_id}`;
-                      if (!groupMap[key]) {
-                        const username = acc.mib_credential_profile.credential_group?.mib_username ?? '—';
-                        const profileName = acc.mib_credential_profile.profile_name ?? 'Default';
-                        groupMap[key] = { label: `${username} · ${profileName}`, bank: 'MIB', accounts: [] };
-                      }
-                      groupMap[key].accounts.push(acc);
-                    } else {
-                      unlinked.push(acc);
-                    }
-                  });
-
-                  const renderAccRow = (acc: AccType, isNested = false) => (
-                    <div key={acc.id} className={`bg-zinc-900/35 border border-zinc-850 hover:border-zinc-800 rounded-xl p-4 flex justify-between items-center transition-all duration-300 ${isNested ? 'ml-4 border-l-2 border-l-sky-500/30' : ''}`}>
-                      <div className="flex gap-3 items-center min-w-0">
-                        <div className="w-10 h-10 rounded-xl bg-zinc-950 flex items-center justify-center p-1 border border-zinc-800 shrink-0">
-                          <img
-                            src={acc.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'}
-                            alt={acc.bank_name}
-                            className="w-full h-full object-contain"
-                          />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="font-bold text-sm text-white flex items-center gap-1.5 truncate">
-                            <span className="truncate">{acc.label ? acc.label : (acc.bank_name === 'BML' ? 'BML Account' : 'MIB Account')}</span>
-                            {(acc.login_failures || 0) >= 2 ? (
-                              <span className="text-[8px] font-extrabold text-red-400 bg-red-950/40 border border-red-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">Locked</span>
-                            ) : (acc.login_failures || 0) > 0 ? (
-                              <span className="text-[8px] font-extrabold text-yellow-500 bg-yellow-950/40 border border-yellow-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">{acc.login_failures} Fail</span>
-                            ) : (
-                              <span className="text-[8px] font-extrabold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">Secure</span>
-                            )}
-                          </div>
-                          <div className="text-[10px] text-zinc-500 font-mono mt-0.5 truncate">{acc.account_name}</div>
-                          <div className="font-mono text-xs text-zinc-400 flex items-center gap-1.5 mt-0.5">
-                            <span>{acc.account_number}</span>
-                            <span className="text-[8px] bg-zinc-800 border border-zinc-700 px-1 rounded font-bold font-mono text-zinc-300">{acc.currency || 'MVR'}</span>
-                            {acc.bank_name === 'BML' && (acc.bml_profile_type === '1' ? (
-                              <span className="text-[8px] bg-violet-950/50 border border-violet-500/30 px-1 rounded font-bold font-sans text-violet-300">Business</span>
-                            ) : (
-                              <span className="text-[8px] bg-sky-950/50 border border-sky-500/30 px-1 rounded font-bold font-sans text-sky-300">Personal</span>
-                            ))}
-                            {acc.bank_name === 'MIB' && acc.mib_profile_type === '1' && (
-                              <span className="text-[8px] bg-violet-950/50 border border-violet-500/30 px-1 rounded font-bold font-sans text-violet-300">Multi-Profile</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {(acc.login_failures || 0) > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => resetBankAccountFailures(acc.id)}
-                            className="text-[9px] font-bold px-2.5 py-1.5 rounded-lg border border-red-500/30 bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 transition-all"
-                          >
-                            Reset
-                          </button>
-                        )}
-                        <button onClick={() => setDeleteConfirm({isOpen: true, type: 'account', id: acc.id, name: `${acc.bank_name} - ${acc.account_name} (${acc.account_number})`})} className="p-2 text-zinc-500 hover:text-red-400 hover:bg-red-500/5 rounded-lg transition-colors"><Trash2 size={16}/></button>
-                      </div>
-                    </div>
-                  );
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {terminals.map(term => {
+                  const isExpired = term.pairing_code_expires_at ? new Date(term.pairing_code_expires_at).getTime() < now : true;
+                  const minutesLeft = term.pairing_code_expires_at ? Math.max(0, Math.floor((new Date(term.pairing_code_expires_at).getTime() - now) / 60000)) : 0;
+                  const secondsLeft = term.pairing_code_expires_at ? Math.max(0, Math.floor(((new Date(term.pairing_code_expires_at).getTime() - now) % 60000) / 1000)) : 0;
 
                   return (
-                    <div className="space-y-4">
-                      {/* Credential groups (sibling accounts) */}
-                      {Object.entries(groupMap).map(([key, group]) => (
-                        <div key={key} className="rounded-xl border border-sky-500/20 bg-sky-950/5 overflow-hidden">
-                          {/* Group header */}
-                          <div className="flex items-center gap-2 px-4 py-2.5 bg-sky-950/20 border-b border-sky-500/15">
-                            <KeyRound size={12} className="text-sky-400 shrink-0" />
-                            <span className="text-[10px] font-bold text-sky-300 uppercase tracking-wider">
-                              Shared Credentials
-                            </span>
-                            <span className="text-[10px] text-zinc-400 font-mono">·</span>
-                            <span className="text-[10px] font-mono text-zinc-300 truncate">{group.label}</span>
-                            <span className={`ml-auto text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-wider shrink-0 ${group.bank === 'BML' ? 'text-red-400 bg-red-950/40 border border-red-500/20' : 'text-emerald-400 bg-emerald-950/40 border border-emerald-500/20'}`}>
-                              {group.bank}
-                            </span>
-                            <span className="text-[9px] text-zinc-500 shrink-0">{group.accounts.length} accts</span>
+                    <div key={term.id} className="bg-[var(--bg-surface)] border border-[var(--border-color)] hover:border-emerald-500/40 hover:shadow-xl rounded-2xl p-5 flex flex-col justify-between gap-4 transition-all duration-300 group">
+                      
+                      <div className="flex justify-between items-start">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-[var(--bg-card)] border border-[var(--border-color)] flex items-center justify-center text-[var(--text-secondary)] group-hover:text-emerald-400 transition-colors">
+                            <MonitorSmartphone size={16} />
                           </div>
-                          {/* Accounts in this group */}
-                          <div className="p-3 space-y-2">
-                            {group.accounts.map(acc => renderAccRow(acc, false))}
+                          <div>
+                            <h4 className="text-sm font-bold text-[var(--text-primary)] leading-tight">{term.terminal_name}</h4>
+                            <div className="text-[10px] text-[var(--text-secondary)] font-mono mt-0.5">
+                              ID: ...{term.hardware_id ? term.hardware_id.slice(-8) : 'Unpaired'}
+                            </div>
                           </div>
                         </div>
-                      ))}
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => editTerminal(term)} className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-white/5" title="Edit Terminal"><Edit size={14}/></button>
+                          <button onClick={() => setDeleteConfirm({isOpen: true, type: 'terminal', id: term.id, name: term.name})} className="p-1 text-red-500/60 hover:text-red-400 transition-colors rounded-md hover:bg-red-500/5" title="Delete Terminal"><Trash2 size={14}/></button>
+                        </div>
+                      </div>
 
-                      {/* Unlinked accounts */}
-                      {unlinked.map(acc => renderAccRow(acc, false))}
+                      {term.pairing_code && !isExpired ? (
+                        <div className="bg-yellow-950/20 p-4 rounded-xl border border-yellow-500/20 flex justify-between items-center">
+                          <div>
+                            <div className="text-[9px] font-bold text-yellow-500 uppercase tracking-widest mb-0.5">Pairing Code</div>
+                            <div className="text-2xl font-mono text-yellow-400 tracking-wider font-extrabold">{term.pairing_code}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-[9px] text-[var(--text-secondary)] uppercase tracking-widest mb-0.5">Expires</div>
+                            <div className="text-xs font-mono text-yellow-300 bg-yellow-950/60 border border-yellow-500/20 px-2 py-0.5 rounded">
+                              {minutesLeft}:{secondsLeft.toString().padStart(2, '0')}
+                            </div>
+                          </div>
+                        </div>
+                      ) : term.pairing_code && isExpired ? (
+                        <div className="bg-red-950/20 p-3 rounded-xl border border-red-500/20 flex flex-col gap-2">
+                          <span className="text-red-400 text-xs font-medium">Pairing Code Expired</span>
+                          <button onClick={() => regeneratePairingCode(term.id)} className="w-full text-center text-xs py-1.5 border border-yellow-500/30 text-yellow-500 hover:bg-yellow-500 hover:text-black rounded-lg transition-all font-semibold">Regenerate Code</button>
+                        </div>
+                      ) : (
+                        <div className="space-y-3.5">
+                          
+                          {/* Device connected status indicator */}
+                          <div className="flex justify-between items-center bg-emerald-950/10 px-3.5 py-2.5 rounded-xl border border-emerald-500/20">
+                            <span className="flex items-center gap-2 text-xs text-emerald-400 font-semibold uppercase tracking-wider">
+                              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+                              Connected
+                            </span>
+                            <button onClick={() => copyToClipboard(term.hardware_id)} className="text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center gap-1 font-mono uppercase bg-[var(--bg-card)] border border-[var(--border-color)] px-2 py-0.5 rounded" title="Copy Hardware ID">
+                              Copy ID <Copy size={10} />
+                            </button>
+                          </div>
 
-                      {bankAccounts.length === 0 && (
-                        <div className="text-center py-8 bg-zinc-900/10 border border-zinc-800/40 rounded-xl">
-                          <p className="text-xs text-zinc-500">No bank accounts linked.</p>
+                          <button type="button" onClick={() => regeneratePairingCode(term.id)} className="w-full border border-yellow-500/30 hover:border-yellow-500 text-yellow-500 hover:bg-yellow-500 hover:text-black py-2.5 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all font-semibold shadow-sm">
+                            <RefreshCw size={12} /> Reconnect / Pair Device
+                          </button>
+
+                          {terminals.filter(t => t.id !== term.id && !t.pairing_code).length > 0 && (
+                            <div className="text-[10px] text-[var(--text-secondary)] text-center py-1">
+                              Use <button onClick={() => setActiveTab('credential-sync')} className="text-emerald-500 hover:underline">Credential Sync</button> to copy credentials to this terminal.
+                            </div>
+                          )}
+
+                          {term.allow_debug_until && new Date(term.allow_debug_until).getTime() > now && term.debug_one_time_code ? (
+                            <div className="bg-blue-950/20 border border-blue-500/20 p-3 rounded-xl flex flex-col gap-2.5">
+                              <div className="flex justify-between items-center">
+                                <span className="text-[10px] font-bold text-blue-400 flex items-center gap-1">
+                                  <Bug size={12} /> Debug Access Active
+                                </span>
+                                <span className="text-[10px] font-mono text-blue-300 flex items-center gap-1">
+                                  <Clock size={10} />
+                                  {Math.max(0, Math.floor((new Date(term.allow_debug_until).getTime() - now) / 60000))}:
+                                  {Math.max(0, Math.floor(((new Date(term.allow_debug_until).getTime() - now) % 60000) / 1000)).toString().padStart(2, '0')}
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center bg-black/40 px-3 py-2 rounded-lg border border-blue-900/30">
+                                <div>
+                                  <div className="text-[8px] text-[var(--text-secondary)] uppercase tracking-widest">OTC Code</div>
+                                  <div className="text-md font-mono font-bold text-blue-300 tracking-wider">{term.debug_one_time_code}</div>
+                                </div>
+                                <button type="button" onClick={() => {
+                                  navigator.clipboard.writeText(term.debug_one_time_code);
+                                  alert('One-time code copied!');
+                                }} className="text-[9px] px-2 py-1 border border-blue-500 text-blue-400 hover:bg-blue-500 hover:text-white transition-colors flex items-center gap-1 rounded-md">
+                                  <Copy size={9} /> Copy
+                                </button>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => disableDebug(term.id)}
+                                className="w-full border border-red-500/30 hover:border-red-500 text-red-400 hover:bg-red-500 hover:text-white py-1.5 text-[10px] rounded-xl flex items-center justify-center gap-1 transition-all font-bold mt-2 shadow-sm"
+                              >
+                                <X size={11} /> Revoke Debug Access
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-1">
+                              <button type="button" onClick={() => enableDebug(term.id)} className="w-full border border-blue-500/30 hover:border-blue-500 text-blue-400 hover:bg-blue-500 hover:text-white py-2 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all font-semibold">
+                                <Bug size={12} /> Allow Superadmin Debug
+                              </button>
+                              <p className="text-[9px] text-[var(--text-secondary)] text-center mt-0.5 leading-normal">
+                                Credentials are never sent during debugging
+                              </p>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
                   );
-                })()}
+                })}
+                {terminals.length === 0 && (
+                  <div className="col-span-full text-center py-10 bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-2xl">
+                    <p className="text-sm text-[var(--text-secondary)]">No cashier counters configured.</p>
+                  </div>
+                )}
+              </div>
+            </div>
 
+            {/* Horizontal Layout Section 2: Linked Bank Accounts & Select Bank Group Card */}
+            <div className="glass-panel p-6 space-y-6 border border-[var(--border-color)]">
+              <div className="border-b border-[var(--border-color)] pb-4">
+                <h2 className="text-lg font-bold text-[var(--text-primary)] flex items-center gap-2">
+                  Linked Accounts
+                  <Tooltip text="Link bank accounts here. The cashier counters use these to scan bank transaction statements dynamically." onClick={() => navigateToHelp('help-banks')} />
+                </h2>
+                <p className="text-xs text-[var(--text-secondary)] mt-0.5">Configure bank credentials and profile types for transfer verification</p>
               </div>
 
+              {/* Form Card for Select Bank & Add Account */}
+              <form onSubmit={createBankAccount} className="bg-[var(--bg-surface)] border border-[var(--border-color)] p-5 rounded-2xl space-y-4 shadow-sm">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+                  <div>
+                    <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-1">Select Bank</label>
+                    <select className="input-field text-sm" value={bankName} onChange={e => setBankName(e.target.value)}>
+                      <option value="BML">Bank of Maldives (BML)</option>
+                      <option value="MIB">Maldives Islamic Bank (MIB)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-1">Account Holder Name</label>
+                    <input type="text" required placeholder="Name on account" className="input-field text-sm" value={accountName} onChange={e => setAccountName(e.target.value)} />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-1">Account Number</label>
+                    <input type="text" required placeholder="Account number" className="input-field text-sm font-mono" value={accountNumber} onChange={e => setAccountNumber(e.target.value)} />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-1">Label / Nickname</label>
+                    <input type="text" placeholder="Counter 1, Main Vault..." className="input-field text-sm" value={accountLabel} onChange={e => setAccountLabel(e.target.value)} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end pt-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-1">Currency</label>
+                    <select className="input-field text-sm font-mono" value={currency} onChange={e => setCurrency(e.target.value)}>
+                      <option value="MVR">MVR</option>
+                      <option value="USD">USD</option>
+                    </select>
+                  </div>
+
+                  {bankName === 'MIB' && (
+                    <div className="bg-emerald-950/20 border border-emerald-500/25 p-2.5 rounded-xl space-y-1 md:col-span-2">
+                      <label className="text-[9px] font-bold text-emerald-400 uppercase tracking-widest block">MIB Profile Type</label>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setMibProfileType('0')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${mibProfileType === '0' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-transparent border-[var(--border-color)] text-[var(--text-secondary)] hover:border-emerald-500/40'}`}>
+                          Personal
+                        </button>
+                        <button type="button" onClick={() => setMibProfileType('1')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${mibProfileType === '1' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-transparent border-[var(--border-color)] text-[var(--text-secondary)] hover:border-emerald-500/40'}`}>
+                          Business
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {bankName === 'BML' && (
+                    <div className="bg-rose-950/20 border border-rose-500/25 p-2.5 rounded-xl space-y-1 md:col-span-2">
+                      <label className="text-[9px] font-bold text-rose-400 uppercase tracking-widest block">BML Profile Type</label>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setBmlProfileType('0')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${bmlProfileType === '0' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-transparent border-[var(--border-color)] text-[var(--text-secondary)] hover:border-rose-500/40'}`}>
+                          Personal
+                        </button>
+                        <button type="button" onClick={() => setBmlProfileType('1')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${bmlProfileType === '1' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-transparent border-[var(--border-color)] text-[var(--text-secondary)] hover:border-rose-500/40'}`}>
+                          Business
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end">
+                    <button type="submit" className="btn btn-success w-full py-2.5 text-xs flex justify-center items-center gap-1.5 font-bold shadow-md">
+                      <Plus size={14}/> Add Account
+                    </button>
+                  </div>
+                </div>
+              </form>
+
+              {/* Bank Accounts Cards Grid */}
+              {(() => {
+                // Build credential groups from the relation data returned by the API
+                type AccType = typeof bankAccounts[0];
+                const groupMap: Record<string, { label: string; bank: string; accounts: AccType[] }> = {};
+                const unlinked: AccType[] = [];
+
+                bankAccounts.forEach(acc => {
+                  if (acc.bml_credential_group_id && acc.bml_credential_group) {
+                    const key = `bml-${acc.bml_credential_group_id}`;
+                    if (!groupMap[key]) {
+                      const pt = acc.bml_credential_group.profile_type === '1' ? 'Business' : 'Personal';
+                      groupMap[key] = { label: `${acc.bml_credential_group.bml_username} · ${pt}`, bank: 'BML', accounts: [] };
+                    }
+                    groupMap[key].accounts.push(acc);
+                  } else if (acc.mib_credential_profile_id && acc.mib_credential_profile) {
+                    const key = `mib-${acc.mib_credential_profile_id}`;
+                    if (!groupMap[key]) {
+                      const username = acc.mib_credential_profile.credential_group?.mib_username ?? '—';
+                      const profileName = acc.mib_credential_profile.profile_name ?? 'Default';
+                      groupMap[key] = { label: `${username} · ${profileName}`, bank: 'MIB', accounts: [] };
+                    }
+                    groupMap[key].accounts.push(acc);
+                  } else {
+                    unlinked.push(acc);
+                  }
+                });
+
+                const renderAccRow = (acc: AccType, isNested = false) => (
+                  <div key={acc.id} className={`bg-[var(--bg-surface)] border border-[var(--border-color)] hover:border-emerald-500/40 rounded-xl p-4 flex justify-between items-center transition-all duration-300 ${isNested ? 'ml-4 border-l-2 border-l-sky-500/30' : ''}`}>
+                    <div className="flex gap-3 items-center min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-[var(--bg-card)] flex items-center justify-center p-1 border border-[var(--border-color)] shrink-0">
+                        <img
+                          src={acc.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'}
+                          alt={acc.bank_name}
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-bold text-sm text-[var(--text-primary)] flex items-center gap-1.5 truncate">
+                          <span className="truncate">{acc.label ? acc.label : (acc.bank_name === 'BML' ? 'BML Account' : 'MIB Account')}</span>
+                          {(acc.login_failures || 0) >= 2 ? (
+                            <span className="text-[8px] font-extrabold text-red-400 bg-red-950/40 border border-red-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">Locked</span>
+                          ) : (acc.login_failures || 0) > 0 ? (
+                            <span className="text-[8px] font-extrabold text-yellow-500 bg-yellow-950/40 border border-yellow-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">{acc.login_failures} Fail</span>
+                          ) : (
+                            <span className="text-[8px] font-extrabold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">Secure</span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-[var(--text-secondary)] font-mono mt-0.5 truncate">{acc.account_name}</div>
+                        <div className="font-mono text-xs text-[var(--text-secondary)] flex items-center gap-1.5 mt-0.5">
+                          <span>{acc.account_number}</span>
+                          <span className="text-[8px] bg-[var(--bg-card)] border border-[var(--border-color)] px-1 rounded font-bold font-mono text-[var(--text-primary)]">{acc.currency || 'MVR'}</span>
+                          {acc.bank_name === 'BML' && (acc.bml_profile_type === '1' ? (
+                            <span className="text-[8px] bg-violet-950/50 border border-violet-500/30 px-1 rounded font-bold font-sans text-violet-300">Business</span>
+                          ) : (
+                            <span className="text-[8px] bg-sky-950/50 border border-sky-500/30 px-1 rounded font-bold font-sans text-sky-300">Personal</span>
+                          ))}
+                          {acc.bank_name === 'MIB' && acc.mib_profile_type === '1' && (
+                            <span className="text-[8px] bg-violet-950/50 border border-violet-500/30 px-1 rounded font-bold font-sans text-violet-300">Multi-Profile</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {(acc.login_failures || 0) > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => resetBankAccountFailures(acc.id)}
+                          className="text-[9px] font-bold px-2.5 py-1.5 rounded-lg border border-red-500/30 bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 transition-all"
+                        >
+                          Reset
+                        </button>
+                      )}
+                      <button onClick={() => setDeleteConfirm({isOpen: true, type: 'account', id: acc.id, name: `${acc.bank_name} - ${acc.account_name} (${acc.account_number})`})} className="p-2 text-[var(--text-secondary)] hover:text-red-400 hover:bg-red-500/5 rounded-lg transition-colors"><Trash2 size={16}/></button>
+                    </div>
+                  </div>
+                );
+
+                return (
+                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {/* Credential groups (sibling accounts) */}
+                    {Object.entries(groupMap).map(([key, group]) => (
+                      <div key={key} className="rounded-xl border border-sky-500/20 bg-sky-950/5 overflow-hidden col-span-full">
+                        {/* Group header */}
+                        <div className="flex items-center gap-2 px-4 py-2.5 bg-sky-950/20 border-b border-sky-500/15">
+                          <KeyRound size={12} className="text-sky-400 shrink-0" />
+                          <span className="text-[10px] font-bold text-sky-300 uppercase tracking-wider">
+                            Shared Credentials
+                          </span>
+                          <span className="text-[10px] text-zinc-400 font-mono">·</span>
+                          <span className="text-[10px] font-mono text-zinc-300 truncate">{group.label}</span>
+                          <span className={`ml-auto text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-wider shrink-0 ${group.bank === 'BML' ? 'text-red-400 bg-red-950/40 border border-red-500/20' : 'text-emerald-400 bg-emerald-950/40 border border-emerald-500/20'}`}>
+                            {group.bank}
+                          </span>
+                          <span className="text-[9px] text-[var(--text-secondary)] shrink-0">{group.accounts.length} accts</span>
+                        </div>
+                        {/* Accounts in this group */}
+                        <div className="p-3 grid sm:grid-cols-2 gap-3">
+                          {group.accounts.map(acc => renderAccRow(acc, false))}
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Unlinked accounts */}
+                    {unlinked.map(acc => renderAccRow(acc, false))}
+
+                    {bankAccounts.length === 0 && (
+                      <div className="col-span-full text-center py-8 bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl">
+                        <p className="text-xs text-[var(--text-secondary)]">No bank accounts linked.</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -1336,52 +1350,88 @@ export default function CompanyDashboard() {
           </div>
         )}
         {/* --- TAB: ACTIVITY LOGS --- */}
-        {activeTab === 'activity' && (
-          <div className="glass-panel p-6 animate-fade-in overflow-hidden flex flex-col">
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-              <Clock size={24} className="text-[var(--color-success)]" />
-              Activity Logs (Last 30 Days)
-            </h2>
-            <div className="overflow-x-auto flex-1">
-              <table className="w-full text-left text-sm whitespace-nowrap">
-                <thead>
-                  <tr className="border-b border-[var(--border-color)] text-[var(--text-secondary)]">
-                    <th className="py-3 px-4">Date / Time</th>
-                    <th className="py-3 px-4">Event Type</th>
-                    <th className="py-3 px-4">Terminal (Actor)</th>
-                    <th className="py-3 px-4">IP Address</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--border-color)]">
-                  {auditLogs.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="py-8 text-center text-zinc-500">No activity logs found.</td>
+        {activeTab === 'activity' && (() => {
+          const totalActivityLogsPages = Math.ceil(auditLogs.length / activityLogsPageSize);
+          const currentActivityLogsPage = Math.min(activityLogsPage, totalActivityLogsPages || 1);
+          const startIdx = (currentActivityLogsPage - 1) * activityLogsPageSize;
+          const paginatedAuditLogs = auditLogs.slice(startIdx, startIdx + activityLogsPageSize);
+
+          return (
+            <div className="glass-panel p-6 animate-fade-in overflow-hidden flex flex-col border border-[var(--border-color)]">
+              <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-[var(--text-primary)]">
+                <Clock size={24} className="text-[var(--color-success)]" />
+                Activity Logs (Last 30 Days)
+              </h2>
+              <div className="overflow-x-auto flex-1">
+                <table className="w-full text-left text-sm whitespace-nowrap">
+                  <thead>
+                    <tr className="border-b border-[var(--border-color)] text-[var(--text-secondary)]">
+                      <th className="py-3 px-4">Date / Time</th>
+                      <th className="py-3 px-4">Event Type</th>
+                      <th className="py-3 px-4">Terminal (Actor)</th>
+                      <th className="py-3 px-4">IP Address</th>
                     </tr>
-                  ) : (
-                    auditLogs.map((log: any) => (
-                      <tr key={log.id} className="hover:bg-white/5 transition-colors">
-                        <td className="py-3 px-4 text-xs font-mono text-[var(--text-secondary)]">
-                          {new Date(log.created_at).toLocaleString()}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="bg-zinc-800 text-zinc-200 px-2 py-1 rounded text-xs font-medium uppercase tracking-wider">
-                            {log.event_type}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 font-medium text-white">
-                          {log.actor || 'System'}
-                        </td>
-                        <td className="py-3 px-4 text-xs font-mono text-[var(--text-secondary)]">
-                          {log.ip_address || 'N/A'}
-                        </td>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border-color)]">
+                    {paginatedAuditLogs.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="py-8 text-center text-zinc-500">No activity logs found.</td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : (
+                      paginatedAuditLogs.map((log: any) => (
+                        <tr key={log.id} className="hover:bg-white/5 transition-colors">
+                          <td className="py-3 px-4 text-xs font-mono text-[var(--text-secondary)]">
+                            {new Date(log.created_at).toLocaleString()}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="bg-zinc-800 text-zinc-200 px-2 py-1 rounded text-xs font-medium uppercase tracking-wider">
+                              {log.event_type}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 font-medium text-[var(--text-primary)]">
+                            {log.actor || 'System'}
+                          </td>
+                          <td className="py-3 px-4 text-xs font-mono text-[var(--text-secondary)]">
+                            {log.ip_address || 'N/A'}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination controls bar */}
+              {auditLogs.length > 0 && (
+                <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-6 pt-4 border-t border-[var(--border-color)]">
+                  <div className="text-xs text-[var(--text-secondary)]">
+                    Showing <span className="font-semibold text-[var(--text-primary)]">{startIdx + 1}</span> to <span className="font-semibold text-[var(--text-primary)]">{Math.min(startIdx + activityLogsPageSize, auditLogs.length)}</span> of <span className="font-semibold text-[var(--text-primary)]">{auditLogs.length}</span> logs
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <button
+                      disabled={currentActivityLogsPage === 1}
+                      onClick={() => setActivityLogsPage(prev => Math.max(1, prev - 1))}
+                      className="px-3.5 py-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] text-xs text-[var(--text-primary)] hover:border-emerald-500/40 disabled:opacity-40 disabled:cursor-not-allowed transition-all font-medium"
+                    >
+                      Previous
+                    </button>
+                    <span className="text-xs text-[var(--text-secondary)] px-2 font-mono">
+                      Page <strong className="text-[var(--text-primary)]">{currentActivityLogsPage}</strong> of <strong className="text-[var(--text-primary)]">{totalActivityLogsPages}</strong>
+                    </span>
+                    <button
+                      disabled={currentActivityLogsPage === totalActivityLogsPages || totalActivityLogsPages === 0}
+                      onClick={() => setActivityLogsPage(prev => Math.min(totalActivityLogsPages, prev + 1))}
+                      className="px-3.5 py-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] text-xs text-[var(--text-primary)] hover:border-emerald-500/40 disabled:opacity-40 disabled:cursor-not-allowed transition-all font-medium"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* --- TAB: HELP CENTER --- */}
         {activeTab === 'help' && (

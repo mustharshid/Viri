@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Lock, CheckCircle, ArrowRight, Loader2 } from 'lucide-react';
+import { Lock, CheckCircle, ArrowRight, Loader2, ShieldAlert } from 'lucide-react';
 
 export default function MibLogin() {
   const [searchParams] = useSearchParams();
@@ -14,19 +14,38 @@ export default function MibLogin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<'login' | 'otp' | 'success'>('login');
+  const [isAccessDenied, setIsAccessDenied] = useState(false);
+  const [accessDeniedReason, setAccessDeniedReason] = useState<string | null>(null);
 
   const extensionId = localStorage.getItem('viri_extension_id') || '';
+  const pairedHardwareId = localStorage.getItem('viri_hardware_id') || '';
   const backendUrl = localStorage.getItem('viri_backend_url') || 
     (window.location.origin.includes('localhost') ? 'http://localhost:8000/api' : `${window.location.origin}/api`);
 
   useEffect(() => {
     if (!accountId || !terminalId) {
-      setError('Missing required parameters (accountId or terminalId). Please launch this page from the Cashier Counter.');
+      setIsAccessDenied(true);
+      setAccessDeniedReason('Missing required parameters (accountId or terminalId). Please launch this page directly from your Cashier Counter PWA.');
+      return;
     }
+
+    // Layer 1 Security Guard: Check local terminal pairing
+    if (!pairedHardwareId) {
+      setIsAccessDenied(true);
+      setAccessDeniedReason('Access Denied: Unpaired Device. This browser does not have an active paired cashier terminal. MIB Authentication can only be launched from an active terminal session on a paired device.');
+      return;
+    }
+
+    if (pairedHardwareId !== terminalId) {
+      setIsAccessDenied(true);
+      setAccessDeniedReason(`Access Denied: Terminal Mismatch. The requested terminal ID (${terminalId}) does not match the active paired terminal on this machine (${pairedHardwareId}). Direct link access across terminals is strictly prohibited.`);
+      return;
+    }
+
     if (!extensionId) {
       setError('Viri Extension is not linked. Please pair the cashier counter first.');
     }
-  }, [accountId, terminalId, extensionId]);
+  }, [accountId, terminalId, extensionId, pairedHardwareId]);
 
   // Store credentials to localStorage on successful auth so the A40 fallback can re-authenticate sessions
   useEffect(() => {
@@ -140,6 +159,32 @@ export default function MibLogin() {
       setError(`Extension connection error: ${e.message}`);
     }
   };
+
+  if (isAccessDenied) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4 font-sans text-gray-900">
+        <div className="w-full max-w-md bg-white border border-red-200 rounded-2xl shadow-xl p-8 text-center space-y-6 animate-in zoom-in-95 duration-300">
+          <div className="w-16 h-16 rounded-full bg-red-50 border border-red-100 text-red-600 flex items-center justify-center mx-auto shadow-sm">
+            <ShieldAlert size={36} />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-gray-900 tracking-tight mb-2">Access Denied</h2>
+            <p className="text-sm text-gray-600 leading-relaxed">
+              {accessDeniedReason}
+            </p>
+          </div>
+          <div className="pt-4 border-t border-gray-100">
+            <button
+              onClick={() => window.close()}
+              className="w-full py-3.5 px-4 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-sm font-semibold transition-colors shadow-md shadow-gray-900/10"
+            >
+              Close Window
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white flex flex-col justify-center items-center p-4 font-sans text-gray-900">

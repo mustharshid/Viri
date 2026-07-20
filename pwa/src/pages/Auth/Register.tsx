@@ -58,7 +58,7 @@ export default function Register() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <Link to="/" className="inline-block mb-4">
-            <img src="/logo_en.png" alt="Viri Logo" className="h-40 mx-auto object-contain" />
+            <img src="/logo_en.png" alt="Viri Logo" className="h-16 md:h-20 mx-auto object-contain" />
           </Link>
           <h2 className="text-2xl font-bold">Create your company</h2>
           <p className="text-[var(--text-secondary)] mt-2">Start verifying bank transfers securely.</p>

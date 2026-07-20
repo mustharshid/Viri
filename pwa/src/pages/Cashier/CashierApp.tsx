@@ -759,6 +759,7 @@ function App() {
   }, []);
 
   const [showSettings, setShowSettings] = useState(false);
+  const [detectingExt, setDetectingExt] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     return localStorage.getItem('viri_sidebar_collapsed') === 'true';
   });
@@ -1816,7 +1817,7 @@ function App() {
         if (data.tenant?.name) setTenantName(data.tenant.name);
         if (data.tenant?.tier) setSubscriptionTier(data.tenant.tier);
 
-        if (data.tenant?.extension_id && data.tenant.extension_id !== 'viri_default_extension_id') {
+        if (data.tenant?.extension_id && data.tenant.extension_id !== 'viri_default_extension_id' && !localStorage.getItem('viri_extension_id')) {
           setExtensionId(data.tenant.extension_id);
           localStorage.setItem('viri_extension_id', data.tenant.extension_id);
         }
@@ -3348,7 +3349,7 @@ function App() {
       <ErrorBoundary>
       <div className="min-h-screen bg-[var(--bg-base)] flex flex-col items-center justify-center p-4">
         <div className="glass-panel p-8 max-w-sm w-full text-center animate-fade-in shadow-2xl">
-          <img src="/logo_en.png" alt="Viri Logo" className="h-48 mx-auto mb-6 object-contain" />
+          <img src={theme === 'light' ? '/logo_en_black.png' : '/logo_en.png'} alt="Viri Logo" className="h-16 mx-auto mb-6 object-contain" />
           <h2 className="text-2xl font-bold mb-2">Cashier Counter Setup</h2>
           <p className="text-[var(--text-secondary)] text-sm mb-6">Enter the 6-digit pairing code from your Company Dashboard to link this cashier counter.</p>
 
@@ -3443,15 +3444,15 @@ function App() {
         <ChevronRight size={14} className={`transform transition-transform duration-300 ${isSidebarCollapsed ? '' : 'rotate-180'}`} />
       </button>
 
-      {/* Top section: Brand / Logo - Vertical Premium Layout */}
-      <div className={`flex flex-col ${isSidebarCollapsed ? 'items-center text-center' : 'items-start text-left'} px-4 mb-8 transition-all w-full`}>
+      {/* Top section: Brand / Logo */}
+      <div className={`flex flex-col ${isSidebarCollapsed ? 'items-center text-center' : 'items-start text-left'} px-4 mb-6 transition-all w-full`}>
         {/* Viri Logo Container */}
-        <div className={`mb-4 flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-start'} w-full min-h-[96px]`}>
+        <div className={`mb-3 flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-start'} w-full`}>
           <img
-            src="/logo_en.png"
+            src={theme === 'light' ? '/logo_en_black.png' : '/logo_en.png'}
             alt="Viri Logo"
             className={`w-auto object-contain transition-all ${
-              isSidebarCollapsed ? 'h-12 max-w-[44px] mx-auto' : 'h-28 md:h-32 max-w-full'
+              isSidebarCollapsed ? 'h-8 max-w-[36px] mx-auto' : 'h-10 md:h-12 max-w-full'
             }`}
           />
         </div>
@@ -3919,16 +3920,39 @@ function App() {
 
                   <div className="input-group">
                     <label className="input-label text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">Viri Bridge Extension ID (System) <Tooltip text="Unique ID of the local companion browser extension helper." helpSectionId="extension-installation" /></label>
-                    <input
-                      type="text"
-                      className="input-field bg-zinc-950/50 border-[var(--border-color)] text-xs px-3 py-2 text-white"
-                      value={extensionId}
-                      onChange={e => {
-                        const val = e.target.value;
-                        setExtensionId(val);
-                        localStorage.setItem('viri_extension_id', val);
-                      }}
-                    />
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        className="input-field bg-zinc-950/50 border-[var(--border-color)] text-xs px-3 py-2 text-white flex-1 font-mono"
+                        value={extensionId}
+                        placeholder="e.g. hpbbckjchjjkkicjebifimfijijehclh"
+                        onChange={e => {
+                          const val = e.target.value;
+                          setExtensionId(val);
+                          localStorage.setItem('viri_extension_id', val);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDetectingExt(true);
+                          try {
+                            window.postMessage({ type: 'REQUEST_VIRI_BRIDGE_ID' }, '*');
+                          } catch (e) {}
+                          setTimeout(() => setDetectingExt(false), 2000);
+                        }}
+                        className="px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all flex items-center gap-1.5 shrink-0"
+                        title="Auto-detect Extension ID from installed browser extension"
+                      >
+                        <RefreshCw size={12} className={detectingExt ? "animate-spin text-emerald-400" : ""} />
+                        {detectingExt ? "Detecting..." : "Auto-Detect"}
+                      </button>
+                    </div>
+                    {extensionVersion && (
+                      <span className="text-[10px] text-emerald-400 mt-1 flex items-center gap-1 font-mono">
+                        ✓ Active Extension Connected (v{extensionVersion})
+                      </span>
+                    )}
                   </div>
 
                   <div className="input-group">
@@ -4797,15 +4821,6 @@ function App() {
                   {/* Top Header Section */}
                   <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-zinc-800/80 pb-6">
                     <div>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-950/30 border border-emerald-500/20 rounded-full text-[10px] font-semibold text-emerald-400">
-                          <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse"></span>
-                          <span>ONLINE{terminalName && ` — ${terminalName.toUpperCase()}`}</span>
-                        </div>
-                        <span className="text-[10px] text-zinc-500 font-mono flex items-center gap-1">
-                          <Shield size={10} /> Viri Zero-Knowledge Architecture: Fully encrypted local storage.
-                        </span>
-                      </div>
                       <h1 className="text-3xl font-extrabold text-white tracking-tight">Transaction Ledger</h1>
                       <p className="text-sm text-zinc-400 mt-1">Real-time cashier counter view for authenticated accounts</p>
                     </div>
