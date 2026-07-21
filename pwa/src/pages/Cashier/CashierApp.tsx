@@ -513,7 +513,8 @@ function App() {
     ledger_show_balance: true,
     ledger_show_debit: true,
     reports_enabled: false,
-    show_vbtl: false
+    show_vbtl: false,
+    recent_tx_limit: 3
   });
   const [shouldUploadLogs, setShouldUploadLogs] = useState(true);
   const [creditsExhausted, setCreditsExhausted] = useState(false);
@@ -1846,7 +1847,8 @@ function App() {
             ledger_show_balance: data.permissions.ledger_show_balance ?? true,
             ledger_show_debit: data.permissions.ledger_show_debit ?? true,
             reports_enabled: data.permissions.reports_enabled ?? false,
-            show_vbtl: data.permissions.show_vbtl ?? false
+            show_vbtl: data.permissions.show_vbtl ?? false,
+            recent_tx_limit: data.permissions.recent_tx_limit ?? 3
           });
         }
         if (data.credits_exhausted !== undefined) {
@@ -2568,7 +2570,7 @@ function App() {
           setRecentTxCache(prev => ({
             ...prev,
             [selectedAccountId]: {
-              transactions: newTxs.slice(0, 3),
+              transactions: (permissions.recent_tx_limit || 3) >= 9999 ? newTxs : newTxs.slice(0, permissions.recent_tx_limit || 3),
               label: labelVal,
               lastUpdated: new Date().toLocaleTimeString(),
               timestamp: Date.now()
@@ -2711,7 +2713,7 @@ function App() {
         setRecentTxCache(prev => ({
           ...prev,
           [selectedAccountId]: {
-            transactions: Array.isArray(response.transactions) ? response.transactions.slice(0, 3) : [],
+            transactions: Array.isArray(response.transactions) ? ((permissions.recent_tx_limit || 3) >= 9999 ? response.transactions : response.transactions.slice(0, permissions.recent_tx_limit || 3)) : [],
             label: labelVal,
             lastUpdated: new Date().toLocaleTimeString(),
             timestamp: Date.now()
@@ -3452,7 +3454,7 @@ function App() {
             src={theme === 'light' ? '/logo_en_black.png' : '/logo_en.png'}
             alt="Viri Logo"
             className={`w-auto object-contain transition-all ${
-              isSidebarCollapsed ? 'h-8 max-w-[36px] mx-auto' : 'h-10 md:h-12 max-w-full'
+              isSidebarCollapsed ? 'h-5 max-w-[26px] mx-auto' : 'h-7 md:h-8 max-w-full'
             }`}
           />
         </div>

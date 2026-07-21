@@ -305,7 +305,15 @@ Route::post('/verify-terminal', function (Request $request) {
             'ledger_show_debit' => (bool) ($tenant->features['ledger_show_debit'] ?? (($tier === 'free' || $tier === '499') ? false : ($terminal->permissions['ledger_show_debit'] ?? true))),
             'reports_enabled' => (bool) ($tenant->features['reports_enabled'] ?? (($tier === 'free' || $tier === '499') ? false : ($terminal->permissions['reports_enabled'] ?? false))),
             'share_pwa_logs' => (bool) ($terminal->permissions['share_pwa_logs'] ?? true),
-            'show_vbtl' => (bool) ($terminal->permissions['show_vbtl'] ?? false)
+            'show_vbtl' => (bool) ($terminal->permissions['show_vbtl'] ?? false),
+            'recent_tx_limit' => (function() use ($tenant) {
+                $hasFeature = (bool) ($tenant->features['custom_recent_tx_limit'] ?? false);
+                if (!$hasFeature) {
+                    return 3;
+                }
+                $limit = (int) ($tenant->features['recent_tx_limit'] ?? 3);
+                return ($limit === 0 || $limit >= 9999) ? 9999 : $limit;
+            })()
         ]
     ]);
 });

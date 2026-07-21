@@ -252,7 +252,8 @@ export default function AdminDashboard() {
       ledger_enabled: false,
       ledger_show_balance: false,
       ledger_show_debit: false,
-      reports_enabled: false
+      reports_enabled: false,
+      custom_recent_tx_limit: false
     }
   });
 
@@ -559,7 +560,8 @@ export default function AdminDashboard() {
             ledger_enabled: false,
             ledger_show_balance: false,
             ledger_show_debit: false,
-            reports_enabled: false
+            reports_enabled: false,
+            custom_recent_tx_limit: false
           }
         });
         fetchData();
@@ -949,7 +951,8 @@ export default function AdminDashboard() {
                 { key: 'ledger_enabled', label: 'Transaction Ledger' },
                 { key: 'ledger_show_balance', label: 'Ledger Show Balance' },
                 { key: 'ledger_show_debit', label: 'Ledger Show Debit (Outgoing)' },
-                { key: 'reports_enabled', label: 'Reports & Analytics' }
+                { key: 'reports_enabled', label: 'Reports & Analytics' },
+                { key: 'custom_recent_tx_limit', label: 'Configurable Recent Tx Count' }
               ].map(f => {
                 const currentFeatures = draft.features !== undefined ? draft.features : (company.features || {});
                 const isChecked = currentFeatures[f.key] ?? false;
@@ -1157,7 +1160,8 @@ export default function AdminDashboard() {
                   { key: 'ledger_enabled', label: 'Transaction Ledger' },
                   { key: 'ledger_show_balance', label: 'Ledger Show Balance' },
                   { key: 'ledger_show_debit', label: 'Ledger Show Debit (Outgoing)' },
-                  { key: 'reports_enabled', label: 'Reports & Analytics' }
+                  { key: 'reports_enabled', label: 'Reports & Analytics' },
+                  { key: 'custom_recent_tx_limit', label: 'Configurable Recent Tx Count' }
                 ].map(f => {
                   const isChecked = (planForm.features as any)[f.key] ?? false;
                   return (
@@ -1201,7 +1205,8 @@ export default function AdminDashboard() {
                         ledger_enabled: false,
                         ledger_show_balance: false,
                         ledger_show_debit: false,
-                        reports_enabled: false
+                        reports_enabled: false,
+                        custom_recent_tx_limit: false
                       }
                     });
                   }}
@@ -1293,7 +1298,8 @@ export default function AdminDashboard() {
                         ledger_enabled: plan.features?.ledger_enabled ?? false,
                         ledger_show_balance: plan.features?.ledger_show_balance ?? false,
                         ledger_show_debit: plan.features?.ledger_show_debit ?? false,
-                        reports_enabled: plan.features?.reports_enabled ?? false
+                        reports_enabled: plan.features?.reports_enabled ?? false,
+                        custom_recent_tx_limit: plan.features?.custom_recent_tx_limit ?? false
                       }
                     });
                   }}

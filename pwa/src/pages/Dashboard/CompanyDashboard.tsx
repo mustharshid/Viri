@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound } from 'lucide-react';
+import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound, Lock } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 
 const Tooltip = ({ text, onClick }: { text: string; onClick?: () => void }) => (
@@ -262,6 +262,55 @@ export default function CompanyDashboard() {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
+
+  // Recent Tx Limit Slider State
+  const txLimitOptions = [1, 3, 5, 10, 0];
+  const [savingTxLimit, setSavingTxLimit] = useState(false);
+  const [localTxLimit, setLocalTxLimit] = useState<number | null>(null);
+  const [txLimitSavedMsg, setTxLimitSavedMsg] = useState(false);
+
+  const customRecentTxLimitEnabled = Boolean(user?.tenant?.features?.custom_recent_tx_limit);
+  const serverRecentTxLimit = user?.tenant?.features?.recent_tx_limit ?? 3;
+  const currentTxLimit = localTxLimit !== null ? localTxLimit : serverRecentTxLimit;
+
+  const getTxLimitIndex = (val: number) => {
+    if (val === 1) return 0;
+    if (val === 3) return 1;
+    if (val === 5) return 2;
+    if (val === 10) return 3;
+    if (val === 0 || val >= 9999) return 4;
+    return 1;
+  };
+
+  const updateRecentTxLimit = async (newLimit: number) => {
+    const token = localStorage.getItem('viri_token') || localStorage.getItem('viri_auth_token');
+    if (!token) return;
+    setSavingTxLimit(true);
+    try {
+      const res = await fetch('/api/company/profile', {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          phone_number: user?.phone_number || '',
+          recent_tx_limit: newLimit
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.user) setUser(data.user);
+        setTxLimitSavedMsg(true);
+        setTimeout(() => setTxLimitSavedMsg(false), 2500);
+      }
+    } catch (err) {
+      console.error("Failed to update recent tx limit:", err);
+    } finally {
+      setSavingTxLimit(false);
+    }
+  };
 
   // Billing & Payments States
   const [payments, setPayments] = useState<any[]>([]);
@@ -732,7 +781,7 @@ export default function CompanyDashboard() {
             <img 
               src={theme === 'light' ? '/logo_en_black.png' : '/logo_en.png'} 
               alt="Viri Logo" 
-              className="h-10 md:h-12 object-contain" 
+              className="h-7 md:h-8 object-contain" 
             />
           </div>
           <nav className="space-y-1.5">
@@ -1094,6 +1143,109 @@ export default function CompanyDashboard() {
                     </div>
                   );
                 })}
+                {/* Verification Page Recent Transactions Record Count Card (Cashier Counter Card Size & Styling) */}
+                <div className="bg-[var(--bg-surface)] border border-[var(--border-color)] hover:border-emerald-500/40 hover:shadow-xl rounded-2xl p-5 flex flex-col justify-between gap-4 transition-all duration-300 group">
+                  <div>
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-[var(--bg-card)] border border-[var(--border-color)] flex items-center justify-center text-[var(--text-secondary)] group-hover:text-emerald-400 transition-colors">
+                          <Settings size={16} />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-bold text-[var(--text-primary)] leading-tight">Verification Row Count</h4>
+                          <div className="text-[10px] text-[var(--text-secondary)] font-mono mt-0.5">
+                            Universal PWA Setting
+                          </div>
+                        </div>
+                      </div>
+                      <div>
+                        {customRecentTxLimitEnabled ? (
+                          <span className="px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold rounded-lg text-[11px] font-mono">
+                            {currentTxLimit === 0 || currentTxLimit >= 9999 ? 'All' : `${currentTxLimit} Records`}
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 text-[10px] font-bold rounded-lg flex items-center gap-1 font-mono">
+                            <Lock size={10} /> Default (3)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-[var(--text-secondary)] mb-4 leading-relaxed">
+                      Number of records to show in Verification page:
+                    </p>
+
+                    <div className="px-2">
+                      <input
+                        type="range"
+                        min="0"
+                        max="4"
+                        step="1"
+                        value={getTxLimitIndex(currentTxLimit)}
+                        disabled={!customRecentTxLimitEnabled || savingTxLimit}
+                        onChange={(e) => {
+                          const idx = parseInt(e.target.value, 10);
+                          const newLimit = txLimitOptions[idx];
+                          setLocalTxLimit(newLimit);
+                        }}
+                        className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                      />
+                      <div className="relative w-full h-6 mt-2 text-[11px] text-[var(--text-secondary)] font-mono font-bold select-none">
+                        {[
+                          { idx: 0, label: '1', pos: '0%' },
+                          { idx: 1, label: '3', pos: '25%' },
+                          { idx: 2, label: '5', pos: '50%' },
+                          { idx: 3, label: '10', pos: '75%' },
+                          { idx: 4, label: 'All', pos: '100%' }
+                        ].map(item => {
+                          const active = getTxLimitIndex(currentTxLimit) === item.idx;
+                          return (
+                            <span
+                              key={item.idx}
+                              onClick={() => {
+                                if (customRecentTxLimitEnabled && !savingTxLimit) {
+                                  setLocalTxLimit(txLimitOptions[item.idx]);
+                                }
+                              }}
+                              style={{ left: item.pos }}
+                              className={`absolute -translate-x-1/2 cursor-pointer transition-all duration-150 ${
+                                active ? 'text-emerald-400 font-extrabold scale-110' : 'hover:text-white'
+                              }`}
+                            >
+                              {item.label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between items-center pt-2 border-t border-[var(--border-color)]">
+                    {!customRecentTxLimitEnabled ? (
+                      <div className="text-[10px] text-yellow-500/80 flex items-center gap-1">
+                        <Lock size={11} className="shrink-0" />
+                        <span>Feature locked</span>
+                      </div>
+                    ) : (
+                      <div className="text-[10px] text-[var(--text-secondary)] font-mono">
+                        {txLimitSavedMsg ? <span className="text-emerald-400 font-bold flex items-center gap-1">✓ Saved</span> : ''}
+                      </div>
+                    )}
+                    
+                    {customRecentTxLimitEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => updateRecentTxLimit(currentTxLimit)}
+                        disabled={savingTxLimit}
+                        className="btn btn-success px-3.5 py-1.5 text-xs font-bold flex items-center gap-1.5 shrink-0 shadow-sm"
+                      >
+                        {savingTxLimit ? <Loader2 size={12} className="animate-spin" /> : null}
+                        Save
+                      </button>
+                    )}
+                  </div>
+                </div>
+
                 {terminals.length === 0 && (
                   <div className="col-span-full text-center py-10 bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-2xl">
                     <p className="text-sm text-[var(--text-secondary)]">No cashier counters configured.</p>
@@ -1114,15 +1266,132 @@ export default function CompanyDashboard() {
 
               {/* Form Card for Select Bank & Add Account */}
               <form onSubmit={createBankAccount} className="bg-[var(--bg-surface)] border border-[var(--border-color)] p-5 rounded-2xl space-y-4 shadow-sm">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
-                  <div>
-                    <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-1">Select Bank</label>
-                    <select className="input-field text-sm" value={bankName} onChange={e => setBankName(e.target.value)}>
-                      <option value="BML">Bank of Maldives (BML)</option>
-                      <option value="MIB">Maldives Islamic Bank (MIB)</option>
-                    </select>
+                
+                {/* Bank Select, Profile Type & Currency Radio Button Containers (w-fit, Theme-Aligned) */}
+                <div className="flex flex-wrap items-center gap-4">
+                  {/* Select Bank Radio Option Group */}
+                  <div className="w-fit bg-[var(--bg-card)] border border-[var(--border-color)] p-2.5 rounded-xl space-y-1">
+                    <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-0.5">Select Bank</label>
+                    <div className="flex items-center gap-5 px-1 py-0.5">
+                      <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] cursor-pointer select-none">
+                        <input
+                          type="radio"
+                          name="bankSelect"
+                          value="BML"
+                          checked={bankName === 'BML'}
+                          onChange={() => setBankName('BML')}
+                          className="w-4 h-4 text-emerald-500 accent-emerald-500 cursor-pointer"
+                        />
+                        Bank of Maldives (BML)
+                      </label>
+                      <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] cursor-pointer select-none">
+                        <input
+                          type="radio"
+                          name="bankSelect"
+                          value="MIB"
+                          checked={bankName === 'MIB'}
+                          onChange={() => setBankName('MIB')}
+                          className="w-4 h-4 text-emerald-500 accent-emerald-500 cursor-pointer"
+                        />
+                        Maldives Islamic Bank (MIB)
+                      </label>
+                    </div>
                   </div>
 
+                  {/* MIB Profile Type Radio Option Group */}
+                  {bankName === 'MIB' && (
+                    <div className="w-fit bg-[var(--bg-card)] border border-[var(--border-color)] p-2.5 rounded-xl space-y-1">
+                      <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-0.5">MIB Profile Type</label>
+                      <div className="flex items-center gap-5 px-1 py-0.5">
+                        <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] cursor-pointer select-none">
+                          <input
+                            type="radio"
+                            name="mibProfileType"
+                            value="0"
+                            checked={mibProfileType === '0'}
+                            onChange={() => setMibProfileType('0')}
+                            className="w-4 h-4 text-emerald-500 accent-emerald-500 cursor-pointer"
+                          />
+                          Personal
+                        </label>
+                        <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] cursor-pointer select-none">
+                          <input
+                            type="radio"
+                            name="mibProfileType"
+                            value="1"
+                            checked={mibProfileType === '1'}
+                            onChange={() => setMibProfileType('1')}
+                            className="w-4 h-4 text-emerald-500 accent-emerald-500 cursor-pointer"
+                          />
+                          Business
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* BML Profile Type Radio Option Group */}
+                  {bankName === 'BML' && (
+                    <div className="w-fit bg-[var(--bg-card)] border border-[var(--border-color)] p-2.5 rounded-xl space-y-1">
+                      <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-0.5">BML Profile Type</label>
+                      <div className="flex items-center gap-5 px-1 py-0.5">
+                        <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] cursor-pointer select-none">
+                          <input
+                            type="radio"
+                            name="bmlProfileType"
+                            value="0"
+                            checked={bmlProfileType === '0'}
+                            onChange={() => setBmlProfileType('0')}
+                            className="w-4 h-4 text-emerald-500 accent-emerald-500 cursor-pointer"
+                          />
+                          Personal
+                        </label>
+                        <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] cursor-pointer select-none">
+                          <input
+                            type="radio"
+                            name="bmlProfileType"
+                            value="1"
+                            checked={bmlProfileType === '1'}
+                            onChange={() => setBmlProfileType('1')}
+                            className="w-4 h-4 text-emerald-500 accent-emerald-500 cursor-pointer"
+                          />
+                          Business
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Currency Radio Option Group */}
+                  <div className="w-fit bg-[var(--bg-card)] border border-[var(--border-color)] p-2.5 rounded-xl space-y-1">
+                    <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-0.5">Currency</label>
+                    <div className="flex items-center gap-5 px-1 py-0.5 font-mono">
+                      <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] cursor-pointer select-none">
+                        <input
+                          type="radio"
+                          name="currencySelect"
+                          value="MVR"
+                          checked={currency === 'MVR'}
+                          onChange={() => setCurrency('MVR')}
+                          className="w-4 h-4 text-emerald-500 accent-emerald-500 cursor-pointer"
+                        />
+                        MVR
+                      </label>
+                      <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] cursor-pointer select-none">
+                        <input
+                          type="radio"
+                          name="currencySelect"
+                          value="USD"
+                          checked={currency === 'USD'}
+                          onChange={() => setCurrency('USD')}
+                          className="w-4 h-4 text-emerald-500 accent-emerald-500 cursor-pointer"
+                        />
+                        USD
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Account Details Inputs Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end pt-1">
                   <div>
                     <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-1">Account Holder Name</label>
                     <input type="text" required placeholder="Name on account" className="input-field text-sm" value={accountName} onChange={e => setAccountName(e.target.value)} />
@@ -1139,48 +1408,11 @@ export default function CompanyDashboard() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end pt-2">
-                  <div>
-                    <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-1">Currency</label>
-                    <select className="input-field text-sm font-mono" value={currency} onChange={e => setCurrency(e.target.value)}>
-                      <option value="MVR">MVR</option>
-                      <option value="USD">USD</option>
-                    </select>
-                  </div>
-
-                  {bankName === 'MIB' && (
-                    <div className="bg-emerald-950/20 border border-emerald-500/25 p-2.5 rounded-xl space-y-1 md:col-span-2">
-                      <label className="text-[9px] font-bold text-emerald-400 uppercase tracking-widest block">MIB Profile Type</label>
-                      <div className="flex gap-2">
-                        <button type="button" onClick={() => setMibProfileType('0')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${mibProfileType === '0' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-transparent border-[var(--border-color)] text-[var(--text-secondary)] hover:border-emerald-500/40'}`}>
-                          Personal
-                        </button>
-                        <button type="button" onClick={() => setMibProfileType('1')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${mibProfileType === '1' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-transparent border-[var(--border-color)] text-[var(--text-secondary)] hover:border-emerald-500/40'}`}>
-                          Business
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {bankName === 'BML' && (
-                    <div className="bg-rose-950/20 border border-rose-500/25 p-2.5 rounded-xl space-y-1 md:col-span-2">
-                      <label className="text-[9px] font-bold text-rose-400 uppercase tracking-widest block">BML Profile Type</label>
-                      <div className="flex gap-2">
-                        <button type="button" onClick={() => setBmlProfileType('0')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${bmlProfileType === '0' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-transparent border-[var(--border-color)] text-[var(--text-secondary)] hover:border-rose-500/40'}`}>
-                          Personal
-                        </button>
-                        <button type="button" onClick={() => setBmlProfileType('1')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all border ${bmlProfileType === '1' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-transparent border-[var(--border-color)] text-[var(--text-secondary)] hover:border-rose-500/40'}`}>
-                          Business
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex justify-end">
-                    <button type="submit" className="btn btn-success w-full py-2.5 text-xs flex justify-center items-center gap-1.5 font-bold shadow-md">
-                      <Plus size={14}/> Add Account
-                    </button>
-                  </div>
+                {/* Bottom Row: Add Account Button in Left Corner */}
+                <div className="flex justify-start pt-2 border-t border-[var(--border-color)]">
+                  <button type="submit" className="btn btn-success px-5 py-2.5 text-xs flex items-center gap-1.5 font-bold shadow-md">
+                    <Plus size={14}/> Add Account
+                  </button>
                 </div>
               </form>
 

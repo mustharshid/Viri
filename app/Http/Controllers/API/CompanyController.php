@@ -298,7 +298,8 @@ class CompanyController extends Controller
         $request->validate([
             'phone_number' => 'required|string|max:255',
             'password' => 'nullable|string|min:8|confirmed',
-            'expiry_warning_days' => 'nullable|integer|min:0|max:90'
+            'expiry_warning_days' => 'nullable|integer|min:0|max:90',
+            'recent_tx_limit' => 'nullable|integer|in:0,1,3,5,10,9999'
         ]);
 
         $user->phone_number = $request->phone_number;
@@ -307,10 +308,15 @@ class CompanyController extends Controller
         }
         $user->save();
 
-        if ($request->has('expiry_warning_days')) {
+        if ($request->has('expiry_warning_days') || $request->has('recent_tx_limit')) {
             $tenant = $user->tenant;
             $features = $tenant->features ?? [];
-            $features['expiry_warning_days'] = (int) $request->expiry_warning_days;
+            if ($request->has('expiry_warning_days')) {
+                $features['expiry_warning_days'] = (int) $request->expiry_warning_days;
+            }
+            if ($request->has('recent_tx_limit')) {
+                $features['recent_tx_limit'] = (int) $request->recent_tx_limit;
+            }
             $tenant->features = $features;
             $tenant->save();
         }
