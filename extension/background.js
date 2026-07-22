@@ -1,3 +1,4 @@
+// Extension Version: 1.2.81
 import { 
   generateNonce, blowfishEncrypt, blowfishDecrypt, computePgf03, 
   deriveSessionKey, generateSodium, generateXxid, generateAppId,
