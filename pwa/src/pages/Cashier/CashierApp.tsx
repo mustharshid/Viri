@@ -161,6 +161,8 @@ interface LedgerTransaction {
 
 interface LedgerData {
   balance: string;
+  reservedBalance?: string;
+  availableBalance?: string;
   lastUpdated: string;
   lastUpdatedTimestamp?: number;
   timestamp?: number;
@@ -740,7 +742,7 @@ function App() {
   const [_terminalId, setTerminalId] = useState<number | null>(null);
   const [accountToClear, setAccountToClear] = useState<any | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const LATEST_EXTENSION_VERSION = "1.2.78";
+  const LATEST_EXTENSION_VERSION = "1.2.79";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -2434,6 +2436,8 @@ function App() {
                   ...prev,
                   [sessionHolderAccountId]: {
                     balance: responseData.balance || '0.00',
+                    reservedBalance: responseData.reservedBalance || '0.00',
+                    availableBalance: responseData.availableBalance || responseData.balance || '0.00',
                     lastUpdated: new Date().toLocaleTimeString(),
                     lastUpdatedTimestamp: Date.now(),
                     transactions: responseData.transactions || [],
@@ -2680,6 +2684,8 @@ function App() {
                 [selectedAccountId]: {
                   ...prevAcc,
                   balance: response.balance,
+                  reservedBalance: response.reservedBalance || '0.00',
+                  availableBalance: response.availableBalance || response.balance || '0.00',
                   lastUpdated: new Date().toLocaleTimeString(),
                   lastUpdatedTimestamp: Date.now(),
                   transactions: prevAcc.transactions || []
@@ -3000,6 +3006,8 @@ function App() {
             ...prev,
             [targetAccountId]: {
               balance: response.balance || 'Not found',
+              reservedBalance: response.reservedBalance || '0.00',
+              availableBalance: response.availableBalance || response.balance || '0.00',
               lastUpdated: new Date().toLocaleTimeString(),
               lastUpdatedTimestamp: Date.now(),
               transactions: newTxs,
@@ -3091,6 +3099,8 @@ function App() {
             ...prev,
             [targetAccountId]: {
               balance: response.balance || 'Not found',
+              reservedBalance: response.reservedBalance || '0.00',
+              availableBalance: response.availableBalance || response.balance || '0.00',
               lastUpdated: new Date().toLocaleTimeString(),
               lastUpdatedTimestamp: Date.now(),
               transactions: newTxs,
@@ -5009,10 +5019,17 @@ function App() {
                     </div>
 
                     {/* Total Position widget */}
-                    <div className="text-right">
+                    <div className="text-right flex flex-col items-end">
                       <div className={`text-zinc-500 uppercase tracking-widest font-bold font-sans transition-all duration-300 ${
                         isCompletelyCollapsed ? 'text-[9px]' : 'text-[10px]'
                       }`}>Total Position</div>
+                      {permissions.ledger_show_balance && cache.balance !== 'Not synced' && cache.balance !== 'Not found' && (
+                        <div className={`text-zinc-500 font-medium font-sans uppercase tracking-wider transition-all duration-300 ${
+                          isCompletelyCollapsed ? 'text-[8px]' : 'text-[9px] mt-0.5'
+                        }`}>
+                          Reserved: {ledgerCurrency} {formatAmount(cache.reservedBalance || '0.00')}
+                        </div>
+                      )}
                       <div className={`font-black text-emerald-400 tracking-tight transition-all duration-300 ${
                         isCompletelyCollapsed ? 'text-xl mt-0.5' : 'text-3xl mt-1'
                       }`}>

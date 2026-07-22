@@ -347,7 +347,9 @@ chrome.runtime.onConnectExternal.addListener((port) => {
                 page: page,
                 transactions: res.transactions,
                 totalPages: res.totalPages,
-                balance: res.balance
+                balance: res.balance,
+                reservedBalance: res.reservedBalance,
+                availableBalance: res.availableBalance
               });
             })
             .catch(error => {
@@ -1121,8 +1123,18 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
       throw new Error(`Account ${targetAccount} not found on this BML profile.`);
     }
     const accountInternalId = accountObj.id;
-    const dashboardBalance = accountObj.balance || accountObj.available_balance || accountObj.availableBalance || accountObj.working_balance || accountObj.current_balance || null;
-    emitLog(port, `> [BML-API] Resolved account UUID: ${accountInternalId}${dashboardBalance !== null ? `, dashboard balance: ${dashboardBalance}` : ''}`);
+    const clearedBalanceVal = accountObj.clearedBalance !== undefined && accountObj.clearedBalance !== null ? accountObj.clearedBalance : (accountObj.balance || accountObj.available_balance || accountObj.availableBalance || accountObj.working_balance || accountObj.current_balance || '0.00');
+    const availableBalanceVal = accountObj.availableBalance !== undefined && accountObj.availableBalance !== null ? accountObj.availableBalance : clearedBalanceVal;
+
+    const clearedBalanceNum = typeof clearedBalanceVal === 'string' ? parseFloat(clearedBalanceVal.replace(/,/g, '')) : (parseFloat(clearedBalanceVal) || 0);
+    const availableBalanceNum = typeof availableBalanceVal === 'string' ? parseFloat(availableBalanceVal.replace(/,/g, '')) : (parseFloat(availableBalanceVal) || 0);
+    const reservedBalanceNum = Math.max(0, clearedBalanceNum - availableBalanceNum);
+
+    const dashboardBalance = clearedBalanceNum.toFixed(2);
+    const dashboardReservedBalance = reservedBalanceNum.toFixed(2);
+    const dashboardAvailableBalance = availableBalanceNum.toFixed(2);
+
+    emitLog(port, `> [BML-API] Resolved account UUID: ${accountInternalId}, cleared: ${dashboardBalance}, reserved: ${dashboardReservedBalance}`);
 
     // Fetch history
     emitLog(port, `> [BML-API] GET ${BASE_URL}/api/mobile/account/${accountInternalId}/history/today`);
@@ -1158,9 +1170,9 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     last3Txs = formattedTxs.slice(0, 3);
     emitLog(port, `> [BML-API] Found ${formattedTxs.length} transactions today.`);
 
-    const currentBalance = dashboardBalance || (formattedTxs.length > 0 && formattedTxs[0].runningBalance 
-      ? formattedTxs[0].runningBalance 
-      : '0.00');
+    const currentBalance = dashboardBalance;
+    const reservedBalance = dashboardReservedBalance;
+    const availableBalance = dashboardAvailableBalance;
 
     if (mode === 'ledger' || mode === 'history') {
       port.postMessage({
@@ -1168,6 +1180,8 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
         match: null,
         transactions: formattedTxs,
         balance: currentBalance,
+        reservedBalance,
+        availableBalance,
         login_success: true
       });
       return;
@@ -1190,6 +1204,8 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
         match: match,
         transactions: formattedTxs,
         balance: currentBalance,
+        reservedBalance,
+        availableBalance,
         internal_id: accountInternalId,
         login_success: true
       });
@@ -1388,7 +1404,16 @@ async function fetchBmlHistoryPage(credentials, bankAccountId, accountNumber, po
     }
     if (!accountObj) throw new Error(`Target account ${accountNumber} not found.`);
     const accountInternalId = accountObj.id;
-    const balance = accountObj.balance || accountObj.availableBalance || '0.00';
+    const clearedBalanceVal = accountObj.clearedBalance !== undefined && accountObj.clearedBalance !== null ? accountObj.clearedBalance : (accountObj.balance || accountObj.availableBalance || '0.00');
+    const availableBalanceVal = accountObj.availableBalance !== undefined && accountObj.availableBalance !== null ? accountObj.availableBalance : clearedBalanceVal;
+
+    const clearedBalanceNum = typeof clearedBalanceVal === 'string' ? parseFloat(clearedBalanceVal.replace(/,/g, '')) : (parseFloat(clearedBalanceVal) || 0);
+    const availableBalanceNum = typeof availableBalanceVal === 'string' ? parseFloat(availableBalanceVal.replace(/,/g, '')) : (parseFloat(availableBalanceVal) || 0);
+    const reservedBalanceNum = Math.max(0, clearedBalanceNum - availableBalanceNum);
+
+    const balance = clearedBalanceNum.toFixed(2);
+    const reservedBalance = reservedBalanceNum.toFixed(2);
+    const availableBalance = availableBalanceNum.toFixed(2);
 
     emitLog(port, `> [BML-API] GET ${BASE_URL}/api/mobile/account/${accountInternalId}/history/${page}`);
     const pageRes = await authFetch(`${BASE_URL}/api/mobile/account/${accountInternalId}/history/${page}`);
@@ -1409,7 +1434,9 @@ async function fetchBmlHistoryPage(credentials, bankAccountId, accountNumber, po
     return {
       transactions: formattedTxs,
       totalPages: totalPages,
-      balance: balance
+      balance: balance,
+      reservedBalance: reservedBalance,
+      availableBalance: availableBalance
     };
   } catch (error) {
     emitLog(port, `> [BML-API] Error during page fetch: ${error.message}`);
@@ -2383,6 +2410,8 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     
     // Check if ensureMibSession saved a balance from A40 into session storage
     let accountBalance = null;
+    let accountReservedBalance = '0.00';
+    let accountAvailableBalance = '0.00';
 
     if (sessionMode === 'claim_and_login') {
       emitLog(port, `> [MIB-API] Session claimed. Auth sequence complete.`);
@@ -2410,8 +2439,17 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
       if (Array.isArray(mib_accountBalance) && mib_accountBalance.length > 0) {
         const match = mib_accountBalance.find(a => String(a.accountNumber).trim() === String(targetAccount).trim());
         if (match) {
-          accountBalance = match.availableBalance || match.currentBalance || null;
-          if (port) emitLog(port, `> [MIB-API] 💰 Balance from session cache: ${accountBalance}`);
+          const currentBalVal = match.currentBalance !== undefined && match.currentBalance !== null ? match.currentBalance : (match.availableBalance || '0.00');
+          const availableBalVal = match.availableBalance !== undefined && match.availableBalance !== null ? match.availableBalance : currentBalVal;
+
+          const currentBal = typeof currentBalVal === 'string' ? parseFloat(currentBalVal.replace(/,/g, '')) : (parseFloat(currentBalVal) || 0);
+          const availableBal = typeof availableBalVal === 'string' ? parseFloat(availableBalVal.replace(/,/g, '')) : (parseFloat(availableBalVal) || 0);
+          const reservedBal = Math.max(0, currentBal - availableBal);
+
+          accountBalance = currentBal.toFixed(2);
+          accountReservedBalance = reservedBal.toFixed(2);
+          accountAvailableBalance = availableBal.toFixed(2);
+          if (port) emitLog(port, `> [MIB-API] 💰 Balance from session cache: Cleared=${accountBalance}, Reserved=${accountReservedBalance}`);
         } else {
           const accts = mib_accountBalance.map(a => a.accountNumber).join(', ');
           if (port) emitLog(port, `> [MIB-API] Session cache has ${mib_accountBalance.length} account(s) but none matched ${targetAccount}. Accounts: ${accts}`);
@@ -2431,8 +2469,17 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
             await chrome.storage.session.set({ mib_accountBalance: p47Result.accountBalance });
             const match = p47Result.accountBalance.find(a => String(a.accountNumber).trim() === String(targetAccount).trim());
             if (match) {
-              accountBalance = match.availableBalance || match.currentBalance || null;
-              if (port) emitLog(port, `> [MIB-API] 💰 Live balance from bank: ${accountBalance}`);
+              const currentBalVal = match.currentBalance !== undefined && match.currentBalance !== null ? match.currentBalance : (match.availableBalance || '0.00');
+              const availableBalVal = match.availableBalance !== undefined && match.availableBalance !== null ? match.availableBalance : currentBalVal;
+
+              const currentBal = typeof currentBalVal === 'string' ? parseFloat(currentBalVal.replace(/,/g, '')) : (parseFloat(currentBalVal) || 0);
+              const availableBal = typeof availableBalVal === 'string' ? parseFloat(availableBalVal.replace(/,/g, '')) : (parseFloat(availableBalVal) || 0);
+              const reservedBal = Math.max(0, currentBal - availableBal);
+
+              accountBalance = currentBal.toFixed(2);
+              accountReservedBalance = reservedBal.toFixed(2);
+              accountAvailableBalance = availableBal.toFixed(2);
+              if (port) emitLog(port, `> [MIB-API] 💰 Live balance from bank: Cleared=${accountBalance}, Reserved=${accountReservedBalance}`);
             } else {
               const accts = p47Result.accountBalance.map(a => a.accountNumber).join(', ');
               if (port) emitLog(port, `> [MIB-API] ⚠️ P47 returned ${p47Result.accountBalance.length} account(s) but none matched ${targetAccount}. Accounts: ${accts}`);
@@ -2543,7 +2590,13 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     });
 
     if (mode === 'fetch_only') {
-      port.postMessage({ type: 'statement_success', transactions: formattedTxs, balance: accountBalance || '0.00' });
+      port.postMessage({ 
+        type: 'statement_success', 
+        transactions: formattedTxs, 
+        balance: accountBalance || '0.00',
+        reservedBalance: accountReservedBalance || '0.00',
+        availableBalance: accountAvailableBalance || '0.00'
+      });
       return;
     }
 
@@ -2553,6 +2606,8 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
         match: null,
         transactions: formattedTxs,
         balance: accountBalance || '0.00',
+        reservedBalance: accountReservedBalance || '0.00',
+        availableBalance: accountAvailableBalance || '0.00',
         login_success: true
       });
       return;
@@ -2571,10 +2626,25 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
 
     if (matchedTx) {
       emitLog(port, `> [MIB-API] Match FOUND for ${targetAmount}.`);
-      port.postMessage({ type: 'success', match: matchedTx, login_success: true, transactions: formattedTxs.slice(0, 3), balance: accountBalance || '0.00' });
+      port.postMessage({ 
+        type: 'success', 
+        match: matchedTx, 
+        login_success: true, 
+        transactions: formattedTxs.slice(0, 3), 
+        balance: accountBalance || '0.00',
+        reservedBalance: accountReservedBalance || '0.00',
+        availableBalance: accountAvailableBalance || '0.00'
+      });
     } else {
       emitLog(port, `> [MIB-API] No match found for ${targetAmount}.`);
-      port.postMessage({ type: 'not_found', transactions: formattedTxs.slice(0, 3), login_success: true });
+      port.postMessage({ 
+        type: 'not_found', 
+        transactions: formattedTxs.slice(0, 3), 
+        login_success: true,
+        balance: accountBalance || '0.00',
+        reservedBalance: accountReservedBalance || '0.00',
+        availableBalance: accountAvailableBalance || '0.00'
+      });
     }
 
   } catch (error) {
