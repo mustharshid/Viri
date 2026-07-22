@@ -4668,12 +4668,22 @@ function App() {
                       </div>
 
                       <div className="flex justify-between items-end z-10 pt-2 border-t border-zinc-800/60 mt-auto">
-                        <span className="text-zinc-500 text-[10px] uppercase tracking-wider font-bold">Balance</span>
+                        <div className="flex flex-col">
+                          <span className="text-zinc-500 text-[10px] uppercase tracking-wider font-bold">Balance</span>
+                          {(() => {
+                            const verifyCache = selectedAccount ? (ledgerCache[selectedAccount.id.toString()] || { balance: 'Not synced', reservedBalance: '0.00' } as any) : { balance: 'Not synced', reservedBalance: '0.00' } as any;
+                            return permissions.ledger_show_balance && verifyCache.balance !== 'Not synced' && verifyCache.balance !== 'Not found' && (
+                              <span className="text-zinc-500 text-[9px] font-sans uppercase mt-0.5">
+                                Reserved: {selectedAccountCurrency} {formatAmount(verifyCache.reservedBalance || '0.00')}
+                              </span>
+                            );
+                          })()}
+                        </div>
                         <div className="text-right">
                           <span className="text-[10px] text-emerald-500/70 mr-1 font-bold">{selectedAccountCurrency}</span>
                           <span className="text-sm font-bold font-mono text-emerald-400">
                             {(() => {
-                              const verifyCache = selectedAccount ? (ledgerCache[selectedAccount.id.toString()] || { balance: 'Not synced' }) : { balance: 'Not synced' };
+                              const verifyCache = selectedAccount ? (ledgerCache[selectedAccount.id.toString()] || { balance: 'Not synced' } as any) : { balance: 'Not synced' } as any;
                               return permissions.ledger_show_balance ? (
                                 verifyCache.balance !== 'Not synced' && verifyCache.balance !== 'Not found' ? formatAmount(verifyCache.balance) : '0.00'
                               ) : '[hidden]';
