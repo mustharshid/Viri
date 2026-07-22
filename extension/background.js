@@ -202,6 +202,13 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === 'SELECT_MIB_PROFILE') {
+    selectMibProfile(msg.payload.profileId, msg.payload.profileType)
+      .then(res => sendResponse(res))
+      .catch(e => sendResponse({ success: false, error: e.message }));
+    return true;
+  }
+
   if (msg.action === 'CLEAR_MIB_CREDENTIALS') {
     (async () => {
       try {
@@ -562,10 +569,10 @@ function normalizeTransactions(rawTxList, bankType, limit = 50) {
     }
     let formattedAmount = '';
     if (bankType === 'MIB') {
-      formattedAmount = `${amount >= 0 ? '+' : ''}${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      formattedAmount = `${amount >= 0 ? '' : '-'}${Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     } else {
       const isCredit = tx.type === 'credit' || amount > 0;
-      formattedAmount = `${isCredit ? '+' : '-'}${Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      formattedAmount = `${isCredit ? '' : '-'}${Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
 
     const runningBal = tx.runningBalance || tx.balance || tx.closingBalance || tx.endingBalance;
@@ -578,7 +585,9 @@ function normalizeTransactions(rawTxList, bankType, limit = 50) {
     }
     
     const narrative3Trimmed = tx.narrative3 ? String(tx.narrative3).trim() : '';
-    return { date, details, amount: formattedAmount, runningBalance: formattedRunningBal, reference: refTrimmed || '', narrative3: narrative3Trimmed };
+    const senderName = tx.senderName || tx.sender_name || tx.sender || tx.benefName || tx.benef_name || tx.narrative2 || tx.remitterName || tx.remitter || tx.partyName || tx.opponentName || '';
+    const senderTrimmed = senderName ? String(senderName).trim().replace(/^\/+\s*/, '') : '';
+    return { date, details, amount: formattedAmount, runningBalance: formattedRunningBal, reference: refTrimmed || '', narrative3: narrative3Trimmed, sender: senderTrimmed };
   });
 }
 
@@ -1637,6 +1646,29 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
         const a41ProfileId = firstProfile.profileId || a41Resp.selectedProfileId || a41Resp.payload?.login?.selectedProfileId;
         const a41ProfileType = firstProfile.profileType || '0';
 
+        // ── Multi-profile detection ──
+        if (!a41Resp.profileSelected && Array.isArray(a41Profiles) && a41Profiles.length > 1) {
+          if(port) emitLog(port, `> [MIB-API] Multi-profile detected: ${a41Profiles.length} profiles.`);
+
+          await chrome.storage.session.set({
+            mibAuthTemp: {
+              sessionState,
+              profiles: a41Profiles,
+              key1ToSave: sessionState.key1,
+              key2ToSave: sessionState.key2,
+              mibPassword: password,
+              mibUsername,
+              terminalId,
+              bankAccountId,
+              backendUrl,
+              sanctumToken
+            }
+          });
+
+          return { success: true, needProfile: true, profiles: a41Profiles };
+        }
+        // ── End multi-profile code ──
+
         // Per FLOW.md: OTP is signaled by primaryOTPType/otpTypes at the A41 response root.
         // But if profileSelected is true (single-profile fast-path), OTP is always skipped.
         if (a41Resp.profileSelected) {
@@ -1755,6 +1787,7 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
   if (!mibAuthTemp) throw new Error("No MIB auth session found in storage.");
   
   const { sessionState, flow, primaryOTPType, mibPassword } = mibAuthTemp;
+
   const sodium = generateSodium();
   const nonce = generateNonce(sessionState.nonceGenerator);
   
@@ -1784,46 +1817,48 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
       sessionState.key1 = key1ToSave;
       sessionState.key2 = key2ToSave;
       await chrome.storage.local.set({ mib_key1: key1ToSave, mib_key2: key2ToSave });
-      
-      // Save profile info from A41 (available in mibAuthTemp for A42 path)
-      const { mibProfileId, mibProfileType, mibProfileName } = mibAuthTemp;
-      const spProfileId = mibProfileId || 'default_profile';
-      const spProfileType = mibProfileType || '0';
-      const spProfileName = mibProfileName || 'Legacy Profile';
-      const credsHash = await computeCredsHash('MIB', mibUsername);
-      if (mibProfileId) {
-        await chrome.storage.local.set({ mib_profileId: mibProfileId, mib_profileType: mibProfileType || '0' });
-      }
-      
-      // Store in backend
-      if(port) emitLog(port, '> [MIB-API] Storing device keys in backend...');
-      const storeResp = await fetch(`${backendUrl}/mib/keys/store`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${sanctumToken}`
-        },
-        body: JSON.stringify({
-          hardware_id: terminalId,
-          bank_account_id: bankAccountId,
-          mib_username: mibUsername,
-          key1: key1ToSave,
-          key2: key2ToSave,
-          app_id: sessionState.appId,
-          profile_id: spProfileId,
-          profile_type: spProfileType,
-          profile_name: spProfileName,
-          credentials_hash: credsHash
-        })
-      });
-      if (!storeResp.ok) {
-        const errText = await storeResp.text();
-        throw new Error(`Server failed to store keys: Status ${storeResp.status} - ${errText}`);
+
+      // ── Only store profile if not multi-profile ──
+      const isMultiProfile = Array.isArray(mibAuthTemp.profiles) && mibAuthTemp.profiles.length > 1;
+      if (!isMultiProfile) {
+        const { mibProfileId, mibProfileType, mibProfileName } = mibAuthTemp;
+        const spProfileId = mibProfileId || 'default_profile';
+        const spProfileType = mibProfileType || '0';
+        const spProfileName = mibProfileName || 'Legacy Profile';
+        const credsHash = await computeCredsHash('MIB', mibUsername);
+        if (mibProfileId) {
+          await chrome.storage.local.set({ mib_profileId: mibProfileId, mib_profileType: mibProfileType || '0' });
+        }
+        // Store in backend
+        if(port) emitLog(port, '> [MIB-API] Storing device keys in backend...');
+        const storeResp = await fetch(`${backendUrl}/mib/keys/store`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${sanctumToken}`
+          },
+          body: JSON.stringify({
+            hardware_id: terminalId,
+            bank_account_id: bankAccountId,
+            mib_username: mibUsername,
+            key1: key1ToSave,
+            key2: key2ToSave,
+            app_id: sessionState.appId,
+            profile_id: spProfileId,
+            profile_type: spProfileType,
+            profile_name: spProfileName,
+            credentials_hash: credsHash
+          })
+        });
+        if (!storeResp.ok) {
+          const errText = await storeResp.text();
+          throw new Error(`Server failed to store keys: Status ${storeResp.status} - ${errText}`);
+        }
       }
     }
 
     // After C42, use password (still in mibAuthTemp) to establish authenticated web session via A41
-    if (flow === 'C42' && mibPassword && key1ToSave && key2ToSave) {
+    if ((flow === 'C42' || flow === 'A42') && mibPassword && key1ToSave && key2ToSave) {
       try {
         if(port) emitLog(port, '> [MIB-API] Establishing web session via A41...');
         // sfunc=i resume with new keys
@@ -1852,12 +1887,37 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
             };
             const a41Resp = await executeMibSfunc('n', a41Payload, webSessionKey, { xxid: webXxid, sfunc: 'n' });
             if (a41Resp.success) {
-              if(port) emitLog(port, `> [MIB-API] A41 web login successful. Updating session with web xxid.`);
+              if(port) emitLog(port, `> [MIB-API] A41 web login successful.`);
+
+              // Update session state with web session
               sessionState.xxid = webXxid;
               sessionState.nonceGenerator = webNonceGen;
               sessionState.sessionKey = webSessionKey;
-              // Save profile info from this A41 response
+
               const c42Profiles = a41Resp.operatingProfiles || a41Resp.payload?.login?.operatingProfiles || [];
+
+              // ── NEW: Multi-profile detected after OTP ──
+              if (!a41Resp.profileSelected && Array.isArray(c42Profiles) && c42Profiles.length > 1) {
+                if(port) emitLog(port, `> [MIB-API] Multi-profile after OTP: ${c42Profiles.length} profiles.`);
+                await chrome.storage.session.set({
+                  mibAuthTemp: {
+                    sessionState,
+                    profiles: c42Profiles,
+                    key1ToSave,
+                    key2ToSave,
+                    mibPassword,
+                    mibUsername,
+                    terminalId,
+                    bankAccountId,
+                    backendUrl,
+                    sanctumToken
+                  }
+                });
+                await chrome.storage.session.set({ mibSession: sessionState });
+                return { success: true, needProfile: true, profiles: c42Profiles };
+              }
+
+              // Single-profile: save as before
               const c42First = c42Profiles[0] || {};
               if (c42First.profileId) {
                 await chrome.storage.local.set({ mib_profileId: c42First.profileId, mib_profileType: c42First.profileType || '0' });
@@ -1944,63 +2004,88 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
     await chrome.storage.session.set({ mibSession });
     if(port) emitLog(port, '> [MIB-API] Session resumed successfully.');
 
-    // Select profile via P47 so WebView recognizes the session
-    let profileSelected = false;
-    try {
-      const { mib_profileId, mib_profileType } = await chrome.storage.local.get(['mib_profileId', 'mib_profileType']);
-      if (mib_profileId) {
-        // FIX 2: Use the returned object to capture accountBalance from the P47 call
-        const p47Result = await attemptP47(port, mibSession, mib_profileId, mib_profileType || '0');
-        profileSelected = p47Result.selected;
-        if (p47Result.accountBalance.length > 0) {
-          await chrome.storage.session.set({ mib_accountBalance: p47Result.accountBalance });
-          if(port) emitLog(port, `> [MIB-API] Cached ${p47Result.accountBalance.length} account balance(s) from P47.`);
-        }
-      } else {
-        if(port) emitLog(port, '> [MIB-API] No saved profile. Skipping P47.');
-      }
-    } catch (e) {
-      if(port) emitLog(port, `> [MIB-API] P47 failed (non-fatal): ${e.message}`);
-    }
+    // Get stored profile (if any) for later use
+    const { mib_profileId, mib_profileType } = await chrome.storage.local.get(['mib_profileId', 'mib_profileType']);
 
-    // If P47 failed (None Authenticated Session) and credentials available, try A40 fallback
+    // A44 → A41: Authenticate session so P47 recognizes it
+    // (matching test app's regularLogin() flow)
+    let profileSelected = false;
     const hasCreds = credentials?.username?.length > 0 && credentials?.password?.length > 0;
 
-    // Fallback: check chrome.storage.session for cached credentials from a prior flow
-    if (!hasCreds) {
+    if (hasCreds) {
       try {
-        const { mib_stored_creds } = await chrome.storage.session.get('mib_stored_creds');
-        if (mib_stored_creds?.username?.length > 0 && mib_stored_creds?.password?.length > 0) {
-          credentials = mib_stored_creds;
-          if(port) emitLog(port, '> [MIB-API] Using stored fallback credentials for A40.');
-        } else {
-          if(port) emitLog(port, `> [MIB-API] No stored credentials found for A40 fallback.`);
-        }
-      } catch(e) {}
-    }
-    const username = credentials?.username?.length > 0 ? credentials.username : '';
-    const password = credentials?.password?.length > 0 ? credentials.password : '';
-    if(port && !hasCreds && !username) emitLog(port, '> [MIB-API] WARNING: No MIB credentials available. A40 authentication will be skipped.');
-
-    if (!profileSelected && username && password) {
-      if(port) emitLog(port, '> [MIB-API] Attempting A40 authentication fallback...');
-      try {
-        const a40Sodium = generateSodium();
-        const a40Nonce = generateNonce(mibSession.nonceGenerator);
-        const a40Payload = {
-          sodium: a40Sodium,
-          routePath: 'A40',
-          xxid: mibSession.xxid,
-          uname: credentials.username,
-          pgf02: credentials.password,
-          pmodTime: 0,
-          requireBankData: 1,
-          nonce: a40Nonce,
-          appId: mibSession.appId,
+        const a44Sodium = generateSodium();
+        const a44Nonce = generateNonce(mibSession.nonceGenerator);
+        const a44Payload = {
+          sodium: a44Sodium, routePath: 'A44', xxid: mibSession.xxid,
+          uname: credentials.username, nonce: a44Nonce, appId: mibSession.appId,
         };
-        const a40Resp = await executeMibSfunc('n', a40Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
-        if (a40Resp.success) {
-          if(port) emitLog(port, '> [MIB-API] A40 authentication successful.');
+        const a44Resp = await executeMibSfunc('n', a44Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
+        const userSalt = a44Resp.success ? (a44Resp.data?.[0]?.userSalt || null) : null;
+
+        if (userSalt) {
+          const a41Sodium = generateSodium();
+          const a41Nonce = generateNonce(mibSession.nonceGenerator);
+          const clientSalt = generateClientSalt();
+          const pgf03 = await computePgf03(credentials.password, userSalt, clientSalt);
+          const a41Payload = {
+            sodium: a41Sodium, routePath: 'A41', xxid: mibSession.xxid,
+            uname: credentials.username, clientSalt, pgf03, nonce: a41Nonce,
+            appId: mibSession.appId, pmodTime: 0, requireBankData: 1,
+          };
+          const a41Resp = await executeMibSfunc('n', a41Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
+          if (a41Resp.success) {
+            const a41Profiles = a41Resp.operatingProfiles || [];
+            const sp = a41Resp.profileSelected;
+            if (sp && Array.isArray(a41Resp.accountBalance) && a41Resp.accountBalance.length > 0) {
+              profileSelected = true;
+              await chrome.storage.session.set({ mib_accountBalance: a41Resp.accountBalance });
+              if(port) emitLog(port, `> [MIB-API] A41 fast-path: ${a41Resp.accountBalance.length} accounts.`);
+            } else if (mib_profileId) {
+              const p47Result = await attemptP47(port, mibSession, mib_profileId, mib_profileType || '0');
+              profileSelected = p47Result.selected;
+              if (p47Result.accountBalance.length > 0) {
+                await chrome.storage.session.set({ mib_accountBalance: p47Result.accountBalance });
+                if(port) emitLog(port, `> [MIB-API] Cached ${p47Result.accountBalance.length} account balance(s) from P47.`);
+              }
+            } else if (a41Profiles.length > 0) {
+              if(port) emitLog(port, `> [MIB-API] Multi-profile (${a41Profiles.length}) in resume — will re-enter login flow.`);
+            }
+          }
+        }
+      } catch (e) {
+        if(port) emitLog(port, `> [MIB-API] A41 login in resume failed: ${e.message}`);
+      }
+    }
+
+    if (!profileSelected) {
+      // Fallback: check chrome.storage.session for cached credentials
+      if (!hasCreds) {
+        try {
+          const { mib_stored_creds } = await chrome.storage.session.get('mib_stored_creds');
+          if (mib_stored_creds?.username?.length > 0 && mib_stored_creds?.password?.length > 0) {
+            credentials = mib_stored_creds;
+            if(port) emitLog(port, '> [MIB-API] Using stored fallback credentials for A40.');
+          }
+        } catch(e) {}
+      }
+      const uname = credentials?.username?.length > 0 ? credentials.username : '';
+      const pwd = credentials?.password?.length > 0 ? credentials.password : '';
+      if (!uname && port) emitLog(port, '> [MIB-API] WARNING: No MIB credentials available. A40 will be skipped.');
+
+      if (uname && pwd) {
+        if(port) emitLog(port, '> [MIB-API] Attempting A40 authentication fallback...');
+        try {
+          const a40Sodium = generateSodium();
+          const a40Nonce = generateNonce(mibSession.nonceGenerator);
+          const a40Payload = {
+            sodium: a40Sodium, routePath: 'A40', xxid: mibSession.xxid,
+            uname, pgf02: pwd, pmodTime: 0, requireBankData: 1,
+            nonce: a40Nonce, appId: mibSession.appId,
+          };
+          const a40Resp = await executeMibSfunc('n', a40Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
+          if (a40Resp.success) {
+            if(port) emitLog(port, '> [MIB-API] A40 authentication successful.');
 
           // Extract and save profile from A40 response
           // If profileSelected is true (single-profile fast-path), skip P47 and use accountBalance directly
@@ -2076,6 +2161,7 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
       } catch (a40e) {
         if(port) emitLog(port, `> [MIB-API] A40 fallback error: ${a40e.message}`);
       }
+      }  // close if (uname && pwd)
     }
 
     // Log cookies after session setup
@@ -2202,7 +2288,7 @@ async function attemptP47(port, mibSession, profileId, profileType) {
   const p47Nonce = generateNonce(mibSession.nonceGenerator);
   const p47Payload = {
     profileType: profileType || '0',
-    customerProfileId: profileId,
+    profileId: profileId,
     nonce: p47Nonce,
     appId: mibSession.appId,
     sodium: p47Sodium,
@@ -2223,6 +2309,63 @@ async function attemptP47(port, mibSession, profileId, profileType) {
     if(port) emitLog(port, `> [MIB-API] P47 error: ${e.message}`);
     return { selected: false, accountBalance: [] };
   }
+}
+
+async function selectMibProfile(profileId, profileType) {
+  const port = activePort;
+  const { mibAuthTemp } = await chrome.storage.session.get('mibAuthTemp');
+  if (!mibAuthTemp || !mibAuthTemp.sessionState) {
+    throw new Error("No pending MIB auth session for profile selection.");
+  }
+
+  const { sessionState, profiles, mibUsername, key1ToSave, key2ToSave, terminalId, bankAccountId, backendUrl, sanctumToken } = mibAuthTemp;
+
+  // Find selected profile name from profiles list
+  const selectedProfile = (profiles || []).find(p =>
+    (p.profileId || p.customerProfileId) === profileId
+  );
+  const profileName = selectedProfile?.profileName || selectedProfile?.name || 'Profile';
+
+  if(port) emitLog(port, `> [MIB-API] Selecting MIB profile via P47: ${profileId} (${profileType})`);
+
+  // Call P47
+  const p47Result = await attemptP47(port, sessionState, profileId, profileType);
+  if (!p47Result.selected) {
+    throw new Error("P47 profile selection failed.");
+  }
+
+  // Save profile to storage
+  await chrome.storage.local.set({ mib_profileId: profileId, mib_profileType: profileType });
+
+  // Save keys and profile to backend
+  const credsHash = await computeCredsHash('MIB', mibUsername);
+  const storeResp = await fetch(`${backendUrl}/mib/keys/store`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${sanctumToken}`
+    },
+    body: JSON.stringify({
+      hardware_id: terminalId,
+      bank_account_id: bankAccountId,
+      mib_username: mibUsername,
+      key1: key1ToSave,
+      key2: key2ToSave,
+      app_id: sessionState.appId,
+      profile_id: profileId,
+      profile_type: profileType,
+      profile_name: profileName,
+      credentials_hash: credsHash
+    })
+  });
+  if (!storeResp.ok) {
+    const errText = await storeResp.text();
+    throw new Error(`Server failed to store keys: Status ${storeResp.status} - ${errText}`);
+  }
+
+  await chrome.storage.session.remove('mibAuthTemp');
+  if(port) emitLog(port, '> [MIB-API] Profile selected and keys saved.');
+  return { success: true };
 }
 
 async function runMibApiFlow(credentials, targetAccount, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', hardwareId = '', backendUrl = '') {
@@ -2261,8 +2404,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     });
     await setMibCookies(wvDomain);
 
-    // FIX 5: Read the balance cached during session setup (from A40 fast-path or P47 inside ensureMibSession)
-    // This avoids a redundant P47 call and ensures we use the balance already fetched.
+    // Check cached account balance from session setup (A41 fast-path or P47 inside ensureMibSession)
     {
       const { mib_accountBalance } = await chrome.storage.session.get('mib_accountBalance');
       if (Array.isArray(mib_accountBalance) && mib_accountBalance.length > 0) {
@@ -2271,12 +2413,14 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
           accountBalance = match.availableBalance || match.currentBalance || null;
           if (port) emitLog(port, `> [MIB-API] 💰 Balance from session cache: ${accountBalance}`);
         } else {
-          if (port) emitLog(port, `> [MIB-API] Session cache has ${mib_accountBalance.length} account(s) but none matched ${targetAccount}. Accounts: ${mib_accountBalance.map(a => a.accountNumber).join(', ')}`);
+          const accts = mib_accountBalance.map(a => a.accountNumber).join(', ');
+          if (port) emitLog(port, `> [MIB-API] Session cache has ${mib_accountBalance.length} account(s) but none matched ${targetAccount}. Accounts: ${accts}`);
+          throw new Error(`The account ${targetAccount} was not found in your MIB profile. Available accounts under this profile: ${accts}`);
         }
       }
     }
 
-    // If still no balance, make a fresh P47 call (e.g. session was restored from a previous flow that didn't cache balance)
+    // If still no balance, try P47 directly (no cached balance from session setup)
     if (!accountBalance) {
       try {
         const { mib_profileId, mib_profileType } = await chrome.storage.local.get(['mib_profileId', 'mib_profileType']);
@@ -2284,19 +2428,23 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
           if (port) emitLog(port, `> [MIB-API] Querying live bank balance via P47 (no cached balance)...`);
           const p47Result = await attemptP47(port, mibSession, mib_profileId, mib_profileType || '0');
           if (p47Result.selected && p47Result.accountBalance.length > 0) {
-            // Store for future use
             await chrome.storage.session.set({ mib_accountBalance: p47Result.accountBalance });
             const match = p47Result.accountBalance.find(a => String(a.accountNumber).trim() === String(targetAccount).trim());
             if (match) {
               accountBalance = match.availableBalance || match.currentBalance || null;
               if (port) emitLog(port, `> [MIB-API] 💰 Live balance from bank: ${accountBalance}`);
             } else {
-              if (port) emitLog(port, `> [MIB-API] ⚠️ P47 returned ${p47Result.accountBalance.length} account(s) but none matched ${targetAccount}. Accounts in response: ${p47Result.accountBalance.map(a => a.accountNumber).join(', ')}`);
+              const accts = p47Result.accountBalance.map(a => a.accountNumber).join(', ');
+              if (port) emitLog(port, `> [MIB-API] ⚠️ P47 returned ${p47Result.accountBalance.length} account(s) but none matched ${targetAccount}. Accounts: ${accts}`);
+              throw new Error(`The account ${targetAccount} was not found in your MIB profile. Available accounts under this profile: ${accts}`);
             }
+          } else {
+            if (port) emitLog(port, `> [MIB-API] P47 returned no accounts (profile already selected). Can't verify target account.`);
           }
         }
       } catch (e) {
         if (port) emitLog(port, `> [MIB-API] P47 balance query failed: ${e.message}`);
+        if (e.message.includes('not found in your MIB profile')) throw e;
       }
     }
 
@@ -2347,9 +2495,16 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
 
     // Normalize MIB WebView transactions
     const formattedTxs = allTxs.map(t => {
-      let isCredit = parseFloat(t.baseAmount || 0) >= 0;
+      let isCredit, amt;
+      if (t.curCodeDesc && t.curCodeDesc !== 'MVR' && t.foreignAmount !== undefined && t.foreignAmount !== null) {
+        let fa = parseFloat(t.foreignAmount) || 0;
+        isCredit = fa >= 0;
+        amt = Math.abs(fa);
+      } else {
+        isCredit = parseFloat(t.baseAmount || 0) >= 0;
+        amt = parseFloat(t.absAmount || 0);
+      }
       let dt = t.trxDate;
-      let amt = parseFloat(t.absAmount || 0);
       let descRaw = t.descr1 || "";
       let desc2 = t.descr2 || "";
       let desc3 = t.descr3 || "";
@@ -2365,7 +2520,6 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
       // Note: trxNumber is shown as a copiable chip via reference field
       const extraLines = [
         fromAcc ? `From: ${fromAcc}` : "",
-        benefName && benefName !== desc3 ? `Beneficiary: ${benefName}` : "",
         otherAcc ? `Account: ${otherAcc}` : "",
         desc2 ? `Ref: ${desc2}` : "",
       ].filter(Boolean).join('\n');
@@ -2382,6 +2536,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
         narrative1: desc3,
         narrative2: desc2,
         narrative3: desc3,
+        sender: benefName,
         is_pending: false,
         raw: t
       };

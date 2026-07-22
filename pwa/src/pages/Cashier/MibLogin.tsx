@@ -13,7 +13,8 @@ export default function MibLogin() {
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState<'login' | 'otp' | 'success'>('login');
+  const [step, setStep] = useState<'login' | 'otp' | 'profile' | 'success'>('login');
+  const [profiles, setProfiles] = useState<any[]>([]);
   const [isAccessDenied, setIsAccessDenied] = useState(false);
   const [accessDeniedReason, setAccessDeniedReason] = useState<string | null>(null);
 
@@ -104,7 +105,10 @@ export default function MibLogin() {
         clearTimeout(timeoutId);
         setLoading(false);
         if (response && response.success) {
-          if (response.requiresOtp) {
+          if (response.needProfile && response.profiles) {
+            setProfiles(response.profiles);
+            setStep('profile');
+          } else if (response.requiresOtp) {
             setStep('otp');
           } else if (response.skipOtp) {
             setStep('success');
@@ -149,7 +153,12 @@ export default function MibLogin() {
         clearTimeout(timeoutId);
         setLoading(false);
         if (response && response.success) {
-          setStep('success');
+          if (response.needProfile && response.profiles) {
+            setProfiles(response.profiles);
+            setStep('profile');
+          } else {
+            setStep('success');
+          }
         } else {
           setError(response?.error || 'OTP Verification failed.');
         }
@@ -160,9 +169,37 @@ export default function MibLogin() {
     }
   };
 
+  const handleProfileSelect = (profileId: string, profileType: string) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const timeoutId = setTimeout(() => {
+        setLoading(false);
+        setError('Profile selection timed out.');
+      }, 30000);
+
+      chrome.runtime.sendMessage(extensionId, {
+        action: 'SELECT_MIB_PROFILE',
+        payload: { profileId, profileType }
+      }, (response: any) => {
+        clearTimeout(timeoutId);
+        setLoading(false);
+        if (response && response.success) {
+          setStep('success');
+        } else {
+          setError(response?.error || 'Profile selection failed.');
+        }
+      });
+    } catch (e: any) {
+      setLoading(false);
+      setError(`Extension error: ${e.message}`);
+    }
+  };
+
   if (isAccessDenied) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4 font-sans text-gray-900">
+      <div className="min-h-screen bg-white flex flex-col justify-center items-center p-4 font-sans text-gray-900">
         <div className="w-full max-w-md bg-white border border-red-200 rounded-2xl shadow-xl p-8 text-center space-y-6 animate-in zoom-in-95 duration-300">
           <div className="w-16 h-16 rounded-full bg-red-50 border border-red-100 text-red-600 flex items-center justify-center mx-auto shadow-sm">
             <ShieldAlert size={36} />
@@ -194,17 +231,17 @@ export default function MibLogin() {
         <div className="flex flex-col items-center mb-8">
           <div className="flex items-center gap-4 text-gray-400 mb-6">
             <div className="bg-gray-50 border border-gray-100 p-3 rounded-xl shadow-sm">
-              <span className="font-bold text-xl tracking-tight text-gray-900">ViRi</span>
+              <span className="font-bold text-xl tracking-tight text-gray-900">Viri</span>
             </div>
             
             <div className="flex items-center gap-2">
-              <div className="h-[2px] w-8 bg-green-500 rounded-full"></div>
-              <Lock size={18} className="text-green-500" />
-              <div className="h-[2px] w-8 bg-green-500 rounded-full"></div>
+              <div className="h-[2px] w-8 bg-emerald-600 rounded-full"></div>
+              <Lock size={18} className="text-emerald-600" />
+              <div className="h-[2px] w-8 bg-emerald-600 rounded-full"></div>
             </div>
 
-            <div className="bg-green-50 border border-green-100 p-3 rounded-xl shadow-sm">
-              <span className="font-bold text-xl tracking-tight text-green-700">MIB</span>
+            <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-xl shadow-sm">
+              <span className="font-bold text-xl tracking-tight text-emerald-700">MIB</span>
             </div>
           </div>
           <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">Viri to MIB Connection</h1>
@@ -224,6 +261,14 @@ export default function MibLogin() {
 
           {(step === 'login' || step === 'otp') && (
             <div className="space-y-5">
+              {/* MIB Info Notice */}
+              <div className="p-4 bg-emerald-50/60 border border-emerald-100 rounded-xl flex gap-3 text-emerald-800 text-sm leading-relaxed">
+                <ShieldAlert size={20} className="text-emerald-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold text-emerald-950">Notice:</span> MIB only accepts Authenticator OTP during new device setup. Please first setup your Authenticator and use the OTP generated by the application.
+                </div>
+              </div>
+
               <form onSubmit={step === 'login' ? handleLoginSubmit : handleOtpSubmit} className="space-y-5">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">MIB Username</label>
@@ -231,7 +276,7 @@ export default function MibLogin() {
                     type="text"
                     required
                     autoFocus={step === 'login'}
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/20 focus:border-green-500 outline-none transition-all text-gray-900 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all text-gray-900 disabled:opacity-60 disabled:cursor-not-allowed"
                     placeholder="Enter your MIB username"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
@@ -244,7 +289,7 @@ export default function MibLogin() {
                   <input
                     type="password"
                     required
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/20 focus:border-green-500 outline-none transition-all text-gray-900 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all text-gray-900 disabled:opacity-60 disabled:cursor-not-allowed"
                     placeholder="Enter your MIB password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -256,7 +301,7 @@ export default function MibLogin() {
                   <button
                     type="submit"
                     disabled={loading || !username || !password || !accountId || !terminalId}
-                    className="w-full py-3.5 px-4 bg-gray-900 hover:bg-gray-800 text-white rounded-xl font-medium transition-colors flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed mt-4 shadow-md shadow-gray-900/10"
+                    className="w-full py-3.5 px-4 bg-emerald-800 hover:bg-emerald-900 text-white rounded-xl font-medium transition-colors flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed mt-4 shadow-md shadow-emerald-800/10"
                   >
                     {loading ? <Loader2 size={18} className="animate-spin" /> : <Lock size={18} />}
                     {loading ? 'Authenticating...' : 'Secure Login'}
@@ -275,7 +320,7 @@ export default function MibLogin() {
                         required
                         autoFocus
                         maxLength={6}
-                        className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/20 focus:border-green-500 outline-none transition-all text-center text-2xl font-mono tracking-[0.5em] text-gray-900"
+                        className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all text-center text-2xl font-mono tracking-[0.5em] text-gray-900"
                         placeholder="000000"
                         value={otp}
                         onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
@@ -286,7 +331,7 @@ export default function MibLogin() {
                     <button
                       type="submit"
                       disabled={loading || otp.length < 5}
-                      className="w-full py-3.5 px-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-medium transition-colors flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-green-600/20"
+                      className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium transition-colors flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-emerald-600/20"
                     >
                       {loading ? <Loader2 size={18} className="animate-spin" /> : <ArrowRight size={18} />}
                       {loading ? 'Verifying...' : 'Verify Device'}
@@ -294,6 +339,48 @@ export default function MibLogin() {
                   </div>
                 )}
               </form>
+            </div>
+          )}
+
+          {step === 'profile' && (
+            <div className="pt-4 border-t border-gray-100 animate-in fade-in slide-in-from-top-4 duration-500">
+              <div className="text-center mb-4">
+                <p className="text-gray-600 text-sm">Select an operating profile to link:</p>
+              </div>
+              <div className="space-y-3">
+                {profiles.map((p, i) => {
+                  const name = p.name || p.customerProfileId || `Profile ${i + 1}`;
+                  const type = p.profileType === '1' ? 'Business' : 'Personal';
+                  const color = p.color || '#1a1a2e';
+                  const initials = name.split(' ').map((w: string) => w[0]).join('').substring(0, 2).toUpperCase();
+                  const profileId = p.profileId || p.customerProfileId || '';
+                  const profileType = p.profileType || '0';
+                  return (
+                    <button
+                      key={profileId}
+                      onClick={() => handleProfileSelect(profileId, profileType)}
+                      disabled={loading}
+                      className="w-full flex items-center gap-4 p-4 bg-gray-50 border border-gray-200 rounded-xl hover:border-green-400 hover:bg-green-50 transition-all disabled:opacity-50 text-left"
+                    >
+                      <div
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+                        style={{ backgroundColor: color }}
+                      >
+                        {initials}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-gray-900">{name}</div>
+                        <div className="text-sm text-gray-500">{type}</div>
+                      </div>
+                      {loading ? (
+                        <Loader2 size={18} className="animate-spin text-gray-400 flex-shrink-0" />
+                      ) : (
+                        <ArrowRight size={18} className="text-gray-400 flex-shrink-0" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
 

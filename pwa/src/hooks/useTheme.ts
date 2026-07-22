@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-type Theme = 'dark' | 'light';
+type Theme = 'dark' | 'light' | 'corporate' | 'cute';
 
 export function useTheme(): [Theme, () => void] {
   const [theme, setTheme] = useState<Theme>(() => {
@@ -18,7 +18,12 @@ export function useTheme(): [Theme, () => void] {
     document.documentElement.setAttribute('data-theme', saved);
   }, []);
 
-  const toggle = () => setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+  const toggle = () => setTheme(prev => {
+    if (prev === 'dark') return 'light';
+    if (prev === 'light') return 'corporate';
+    if (prev === 'corporate') return 'cute';
+    return 'dark';
+  });
 
   return [theme, toggle];
 }

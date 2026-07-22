@@ -141,12 +141,21 @@ class MibKeysController extends Controller
             return response()->json(['error' => 'Not found'], 404);
         }
 
+        $allProfiles = $group->profiles()->get()->map(function ($p) {
+            return [
+                'profile_id'   => $p->profile_id,
+                'profile_type' => $p->profile_type,
+                'profile_name' => $p->profile_name,
+            ];
+        });
+
         return response()->json([
-            'key1' => $group->key1,
-            'key2' => $group->key2,
-            'appId' => $group->app_id,
-            'profileId' => $profile?->profile_id,
+            'key1'        => $group->key1,
+            'key2'        => $group->key2,
+            'appId'       => $group->app_id,
+            'profileId'   => $profile?->profile_id,
             'profileType' => $profile?->profile_type ?? '0',
+            'profiles'    => $allProfiles,
             'obtained_at' => $group->obtained_at ? $group->obtained_at->toIso8601String() : null,
         ]);
     }

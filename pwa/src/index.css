@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;700;800&family=Quicksand:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -112,6 +112,150 @@
   background-color: #e2e8f0;
   border-color: rgba(15, 23, 42, 0.15);
 }
+
+/* ─── Corporate Theme ─────────────────────────────────────────────────────── */
+[data-theme="corporate"] {
+  --bg-base: #0f172a;
+  --bg-surface: rgba(30, 41, 59, 0.4);
+  --bg-canvas: #1e293b;
+  
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  
+  --border-color: rgba(255, 255, 255, 0.08);
+  --color-success: #3b82f6; /* Corporate blue */
+  --color-success-glow: rgba(59, 130, 246, 0.25);
+  --color-accent: #6366f1;
+  --color-warning: #f59e0b;
+}
+
+[data-theme="corporate"],
+[data-theme="corporate"] body,
+[data-theme="corporate"] h1,
+[data-theme="corporate"] h2,
+[data-theme="corporate"] h3,
+[data-theme="corporate"] h4,
+[data-theme="corporate"] h5,
+[data-theme="corporate"] h6,
+[data-theme="corporate"] .font-heading {
+  font-family: 'Inter', sans-serif !important;
+}
+
+/* ─── Cute Theme ──────────────────────────────────────────────────────────── */
+[data-theme="cute"] {
+  --bg-base: #faf5ff;
+  --bg-surface: #ffffff;
+  --bg-canvas: #ffffff;
+  
+  --text-primary: #581c87; /* Deep Purple */
+  --text-secondary: #a855f7;
+  
+  --border-color: rgba(168, 85, 247, 0.2);
+  --color-success: #ec4899; /* Cute Pink */
+  --color-success-glow: rgba(236, 72, 153, 0.25);
+  --color-accent: #f472b6;
+  --color-warning: #d97706;
+}
+
+[data-theme="cute"],
+[data-theme="cute"] body,
+[data-theme="cute"] h1,
+[data-theme="cute"] h2,
+[data-theme="cute"] h3,
+[data-theme="cute"] h4,
+[data-theme="cute"] h5,
+[data-theme="cute"] h6,
+[data-theme="cute"] .font-heading {
+  font-family: 'Quicksand', sans-serif !important;
+}
+
+[data-theme="cute"] body {
+  background-color: #fcf8ff;
+  color: #581c87;
+  background-image:
+    radial-gradient(circle at 15% 50%, rgba(219, 39, 119, 0.05), transparent 25%),
+    radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.05), transparent 25%);
+}
+
+/* Cute Mode specific text contrast overrides */
+[data-theme="cute"] .text-white,
+[data-theme="cute"] .text-zinc-100,
+[data-theme="cute"] .text-zinc-200 { color: #581c87 !important; }
+
+[data-theme="cute"] .text-zinc-300,
+[data-theme="cute"] .text-zinc-400 { color: #6b21a8 !important; }
+
+[data-theme="cute"] .text-zinc-500,
+[data-theme="cute"] .text-zinc-600 { color: #a855f7 !important; }
+
+[data-theme="cute"] [class*="bg-zinc-950"],
+[data-theme="cute"] [class*="bg-zinc-900"],
+[data-theme="cute"] [class*="bg-zinc-800"] {
+  background-color: #ffffff !important;
+}
+
+[data-theme="cute"] [class*="bg-black"] {
+  background-color: #581c87 !important;
+  color: #faf5ff !important;
+}
+
+[data-theme="cute"] [class*="border-zinc-"],
+[data-theme="cute"] [class*="border-zinc-850"] {
+  border-color: rgba(168, 85, 247, 0.15) !important;
+}
+
+[data-theme="cute"] ::-webkit-scrollbar-track { background: #f3e8ff; }
+[data-theme="cute"] ::-webkit-scrollbar-thumb { background: rgba(168, 85, 247, 0.25); }
+[data-theme="cute"] ::-webkit-scrollbar-thumb:hover { background: rgba(168, 85, 247, 0.40); }
+
+[data-theme="cute"] .input-field {
+  background-color: #ffffff !important;
+  color: #581c87 !important;
+  border-color: rgba(168, 85, 247, 0.2) !important;
+}
+[data-theme="cute"] .input-field::placeholder { color: #c084fc !important; }
+[data-theme="cute"] .input-field:focus {
+  border-color: #ec4899 !important;
+  --tw-ring-color: #ec4899 !important;
+}
+
+[data-theme="cute"] .btn-outline {
+  border-color: rgba(168, 85, 247, 0.2);
+  color: #581c87;
+  background: #ffffff;
+}
+[data-theme="cute"] .btn-outline:hover {
+  border-color: #ec4899;
+  background: rgba(236, 72, 153, 0.08);
+}
+
+[data-theme="cute"] .glass-panel {
+  background: #ffffff !important;
+  border-color: rgba(168, 85, 247, 0.15) !important;
+  box-shadow: 0 4px 20px -2px rgba(168, 85, 247, 0.08);
+}
+
+/* Yellow Notice contrast overrides for Light and Cute modes */
+[data-theme="light"] .text-yellow-400,
+[data-theme="cute"] .text-yellow-400,
+[data-theme="light"] .text-yellow-500,
+[data-theme="cute"] .text-yellow-500 {
+  color: #b45309 !important;
+}
+
+[data-theme="light"] .bg-yellow-950\/20,
+[data-theme="cute"] .bg-yellow-950\/20,
+[data-theme="light"] .bg-yellow-955\/40,
+[data-theme="cute"] .bg-yellow-955\/40 {
+  background-color: #fef3c7 !important;
+}
+
+[data-theme="light"] .border-yellow-500\/30,
+[data-theme="cute"] .border-yellow-500\/30 {
+  border-color: #fde68a !important;
+}
+
+/* ─── End Themes ──────────────────────────────────────────────────────────── */
 
 /* ─── End Light Mode ────────────────────────────────────────────────────────── */
 
