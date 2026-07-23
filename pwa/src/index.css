@@ -67,6 +67,11 @@
   background-color: #f8fafc !important;
 }
 
+/* Card list view wrapper in light mode: background between cards */
+[data-theme="light"] .card-list-wrapper {
+  background-color: #ffffff !important;
+}
+
 [data-theme="light"] [class*="bg-black"] {
   background-color: #0f172a !important;
   color: #f8fafc !important;

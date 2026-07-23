@@ -4941,7 +4941,7 @@ function App() {
                           </div>
 
                           {/* Mobile Responsive Card List View */}
-                          <div className="block md:hidden flex flex-col gap-3">
+                          <div className="block md:hidden flex flex-col gap-3 card-list-wrapper p-2.5 rounded-2xl">
                             {lastTransactions.map((tx) => {
                               const txKey = `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || ''}`;
                               const isNew = newTransactionKeys.has(txKey);
@@ -5551,7 +5551,7 @@ function App() {
                             </div>
 
                             {/* Mobile Responsive Card List View */}
-                            <div className="block md:hidden flex flex-col gap-3">
+                            <div className="block md:hidden flex flex-col gap-3 card-list-wrapper p-2.5 rounded-2xl">
                               {paginatedTransactions.map((tx: LedgerTransaction, idx: number) => {
                                 const getTxKey = (t: typeof tx) => `${t.date}-${t.amount}-${t.details}-${t.runningBalance || ''}`;
                                 const txKey = getTxKey(tx);
