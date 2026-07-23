@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, ChevronDown, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, KeyRound, Download, FileText, Check, Briefcase, Heart, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, ChevronDown, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, KeyRound, Download, FileText, Check, Briefcase, Heart } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import CryptoJS from 'crypto-js';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
@@ -401,15 +401,54 @@ const TransactionRow = React.memo(({
   );
 });
 
+const CopiableChip = React.memo(({ 
+  val, 
+  displayVal, 
+  className = '', 
+  label 
+}: { 
+  val: string; 
+  displayVal?: string; 
+  className?: string; 
+  label: string 
+}) => {
+  const [copied, setCopied] = useState(false);
+  const textToShow = displayVal || val;
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!val) return;
+    navigator.clipboard.writeText(val);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  if (!val) return <span className="opacity-25 px-2 py-0.5">-</span>;
+
+  const hasAlign = className.match(/text-(left|right|center|justify)/) || className.includes('justify-');
+  const defaultAlign = hasAlign ? '' : 'justify-center text-center';
+
+  return (
+    <div
+      onClick={handleCopy}
+      className={`inline-flex items-center cursor-pointer transition-all active:scale-95 px-2 py-0.5 rounded-md ${defaultAlign} ${
+        copied
+          ? 'bg-emerald-900/30 text-emerald-400 font-bold justify-center text-center'
+          : 'bg-zinc-900/40 hover:bg-zinc-800/50'
+      } ${className}`}
+      title={`Click to copy ${label}: ${val}`}
+    >
+      {copied ? 'COPIED!' : textToShow}
+    </div>
+  );
+});
+
 const TransactionMobileCard = React.memo(({
   tx,
   isNew,
   isCredit,
   isChecked = false,
   bankName,
-  currency = 'MVR',
-  permissions,
-  handleCheckTransaction,
   rowIndex = 0,
 }: {
   tx: any;
@@ -422,16 +461,8 @@ const TransactionMobileCard = React.memo(({
   handleCheckTransaction?: (accountId: string, hash: string) => void;
   rowIndex?: number;
 }) => {
-  const [copiedRef, setCopiedRef] = useState<string | null>(null);
-  const handleCopyRef = (ref: string) => {
-    navigator.clipboard.writeText(ref);
-    setCopiedRef(ref);
-    setTimeout(() => setCopiedRef(null), 1500);
-  };
-
   const detailsParts = (tx.details || '').split('\n');
   const description = (detailsParts[0] || '').trim();
-  let details = detailsParts.slice(1).join('\n').trim();
 
   // Extract Sender Name (from JSON fields: tx.sender / benefName / narrative2 or details line)
   let senderName = tx.sender || (tx as any).benefName || (tx as any).narrative2 || '';
@@ -446,14 +477,11 @@ const TransactionMobileCard = React.memo(({
     const line1 = detailsParts[1].trim().replace(/^\/+\s*/, '');
     if (line1 && !line1.startsWith('Ref:') && !line1.startsWith('ID:') && !line1.match(/^[A-Z0-9]{10,}$/)) {
       senderName = line1;
-      details = detailsParts.slice(2).join('\n').trim();
     }
   }
 
-  if (senderName) {
-    details = details.replace(new RegExp(`^/??${senderName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*`, 'mi'), '').trim();
-    details = details.replace(new RegExp(`Sender:\\s*/??${senderName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*`, 'gi'), '').trim();
-  }
+  // Final beneficiary name in ALL CAPS
+  const beneficiaryName = (senderName || description || 'UNKNOWN').toUpperCase();
 
   let refs: string[] = [];
   if (bankName === 'BML') {
@@ -461,121 +489,83 @@ const TransactionMobileCard = React.memo(({
     refs = Array.from(new Set(combinedText.match(/(?:BLZ|BLAZ|FT)[A-Za-z0-9\\]+/gi) || []));
     const fallbackRef = tx.reference && tx.reference.trim().length > 4 && !tx.reference.toLowerCase().includes('ansfer') && !tx.reference.toLowerCase().includes('transfer') ? tx.reference : null;
     if (refs.length === 0 && fallbackRef) refs.push(fallbackRef);
-
-    refs.forEach(ref => {
-      details = details.replace(new RegExp(`Ref:?\\s*${ref.replace(/\\/g, '\\\\')}`, 'gi'), '');
-      details = details.replace(new RegExp(ref.replace(/\\/g, '\\\\'), 'gi'), '');
-    });
-    details = details.replace(/^\s*[\r\n]/gm, '').trim();
   } else if (bankName === 'MIB' && tx.reference) {
     refs = [tx.reference];
-    details = details.replace(tx.reference, '').replace(/^\s*[\r\n]+/, '').trim();
   }
 
+  let blazRef = '';
+  let ftRef = '';
+  if (bankName === 'BML') {
+    blazRef = refs.find(r => /^(BLZ|BLAZ)/i.test(r)) || '';
+    ftRef = refs.find(r => /^FT/i.test(r)) || '';
+    if (refs.length === 1 && !blazRef && !ftRef) {
+      const singleRef = refs[0];
+      if (/^FT/i.test(singleRef)) {
+        ftRef = singleRef;
+      } else {
+        blazRef = singleRef;
+      }
+    }
+  } else if (bankName === 'MIB') {
+    blazRef = refs[0] || '';
+  }
+
+  // Split date and time
+  const dateParts = (tx.date || '').split(' ');
+  const displayDate = dateParts[0] || '';
+  const displayTime = dateParts[1] || '';
+
   const creditStatus = typeof isCredit === 'boolean' ? isCredit : (typeof tx.amount === 'string' && tx.amount.startsWith('+'));
+  
   const cardBg = isChecked
-    ? 'opacity-40 bg-black/40'
+    ? 'opacity-40 bg-zinc-950/20 border-zinc-950/10'
     : rowIndex % 2 === 0
-      ? 'bg-zinc-900/60'
-      : 'bg-zinc-950/60';
+      ? 'bg-zinc-900/60 border-zinc-800/40'
+      : 'bg-zinc-900/35 border-zinc-800/30';
 
   return (
-    <div className={`p-3.5 transition-all flex flex-col gap-2.5 ${cardBg} ${isNew ? 'animate-new-transaction' : ''}`}>
-      {/* Top Row: Checkmark / Details & Amount */}
-      <div className="flex items-start justify-between gap-3 min-w-0">
-        <div className="flex items-start gap-2.5 min-w-0 flex-1">
-          {handleCheckTransaction && tx.hash && (
-            <button
-              onClick={() => !isChecked && handleCheckTransaction(tx.accountId || '', tx.hash!)}
-              className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all shrink-0 mt-0.5 ${
-                isChecked
-                  ? 'bg-emerald-500 border-emerald-500 text-black'
-                  : 'border-zinc-700 text-transparent hover:border-emerald-500/50'
-              }`}
-              disabled={isChecked}
-              title={isChecked ? "Checked" : "Mark as checked"}
-            >
-              <Check size={14} strokeWidth={3} />
-            </button>
-          )}
-
-          {/* Details content (Sender Name, Details text, copiable reference chips) */}
-          <div className="flex-1 min-w-0 flex flex-col gap-1 text-[11px] font-mono text-zinc-400">
-            {senderName && (
-              <div className="text-sm font-bold text-zinc-100 leading-snug">
-                {senderName}
-              </div>
-            )}
-            {details && <div className="whitespace-pre-line break-words leading-relaxed">{details}</div>}
-            {refs.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-1">
-                {refs.map((ref, idx) => (
-                  <div key={idx} className="inline-flex items-center gap-1.5 border border-zinc-800/40 px-2 py-0.5 rounded text-[11px] bg-transparent">
-                    <span className="text-zinc-200">{ref}</span>
-                    <button
-                      onClick={() => handleCopyRef(ref)}
-                      className={`transition-colors cursor-pointer ${copiedRef === ref ? 'text-emerald-400' : 'text-zinc-500 hover:text-white'}`}
-                      title={copiedRef === ref ? "Copied!" : "Copy Reference"}
-                    >
-                      {copiedRef === ref ? (
-                        <Check size={13} className="text-emerald-400 animate-scale-bump" />
-                      ) : (
-                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            {!senderName && !details && refs.length === 0 && (
-              <span className="text-zinc-500 italic">No details</span>
-            )}
-          </div>
-        </div>
-
-        {/* Right: Amount & Balance */}
-        <div className="text-right shrink-0">
-          <div className={`font-mono font-bold text-sm ${creditStatus ? 'text-emerald-400' : 'text-red-400'}`}>
-            {formatAmount(tx.amount)}
-          </div>
-          {tx.runningBalance && (!permissions || permissions.ledger_show_balance) && (
-            <div className="text-[9px] font-mono text-zinc-500 mt-0.5">
-              Bal: {currency} {formatAmount(tx.runningBalance)}
-            </div>
-          )}
-        </div>
+    <div className={`p-4 rounded-xl border flex flex-col gap-2.5 transition-all ${cardBg} ${isNew ? 'animate-new-transaction' : ''}`}>
+      {/* Row 1: Beneficiary Name (Left) & Total Amount (Right) */}
+      <div className="flex justify-between items-center gap-3">
+        <CopiableChip
+          val={beneficiaryName}
+          label="Beneficiary Name"
+          className="font-normal text-[17px] font-sans tracking-tight break-words text-[var(--text-primary)] text-left justify-start flex-1 min-w-0"
+        />
+        <CopiableChip
+          val={tx.amount}
+          displayVal={formatAmount(tx.amount)}
+          label="Amount"
+          className={`font-bold text-[17px] font-sans tracking-tight whitespace-nowrap text-center ${
+            creditStatus 
+              ? 'text-emerald-400 bg-emerald-955/5 hover:bg-emerald-955/10' 
+              : 'text-red-400 bg-red-955/5 hover:bg-red-955/10'
+          }`}
+        />
       </div>
 
-      {/* Second Row: Description > Date & Time > Status (Horizontally spread flex wrap) */}
-      <div className="flex flex-row flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-left">
-        {/* Description */}
-        <div className="flex items-center gap-1">
-          <span className="text-zinc-500">Description:</span>
-          <span className="text-zinc-200">{description}</span>
-        </div>
-        {tx.narrative3 && (
-          <div className="text-[11px] font-medium text-zinc-400 pl-2 border-l border-zinc-800/40">
-            {tx.narrative3}
-          </div>
-        )}
+      {/* Row 2: BLAZ Ref (Left) & Time (Right) */}
+      <div className="flex justify-between items-center text-xs font-mono">
+        <CopiableChip
+          val={blazRef}
+          label="BLAZ/Reference"
+          className="text-xs text-[var(--text-secondary)]"
+        />
+        <span className="text-[var(--text-secondary)] py-0.5 px-2">
+          {displayTime || <span className="opacity-25">-</span>}
+        </span>
+      </div>
 
-        {/* Date & Time */}
-        <div className="flex items-center gap-1">
-          <span className="text-zinc-500">Date & Time:</span>
-          <span className="text-zinc-300 font-mono text-[10px]">{tx.date}</span>
-        </div>
-
-        {/* Status */}
-        <div className="flex items-center gap-1">
-          <span className="text-zinc-500">Status:</span>
-          {creditStatus ? (
-            <span title="Credit (IN)"><ArrowDownLeft size={16} className="text-emerald-400" /></span>
-          ) : (
-            <span title="Debit (OUT)"><ArrowUpRight size={16} className="text-red-400" /></span>
-          )}
-        </div>
+      {/* Row 3: Date (Left) & FT Ref (Right) */}
+      <div className="flex justify-between items-center text-xs font-mono">
+        <span className="text-[var(--text-secondary)] py-0.5 px-2">
+          {displayDate || <span className="opacity-25">-</span>}
+        </span>
+        <CopiableChip
+          val={ftRef}
+          label="FT/Reference"
+          className="text-xs text-[var(--text-secondary)]"
+        />
       </div>
     </div>
   );
@@ -4708,7 +4698,7 @@ function App() {
                   )}
 
                   {/* Recent Transactions Table */}
-                  <div className="w-full glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col gap-4 order-3 lg:order-none">
+                  <div className="w-full glass-panel p-6 border border-zinc-800 bg-zinc-950/80 rounded-2xl flex flex-col gap-4 order-3 lg:order-none">
                     <div className="flex justify-between items-center border-b border-zinc-800/80 pb-3">
                       <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-1.5">
                         Recent Transactions {lastTransactionsLabel ? `- ${lastTransactionsLabel}` : ''} <Tooltip text="The last few statement entries cached/fetched from the bank's database." helpSectionId="transaction-ledger" />
@@ -4893,7 +4883,7 @@ function App() {
                           </div>
 
                           {/* Mobile Responsive Card List View */}
-                          <div className="block md:hidden divide-y divide-zinc-900/80 rounded-xl overflow-hidden border border-zinc-800/80">
+                          <div className="block md:hidden flex flex-col gap-3">
                             {lastTransactions.map((tx) => {
                               const txKey = `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || ''}`;
                               const isNew = newTransactionKeys.has(txKey);
@@ -5162,7 +5152,7 @@ function App() {
 
                   {/* Main Table Container */}
                   {activeLedgerAcc && (
-                    <div className="glass-panel p-5 w-full bg-zinc-950/40 border border-zinc-800 rounded-2xl flex flex-col gap-5">
+                    <div className="glass-panel p-5 w-full bg-zinc-950/80 border border-zinc-800 rounded-2xl flex flex-col gap-5">
 
                       {/* Filter & Toolbar Area */}
                       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -5435,7 +5425,7 @@ function App() {
                       </div>
 
                       {/* Entries Table */}
-                      <div className="overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-900/10 flex flex-col font-sans">
+                      <div className="md:overflow-hidden md:rounded-xl md:border md:border-zinc-800/80 md:bg-zinc-900/10 flex flex-col font-sans">
                         {!isActiveLedgerConfigured ? (
                           <div className="p-16 text-center text-[var(--color-warning)] text-sm flex flex-col items-center gap-3">
                             <AlertTriangle size={32} className="text-[var(--color-warning)] shrink-0" />
@@ -5503,7 +5493,7 @@ function App() {
                             </div>
 
                             {/* Mobile Responsive Card List View */}
-                            <div className="block md:hidden divide-y divide-zinc-900/80">
+                            <div className="block md:hidden flex flex-col gap-3">
                               {paginatedTransactions.map((tx: LedgerTransaction, idx: number) => {
                                 const getTxKey = (t: typeof tx) => `${t.date}-${t.amount}-${t.details}-${t.runningBalance || ''}`;
                                 const txKey = getTxKey(tx);
