@@ -264,13 +264,6 @@ const TransactionRow = React.memo(({
   handleCheckTransaction: (accountId: string, hash: string) => void;
   rowIndex?: number;
 }) => {
-  const [copiedRef, setCopiedRef] = useState<string | null>(null);
-  const handleCopyRef = (ref: string) => {
-    navigator.clipboard.writeText(ref);
-    setCopiedRef(ref);
-    setTimeout(() => setCopiedRef(null), 1500);
-  };
-
   const detailsParts = (tx.details || '').split('\n');
   const description = (detailsParts[0] || '').trim();
   let details = detailsParts.slice(1).join('\n').trim();
@@ -319,6 +312,26 @@ const TransactionRow = React.memo(({
     details = details.replace(tx.reference, '').replace(/^\s*[\r\n]+/, '').trim();
   }
 
+  let blazRef = '';
+  let ftRef = '';
+  if (activeLedgerAcc?.bank_name === 'BML') {
+    blazRef = refs.find(r => /^(BLZ|BLAZ)/i.test(r)) || '';
+    ftRef = refs.find(r => /^FT/i.test(r)) || '';
+    if (refs.length === 1 && !blazRef && !ftRef) {
+      const singleRef = refs[0];
+      if (/^FT/i.test(singleRef)) {
+        ftRef = singleRef;
+      } else {
+        blazRef = singleRef;
+      }
+    }
+  } else if (activeLedgerAcc?.bank_name === 'MIB') {
+    blazRef = refs[0] || '';
+  }
+
+  // Final beneficiary name in ALL CAPS
+  const beneficiaryName = (senderName || description || 'UNKNOWN').toUpperCase();
+
   const rowBg = isChecked
     ? 'opacity-40 bg-black/40'
     : rowIndex % 2 === 0
@@ -357,41 +370,56 @@ const TransactionRow = React.memo(({
           </div>
         </div>
       </td>
-      <td className="py-4 px-5 text-xs text-zinc-400 font-mono whitespace-pre-line leading-relaxed align-middle break-all max-w-sm">
-        {senderName && (
-          <div className="text-sm font-bold text-zinc-200 mb-1 leading-snug">
-            {senderName}
+      <td className="py-4 px-5 text-xs text-zinc-400 font-mono leading-relaxed align-middle break-all max-w-sm">
+        <CopiableChip
+          val={beneficiaryName}
+          label="Beneficiary Name"
+          className="font-normal text-xs font-sans tracking-tight text-[var(--text-primary)] text-left justify-start block w-full truncate max-w-xs mb-1"
+        />
+        {(blazRef || ftRef || refs.length > 0) && (
+          <div className="flex flex-wrap gap-1.5 text-xs font-mono">
+            {blazRef && (
+              <CopiableChip
+                val={blazRef}
+                label="BLAZ/Reference"
+                className="text-xs text-[var(--text-secondary)] bg-zinc-900 border border-zinc-800"
+              />
+            )}
+            {ftRef && (
+              <CopiableChip
+                val={ftRef}
+                label="FT/Reference"
+                className="text-xs text-[var(--text-secondary)] bg-zinc-900 border border-zinc-800"
+              />
+            )}
+            {refs.filter(r => r !== blazRef && r !== ftRef).map((ref, i) => (
+              <CopiableChip
+                key={i}
+                val={ref}
+                label="Reference"
+                className="text-xs text-[var(--text-secondary)] bg-zinc-900 border border-zinc-800"
+              />
+            ))}
           </div>
         )}
-        {details || (!senderName && !refs.length && <span className="text-zinc-600 italic">-</span>)}
-        {refs.length > 0 && (
-          <div className={`flex flex-wrap gap-2 text-zinc-300 ${senderName || details ? 'mt-2' : ''}`}>
-            {refs.map((ref, idx) => (
-              <div key={idx} className="inline-flex items-center gap-2 bg-zinc-900 px-2 py-1 rounded">
-                <span>{ref}</span>
-                <button
-                  onClick={() => handleCopyRef(ref)}
-                  className={`transition-colors cursor-pointer ${copiedRef === ref ? 'text-emerald-400' : 'text-zinc-500 hover:text-white'}`}
-                  title={copiedRef === ref ? "Copied!" : "Copy Reference"}
-                >
-                  {copiedRef === ref ? (
-                    <Check size={14} className="text-emerald-400 animate-scale-bump" />
-                  ) : (
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                  )}
-                </button>
-              </div>
-            ))}
+        {details && (
+          <div className="text-[11px] text-zinc-500 font-mono mt-1 line-clamp-2">
+            {details}
           </div>
         )}
       </td>
       <td className="py-4 px-5 text-right align-middle whitespace-nowrap">
-        <div className={`font-mono font-bold text-base ${isCredit ? 'text-emerald-400' : 'text-red-400'}`}>
-          {formatAmount(tx.amount)}
-        </div>
-        {permissions.ledger_show_balance && tx.runningBalance && (
+        <CopiableChip
+          val={tx.amount}
+          displayVal={formatAmount(tx.amount)}
+          label="Amount"
+          className={`font-bold text-sm font-sans tracking-tight whitespace-nowrap text-right ${
+            isCredit 
+              ? 'text-emerald-400 bg-emerald-955/5 hover:bg-emerald-955/10' 
+              : 'text-red-400 bg-red-955/5 hover:bg-red-955/10'
+          }`}
+        />
+        {permissions?.ledger_show_balance && tx.runningBalance && (
           <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1 uppercase">
             Bal {formatAmount(tx.runningBalance)}
           </div>
@@ -524,7 +552,7 @@ const TransactionMobileCard = React.memo(({
       : 'bg-zinc-900/35 border-zinc-800/30';
 
   return (
-    <div className={`p-4 rounded-xl border flex flex-col gap-2.5 transition-all ${cardBg} ${isNew ? 'animate-new-transaction' : ''}`}>
+    <div className={`p-4 rounded-xl border flex flex-col gap-4 transition-all ${cardBg} ${isNew ? 'animate-new-transaction' : ''}`}>
       {/* Row 1: Beneficiary Name (Left) & Total Amount (Right) */}
       <div className="flex justify-between items-center gap-3">
         <CopiableChip
@@ -544,28 +572,31 @@ const TransactionMobileCard = React.memo(({
         />
       </div>
 
-      {/* Row 2: BLAZ Ref (Left) & Time (Right) */}
-      <div className="flex justify-between items-center text-xs font-mono">
-        <CopiableChip
-          val={blazRef}
-          label="BLAZ/Reference"
-          className="text-xs text-[var(--text-secondary)]"
-        />
-        <span className="text-[var(--text-secondary)] py-0.5 px-2">
-          {displayTime || <span className="opacity-25">-</span>}
-        </span>
-      </div>
+      {/* Rows 2 & 3: BLAZ Ref/Time & Date/FT Ref */}
+      <div className="flex flex-col gap-0.5">
+        {/* Row 2: BLAZ Ref (Left) & Time (Right) */}
+        <div className="flex justify-between items-center text-xs font-mono">
+          <CopiableChip
+            val={blazRef}
+            label="BLAZ/Reference"
+            className="text-xs text-[var(--text-secondary)]"
+          />
+          <span className="text-[var(--text-secondary)] py-0.5 px-2">
+            {displayTime || <span className="opacity-25">-</span>}
+          </span>
+        </div>
 
-      {/* Row 3: Date (Left) & FT Ref (Right) */}
-      <div className="flex justify-between items-center text-xs font-mono">
-        <span className="text-[var(--text-secondary)] py-0.5 px-2">
-          {displayDate || <span className="opacity-25">-</span>}
-        </span>
-        <CopiableChip
-          val={ftRef}
-          label="FT/Reference"
-          className="text-xs text-[var(--text-secondary)]"
-        />
+        {/* Row 3: Date (Left) & FT Ref (Right) */}
+        <div className="flex justify-between items-center text-xs font-mono">
+          <span className="text-[var(--text-secondary)] py-0.5 px-2">
+            {displayDate || <span className="opacity-25">-</span>}
+          </span>
+          <CopiableChip
+            val={ftRef}
+            label="FT/Reference"
+            className="text-xs text-[var(--text-secondary)]"
+          />
+        </div>
       </div>
     </div>
   );
@@ -851,12 +882,6 @@ function App() {
   });
   const isCompletelyCollapsed = isSidebarCollapsed && completelyCollapseSidebar;
   const [ledgerPage, setLedgerPage] = useState(1);
-  const [copiedRef, setCopiedRef] = useState<string | null>(null);
-  const handleCopyRef = (ref: string) => {
-    navigator.clipboard.writeText(ref);
-    setCopiedRef(ref);
-    setTimeout(() => setCopiedRef(null), 1500);
-  };
   const [ledgerFilter, setLedgerFilter] = useState<'all' | 'in' | 'out'>('all');
   const [ledgerSearch, setLedgerSearch] = useState('');
   const [ledgerPageSize, setLedgerPageSize] = useState(25);
@@ -4817,6 +4842,25 @@ function App() {
                                     details = details.replace(tx.reference, '').replace(/^\s*[\r\n]+/, '').trim();
                                   }
 
+                                  let blazRef = '';
+                                  let ftRef = '';
+                                  if (selectedAccount?.bank_name === 'BML') {
+                                    blazRef = refs.find(r => /^(BLZ|BLAZ)/i.test(r)) || '';
+                                    ftRef = refs.find(r => /^FT/i.test(r)) || '';
+                                    if (refs.length === 1 && !blazRef && !ftRef) {
+                                      const singleRef = refs[0];
+                                      if (/^FT/i.test(singleRef)) {
+                                        ftRef = singleRef;
+                                      } else {
+                                        blazRef = singleRef;
+                                      }
+                                    }
+                                  } else if (selectedAccount?.bank_name === 'MIB') {
+                                    blazRef = refs[0] || '';
+                                  }
+
+                                  const beneficiaryName = (senderName || description || 'UNKNOWN').toUpperCase();
+
                                   const rowBg = idx % 2 === 0
                                     ? 'bg-zinc-900/50 hover:bg-zinc-800/60'
                                     : 'bg-zinc-950/60 hover:bg-zinc-800/60';
@@ -4834,41 +4878,55 @@ function App() {
                                           )}
                                         </div>
                                       </td>
-                                      <td className="px-2.5 py-2 text-[11px] text-zinc-400 font-mono whitespace-pre-line leading-relaxed align-top break-words max-w-xs">
-                                        {senderName && (
-                                          <div className="text-sm font-semibold text-zinc-200 mb-1 leading-snug">
-                                            {senderName}
+                                      <td className="px-2.5 py-2 text-xs text-zinc-400 font-mono leading-relaxed align-top break-words max-w-xs">
+                                        <CopiableChip
+                                          val={beneficiaryName}
+                                          label="Beneficiary Name"
+                                          className="font-normal text-xs font-sans tracking-tight text-[var(--text-primary)] text-left justify-start block w-full truncate max-w-xs mb-1"
+                                        />
+                                        {(blazRef || ftRef || refs.length > 0) && (
+                                          <div className="flex flex-wrap gap-1.5 text-xs font-mono">
+                                            {blazRef && (
+                                              <CopiableChip
+                                                val={blazRef}
+                                                label="BLAZ/Reference"
+                                                className="text-xs text-[var(--text-secondary)] bg-zinc-900 border border-zinc-800"
+                                              />
+                                            )}
+                                            {ftRef && (
+                                              <CopiableChip
+                                                val={ftRef}
+                                                label="FT/Reference"
+                                                className="text-xs text-[var(--text-secondary)] bg-zinc-900 border border-zinc-800"
+                                              />
+                                            )}
+                                            {refs.filter(r => r !== blazRef && r !== ftRef).map((ref, i) => (
+                                              <CopiableChip
+                                                key={i}
+                                                val={ref}
+                                                label="Reference"
+                                                className="text-xs text-[var(--text-secondary)] bg-zinc-900 border border-zinc-800"
+                                              />
+                                            ))}
                                           </div>
                                         )}
-                                        {details || (!senderName && !refs.length && <span className="text-zinc-600 italic">-</span>)}
-                                        {refs.length > 0 && (
-                                          <div className={`flex flex-wrap gap-2 text-zinc-300 ${senderName || details ? 'mt-2' : ''}`}>
-                                            {refs.map((ref, idx) => (
-                                              <div key={idx} className="inline-flex items-center gap-2 bg-zinc-900 px-2 py-1 rounded">
-                                                <span>{ref}</span>
-                                                <button
-                                                  onClick={() => handleCopyRef(ref)}
-                                                  className={`transition-colors cursor-pointer ${copiedRef === ref ? 'text-emerald-400' : 'text-zinc-500 hover:text-white'}`}
-                                                  title={copiedRef === ref ? "Copied!" : "Copy Reference"}
-                                                >
-                                                  {copiedRef === ref ? (
-                                                    <Check size={14} className="text-emerald-400 animate-scale-bump" />
-                                                  ) : (
-                                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                                    </svg>
-                                                  )}
-                                                </button>
-                                              </div>
-                                            ))}
+                                        {details && (
+                                          <div className="text-[11px] text-zinc-500 font-mono mt-1 line-clamp-2">
+                                            {details}
                                           </div>
                                         )}
                                       </td>
                                       <td className="px-2.5 py-2 text-right align-top whitespace-nowrap">
-                                        <div className={`font-mono font-semibold text-sm leading-none ${isCredit ? 'text-[var(--color-success)]' : 'text-red-400'
-                                          }`}>
-                                          {formatAmount(tx.amount)}
-                                        </div>
+                                        <CopiableChip
+                                          val={tx.amount}
+                                          displayVal={formatAmount(tx.amount)}
+                                          label="Amount"
+                                          className={`font-bold text-xs font-sans tracking-tight whitespace-nowrap text-right ${
+                                            isCredit 
+                                              ? 'text-emerald-400 bg-emerald-955/5 hover:bg-emerald-955/10' 
+                                              : 'text-red-400 bg-red-955/5 hover:bg-red-955/10'
+                                          }`}
+                                        />
                                         {tx.runningBalance && (
                                           <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1.5">
                                             Bal: {selectedAccountCurrency} {formatAmount(tx.runningBalance)}
