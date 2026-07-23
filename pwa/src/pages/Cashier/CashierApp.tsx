@@ -340,7 +340,7 @@ const TransactionRow = React.memo(({
 
   return (
     <tr className={`transition-colors group ${rowBg} ${isNew ? 'animate-new-transaction' : ''}`}>
-      <td className="py-4 px-5 text-center align-middle">
+      <td className="py-4 px-5 text-center align-top">
         {tx.hash && (
           <button 
             onClick={() => !isChecked && activeLedgerAcc && handleCheckTransaction(activeLedgerAcc.id.toString(), tx.hash!)}
@@ -356,10 +356,10 @@ const TransactionRow = React.memo(({
           </button>
         )}
       </td>
-      <td className="py-4 px-5 text-xs font-mono text-zinc-400 whitespace-nowrap align-middle">
+      <td className="py-4 px-5 text-xs font-mono text-zinc-400 whitespace-nowrap align-top">
         {tx.date}
       </td>
-      <td className="py-4 px-5 text-sm font-bold text-zinc-200 align-middle">
+      <td className="py-4 px-5 text-sm font-bold text-zinc-200 align-top">
         <div className="flex items-start gap-3">
           <div className="mt-0.5">{getTransactionIcon(description)}</div>
           <div className="flex flex-col">
@@ -370,11 +370,11 @@ const TransactionRow = React.memo(({
           </div>
         </div>
       </td>
-      <td className="py-4 px-5 text-xs text-zinc-400 font-mono leading-relaxed align-middle break-all max-w-sm">
+      <td className="py-4 px-5 text-xs text-zinc-400 font-mono leading-relaxed align-top break-all max-w-sm">
         <CopiableChip
           val={beneficiaryName}
           label="Beneficiary Name"
-          className="font-normal text-xs font-sans tracking-tight text-[var(--text-primary)] text-left justify-start block w-full truncate max-w-xs mb-1"
+          className="font-normal text-[17px] font-sans tracking-tight text-[var(--text-primary)] text-left justify-start block w-full truncate max-w-xs mb-1"
         />
         {(blazRef || ftRef || refs.length > 0) && (
           <div className="flex flex-wrap gap-1.5 text-xs font-mono">
@@ -408,12 +408,12 @@ const TransactionRow = React.memo(({
           </div>
         )}
       </td>
-      <td className="py-4 px-5 text-right align-middle whitespace-nowrap">
+      <td className="py-4 px-5 text-right align-top whitespace-nowrap">
         <CopiableChip
           val={tx.amount}
           displayVal={formatAmount(tx.amount)}
           label="Amount"
-          className={`font-bold text-sm font-sans tracking-tight whitespace-nowrap text-right ${
+          className={`font-bold text-[17px] font-sans tracking-tight whitespace-nowrap text-right ${
             isCredit 
               ? 'text-emerald-400 bg-emerald-955/5 hover:bg-emerald-955/10' 
               : 'text-red-400 bg-red-955/5 hover:bg-red-955/10'
@@ -554,7 +554,7 @@ const TransactionMobileCard = React.memo(({
   return (
     <div className={`p-4 rounded-xl border flex flex-col gap-4 transition-all ${cardBg} ${isNew ? 'animate-new-transaction' : ''}`}>
       {/* Row 1: Beneficiary Name (Left) & Total Amount (Right) */}
-      <div className="flex justify-between items-center gap-3">
+      <div className="flex justify-between items-start gap-3">
         <CopiableChip
           val={beneficiaryName}
           label="Beneficiary Name"
@@ -4882,7 +4882,7 @@ function App() {
                                         <CopiableChip
                                           val={beneficiaryName}
                                           label="Beneficiary Name"
-                                          className="font-normal text-xs font-sans tracking-tight text-[var(--text-primary)] text-left justify-start block w-full truncate max-w-xs mb-1"
+                                          className="font-normal text-[17px] font-sans tracking-tight text-[var(--text-primary)] text-left justify-start block w-full truncate max-w-xs mb-1"
                                         />
                                         {(blazRef || ftRef || refs.length > 0) && (
                                           <div className="flex flex-wrap gap-1.5 text-xs font-mono">
@@ -4921,7 +4921,7 @@ function App() {
                                           val={tx.amount}
                                           displayVal={formatAmount(tx.amount)}
                                           label="Amount"
-                                          className={`font-bold text-xs font-sans tracking-tight whitespace-nowrap text-right ${
+                                          className={`font-bold text-[17px] font-sans tracking-tight whitespace-nowrap text-right ${
                                             isCredit 
                                               ? 'text-emerald-400 bg-emerald-955/5 hover:bg-emerald-955/10' 
                                               : 'text-red-400 bg-red-955/5 hover:bg-red-955/10'
