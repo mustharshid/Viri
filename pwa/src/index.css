@@ -255,6 +255,130 @@
   border-color: #fde68a !important;
 }
 
+/* Emerald/Green contrast overrides for Light and Cute modes (Secure, API Session Managed) */
+[data-theme="light"] .text-emerald-400,
+[data-theme="cute"] .text-emerald-400,
+[data-theme="light"] .text-emerald-500,
+[data-theme="cute"] .text-emerald-500 {
+  color: #047857 !important;
+}
+
+[data-theme="light"] .bg-emerald-950,
+[data-theme="cute"] .bg-emerald-950,
+[data-theme="light"] .bg-emerald-950\/30,
+[data-theme="cute"] .bg-emerald-950\/30,
+[data-theme="light"] .bg-emerald-955\/20,
+[data-theme="cute"] .bg-emerald-955\/20,
+[data-theme="light"] .bg-emerald-955\/40,
+[data-theme="cute"] .bg-emerald-955\/40,
+[data-theme="light"] .bg-emerald-955\/50,
+[data-theme="cute"] .bg-emerald-955\/50 {
+  background-color: #d1fae5 !important;
+}
+
+[data-theme="light"] .border-emerald-500\/10,
+[data-theme="cute"] .border-emerald-500\/10,
+[data-theme="light"] .border-emerald-500\/20,
+[data-theme="cute"] .border-emerald-500\/20,
+[data-theme="light"] .border-emerald-500\/30,
+[data-theme="cute"] .border-emerald-500\/30 {
+  border-color: #a7f3d0 !important;
+}
+
+/* Orange contrast overrides for Light and Cute modes (Disconnected) */
+[data-theme="light"] .text-orange-400,
+[data-theme="cute"] .text-orange-400 {
+  color: #c2410c !important;
+}
+
+[data-theme="light"] .bg-orange-950\/40,
+[data-theme="cute"] .bg-orange-950\/40 {
+  background-color: #ffedd5 !important;
+}
+
+[data-theme="light"] .border-orange-500\/30,
+[data-theme="cute"] .border-orange-500\/30 {
+  border-color: #fed7aa !important;
+}
+
+[data-theme="light"] .bg-orange-400,
+[data-theme="cute"] .bg-orange-400 {
+  background-color: #ea580c !important;
+}
+
+/* Red contrast overrides for Light and Cute modes (Locked, Failures) */
+[data-theme="light"] .text-red-400,
+[data-theme="cute"] .text-red-400 {
+  color: #b91c1c !important;
+}
+
+[data-theme="light"] .bg-red-950\/40,
+[data-theme="cute"] .bg-red-950\/40,
+[data-theme="light"] .bg-red-955\/40,
+[data-theme="cute"] .bg-red-955\/40 {
+  background-color: #fee2e2 !important;
+}
+
+[data-theme="light"] .border-red-500\/30,
+[data-theme="cute"] .border-red-500\/30 {
+  border-color: #fca5a5 !important;
+}
+
+/* Violet/Purple contrast overrides for Light and Cute modes (Business, Multi-Profile) */
+[data-theme="light"] .text-violet-300,
+[data-theme="cute"] .text-violet-300 {
+  color: #6d28d9 !important;
+}
+
+[data-theme="light"] .bg-violet-955\/20,
+[data-theme="cute"] .bg-violet-955\/20,
+[data-theme="light"] .bg-violet-950\/50,
+[data-theme="cute"] .bg-violet-950\/50,
+[data-theme="light"] .bg-violet-500\/20,
+[data-theme="cute"] .bg-violet-500\/20,
+[data-theme="light"] .bg-violet-500\/30,
+[data-theme="cute"] .bg-violet-500\/30 {
+  background-color: #ede9fe !important;
+}
+
+[data-theme="light"] .border-violet-500\/30,
+[data-theme="cute"] .border-violet-500\/30,
+[data-theme="light"] .border-violet-500\/50,
+[data-theme="cute"] .border-violet-500\/50 {
+  border-color: #ddd6fe !important;
+}
+
+/* Sky/Blue contrast overrides for Light and Cute modes (Personal, Shared Credentials) */
+[data-theme="light"] .text-sky-300,
+[data-theme="cute"] .text-sky-300,
+[data-theme="light"] .text-sky-400,
+[data-theme="cute"] .text-sky-400 {
+  color: #0369a1 !important;
+}
+
+[data-theme="light"] .bg-sky-950\/5,
+[data-theme="cute"] .bg-sky-950\/5 {
+  background-color: #f0f9ff !important;
+}
+
+[data-theme="light"] .bg-sky-950\/20,
+[data-theme="cute"] .bg-sky-950\/20,
+[data-theme="light"] .bg-sky-950\/40,
+[data-theme="cute"] .bg-sky-950\/40,
+[data-theme="light"] .bg-sky-950\/50,
+[data-theme="cute"] .bg-sky-950\/50 {
+  background-color: #e0f2fe !important;
+}
+
+[data-theme="light"] .border-sky-500\/15,
+[data-theme="cute"] .border-sky-500\/15,
+[data-theme="light"] .border-sky-500\/20,
+[data-theme="cute"] .border-sky-500\/20,
+[data-theme="light"] .border-sky-500\/30,
+[data-theme="cute"] .border-sky-500\/30 {
+  border-color: #bae6fd !important;
+}
+
 /* ─── End Themes ──────────────────────────────────────────────────────────── */
 
 /* ─── End Light Mode ────────────────────────────────────────────────────────── */

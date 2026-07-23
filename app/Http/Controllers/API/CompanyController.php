@@ -275,6 +275,32 @@ class CompanyController extends Controller
         return response()->json(['message' => 'Bank account deleted']);
     }
 
+    public function updateBankAccount(Request $request, $id)
+    {
+        $tenantId = $request->user()->tenant_id;
+        $account = BankAccount::where('tenant_id', $tenantId)->findOrFail($id);
+
+        $request->validate([
+            'bank_name' => 'required|string',
+            'account_name' => 'required|string',
+            'mib_profile_type' => 'nullable|string|in:0,1',
+            'bml_profile_type' => 'nullable|string|in:0,1',
+            'label' => 'nullable|string',
+            'currency' => 'nullable|string|in:MVR,USD',
+        ]);
+
+        $account->update([
+            'bank_name' => $request->bank_name,
+            'account_name' => $request->account_name,
+            'mib_profile_type' => $request->mib_profile_type ?? '0',
+            'bml_profile_type' => $request->bml_profile_type ?? '0',
+            'label' => $request->label,
+            'currency' => $request->currency ?? 'MVR',
+        ]);
+
+        return response()->json(['account' => $account]);
+    }
+
     public function resetBankAccountFailures(Request $request, $id)
     {
         $tenantId = $request->user()->tenant_id;

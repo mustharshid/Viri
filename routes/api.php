@@ -58,6 +58,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/company/bank-accounts', [CompanyController::class, 'getBankAccounts']);
     Route::post('/company/bank-accounts', [CompanyController::class, 'createBankAccount']);
+    Route::put('/company/bank-accounts/{id}', [CompanyController::class, 'updateBankAccount']);
     Route::delete('/company/bank-accounts/{id}', [CompanyController::class, 'deleteBankAccount']);
     Route::post('/company/bank-accounts/{id}/reset-failures', [CompanyController::class, 'resetBankAccountFailures']);
     Route::get('/company/bank-accounts/sibling-check', [\App\Http\Controllers\API\MibKeysController::class, 'getSiblingCheck']);

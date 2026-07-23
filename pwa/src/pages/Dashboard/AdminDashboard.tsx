@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2, Server, Database, Code, Zap, Activity } from 'lucide-react';
 
@@ -16,6 +16,7 @@ export default function AdminDashboard() {
   const [companies, setCompanies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const pinInputRef = useRef<HTMLInputElement>(null);
 
   const [companiesPage, setCompaniesPage] = useState(1);
   const [companiesTotalPages, setCompaniesTotalPages] = useState(1);
@@ -701,9 +702,6 @@ export default function AdminDashboard() {
     const draft = drafts[company.id];
     if (!draft || Object.keys(draft).length === 0) return;
     
-    // verify pin before saving
-    if (!(await verifySecurityPin())) return;
-
     const tier = draft.subscription_tier !== undefined ? draft.subscription_tier : company.subscription_tier;
     const lockTimeout = draft.lock_timeout !== undefined ? draft.lock_timeout : company.lock_timeout;
     const maxTerminals = draft.max_terminals !== undefined ? draft.max_terminals : company.max_terminals;
@@ -2692,6 +2690,7 @@ export default function AdminDashboard() {
             </div>
             <p className="text-sm text-zinc-300">{pinModalState.message}</p>
             <input 
+              ref={pinInputRef}
               type="password"
               autoFocus
               className="input-field text-center tracking-[1em] font-mono text-xl py-3"
@@ -2703,6 +2702,7 @@ export default function AdminDashboard() {
             />
             <div className="flex justify-end gap-3 mt-4">
               <button className="btn btn-outline border-zinc-700 text-zinc-400" onClick={() => pinModalState.resolve(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={() => pinModalState.resolve(pinInputRef.current?.value || null)}>OK</button>
             </div>
           </div>
         </div>

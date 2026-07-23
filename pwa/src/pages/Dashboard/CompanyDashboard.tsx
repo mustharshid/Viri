@@ -254,6 +254,17 @@ export default function CompanyDashboard() {
   const [bmlProfileType, setBmlProfileType] = useState('0');
   const [currency, setCurrency] = useState('MVR');
 
+  // Bank Account Edit States
+  const [editingBankAccount, setEditingBankAccount] = useState<any | null>(null);
+  const [isBankAccountModalOpen, setIsBankAccountModalOpen] = useState(false);
+  const [editAccountName, setEditAccountName] = useState('');
+  const [editAccountLabel, setEditAccountLabel] = useState('');
+  const [editBankName, setEditBankName] = useState('BML');
+  const [editMibProfileType, setEditMibProfileType] = useState('0');
+  const [editBmlProfileType, setEditBmlProfileType] = useState('0');
+  const [editCurrency, setEditCurrency] = useState('MVR');
+  const [isSavingBankAccount, setIsSavingBankAccount] = useState(false);
+
   // Settings Form States
   const [settingsPhone, setSettingsPhone] = useState('');
   const [settingsPassword, setSettingsPassword] = useState('');
@@ -733,6 +744,53 @@ export default function CompanyDashboard() {
     fetchData();
   };
 
+  const editBankAccount = (acc: any) => {
+    setEditingBankAccount(acc);
+    setEditAccountName(acc.account_name);
+    setEditAccountLabel(acc.label || '');
+    setEditBankName(acc.bank_name);
+    setEditMibProfileType(acc.mib_profile_type || '0');
+    setEditBmlProfileType(acc.bml_profile_type || '0');
+    setEditCurrency(acc.currency || 'MVR');
+    setIsBankAccountModalOpen(true);
+  };
+
+  const saveBankAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBankAccount) return;
+
+    const token = localStorage.getItem('viri_token');
+    setIsSavingBankAccount(true);
+    try {
+      const res = await fetch(`/api/company/bank-accounts/${editingBankAccount.id}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bank_name: editBankName,
+          account_name: editAccountName,
+          mib_profile_type: editBankName === 'MIB' ? editMibProfileType : '0',
+          bml_profile_type: editBankName === 'BML' ? editBmlProfileType : '0',
+          label: editAccountLabel,
+          currency: editCurrency
+        })
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.message || 'Error updating account');
+      } else {
+        setIsBankAccountModalOpen(false);
+        setEditingBankAccount(null);
+        fetchData();
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert('Failed to save bank account: ' + err.message);
+    } finally {
+      setIsSavingBankAccount(false);
+    }
+  };
+
   const resetBankAccountFailures = async (id: number) => {
     const token = localStorage.getItem('viri_token');
     const res = await fetch(`/api/company/bank-accounts/${id}/reset-failures`, {
@@ -869,8 +927,7 @@ export default function CompanyDashboard() {
 
         {/* ─── TAB: DASHBOARD ─── */}
         {activeTab === 'dashboard' && (
-          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <div className="grid md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start animate-in fade-in slide-in-from-bottom-2 duration-300">
               
               {/* Subscription card with dynamic usage metrics */}
               <div className="glass-panel p-6 flex flex-col justify-between min-h-[220px] border border-[var(--border-color)]">
@@ -997,10 +1054,6 @@ export default function CompanyDashboard() {
                 </div>
               </div>
 
-
-
-            </div>
-
             {/* Horizontal Layout Section 1: Cashier Counters Group Card */}
             <div id="cashier-counters-section" className="glass-panel p-6 space-y-6 border border-[var(--border-color)]">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--border-color)] pb-4">
@@ -1027,7 +1080,7 @@ export default function CompanyDashboard() {
                 </form>
               </div>
 
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 {terminals.map(term => {
                   const isExpired = term.pairing_code_expires_at ? new Date(term.pairing_code_expires_at).getTime() < now : true;
                   const minutesLeft = term.pairing_code_expires_at ? Math.max(0, Math.floor((new Date(term.pairing_code_expires_at).getTime() - now) / 60000)) : 0;
@@ -1255,7 +1308,7 @@ export default function CompanyDashboard() {
             </div>
 
             {/* Horizontal Layout Section 2: Linked Bank Accounts & Select Bank Group Card */}
-            <div className="glass-panel p-6 space-y-6 border border-[var(--border-color)]">
+            <div className="glass-panel p-6 space-y-6 border border-[var(--border-color)] lg:col-span-2">
               <div className="border-b border-[var(--border-color)] pb-4">
                 <h2 className="text-lg font-bold text-[var(--text-primary)] flex items-center gap-2">
                   Linked Accounts
@@ -1490,13 +1543,14 @@ export default function CompanyDashboard() {
                           Reset
                         </button>
                       )}
-                      <button onClick={() => setDeleteConfirm({isOpen: true, type: 'account', id: acc.id, name: `${acc.bank_name} - ${acc.account_name} (${acc.account_number})`})} className="p-2 text-[var(--text-secondary)] hover:text-red-400 hover:bg-red-500/5 rounded-lg transition-colors"><Trash2 size={16}/></button>
+                      <button onClick={() => editBankAccount(acc)} className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-white/5 rounded-lg transition-colors" title="Edit Account Details"><Edit size={16}/></button>
+                      <button onClick={() => setDeleteConfirm({isOpen: true, type: 'account', id: acc.id, name: `${acc.bank_name} - ${acc.account_name} (${acc.account_number})`})} className="p-2 text-[var(--text-secondary)] hover:text-red-400 hover:bg-red-500/5 rounded-lg transition-colors" title="Delete Account"><Trash2 size={16}/></button>
                     </div>
                   </div>
                 );
 
                 return (
-                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Credential groups (sibling accounts) */}
                     {Object.entries(groupMap).map(([key, group]) => (
                       <div key={key} className="rounded-xl border border-sky-500/20 bg-sky-950/5 overflow-hidden col-span-full">
@@ -1514,7 +1568,7 @@ export default function CompanyDashboard() {
                           <span className="text-[9px] text-[var(--text-secondary)] shrink-0">{group.accounts.length} accts</span>
                         </div>
                         {/* Accounts in this group */}
-                        <div className="p-3 grid sm:grid-cols-2 gap-3">
+                        <div className="p-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                           {group.accounts.map(acc => renderAccRow(acc, false))}
                         </div>
                       </div>
@@ -1749,12 +1803,16 @@ export default function CompanyDashboard() {
             </section>
 
             <section id="help-setup-8" className="space-y-3">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2"><div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm">8</div> Enter bank credentials</h3>
+              <h3 className="text-xl font-bold text-white flex items-center gap-2"><div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm">8</div> Link bank credentials</h3>
               <div className="text-zinc-300 leading-relaxed pl-8 space-y-4">
-                <p>For each bank account linked to this terminal, you will need to enter the account's login credentials: username, password, and OTP seed.</p>
-                <p>The <strong>OTP seed</strong> is a one-time setup step that allows Viri Bridge to generate login verification codes automatically. It is stored locally on this device only.</p>
+                <p>For each bank account linked to this terminal, you will need to establish a secure API connection:</p>
+                <ul className="list-disc pl-5 space-y-2">
+                  <li><strong>Bank of Maldives (BML):</strong> Authenticate directly through BML's secure official OAuth portal. Viri will acquire and store API access/refresh tokens. You do <em>not</em> need to manually enter your BML password or OTP seed.</li>
+                  <li><strong>Maldives Islamic Bank (MIB):</strong> Enter the account's credentials: username, password, and MIB Authenticator OTP seed.</li>
+                </ul>
+                <p>The MIB <strong>OTP seed</strong> is a one-time setup step that allows Viri Bridge to generate login verification codes automatically. It is stored locally on this device only.</p>
                 <div className="bg-blue-900/20 border border-blue-900/50 p-4 rounded-lg">
-                  <strong>Getting your OTP seed:</strong> Retrieving the seed requires a short process in your bank's internet or mobile banking app. If you have not done this before, refer to the <strong><a href="#help-auth-guide" className="text-blue-400 hover:underline" onClick={(e) => { e.preventDefault(); navigateToHelp('help-auth-guide'); }}>Authenticator Seed Setup Guide</a></strong> below for step-by-step instructions for both BML and MIB, including what to do if you already have an authenticator app connected to your account.
+                  <strong>Getting your MIB OTP seed:</strong> Retrieving the seed requires a short process in your bank's internet or mobile banking app. If you have not done this before, refer to the <strong><a href="#help-auth-guide" className="text-blue-400 hover:underline" onClick={(e) => { e.preventDefault(); navigateToHelp('help-auth-guide'); }}>Authenticator Seed Setup Guide</a></strong> below for step-by-step MIB instructions, including what to do if you already have an authenticator app connected to your account.
                 </div>
                 <p className="italic text-sm text-zinc-400">This step should be completed by the admin before the terminal is handed to a cashier.</p>
               </div>
@@ -2409,7 +2467,7 @@ export default function CompanyDashboard() {
 
       {isTerminalModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-zinc-900 border border-zinc-700/80 rounded-xl max-w-2xl w-full p-6 shadow-2xl relative animate-in fade-in zoom-in duration-200">
+          <div className="bg-zinc-900 border border-zinc-700/80 rounded-xl max-w-4xl w-full p-6 shadow-2xl relative animate-in fade-in zoom-in duration-200">
             <button 
               type="button"
               onClick={() => setIsTerminalModalOpen(false)} 
@@ -2423,194 +2481,202 @@ export default function CompanyDashboard() {
             </h2>
 
             <form onSubmit={saveTerminal} className="space-y-6">
-              <div>
-                <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">
-                  Counter Name
-                </label>
-                <input 
-                  type="text" 
-                  required 
-                  placeholder="e.g. Counter 1" 
-                  className="input-field w-full" 
-                  value={terminalFormName} 
-                  onChange={e => setTerminalFormName(e.target.value)} 
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2 flex items-center gap-2">
-                  Settings PIN (Optional)
-                  <Tooltip text="A 6-digit PIN required on the PWA to edit settings or view sensitive information. Leave blank to disable. Click for more info." onClick={() => navigateToHelp('help-pin')} />
-                </label>
-                <input 
-                  type="text" 
-                  maxLength={6}
-                  pattern="\d{0,6}"
-                  placeholder="e.g. 123456" 
-                  className="input-field w-full font-mono" 
-                  value={terminalSettingsPin} 
-                  onChange={e => {
-                    const val = e.target.value.replace(/\D/g, '');
-                    setTerminalSettingsPin(val);
-                  }} 
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2 flex items-center gap-2">
-                  PWA Lockout PIN / Password (Optional)
-                  <Tooltip text="A 4-digit PIN to lock/unlock the cashier counter screen. Leave blank to disable or clear/unlock." />
-                </label>
-                <div className="flex gap-2">
-                  <input 
-                    type="password" 
-                    maxLength={4}
-                    pattern="\d{0,4}"
-                    placeholder={editingTerminal?.permissions?.terminal_pin ? "PIN Set (Hidden)" : "e.g. 1234"} 
-                    className="input-field flex-1 font-mono" 
-                    value={terminalLockPin} 
-                    onChange={e => {
-                      const val = e.target.value.replace(/\D/g, '');
-                      setTerminalLockPin(val);
-                    }} 
-                  />
-                  {(editingTerminal?.permissions?.terminal_pin || terminalLockPin) && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTerminalLockPin('');
-                        if (editingTerminal && editingTerminal.permissions) {
-                          editingTerminal.permissions.terminal_pin = null;
-                        }
-                        alert("Lockout PIN reset/cleared. Click 'Save' to apply changes.");
-                      }}
-                      className="btn btn-outline border-red-500 text-red-500 hover:bg-red-500 hover:text-white px-3 py-2 text-xs transition-colors shrink-0"
-                    >
-                      Reset PIN
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">
-                  Terminal Tools & Permissions
-                </h3>
-
-                <div className="space-y-4 bg-black/30 p-4 rounded-lg border border-zinc-800">
-                  {/* Verification Panel */}
-                  <div className="flex items-start gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                
+                {/* Left Side: Counter Settings */}
+                <div className="space-y-5">
+                  <div>
+                    <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">
+                      Counter Name
+                    </label>
                     <input 
-                      type="checkbox" 
-                      id="perm-verification"
-                      checked={permissionsForm.verification_enabled} 
-                      disabled 
-                      className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
+                      type="text" 
+                      required 
+                      placeholder="e.g. Counter 1" 
+                      className="input-field w-full" 
+                      value={terminalFormName} 
+                      onChange={e => setTerminalFormName(e.target.value)} 
                     />
-                    <div>
-                      <label htmlFor="perm-verification" className="text-sm font-medium text-white flex items-center gap-1.5 cursor-not-allowed">
-                        Verification Panel <span className="text-[10px] bg-[var(--color-success)]/15 text-[var(--color-success)] px-1.5 py-0.5 rounded font-mono">REQUIRED</span>
-                      </label>
-                      <p className="text-xs text-[var(--text-secondary)]">Allows cashier to verify incoming MVR bank transfer screenshots.</p>
-                    </div>
                   </div>
 
-                  {/* Transaction Ledger */}
-                  <div className="flex items-start gap-3">
+                  <div>
+                    <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2 flex items-center gap-2">
+                      Settings PIN (Optional)
+                      <Tooltip text="A 6-digit PIN required on the PWA to edit settings or view sensitive information. Leave blank to disable. Click for more info." onClick={() => navigateToHelp('help-pin')} />
+                    </label>
                     <input 
-                      type="checkbox" 
-                      id="perm-ledger"
-                      checked={permissionsForm.ledger_enabled} 
-                      disabled={user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
-                      onChange={e => setPermissionsForm(prev => ({ 
-                        ...prev, 
-                        ledger_enabled: e.target.checked,
-                        ledger_show_balance: e.target.checked ? prev.ledger_show_balance : false,
-                        ledger_show_debit: e.target.checked ? prev.ledger_show_debit : false
-                      }))}
-                      className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
+                      type="text" 
+                      maxLength={6}
+                      pattern="\d{0,6}"
+                      placeholder="e.g. 123456" 
+                      className="input-field w-full font-mono" 
+                      value={terminalSettingsPin} 
+                      onChange={e => {
+                        const val = e.target.value.replace(/\D/g, '');
+                        setTerminalSettingsPin(val);
+                      }} 
                     />
-                    <div>
-                      <label htmlFor="perm-ledger" className={`text-sm font-medium flex items-center gap-1.5 ${user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499' ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
-                        Transaction Ledger
-                      </label>
-                      <p className="text-xs text-[var(--text-secondary)]">Allows cashier to view account transaction ledger/history.</p>
-                    </div>
                   </div>
 
-                  {/* Show Account Balance */}
-                  <div className="flex items-start gap-3">
-                    <input 
-                      type="checkbox" 
-                      id="perm-ledger-balance"
-                      checked={permissionsForm.ledger_show_balance} 
-                      disabled={user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
-                      onChange={e => setPermissionsForm(prev => ({ ...prev, ledger_show_balance: e.target.checked }))}
-                      className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
-                    />
-                    <div>
-                      <label htmlFor="perm-ledger-balance" className={`text-sm font-medium flex items-center gap-1.5 ${user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499' ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
-                        Show Account Balance
-                      </label>
-                      <p className="text-xs text-[var(--text-secondary)]">Expose real-time balance metrics for connected accounts.</p>
-                    </div>
-                  </div>
-
-                  {/* Show Outward Transactions (DEBIT) */}
-                  <div className="flex items-start gap-3">
-                    <input 
-                      type="checkbox" 
-                      id="perm-ledger-debit"
-                      checked={permissionsForm.ledger_show_debit} 
-                      disabled={user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
-                      onChange={e => setPermissionsForm(prev => ({ ...prev, ledger_show_debit: e.target.checked }))}
-                      className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
-                    />
-                    <div>
-                      <label htmlFor="perm-ledger-debit" className={`text-sm font-medium flex items-center gap-1.5 ${user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499' ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
-                        Show Outward Transactions (DEBIT)
-                      </label>
-                      <p className="text-xs text-[var(--text-secondary)]">Display outward transfers and charges alongside credits.</p>
-                    </div>
-                  </div>
-
-                  {/* Reports */}
-                  <div className="flex items-start gap-3">
-                    <input 
-                      type="checkbox" 
-                      id="perm-reports"
-                      checked={permissionsForm.reports_enabled} 
-                      onChange={e => setPermissionsForm(prev => ({ ...prev, reports_enabled: e.target.checked }))}
-                      disabled={user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
-                      className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
-                    />
-                    <div>
-                      <label htmlFor="perm-reports" className={`text-sm font-medium flex items-center gap-1.5 ${user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499' ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
-                        View Analytics & Reports
-                      </label>
-                      <p className="text-xs text-[var(--text-secondary)]">Allow access to historical charts and performance reports.</p>
-                    </div>
-                  </div>
-
-                  {/* Share PWA Logs */}
-                  <div className="flex items-start gap-3 mt-4 pt-4 border-t border-zinc-800">
-                    <input 
-                      type="checkbox" 
-                      id="perm-share-logs"
-                      checked={permissionsForm.share_pwa_logs} 
-                      onChange={e => setPermissionsForm(prev => ({ ...prev, share_pwa_logs: e.target.checked }))}
-                      className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0"
-                    />
-                    <div>
-                      <label htmlFor="perm-share-logs" className="text-sm font-medium flex items-center gap-1.5 text-white cursor-pointer">
-                        Share PWA Logs to Viri for Debug & Software Improvements
-                      </label>
-                      <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                        Automatically send terminal execution logs to the superadmin log. Sensitive info (passwords, authenticator seeds) is masked. If disabled, superadmin cannot debug unless temporarily granted access via the Terminals tab.
-                      </p>
+                  <div>
+                    <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2 flex items-center gap-2">
+                      PWA Lockout PIN / Password (Optional)
+                      <Tooltip text="A 4-digit PIN to lock/unlock the cashier counter screen. Leave blank to disable or clear/unlock." />
+                    </label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="password" 
+                        maxLength={4}
+                        pattern="\d{0,4}"
+                        placeholder={editingTerminal?.permissions?.terminal_pin ? "PIN Set (Hidden)" : "e.g. 1234"} 
+                        className="input-field flex-1 font-mono" 
+                        value={terminalLockPin} 
+                        onChange={e => {
+                          const val = e.target.value.replace(/\D/g, '');
+                          setTerminalLockPin(val);
+                        }} 
+                      />
+                      {(editingTerminal?.permissions?.terminal_pin || terminalLockPin) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTerminalLockPin('');
+                            if (editingTerminal && editingTerminal.permissions) {
+                              editingTerminal.permissions.terminal_pin = null;
+                            }
+                            alert("Lockout PIN reset/cleared. Click 'Save' to apply changes.");
+                          }}
+                          className="btn btn-outline border-red-500 text-red-500 hover:bg-red-500 hover:text-white px-3 py-2 text-xs transition-colors shrink-0"
+                        >
+                          Reset PIN
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
+
+                {/* Right Side: Permissions Checklist */}
+                <div>
+                  <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">
+                    Terminal Tools & Permissions
+                  </h3>
+
+                  <div className="space-y-4 bg-black/30 p-4 rounded-xl border border-zinc-800">
+                    {/* Verification Panel */}
+                    <div className="flex items-start gap-3 p-1.5 hover:bg-white/5 rounded-lg transition-colors">
+                      <input 
+                        type="checkbox" 
+                        id="perm-verification"
+                        checked={permissionsForm.verification_enabled} 
+                        disabled 
+                        className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
+                      />
+                      <div>
+                        <label htmlFor="perm-verification" className="text-sm font-medium text-white flex items-center gap-1.5 cursor-not-allowed">
+                          Verification Panel <span className="text-[10px] bg-[var(--color-success)]/15 text-[var(--color-success)] px-1.5 py-0.5 rounded font-mono">REQUIRED</span>
+                        </label>
+                        <p className="text-xs text-[var(--text-secondary)] mt-0.5">Allows cashier to verify incoming MVR bank transfer screenshots.</p>
+                      </div>
+                    </div>
+
+                    {/* Transaction Ledger */}
+                    <div className="flex items-start gap-3 p-1.5 hover:bg-white/5 rounded-lg transition-colors">
+                      <input 
+                        type="checkbox" 
+                        id="perm-ledger"
+                        checked={permissionsForm.ledger_enabled} 
+                        disabled={user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
+                        onChange={e => setPermissionsForm(prev => ({ 
+                          ...prev, 
+                          ledger_enabled: e.target.checked,
+                          ledger_show_balance: e.target.checked ? prev.ledger_show_balance : false,
+                          ledger_show_debit: e.target.checked ? prev.ledger_show_debit : false
+                        }))}
+                        className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
+                      />
+                      <div>
+                        <label htmlFor="perm-ledger" className={`text-sm font-medium flex items-center gap-1.5 ${user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499' ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
+                          Transaction Ledger
+                        </label>
+                        <p className="text-xs text-[var(--text-secondary)] mt-0.5">Allows cashier to view account transaction ledger/history.</p>
+                      </div>
+                    </div>
+
+                    {/* Show Account Balance */}
+                    <div className="flex items-start gap-3 p-1.5 hover:bg-white/5 rounded-lg transition-colors">
+                      <input 
+                        type="checkbox" 
+                        id="perm-ledger-balance"
+                        checked={permissionsForm.ledger_show_balance} 
+                        disabled={user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
+                        onChange={e => setPermissionsForm(prev => ({ ...prev, ledger_show_balance: e.target.checked }))}
+                        className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
+                      />
+                      <div>
+                        <label htmlFor="perm-ledger-balance" className={`text-sm font-medium flex items-center gap-1.5 ${user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499' ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
+                          Show Account Balance
+                        </label>
+                        <p className="text-xs text-[var(--text-secondary)] mt-0.5">Expose real-time balance metrics for connected accounts.</p>
+                      </div>
+                    </div>
+
+                    {/* Show Outward Transactions (DEBIT) */}
+                    <div className="flex items-start gap-3 p-1.5 hover:bg-white/5 rounded-lg transition-colors">
+                      <input 
+                        type="checkbox" 
+                        id="perm-ledger-debit"
+                        checked={permissionsForm.ledger_show_debit} 
+                        disabled={user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
+                        onChange={e => setPermissionsForm(prev => ({ ...prev, ledger_show_debit: e.target.checked }))}
+                        className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
+                      />
+                      <div>
+                        <label htmlFor="perm-ledger-debit" className={`text-sm font-medium flex items-center gap-1.5 ${user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499' ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
+                          Show Outward Transactions (DEBIT)
+                        </label>
+                        <p className="text-xs text-[var(--text-secondary)] mt-0.5">Display outward transfers and charges alongside credits.</p>
+                      </div>
+                    </div>
+
+                    {/* Reports */}
+                    <div className="flex items-start gap-3 p-1.5 hover:bg-white/5 rounded-lg transition-colors">
+                      <input 
+                        type="checkbox" 
+                        id="perm-reports"
+                        checked={permissionsForm.reports_enabled} 
+                        onChange={e => setPermissionsForm(prev => ({ ...prev, reports_enabled: e.target.checked }))}
+                        disabled={user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
+                        className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
+                      />
+                      <div>
+                        <label htmlFor="perm-reports" className={`text-sm font-medium flex items-center gap-1.5 ${user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499' ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
+                          View Analytics & Reports
+                        </label>
+                        <p className="text-xs text-[var(--text-secondary)] mt-0.5">Allow access to historical charts and performance reports.</p>
+                      </div>
+                    </div>
+
+                    {/* Share PWA Logs */}
+                    <div className="flex items-start gap-3 p-1.5 hover:bg-white/5 rounded-lg transition-colors mt-4 pt-4 border-t border-zinc-800">
+                      <input 
+                        type="checkbox" 
+                        id="perm-share-logs"
+                        checked={permissionsForm.share_pwa_logs} 
+                        onChange={e => setPermissionsForm(prev => ({ ...prev, share_pwa_logs: e.target.checked }))}
+                        className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0"
+                      />
+                      <div>
+                        <label htmlFor="perm-share-logs" className="text-sm font-medium flex items-center gap-1.5 text-white cursor-pointer">
+                          Share PWA Logs to Viri for Debug & Software Improvements
+                        </label>
+                        <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-normal">
+                          Automatically send terminal execution logs to the superadmin log. Sensitive info (passwords, authenticator seeds) is masked. If disabled, superadmin cannot debug unless temporarily granted access via the Terminals tab.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
               </div>
 
               {/* Starter Tier Locked Premium Card */}
@@ -2677,6 +2743,218 @@ export default function CompanyDashboard() {
                   className="btn btn-success py-2 px-6 text-sm font-semibold flex items-center justify-center gap-2"
                 >
                   {isSavingTerminal ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" /> Saving...
+                    </>
+                  ) : (
+                    'Save Changes'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isBankAccountModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-zinc-700/80 rounded-xl max-w-xl w-full p-6 shadow-2xl relative animate-in fade-in zoom-in duration-200">
+            <button 
+              type="button"
+              onClick={() => {
+                setIsBankAccountModalOpen(false);
+                setEditingBankAccount(null);
+              }} 
+              className="absolute top-4 right-4 text-zinc-400 hover:text-white p-1 rounded-full hover:bg-white/5 transition-colors"
+            >
+              <X size={20} />
+            </button>
+
+            <h2 className="text-xl font-bold text-white mb-6">
+              Edit Bank Account Details
+            </h2>
+
+            <form onSubmit={saveBankAccount} className="space-y-6">
+              
+              <div className="grid grid-cols-2 gap-4">
+                {/* Select Bank */}
+                <div className="bg-[var(--bg-card)] border border-[var(--border-color)] p-3 rounded-xl space-y-1">
+                  <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-0.5">Select Bank</label>
+                  <div className="flex flex-col gap-2 pt-1">
+                    <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] cursor-pointer select-none">
+                      <input
+                        type="radio"
+                        name="editBankSelect"
+                        value="BML"
+                        checked={editBankName === 'BML'}
+                        onChange={() => setEditBankName('BML')}
+                        className="w-4 h-4 text-emerald-500 accent-emerald-500 cursor-pointer"
+                      />
+                      Bank of Maldives (BML)
+                    </label>
+                    <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] cursor-pointer select-none">
+                      <input
+                        type="radio"
+                        name="editBankSelect"
+                        value="MIB"
+                        checked={editBankName === 'MIB'}
+                        onChange={() => setEditBankName('MIB')}
+                        className="w-4 h-4 text-emerald-500 accent-emerald-500 cursor-pointer"
+                      />
+                      Maldives Islamic Bank (MIB)
+                    </label>
+                  </div>
+                </div>
+
+                {/* Profile Type */}
+                <div className="bg-[var(--bg-card)] border border-[var(--border-color)] p-3 rounded-xl space-y-1">
+                  <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-0.5">Profile Type</label>
+                  <div className="flex flex-col gap-2 pt-1">
+                    {editBankName === 'BML' ? (
+                      <>
+                        <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] cursor-pointer select-none">
+                          <input
+                            type="radio"
+                            name="editBmlProfileType"
+                            value="0"
+                            checked={editBmlProfileType === '0'}
+                            onChange={() => setEditBmlProfileType('0')}
+                            className="w-4 h-4 text-emerald-500 accent-emerald-500 cursor-pointer"
+                          />
+                          Personal
+                        </label>
+                        <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] cursor-pointer select-none">
+                          <input
+                            type="radio"
+                            name="editBmlProfileType"
+                            value="1"
+                            checked={editBmlProfileType === '1'}
+                            onChange={() => setEditBmlProfileType('1')}
+                            className="w-4 h-4 text-emerald-500 accent-emerald-500 cursor-pointer"
+                          />
+                          Business
+                        </label>
+                      </>
+                    ) : (
+                      <>
+                        <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] cursor-pointer select-none">
+                          <input
+                            type="radio"
+                            name="editMibProfileType"
+                            value="0"
+                            checked={editMibProfileType === '0'}
+                            onChange={() => setEditMibProfileType('0')}
+                            className="w-4 h-4 text-emerald-500 accent-emerald-500 cursor-pointer"
+                          />
+                          Personal
+                        </label>
+                        <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] cursor-pointer select-none">
+                          <input
+                            type="radio"
+                            name="editMibProfileType"
+                            value="1"
+                            checked={editMibProfileType === '1'}
+                            onChange={() => setEditMibProfileType('1')}
+                            className="w-4 h-4 text-emerald-500 accent-emerald-500 cursor-pointer"
+                          />
+                          Business
+                        </label>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Currency */}
+              <div className="bg-[var(--bg-card)] border border-[var(--border-color)] p-3 rounded-xl space-y-1 w-fit">
+                <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-0.5">Currency</label>
+                <div className="flex items-center gap-5 px-1 py-0.5 font-mono">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] cursor-pointer select-none">
+                    <input
+                      type="radio"
+                      name="editCurrencySelect"
+                      value="MVR"
+                      checked={editCurrency === 'MVR'}
+                      onChange={() => setEditCurrency('MVR')}
+                      className="w-4 h-4 text-emerald-500 accent-emerald-500 cursor-pointer"
+                    />
+                    MVR
+                  </label>
+                  <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] cursor-pointer select-none">
+                    <input
+                      type="radio"
+                      name="editCurrencySelect"
+                      value="USD"
+                      checked={editCurrency === 'USD'}
+                      onChange={() => setEditCurrency('USD')}
+                      className="w-4 h-4 text-emerald-500 accent-emerald-500 cursor-pointer"
+                    />
+                    USD
+                  </label>
+                </div>
+              </div>
+
+              {/* Account Details */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">
+                    Account Holder Name
+                  </label>
+                  <input 
+                    type="text" 
+                    required 
+                    placeholder="Name on account" 
+                    className="input-field w-full text-sm" 
+                    value={editAccountName} 
+                    onChange={e => setEditAccountName(e.target.value)} 
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2 flex items-center gap-1.5">
+                    Account Number
+                    <span className="text-[9px] bg-zinc-800 text-zinc-500 px-2 py-0.5 rounded uppercase font-bold tracking-wider">Locked</span>
+                  </label>
+                  <input 
+                    type="text" 
+                    disabled 
+                    className="input-field w-full text-sm font-mono opacity-50 cursor-not-allowed bg-zinc-950/20" 
+                    value={editingBankAccount?.account_number || ''} 
+                  />
+                  <p className="text-[10px] text-[var(--text-secondary)] mt-1">For integrity, the account number cannot be edited. Delete and re-add if needed.</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">
+                    Label / Nickname
+                  </label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. Main Vault" 
+                    className="input-field w-full text-sm" 
+                    value={editAccountLabel} 
+                    onChange={e => setEditAccountLabel(e.target.value)} 
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 border-t border-zinc-800 pt-5 mt-6">
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    setIsBankAccountModalOpen(false);
+                    setEditingBankAccount(null);
+                  }} 
+                  className="btn btn-outline border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white py-2 px-4 text-sm"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isSavingBankAccount}
+                  className="btn btn-success py-2 px-6 text-sm font-semibold flex items-center justify-center gap-2"
+                >
+                  {isSavingBankAccount ? (
                     <>
                       <Loader2 size={16} className="animate-spin" /> Saving...
                     </>

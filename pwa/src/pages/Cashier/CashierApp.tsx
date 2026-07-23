@@ -5021,7 +5021,7 @@ function App() {
                   }`}>
                     <div>
                       <h1 className={`font-bold text-white tracking-tight transition-all duration-300 ${
-                        isCompletelyCollapsed ? 'text-xl' : 'text-3xl font-extrabold'
+                        isCompletelyCollapsed ? 'text-lg' : 'text-2xl font-extrabold'
                       }`}>Transaction Ledger</h1>
                       <p className={`text-zinc-400 mt-1 transition-all duration-300 ${
                         isCompletelyCollapsed ? 'text-xs mt-0.5' : 'text-sm'
@@ -5092,7 +5092,7 @@ function App() {
                           carouselRef.current.scrollBy({ left: -300, behavior: 'smooth' });
                         }
                       }}
-                      className="absolute left-0 z-10 w-8 h-8 rounded-full bg-zinc-950/70 border border-zinc-800/80 text-white/50 hover:text-white flex items-center justify-center transition-all hover:bg-zinc-900/80 shadow-md active:scale-95"
+                      className="absolute left-0 z-10 w-8 h-8 rounded-full bg-zinc-950/70 border border-zinc-800/80 text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center transition-all hover:bg-zinc-900/80 shadow-md active:scale-95"
                       title="Scroll Left"
                     >
                       <ChevronLeft size={18} />
@@ -5184,7 +5184,7 @@ function App() {
                           carouselRef.current.scrollBy({ left: 300, behavior: 'smooth' });
                         }
                       }}
-                      className="absolute right-0 z-10 w-8 h-8 rounded-full bg-zinc-950/70 border border-zinc-800/80 text-white/50 hover:text-white flex items-center justify-center transition-all hover:bg-zinc-900/80 shadow-md active:scale-95"
+                      className="absolute right-0 z-10 w-8 h-8 rounded-full bg-zinc-950/70 border border-zinc-800/80 text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center transition-all hover:bg-zinc-900/80 shadow-md active:scale-95"
                       title="Scroll Right"
                     >
                       <ChevronRight size={18} />
