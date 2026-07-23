@@ -67,7 +67,7 @@ const DeleteConfirmModal = ({ isOpen, onClose, onConfirm, title, message, itemNa
 };
 
 export default function CompanyDashboard() {
-  const LATEST_EXTENSION_VERSION = "1.2.77";
+  const LATEST_EXTENSION_VERSION = "1.2.82";
   const [theme, toggleTheme] = useTheme();
   const [user, setUser] = useState<any>(null);
   const [terminals, setTerminals] = useState<any[]>([]);

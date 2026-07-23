@@ -2454,7 +2454,65 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
         } else {
           const accts = mib_accountBalance.map(a => a.accountNumber).join(', ');
           if (port) emitLog(port, `> [MIB-API] Session cache has ${mib_accountBalance.length} account(s) but none matched ${targetAccount}. Accounts: ${accts}`);
-          throw new Error(`The account ${targetAccount} was not found in your MIB profile. Available accounts under this profile: ${accts}`);
+          if (port) emitLog(port, `> [MIB-API] Account not in cached profile. Checking other profiles...`);
+          let fallbackFound = false;
+          try {
+            const tokenRes = await chrome.storage.local.get('sanctumToken');
+            if (tokenRes.sanctumToken && hardwareId && backendUrl) {
+              const params = new URLSearchParams({ hardware_id: hardwareId, account_number: targetAccount });
+              const keysResp = await fetch(`${backendUrl}/mib/keys?${params}`, {
+                headers: { 'Authorization': `Bearer ${tokenRes.sanctumToken}` }
+              });
+              if (keysResp.ok) {
+                const keysData = await keysResp.json();
+                const profiles = keysData.profiles || [];
+                const targetProfileId = keysData.profileId;
+                const targetProfileType = keysData.profileType || '0';
+                const tried = new Set();
+                const tryList = [];
+                if (targetProfileId) {
+                  tryList.push({ pid: targetProfileId, pt: targetProfileType });
+                  tried.add(targetProfileId);
+                }
+                for (const prof of profiles) {
+                  const pid = prof.profile_id || prof.customerProfileId;
+                  if (pid && !tried.has(pid)) {
+                    tryList.push({ pid, pt: prof.profile_type || '0' });
+                    tried.add(pid);
+                  }
+                }
+                for (const { pid, pt } of tryList) {
+                  if (port) emitLog(port, `> [MIB-API] Trying profile ${pid}...`);
+                  const p47Result = await attemptP47(port, mibSession, pid, pt);
+                  if (p47Result.selected && p47Result.accountBalance.length > 0) {
+                    const match = p47Result.accountBalance.find(a => String(a.accountNumber).trim() === String(targetAccount).trim());
+                    if (match) {
+                      await chrome.storage.session.set({ mib_accountBalance: p47Result.accountBalance });
+                      await chrome.storage.local.set({ mib_profileId: pid, mib_profileType: pt });
+                      const currentBalVal = match.currentBalance !== undefined && match.currentBalance !== null ? match.currentBalance : (match.availableBalance || '0.00');
+                      const availableBalVal = match.availableBalance !== undefined && match.availableBalance !== null ? match.availableBalance : currentBalVal;
+                      const currentBal = typeof currentBalVal === 'string' ? parseFloat(currentBalVal.replace(/,/g, '')) : (parseFloat(currentBalVal) || 0);
+                      const availableBal = typeof availableBalVal === 'string' ? parseFloat(availableBalVal.replace(/,/g, '')) : (parseFloat(availableBalVal) || 0);
+                      const reservedBal = Math.max(0, currentBal - availableBal);
+                      accountBalance = currentBal.toFixed(2);
+                      accountReservedBalance = reservedBal.toFixed(2);
+                      accountAvailableBalance = availableBal.toFixed(2);
+                      fallbackFound = true;
+                      if (port) emitLog(port, `> [MIB-API] Found account under profile ${pid}. Cached for future calls.`);
+                      break;
+                    } else {
+                      if (port) emitLog(port, `> [MIB-API] Profile ${pid} has accounts: ${p47Result.accountBalance.map(a => a.accountNumber).join(', ')}`);
+                    }
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            if (port) emitLog(port, `> [MIB-API] Profile fallback error: ${e.message}`);
+          }
+          if (!fallbackFound) {
+            throw new Error(`The account ${targetAccount} was not found in your MIB profile. Available accounts under this profile: ${accts}`);
+          }
         }
       }
     }

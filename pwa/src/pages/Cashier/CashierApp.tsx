@@ -742,7 +742,7 @@ function App() {
   const [_terminalId, setTerminalId] = useState<number | null>(null);
   const [accountToClear, setAccountToClear] = useState<any | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const LATEST_EXTENSION_VERSION = "1.2.81";
+  const LATEST_EXTENSION_VERSION = "1.2.82";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -1611,25 +1611,7 @@ function App() {
     });
   };
 
-  const [timeLeft, setTimeLeft] = useState<number | null>(null);
 
-  useEffect(() => {
-    let timer: any = null;
-    if (loading && timeLeft !== null && timeLeft > 3) {
-      timer = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev === null) return null;
-          if (prev <= 3) return 3;
-          return prev - 1;
-        });
-      }, 1000);
-    } else if (!loading) {
-      setTimeLeft(null);
-    }
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [loading, timeLeft]);
 
 
 
@@ -2514,9 +2496,7 @@ function App() {
       percent: 10,
       isIndeterminate: true
     });
-    setTimeLeft(25);
 
-    setTimeLeft(25);
 
     // Step 2: Proceed directly - no centralized cache strategy/lock needed
     
@@ -2541,7 +2521,6 @@ function App() {
         setLoading(false);
         isVerifyingRef.current = false;
         setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
-        setTimeLeft(null);
         return;
       }
 
@@ -2552,7 +2531,6 @@ function App() {
         setLoading(false);
         isVerifyingRef.current = false;
         setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
-        setTimeLeft(null);
         return;
       }
       if (data.should_upload_logs !== undefined) {
@@ -2563,7 +2541,6 @@ function App() {
       setLoading(false);
       isVerifyingRef.current = false;
       setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
-      setTimeLeft(null);
       return;
     }
 
@@ -2577,7 +2554,6 @@ function App() {
       releaseLock();
       isVerifyingRef.current = false;
       setProgress({ stage: 'error', text: 'Extension not found', percent: 100, isIndeterminate: false });
-      setTimeLeft(null);
       return;
     }
 
@@ -2590,7 +2566,6 @@ function App() {
       releaseLock();
       isVerifyingRef.current = false;
       setProgress({ stage: 'error', text: 'Connection failed', percent: 100, isIndeterminate: false });
-      setTimeLeft(null);
       return;
     }
 
@@ -2606,7 +2581,6 @@ function App() {
         setErrorAndLog("Connection to background robot lost unexpectedly. Is the extension installed and enabled?");
       }
       setProgress({ stage: 'error', text: 'Connection lost', percent: 100, isIndeterminate: false });
-      setTimeLeft(null);
       setLoading(false);
       setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
       activePortRef.current = null;
@@ -2630,7 +2604,6 @@ function App() {
           percent: 100,
           isIndeterminate: false
         });
-        setTimeLeft(null);
         setTimeout(() => {
           (async () => {
             try {
@@ -2757,7 +2730,6 @@ function App() {
           percent: 100,
           isIndeterminate: false
         });
-        setTimeLeft(null);
         setLoading(false);
         setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
         setError(isSearchNotFound ? "Search not found" : (response.error || (mode === 'history' ? "Failed to fetch history." : "Verification failed.")));
@@ -2847,7 +2819,6 @@ function App() {
       activePortRef.current = null;
       releaseLock();
       setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
-      setTimeLeft(null);
       return;
     }
 
@@ -2883,7 +2854,6 @@ function App() {
       releaseLock();
       isVerifyingRef.current = false;
       setProgress({ stage: 'error', text: 'Send failed', percent: 100, isIndeterminate: false });
-      setTimeLeft(null);
     }
   };
 
@@ -3160,7 +3130,6 @@ function App() {
           isIndeterminate: false 
         });
         setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
-        setTimeLeft(null);
         setLedgerCache(prev => ({
           ...prev,
           [targetAccountId]: {
@@ -4584,7 +4553,7 @@ function App() {
                             </p>
                           ) : loading ? (
                             <p className="text-xs text-[var(--text-secondary)] mt-1 font-medium leading-relaxed">
-                              {timeLeft !== null ? `Estimated remaining: ~${timeLeft}s` : "Contacting banking server..."}
+                              Contacting banking server...
                             </p>
                           ) : (() => {
                             const lastCreditTx = lastTransactions.find(tx => typeof tx.amount === 'string' && tx.amount.startsWith('+'));
