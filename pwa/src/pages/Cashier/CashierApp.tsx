@@ -4318,7 +4318,7 @@ function App() {
                             <button
                               onClick={() => handleVerify('search')}
                               disabled={loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 || creditsExhausted || isSelectedAccountLocked || subscriptionExpired}
-                              className={`w-full btn btn-success py-3.5 text-base justify-center gap-2 font-bold rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.2)] transition-all ${loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 || creditsExhausted || isSelectedAccountLocked || subscriptionExpired ? 'opacity-50 cursor-not-allowed' : ''
+                              className={`w-full btn btn-outline py-3.5 text-base justify-center gap-2 font-bold rounded-xl transition-all border border-zinc-800 hover:border-zinc-700 bg-transparent text-zinc-300 hover:text-white ${loading || !isCredentialsComplete || !amount || isNaN(Number(amount)) || Number(amount) <= 0 || creditsExhausted || isSelectedAccountLocked || subscriptionExpired ? 'opacity-50 cursor-not-allowed' : ''
                                 }`}
                             >
                               {loading && loadingMode === 'search' ? (
@@ -4341,7 +4341,7 @@ function App() {
                               type="button"
                               onClick={() => handleVerify('history')}
                               disabled={loading || !isCredentialsComplete || creditsExhausted || isSelectedAccountLocked || subscriptionExpired}
-                              className={`w-full btn btn-outline py-3 text-sm justify-center gap-2 font-semibold rounded-xl transition-all border border-zinc-800 hover:border-zinc-700 bg-transparent text-zinc-300 hover:text-white ${loading || !isCredentialsComplete || creditsExhausted || isSelectedAccountLocked || subscriptionExpired ? 'opacity-50 cursor-not-allowed' : ''
+                              className={`w-full btn btn-success py-3 text-sm justify-center gap-2 font-semibold rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.2)] transition-all ${loading || !isCredentialsComplete || creditsExhausted || isSelectedAccountLocked || subscriptionExpired ? 'opacity-50 cursor-not-allowed' : ''
                                 }`}
                             >
                               {loading && loadingMode === 'history' ? (
