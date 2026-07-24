@@ -40,6 +40,7 @@ class Terminal extends Model
             'ledger_show_balance'  => true,
             'ledger_show_debit'    => true,
             'reports_enabled'      => false,
+            'statement_enabled'    => false,
             'show_vbtl'            => false
         ];
 

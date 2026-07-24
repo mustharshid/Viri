@@ -13,3 +13,8 @@ cp pwa/dist/index.html public/viri/ && \
 git add . && \
 git commit -m "feat: implement persistent BML API session and dashboard updates" && \
 git push
+
+Commands to run when starting Laravel services and webserver:
+
+php artisan serve & php artisan queue:work & php artisan schedule:work & npm run dev --prefix pwa
+

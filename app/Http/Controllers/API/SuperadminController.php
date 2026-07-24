@@ -9,11 +9,6 @@ use App\Models\User;
 
 class SuperadminController extends Controller
 {
-    public function __construct()
-    {
-        // Add middleware to check if user is superadmin
-    }
-
     public function listCompanies(Request $request)
     {
         $perPage = min((int) $request->input('per_page', 10), 200);
@@ -244,10 +239,6 @@ class SuperadminController extends Controller
 
     public function runMigrations(Request $request)
     {
-        if ($request->user()->role !== 'superadmin') {
-            return response()->json(['error' => 'Unauthorized'], 403);
-        }
-        
         \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
         
         return response()->json([
@@ -257,10 +248,6 @@ class SuperadminController extends Controller
 
     public function getSystemSettings(Request $request)
     {
-        if ($request->user()->role !== 'superadmin') {
-            return response()->json(['error' => 'Unauthorized'], 403);
-        }
-
         $settings = \Illuminate\Support\Facades\DB::table('system_settings')->get();
         
         $serverInfo = [
@@ -296,10 +283,6 @@ class SuperadminController extends Controller
 
     public function updateSystemSettings(Request $request)
     {
-        if ($request->user()->role !== 'superadmin') {
-            return response()->json(['error' => 'Unauthorized'], 403);
-        }
-
         $request->validate([
             'settings' => 'required|array',
             'settings.*.key' => 'required|string',
@@ -337,10 +320,6 @@ class SuperadminController extends Controller
 
     public function getPayments(Request $request)
     {
-        if ($request->user()->role !== 'superadmin') {
-            return response()->json(['error' => 'Unauthorized'], 403);
-        }
-
         $perPage = min((int) $request->input('per_page', 50), 200);
         $payments = \App\Models\PaymentReceipt::with('tenant')
             ->orderBy('created_at', 'desc')
@@ -351,10 +330,6 @@ class SuperadminController extends Controller
 
     public function approvePayment(Request $request, $id)
     {
-        if ($request->user()->role !== 'superadmin') {
-            return response()->json(['error' => 'Unauthorized'], 403);
-        }
-
         $request->validate([
             'subscription_tier' => 'required|string',
             'license_expires_at' => 'required|date',
@@ -396,10 +371,6 @@ class SuperadminController extends Controller
 
     public function rejectPayment(Request $request, $id)
     {
-        if ($request->user()->role !== 'superadmin') {
-            return response()->json(['error' => 'Unauthorized'], 403);
-        }
-
         $request->validate([
             'remarks' => 'required|string|max:1000'
         ]);
@@ -426,10 +397,6 @@ class SuperadminController extends Controller
 
     public function clearStuckLock(Request $request, $id)
     {
-        if ($request->user()->role !== 'superadmin') {
-            return response()->json(['error' => 'Unauthorized'], 403);
-        }
-
         $bankAccount = \App\Models\BankAccount::findOrFail($id);
         
         // Clear bank account lock table record

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound, Lock } from 'lucide-react';
+import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound, Lock, Menu, AlertTriangle, Search, FileSpreadsheet, ListFilter, Eye, Activity, Calendar, ChevronRight, User, Briefcase, Sparkles } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 
 const Tooltip = ({ text, onClick }: { text: string; onClick?: () => void }) => (
@@ -25,7 +25,7 @@ const DeleteConfirmModal = ({ isOpen, onClose, onConfirm, title, message, itemNa
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl w-full max-w-md shadow-2xl p-6 relative animate-in zoom-in-95 duration-200">
+      <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl w-full max-w-md shadow-2xl p-6 relative animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
         <button onClick={onClose} className="absolute top-4 right-4 text-[var(--text-secondary)] hover:text-white transition-colors">
           <X size={20} />
         </button>
@@ -74,10 +74,17 @@ export default function CompanyDashboard() {
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [activityLogsPage, setActivityLogsPage] = useState(1);
+  const [totalAuditLogs, setTotalAuditLogs] = useState(0);
   const activityLogsPageSize = 20;
+  const [activityLogSearch, setActivityLogSearch] = useState('');
+  const [activityCategoryFilter, setActivityCategoryFilter] = useState<'all' | 'security' | 'verification' | 'config' | 'warning' | 'system'>('all');
+  const [activityTerminalFilter, setActivityTerminalFilter] = useState('all');
+  const [activityViewMode, setActivityViewMode] = useState<'table' | 'timeline'>('table');
+  const [selectedLogDetail, setSelectedLogDetail] = useState<any | null>(null);
                   {/* Balance sync status removed - now using on-demand fetch only */}
 
   const [deleteConfirm, setDeleteConfirm] = useState<{isOpen: boolean, type: 'terminal' | 'account' | null, id: number | null, name: string}>({isOpen: false, type: null, id: null, name: ''});
@@ -244,6 +251,7 @@ export default function CompanyDashboard() {
     ledger_show_balance: false,
     ledger_show_debit: false,
     reports_enabled: false,
+    statement_enabled: false,
     show_vbtl: false,
     share_pwa_logs: true
   });
@@ -394,6 +402,18 @@ export default function CompanyDashboard() {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (loading) return;
+    const token = localStorage.getItem('viri_token');
+    if (!token) return;
+    fetch(`/api/company/audit-logs?page=${activityLogsPage}&per_page=${activityLogsPageSize}`, {
+      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+    })
+    .then(r => r.json())
+    .then(d => { setAuditLogs(d.data); setTotalAuditLogs(d.total); })
+    .catch(() => {});
+  }, [activityLogsPage]);
+
   const fetchData = async () => {
     try {
       const token = localStorage.getItem('viri_token');
@@ -418,8 +438,10 @@ export default function CompanyDashboard() {
       const banksRes = await fetch('/api/company/bank-accounts', { headers });
       setBankAccounts(await banksRes.json());
 
-      const logsRes = await fetch('/api/company/audit-logs', { headers });
-      setAuditLogs(await logsRes.json());
+      const logsRes = await fetch(`/api/company/audit-logs?page=1&per_page=${activityLogsPageSize}`, { headers });
+      const logsData = await logsRes.json();
+      setAuditLogs(logsData.data);
+      setTotalAuditLogs(logsData.total);
 
     } catch (err) {
       navigate('/login');
@@ -566,15 +588,28 @@ export default function CompanyDashboard() {
       setTerminalFormName(newTerminalName);
       setPermissionsForm({
         verification_enabled: true,
-        ledger_enabled: false,
-        ledger_show_balance: false,
-        ledger_show_debit: false,
-        reports_enabled: false,
+        ledger_enabled: isFeatureDisabledByPlan('ledger_enabled') ? false : true,
+        ledger_show_balance: (isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_balance')) ? false : true,
+        ledger_show_debit: (isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_debit')) ? false : true,
+        reports_enabled: isFeatureDisabledByPlan('reports_enabled') ? false : true,
+        statement_enabled: isFeatureDisabledByPlan('statement_enabled') ? false : true,
         show_vbtl: false,
         share_pwa_logs: true
       });
       setIsTerminalModalOpen(true);
     }
+  };
+
+  const isFeatureDisabledByPlan = (featureKey: string): boolean => {
+    const tier = user?.tenant?.subscription_tier;
+    const isFreeOr499 = tier === 'free' || tier === '499';
+    const features = user?.tenant?.features;
+
+    if (features && typeof features === 'object' && features[featureKey] !== undefined) {
+      return !Boolean(features[featureKey]);
+    }
+
+    return isFreeOr499;
   };
 
   const editTerminal = (term: any) => {
@@ -584,10 +619,11 @@ export default function CompanyDashboard() {
     setTerminalLockPin(term.permissions?.terminal_pin || '');
     setPermissionsForm({
       verification_enabled: term.permissions?.verification_enabled ?? true,
-      ledger_enabled: term.permissions?.ledger_enabled ?? false,
-      ledger_show_balance: term.permissions?.ledger_show_balance ?? false,
-      ledger_show_debit: term.permissions?.ledger_show_debit ?? false,
-      reports_enabled: term.permissions?.reports_enabled ?? false,
+      ledger_enabled: isFeatureDisabledByPlan('ledger_enabled') ? false : (term.permissions?.ledger_enabled ?? true),
+      ledger_show_balance: (isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_balance')) ? false : (term.permissions?.ledger_show_balance ?? true),
+      ledger_show_debit: (isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_debit')) ? false : (term.permissions?.ledger_show_debit ?? true),
+      reports_enabled: isFeatureDisabledByPlan('reports_enabled') ? false : (term.permissions?.reports_enabled ?? false),
+      statement_enabled: isFeatureDisabledByPlan('statement_enabled') ? false : (term.permissions?.statement_enabled ?? false),
       show_vbtl: term.permissions?.show_vbtl ?? false,
       share_pwa_logs: term.permissions?.share_pwa_logs ?? true
     });
@@ -833,7 +869,7 @@ export default function CompanyDashboard() {
       />
       
       {/* ── Sidebar Navigation ── */}
-      <aside className="w-64 border-r border-zinc-800/60 bg-zinc-950/40 backdrop-blur-xl p-6 hidden md:flex flex-col justify-between h-screen sticky top-0 shrink-0">
+      <aside className="w-56 lg:w-64 border-r border-zinc-800/60 bg-zinc-950/40 backdrop-blur-xl p-4 lg:p-6 hidden md:flex flex-col justify-between h-screen sticky top-0 shrink-0">
         <div>
           <div className="mb-6 flex items-center justify-start">
             <img 
@@ -878,17 +914,83 @@ export default function CompanyDashboard() {
       </aside>
 
       {/* ── Main Content Area ── */}
-      <main className="flex-1 p-6 lg:p-10 overflow-y-auto">
-        <header className="flex justify-between items-center mb-8 bg-[var(--bg-card)] border border-[var(--border-color)] p-5 rounded-2xl backdrop-blur-md shadow-sm">
+      <main className="flex-1 p-4 sm:p-6 lg:p-10 overflow-y-auto min-w-0">
+        {/* Mobile Header Bar (Visible on screens < md) */}
+        <div className="md:hidden flex items-center justify-between bg-[var(--bg-card)] border border-[var(--border-color)] p-3.5 rounded-2xl mb-4 backdrop-blur-md shadow-sm">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setMobileNavOpen(!mobileNavOpen)}
+              className="p-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-emerald-500/40 transition-all"
+              aria-label="Toggle navigation menu"
+            >
+              {mobileNavOpen ? <X size={18} /> : <Menu size={18} />}
+            </button>
+            <img 
+              src={theme === 'light' ? '/logo_en_black.png' : '/logo_en.png'} 
+              alt="Viri Logo" 
+              className="h-6 object-contain" 
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleTheme}
+              title={`Current Theme: ${theme.toUpperCase()}. Click to rotate.`}
+              className="w-9 h-9 flex items-center justify-center rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all shadow-sm shrink-0"
+            >
+              {theme === 'dark' && <Moon size={15} className="text-indigo-400" />}
+              {theme === 'light' && <Sun size={15} className="text-amber-400" />}
+              {theme === 'corporate' && <Briefcase size={15} className="text-blue-400" />}
+              {theme === 'cute' && <Sparkles size={15} className="text-pink-400" />}
+            </button>
+            <button onClick={handleLogout} className="btn btn-outline text-xs px-2.5 py-1.5 flex items-center gap-1 hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-400 transition-all rounded-xl" title="Logout">
+              <LogOut size={13} />
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile Navigation Dropdown / Menu Drawer */}
+        {mobileNavOpen && (
+          <div className="md:hidden bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-3 mb-6 shadow-2xl space-y-1 animate-in fade-in zoom-in-95 duration-200">
+            <button onClick={() => { setActiveTab('dashboard'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'dashboard' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
+              <LayoutDashboard size={18} /> Dashboard
+            </button>
+            <button onClick={() => { setActiveTab('reporting'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'reporting' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
+              <BarChart3 size={18} /> Reporting
+            </button>
+            <button onClick={() => { setActiveTab('activity'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'activity' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
+              <Clock size={18} /> Activity Logs
+            </button>
+            <button onClick={() => { setActiveTab('credential-sync'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'credential-sync' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
+              <KeyRound size={18} /> Credential Sync
+            </button>
+            <button onClick={() => { setActiveTab('plans'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'plans' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
+              <CreditCard size={18} /> Plans & Pricing
+            </button>
+            <button onClick={() => { setActiveTab('billing'); fetchPayments(); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'billing' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
+              <CreditCard size={18} /> Billing & Payments
+            </button>
+            <button onClick={() => { setActiveTab('support'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'support' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
+              <LifeBuoy size={18} /> Support
+            </button>
+            <button onClick={() => { setActiveTab('help'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'help' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
+              <Info size={18} /> Help Center
+            </button>
+            <button onClick={() => { setActiveTab('settings'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'settings' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
+              <Settings size={18} /> Settings
+            </button>
+          </div>
+        )}
+
+        <header className="flex flex-wrap sm:flex-nowrap justify-between items-center gap-4 mb-6 sm:mb-8 bg-[var(--bg-card)] border border-[var(--border-color)] p-4 sm:p-5 rounded-2xl backdrop-blur-md shadow-sm">
           <div>
-            <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight capitalize flex items-center gap-2">
+            <h1 className="text-xl sm:text-2xl font-bold text-[var(--text-primary)] tracking-tight capitalize flex items-center gap-2">
               {activeTab === 'dashboard' ? 'Overview' : activeTab}
             </h1>
             <p className="text-[var(--text-secondary)] text-xs mt-0.5">Manage and monitor cashier counters and local banking setups</p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2.5 bg-[var(--bg-surface)] border border-[var(--border-color)] px-4 py-2 rounded-xl">
-              <div className="w-7 h-7 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center font-bold text-xs uppercase shadow-sm">
+          <div className="flex items-center gap-2 sm:gap-3 ml-auto sm:ml-0">
+            <div className="flex items-center gap-2 sm:gap-2.5 bg-[var(--bg-surface)] border border-[var(--border-color)] px-3 sm:px-4 py-2 rounded-xl">
+              <div className="w-7 h-7 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center font-bold text-xs uppercase shadow-sm shrink-0">
                 {user?.name?.slice(0, 2) || 'US'}
               </div>
               <div className="text-left hidden sm:block">
@@ -900,17 +1002,20 @@ export default function CompanyDashboard() {
               </span>
             </div>
             
-            <button onClick={handleLogout} className="btn btn-outline text-xs py-2 flex items-center gap-2 hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-400 transition-all rounded-xl">
+            <button onClick={handleLogout} className="hidden md:flex btn btn-outline text-xs py-2 items-center gap-2 hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-400 transition-all rounded-xl">
               <LogOut size={14} /> Logout
             </button>
 
             {/* Theme Toggle - Positioned in Far Top Right Corner */}
             <button
               onClick={toggleTheme}
-              title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-              className="w-10 h-10 flex items-center justify-center rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-emerald-500/40 transition-all shadow-sm shrink-0"
+              title={`Current Theme: ${theme.toUpperCase()}. Click to rotate.`}
+              className="hidden md:flex w-10 h-10 items-center justify-center rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-emerald-500/40 transition-all shadow-sm shrink-0"
             >
-              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+              {theme === 'dark' && <Moon size={16} className="text-indigo-400" />}
+              {theme === 'light' && <Sun size={16} className="text-amber-400" />}
+              {theme === 'corporate' && <Briefcase size={16} className="text-blue-400" />}
+              {theme === 'cute' && <Sparkles size={16} className="text-pink-400" />}
             </button>
           </div>
         </header>
@@ -927,7 +1032,7 @@ export default function CompanyDashboard() {
 
         {/* ─── TAB: DASHBOARD ─── */}
         {activeTab === 'dashboard' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 items-start animate-in fade-in slide-in-from-bottom-2 duration-300">
               
               {/* Subscription card with dynamic usage metrics */}
               <div className="glass-panel p-6 flex flex-col justify-between min-h-[220px] border border-[var(--border-color)]">
@@ -1635,83 +1740,528 @@ export default function CompanyDashboard() {
             </div>
           </div>
         )}
+
         {/* --- TAB: ACTIVITY LOGS --- */}
         {activeTab === 'activity' && (() => {
-          const totalActivityLogsPages = Math.ceil(auditLogs.length / activityLogsPageSize);
-          const currentActivityLogsPage = Math.min(activityLogsPage, totalActivityLogsPages || 1);
-          const startIdx = (currentActivityLogsPage - 1) * activityLogsPageSize;
-          const paginatedAuditLogs = auditLogs.slice(startIdx, startIdx + activityLogsPageSize);
+          // Categorization & formatting helpers
+          const getLogCategory = (type: string) => {
+            const t = (type || '').toLowerCase();
+            if (t.includes('pin') || t.includes('lock') || t.includes('auth') || t.includes('pair') || t.includes('credential')) return 'security';
+            if (t.includes('verify') || t.includes('payment') || t.includes('receipt') || t.includes('tx')) return 'verification';
+            if (t.includes('terminal') || t.includes('account') || t.includes('update') || t.includes('create') || t.includes('delete') || t.includes('setting')) return 'config';
+            if (t.includes('fail') || t.includes('error') || t.includes('reject') || t.includes('warn')) return 'warning';
+            return 'system';
+          };
+
+          const getCategoryBadgeStyle = (category: string) => {
+            switch (category) {
+              case 'security':
+                return { bg: 'bg-purple-500/15 text-purple-400 border-purple-500/30', icon: Shield, label: 'Security & Auth' };
+              case 'verification':
+                return { bg: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', icon: CheckCircle2, label: 'Verification' };
+              case 'config':
+                return { bg: 'bg-blue-500/15 text-blue-400 border-blue-500/30', icon: Settings, label: 'Configuration' };
+              case 'warning':
+                return { bg: 'bg-rose-500/15 text-rose-400 border-rose-500/30', icon: AlertTriangle, label: 'Warning' };
+              default:
+                return { bg: 'bg-zinc-500/15 text-zinc-300 border-zinc-500/30', icon: Activity, label: 'System Event' };
+            }
+          };
+
+          const formatEventTitle = (type: string) => {
+            if (!type) return 'System Activity';
+            const customMap: Record<string, string> = {
+              terminal_unlocked: 'Counter Unlocked via PIN',
+              terminal_locked: 'Counter Locked via PIN',
+              terminal_created: 'New Counter Registered',
+              terminal_updated: 'Counter Settings Updated',
+              terminal_deleted: 'Counter Removed',
+              credential_sync_initiated: 'Credential Sync Started',
+              credential_sync_completed: 'Credential Sync Completed',
+              bank_account_created: 'Bank Account Linked',
+              bank_account_updated: 'Bank Account Updated',
+              bank_account_deleted: 'Bank Account Unlinked',
+              payment_uploaded: 'Payment Receipt Uploaded',
+              profile_updated: 'Admin Profile Updated'
+            };
+            return customMap[type] || type.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+          };
+
+          const getTimeAgo = (dateStr: string) => {
+            const date = new Date(dateStr);
+            const diffMs = Date.now() - date.getTime();
+            const mins = Math.floor(diffMs / (1000 * 60));
+            if (mins < 1) return 'Just now';
+            if (mins < 60) return `${mins}m ago`;
+            const hours = Math.floor(mins / 60);
+            if (hours < 24) return `${hours}h ago`;
+            const days = Math.floor(hours / 24);
+            return `${days}d ago`;
+          };
+
+          // Metrics calculation
+          const totalEventsCount = totalAuditLogs || auditLogs.length;
+          const securityEventsCount = auditLogs.filter(l => ['security', 'warning'].includes(getLogCategory(l.event_type))).length;
+          const activeTerminalsCount = new Set(auditLogs.map(l => l.actor).filter(Boolean)).size;
+
+          // Peak hour calculation
+          const hourCounts: Record<number, number> = {};
+          auditLogs.forEach(l => {
+            const h = new Date(l.created_at).getHours();
+            hourCounts[h] = (hourCounts[h] || 0) + 1;
+          });
+          let peakHour = 12;
+          let maxHCount = 0;
+          Object.entries(hourCounts).forEach(([h, cnt]) => {
+            if (cnt > maxHCount) {
+              maxHCount = cnt;
+              peakHour = parseInt(h, 10);
+            }
+          });
+          const peakHourStr = `${String(peakHour).padStart(2, '0')}:00 - ${String((peakHour + 1) % 24).padStart(2, '0')}:00`;
+
+          // 7-day sparkline bar data
+          const daysMap = Array.from({ length: 7 }, (_, i) => {
+            const d = new Date();
+            d.setDate(d.getDate() - (6 - i));
+            const dayStr = d.toLocaleDateString('en-US', { weekday: 'short' });
+            const dateKey = d.toISOString().slice(0, 10);
+            const count = auditLogs.filter(l => (l.created_at || '').slice(0, 10) === dateKey).length;
+            return { dayStr, count };
+          });
+          const maxDayCount = Math.max(...daysMap.map(d => d.count), 1);
+
+          // Unique terminal list for dropdown filter
+          const uniqueTerminals = Array.from(new Set(auditLogs.map(l => l.actor).filter(Boolean)));
+
+          // Filtering
+          const filteredLogs = auditLogs.filter((log: any) => {
+            const matchesSearch = !activityLogSearch || 
+              (log.event_type || '').toLowerCase().includes(activityLogSearch.toLowerCase()) ||
+              (log.actor || '').toLowerCase().includes(activityLogSearch.toLowerCase()) ||
+              (log.ip_address || '').toLowerCase().includes(activityLogSearch.toLowerCase()) ||
+              formatEventTitle(log.event_type).toLowerCase().includes(activityLogSearch.toLowerCase());
+
+            const cat = getLogCategory(log.event_type);
+            const matchesCategory = activityCategoryFilter === 'all' || cat === activityCategoryFilter;
+            const matchesTerminal = activityTerminalFilter === 'all' || log.actor === activityTerminalFilter;
+
+            return matchesSearch && matchesCategory && matchesTerminal;
+          });
+
+          const totalPages = Math.ceil(filteredLogs.length / activityLogsPageSize);
+          const currentPageLogs = filteredLogs.slice((activityLogsPage - 1) * activityLogsPageSize, activityLogsPage * activityLogsPageSize);
+
+          // CSV Export Handler
+          const exportActivityLogsCSV = () => {
+            if (!auditLogs.length) return;
+            const headers = ['ID', 'Date/Time', 'Event Type', 'Category', 'Actor/Terminal', 'IP Address', 'Metadata'];
+            const rows = filteredLogs.map((log: any) => [
+              log.id,
+              new Date(log.created_at).toISOString(),
+              log.event_type,
+              getLogCategory(log.event_type),
+              log.actor || 'System',
+              log.ip_address || 'N/A',
+              JSON.stringify(log.metadata || {})
+            ]);
+            const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))].join('\n');
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement('a');
+            link.setAttribute('href', encodedUri);
+            link.setAttribute('download', `viri_activity_logs_${new Date().toISOString().slice(0, 10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          };
 
           return (
-            <div className="glass-panel p-6 animate-fade-in overflow-hidden flex flex-col border border-[var(--border-color)]">
-              <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-[var(--text-primary)]">
-                <Clock size={24} className="text-[var(--color-success)]" />
-                Activity Logs (Last 30 Days)
-              </h2>
-              <div className="overflow-x-auto flex-1">
-                <table className="w-full text-left text-sm whitespace-nowrap">
-                  <thead>
-                    <tr className="border-b border-[var(--border-color)] text-[var(--text-secondary)]">
-                      <th className="py-3 px-4">Date / Time</th>
-                      <th className="py-3 px-4">Event Type</th>
-                      <th className="py-3 px-4">Terminal (Actor)</th>
-                      <th className="py-3 px-4">IP Address</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--border-color)]">
-                    {paginatedAuditLogs.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="py-8 text-center text-zinc-500">No activity logs found.</td>
-                      </tr>
-                    ) : (
-                      paginatedAuditLogs.map((log: any) => (
-                        <tr key={log.id} className="hover:bg-white/5 transition-colors">
-                          <td className="py-3 px-4 text-xs font-mono text-[var(--text-secondary)]">
-                            {new Date(log.created_at).toLocaleString()}
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className="bg-zinc-800 text-zinc-200 px-2 py-1 rounded text-xs font-medium uppercase tracking-wider">
-                              {log.event_type}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 font-medium text-[var(--text-primary)]">
-                            {log.actor || 'System'}
-                          </td>
-                          <td className="py-3 px-4 text-xs font-mono text-[var(--text-secondary)]">
-                            {log.ip_address || 'N/A'}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+            <div className="space-y-6 animate-fade-in pb-12">
+              {/* Header Title */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold flex items-center gap-2.5 text-[var(--text-primary)]">
+                    <Clock size={24} className="text-[var(--color-success)]" />
+                    Activity Logs & Audit Telemetry
+                  </h2>
+                  <p className="text-xs text-[var(--text-secondary)] mt-1">Real-time security events, terminal pairing, and counter activity audit trail.</p>
+                </div>
+                <button
+                  onClick={exportActivityLogsCSV}
+                  disabled={!auditLogs.length}
+                  className="btn btn-outline text-xs px-3.5 py-2 flex items-center gap-2 font-medium text-[var(--text-primary)] hover:border-emerald-500/40 shrink-0 self-start sm:self-auto disabled:opacity-40"
+                >
+                  <FileSpreadsheet size={15} className="text-emerald-400" />
+                  Export Audit CSV
+                </button>
               </div>
 
-              {/* Pagination controls bar */}
-              {auditLogs.length > 0 && (
-                <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-6 pt-4 border-t border-[var(--border-color)]">
-                  <div className="text-xs text-[var(--text-secondary)]">
-                    Showing <span className="font-semibold text-[var(--text-primary)]">{startIdx + 1}</span> to <span className="font-semibold text-[var(--text-primary)]">{Math.min(startIdx + activityLogsPageSize, auditLogs.length)}</span> of <span className="font-semibold text-[var(--text-primary)]">{auditLogs.length}</span> logs
+              {/* 1. Top Telemetry KPI Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Metric 1: Total Logged Events */}
+                <div className="glass-panel bg-[var(--bg-surface)]/60 border border-[var(--border-color)] p-4 rounded-2xl flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+                    <Activity size={22} />
                   </div>
-                  
-                  <div className="flex items-center gap-2">
-                    <button
-                      disabled={currentActivityLogsPage === 1}
-                      onClick={() => setActivityLogsPage(prev => Math.max(1, prev - 1))}
-                      className="px-3.5 py-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] text-xs text-[var(--text-primary)] hover:border-emerald-500/40 disabled:opacity-40 disabled:cursor-not-allowed transition-all font-medium"
-                    >
-                      Previous
+                  <div>
+                    <div className="text-xs text-[var(--text-secondary)] font-medium uppercase tracking-wider">Total Logged Events</div>
+                    <div className="text-2xl font-bold font-mono text-[var(--text-primary)] mt-0.5">{totalEventsCount}</div>
+                    <div className="text-[10px] text-emerald-400 flex items-center gap-1 mt-0.5">
+                      <span>● Recorded (30 Days)</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Metric 2: Security & Auth Events */}
+                <div className="glass-panel bg-[var(--bg-surface)]/60 border border-[var(--border-color)] p-4 rounded-2xl flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 shrink-0">
+                    <Shield size={22} />
+                  </div>
+                  <div>
+                    <div className="text-xs text-[var(--text-secondary)] font-medium uppercase tracking-wider">Security Events</div>
+                    <div className="text-2xl font-bold font-mono text-purple-400 mt-0.5">{securityEventsCount}</div>
+                    <div className="text-[10px] text-[var(--text-secondary)] mt-0.5">PIN & pairing events</div>
+                  </div>
+                </div>
+
+                {/* Metric 3: Active Terminal Counters */}
+                <div className="glass-panel bg-[var(--bg-surface)]/60 border border-[var(--border-color)] p-4 rounded-2xl flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+                    <MonitorSmartphone size={22} />
+                  </div>
+                  <div>
+                    <div className="text-xs text-[var(--text-secondary)] font-medium uppercase tracking-wider">Active Terminals</div>
+                    <div className="text-2xl font-bold font-mono text-blue-400 mt-0.5">{activeTerminalsCount}</div>
+                    <div className="text-[10px] text-[var(--text-secondary)] mt-0.5">Counters with activity</div>
+                  </div>
+                </div>
+
+                {/* Metric 4: Peak Activity Window */}
+                <div className="glass-panel bg-[var(--bg-surface)]/60 border border-[var(--border-color)] p-4 rounded-2xl flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+                    <Calendar size={22} />
+                  </div>
+                  <div>
+                    <div className="text-xs text-[var(--text-secondary)] font-medium uppercase tracking-wider">Peak Window</div>
+                    <div className="text-sm font-bold font-mono text-amber-400 mt-1">{peakHourStr}</div>
+                    <div className="text-[10px] text-[var(--text-secondary)] mt-0.5">Highest event volume</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. 7-Day Activity Sparkline Bar Chart */}
+              <div className="glass-panel bg-[var(--bg-surface)]/60 border border-[var(--border-color)] p-5 rounded-2xl">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)] flex items-center gap-2">
+                    <BarChart3 size={14} className="text-[var(--color-success)]" />
+                    7-Day Activity Volume Sparkline
+                  </h3>
+                  <span className="text-[10px] text-[var(--text-secondary)] font-mono">Daily Audit Density</span>
+                </div>
+                <div className="h-20 flex items-end justify-between gap-3 pt-4 border-b border-[var(--border-color)] pb-2 px-2">
+                  {daysMap.map((d, idx) => {
+                    const heightPct = Math.max(Math.round((d.count / maxDayCount) * 100), 8);
+                    return (
+                      <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 group relative">
+                        {/* Tooltip on hover */}
+                        <div className="absolute bottom-full mb-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none bg-zinc-900 text-white text-[10px] py-1 px-2 rounded border border-zinc-700 font-mono z-20 whitespace-nowrap">
+                          {d.dayStr}: <strong>{d.count}</strong> events
+                        </div>
+                        <div className="w-full bg-emerald-500/20 hover:bg-emerald-500/40 rounded-t transition-all relative overflow-hidden" style={{ height: `${heightPct}%` }}>
+                          <div className="absolute inset-0 bg-gradient-to-t from-emerald-500/10 to-emerald-400/50"></div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex justify-between text-[10px] text-[var(--text-secondary)] font-mono pt-2 px-2">
+                  {daysMap.map((d, idx) => (
+                    <span key={idx} className="flex-1 text-center">{d.dayStr}</span>
+                  ))}
+                </div>
+              </div>
+
+              {/* 3. Search & Category Filters Bar */}
+              <div className="glass-panel bg-[var(--bg-surface)]/60 border border-[var(--border-color)] p-4 rounded-2xl flex flex-col lg:flex-row gap-4 lg:items-center justify-between">
+                {/* Search Bar */}
+                <div className="relative flex-1 max-w-md">
+                  <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
+                  <input
+                    type="text"
+                    placeholder="Search logs by actor, IP, or event type..."
+                    value={activityLogSearch}
+                    onChange={(e) => { setActivityLogSearch(e.target.value); setActivityLogsPage(1); }}
+                    className="w-full bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl pl-10 pr-4 py-2 text-xs text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-emerald-500/50"
+                  />
+                  {activityLogSearch && (
+                    <button onClick={() => setActivityLogSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-secondary)] hover:text-white">
+                      <X size={14} />
                     </button>
-                    <span className="text-xs text-[var(--text-secondary)] px-2 font-mono">
-                      Page <strong className="text-[var(--text-primary)]">{currentActivityLogsPage}</strong> of <strong className="text-[var(--text-primary)]">{totalActivityLogsPages}</strong>
-                    </span>
-                    <button
-                      disabled={currentActivityLogsPage === totalActivityLogsPages || totalActivityLogsPages === 0}
-                      onClick={() => setActivityLogsPage(prev => Math.min(totalActivityLogsPages, prev + 1))}
-                      className="px-3.5 py-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] text-xs text-[var(--text-primary)] hover:border-emerald-500/40 disabled:opacity-40 disabled:cursor-not-allowed transition-all font-medium"
+                  )}
+                </div>
+
+                {/* Filters & View Switcher */}
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Category Pills */}
+                  <div className="flex items-center bg-[var(--bg-card)] border border-[var(--border-color)] p-1 rounded-xl gap-1 overflow-x-auto">
+                    {[
+                      { id: 'all', label: 'All' },
+                      { id: 'security', label: 'Security' },
+                      { id: 'verification', label: 'Verifications' },
+                      { id: 'config', label: 'Config' },
+                      { id: 'warning', label: 'Warnings' }
+                    ].map(cat => (
+                      <button
+                        key={cat.id}
+                        onClick={() => { setActivityCategoryFilter(cat.id as any); setActivityLogsPage(1); }}
+                        className={`text-[11px] font-medium px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
+                          activityCategoryFilter === cat.id
+                            ? 'bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30'
+                            : 'text-[var(--text-secondary)] hover:text-white'
+                        }`}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Terminal Filter Dropdown */}
+                  {uniqueTerminals.length > 0 && (
+                    <select
+                      value={activityTerminalFilter}
+                      onChange={(e) => { setActivityTerminalFilter(e.target.value); setActivityLogsPage(1); }}
+                      className="bg-[var(--bg-card)] border border-[var(--border-color)] text-xs text-[var(--text-primary)] px-3 py-2 rounded-xl focus:outline-none focus:border-emerald-500/50 cursor-pointer"
                     >
-                      Next
+                      <option value="all">All Terminals</option>
+                      {uniqueTerminals.map(term => (
+                        <option key={term} value={term}>{term}</option>
+                      ))}
+                    </select>
+                  )}
+
+                  {/* View Mode Toggle (Table vs Timeline) */}
+                  <div className="flex items-center bg-[var(--bg-card)] border border-[var(--border-color)] p-1 rounded-xl gap-1">
+                    <button
+                      onClick={() => setActivityViewMode('table')}
+                      title="Table View"
+                      className={`p-1.5 rounded-lg transition-all ${activityViewMode === 'table' ? 'bg-emerald-500/20 text-emerald-400' : 'text-[var(--text-secondary)] hover:text-white'}`}
+                    >
+                      <ListFilter size={15} />
                     </button>
+                    <button
+                      onClick={() => setActivityViewMode('timeline')}
+                      title="Timeline View"
+                      className={`p-1.5 rounded-lg transition-all ${activityViewMode === 'timeline' ? 'bg-emerald-500/20 text-emerald-400' : 'text-[var(--text-secondary)] hover:text-white'}`}
+                    >
+                      <Clock size={15} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* 4. Log Display (Data Grid OR Timeline View) */}
+              <div className="glass-panel bg-[var(--bg-surface)]/60 border border-[var(--border-color)] p-5 rounded-2xl overflow-hidden">
+                {activityViewMode === 'table' ? (
+                  /* Data Grid Table View */
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-[var(--border-color)] text-[var(--text-secondary)] uppercase tracking-wider font-semibold text-[10px]">
+                          <th className="py-3 px-4">Date & Time</th>
+                          <th className="py-3 px-4">Event Category</th>
+                          <th className="py-3 px-4">Event Description</th>
+                          <th className="py-3 px-4">Actor / Counter</th>
+                          <th className="py-3 px-4">IP Address</th>
+                          <th className="py-3 px-4 text-right">Details</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[var(--border-color)] text-[var(--text-secondary)]">
+                        {currentPageLogs.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="py-12 text-center text-zinc-500 italic">
+                              No activity logs match your search and filter criteria.
+                            </td>
+                          </tr>
+                        ) : (
+                          currentPageLogs.map((log: any) => {
+                            const cat = getLogCategory(log.event_type);
+                            const badgeStyle = getCategoryBadgeStyle(cat);
+                            const BadgeIcon = badgeStyle.icon;
+                            return (
+                              <tr 
+                                key={log.id} 
+                                onClick={() => setSelectedLogDetail(log)}
+                                className="hover:bg-white/5 transition-colors cursor-pointer group"
+                              >
+                                <td className="py-3 px-4 font-mono text-[var(--text-secondary)] whitespace-nowrap">
+                                  <div className="text-[var(--text-primary)] font-medium">{new Date(log.created_at).toLocaleDateString()}</div>
+                                  <div className="text-[10px] text-[var(--text-secondary)]">{new Date(log.created_at).toLocaleTimeString()} ({getTimeAgo(log.created_at)})</div>
+                                </td>
+                                <td className="py-3 px-4 whitespace-nowrap">
+                                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold ${badgeStyle.bg}`}>
+                                    <BadgeIcon size={13} />
+                                    {badgeStyle.label}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 font-semibold text-[var(--text-primary)]">
+                                  {formatEventTitle(log.event_type)}
+                                  <div className="text-[10px] font-mono text-[var(--text-secondary)] font-normal">{log.event_type}</div>
+                                </td>
+                                <td className="py-3 px-4 font-medium text-[var(--text-primary)] whitespace-nowrap">
+                                  <div className="flex items-center gap-1.5">
+                                    <User size={13} className="text-zinc-400" />
+                                    {log.actor || 'System Auto'}
+                                  </div>
+                                </td>
+                                <td className="py-3 px-4 font-mono text-xs text-[var(--text-secondary)] whitespace-nowrap">
+                                  {log.ip_address || '127.0.0.1'}
+                                </td>
+                                <td className="py-3 px-4 text-right">
+                                  <button className="p-1.5 rounded-lg bg-[var(--bg-card)] border border-[var(--border-color)] group-hover:border-emerald-500/50 text-[var(--text-secondary)] group-hover:text-emerald-400 transition-all">
+                                    <Eye size={14} />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  /* Vertical Activity Timeline View */
+                  <div className="space-y-4 py-2">
+                    {currentPageLogs.length === 0 ? (
+                      <div className="py-12 text-center text-zinc-500 italic">No activity logs match your filter.</div>
+                    ) : (
+                      currentPageLogs.map((log: any, idx: number) => {
+                        const cat = getLogCategory(log.event_type);
+                        const badgeStyle = getCategoryBadgeStyle(cat);
+                        const BadgeIcon = badgeStyle.icon;
+                        return (
+                          <div 
+                            key={log.id} 
+                            onClick={() => setSelectedLogDetail(log)}
+                            className="flex items-start gap-4 p-3.5 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-emerald-500/40 transition-all cursor-pointer group relative"
+                          >
+                            {/* Connected vertical timeline line */}
+                            {idx < currentPageLogs.length - 1 && (
+                              <div className="absolute left-7 top-10 bottom-0 w-0.5 bg-[var(--border-color)] z-0"></div>
+                            )}
+
+                            {/* Node icon */}
+                            <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 z-10 ${badgeStyle.bg}`}>
+                              <BadgeIcon size={18} />
+                            </div>
+
+                            {/* Event detail body */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-bold text-[var(--text-primary)]">{formatEventTitle(log.event_type)}</span>
+                                <span className="text-[10px] font-mono text-[var(--text-secondary)]">{getTimeAgo(log.created_at)}</span>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-[11px] text-[var(--text-secondary)] font-mono">
+                                <span>Actor: <strong className="text-[var(--text-primary)]">{log.actor || 'System'}</strong></span>
+                                <span>IP: <strong>{log.ip_address || 'N/A'}</strong></span>
+                                <span>Time: <strong>{new Date(log.created_at).toLocaleString()}</strong></span>
+                              </div>
+                            </div>
+
+                            <ChevronRight size={16} className="text-[var(--text-secondary)] group-hover:text-emerald-400 transition-colors self-center" />
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+
+                {/* 5. Pagination Bar */}
+                {filteredLogs.length > 0 && (
+                  <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-6 pt-4 border-t border-[var(--border-color)]">
+                    <div className="text-xs text-[var(--text-secondary)]">
+                      Showing <span className="font-semibold text-[var(--text-primary)]">{(activityLogsPage - 1) * activityLogsPageSize + 1}</span> to <span className="font-semibold text-[var(--text-primary)]">{Math.min(activityLogsPage * activityLogsPageSize, filteredLogs.length)}</span> of <span className="font-semibold text-[var(--text-primary)]">{filteredLogs.length}</span> logs
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <button
+                        disabled={activityLogsPage === 1}
+                        onClick={() => setActivityLogsPage(prev => Math.max(1, prev - 1))}
+                        className="px-3.5 py-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] text-xs text-[var(--text-primary)] hover:border-emerald-500/40 disabled:opacity-40 disabled:cursor-not-allowed transition-all font-medium"
+                      >
+                        Previous
+                      </button>
+                      <span className="text-xs text-[var(--text-secondary)] px-2 font-mono">
+                        Page <strong className="text-[var(--text-primary)]">{activityLogsPage}</strong> of <strong className="text-[var(--text-primary)]">{totalPages || 1}</strong>
+                      </span>
+                      <button
+                        disabled={activityLogsPage >= totalPages || totalPages === 0}
+                        onClick={() => setActivityLogsPage(prev => Math.min(totalPages, prev + 1))}
+                        className="px-3.5 py-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] text-xs text-[var(--text-primary)] hover:border-emerald-500/40 disabled:opacity-40 disabled:cursor-not-allowed transition-all font-medium"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 6. Event Detail Inspector Modal */}
+              {selectedLogDetail && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+                  <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl w-full max-w-lg shadow-2xl p-6 relative animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+                    <button 
+                      onClick={() => setSelectedLogDetail(null)}
+                      className="absolute top-4 right-4 text-[var(--text-secondary)] hover:text-white transition-colors"
+                    >
+                      <X size={20} />
+                    </button>
+
+                    <div className="flex items-center gap-3 mb-4 pb-3 border-b border-[var(--border-color)]">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                        <Activity size={20} />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-bold text-[var(--text-primary)]">{formatEventTitle(selectedLogDetail.event_type)}</h3>
+                        <span className="text-[11px] font-mono text-[var(--text-secondary)]">ID: #{selectedLogDetail.id} ● {selectedLogDetail.event_type}</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4 text-xs">
+                      <div className="grid grid-cols-2 gap-3 bg-[var(--bg-surface)] p-3 rounded-xl border border-[var(--border-color)]">
+                        <div>
+                          <span className="text-[var(--text-secondary)] block text-[10px] uppercase font-mono">Actor / Counter</span>
+                          <span className="font-semibold text-[var(--text-primary)]">{selectedLogDetail.actor || 'System'}</span>
+                        </div>
+                        <div>
+                          <span className="text-[var(--text-secondary)] block text-[10px] uppercase font-mono">IP Address</span>
+                          <span className="font-mono text-[var(--text-primary)]">{selectedLogDetail.ip_address || 'N/A'}</span>
+                        </div>
+                        <div>
+                          <span className="text-[var(--text-secondary)] block text-[10px] uppercase font-mono">Timestamp</span>
+                          <span className="font-mono text-[var(--text-primary)]">{new Date(selectedLogDetail.created_at).toLocaleString()}</span>
+                        </div>
+                        <div>
+                          <span className="text-[var(--text-secondary)] block text-[10px] uppercase font-mono">Time Elapsed</span>
+                          <span className="text-emerald-400 font-semibold">{getTimeAgo(selectedLogDetail.created_at)}</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <span className="text-[var(--text-secondary)] block text-[10px] uppercase font-mono mb-1.5">Event Metadata Payload</span>
+                        <pre className="p-3 bg-black/50 border border-[var(--border-color)] rounded-xl font-mono text-[11px] text-emerald-400 overflow-x-auto max-h-48">
+                          {JSON.stringify(selectedLogDetail.metadata || {}, null, 2)}
+                        </pre>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end mt-6 pt-3 border-t border-[var(--border-color)]">
+                      <button
+                        onClick={() => setSelectedLogDetail(null)}
+                        className="px-4 py-2 rounded-xl bg-emerald-500 text-black font-bold text-xs hover:bg-emerald-400 transition-colors"
+                      >
+                        Close Inspector
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -2466,211 +3016,285 @@ export default function CompanyDashboard() {
 
 
       {isTerminalModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-zinc-900 border border-zinc-700/80 rounded-xl max-w-4xl w-full p-6 shadow-2xl relative animate-in fade-in zoom-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-md">
+          <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl max-w-6xl w-full p-5 sm:p-7 shadow-2xl relative animate-in fade-in zoom-in duration-200 max-h-[90vh] overflow-y-auto backdrop-blur-xl">
             <button 
               type="button"
               onClick={() => setIsTerminalModalOpen(false)} 
-              className="absolute top-4 right-4 text-zinc-400 hover:text-white p-1 rounded-full hover:bg-white/5 transition-colors"
+              className="absolute top-5 right-5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1.5 rounded-full hover:bg-[var(--bg-surface)] transition-colors"
             >
               <X size={20} />
             </button>
 
-            <h2 className="text-xl font-bold text-white mb-6">
-              {editingTerminal ? 'Edit Cashier Counter' : 'Configure Counter Permissions'}
-            </h2>
+            <div className="mb-6">
+              <h2 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2">
+                <MonitorSmartphone size={22} className="text-emerald-400" />
+                {editingTerminal ? 'Edit Cashier Counter' : 'Configure Counter Permissions'}
+              </h2>
+              <p className="text-xs text-[var(--text-secondary)] mt-1">Configure device credentials, permissions, and security PINs for this POS terminal</p>
+            </div>
 
             <form onSubmit={saveTerminal} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 items-stretch">
                 
-                {/* Left Side: Counter Settings */}
-                <div className="space-y-5">
+                {/* Column 1: Counter Identity & Security */}
+                <div className="glass-panel bg-[var(--bg-surface)]/60 border border-[var(--border-color)] p-5 rounded-2xl space-y-5 flex flex-col justify-between">
                   <div>
-                    <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">
-                      Counter Name
-                    </label>
-                    <input 
-                      type="text" 
-                      required 
-                      placeholder="e.g. Counter 1" 
-                      className="input-field w-full" 
-                      value={terminalFormName} 
-                      onChange={e => setTerminalFormName(e.target.value)} 
-                    />
-                  </div>
+                    <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-[var(--border-color)]">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                        <MonitorSmartphone size={16} />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-[var(--text-primary)] leading-tight">Counter Access & Security</h3>
+                        <p className="text-[10px] text-[var(--text-secondary)] mt-0.5">Device credentials & security PINs</p>
+                      </div>
+                    </div>
 
-                  <div>
-                    <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2 flex items-center gap-2">
-                      Settings PIN (Optional)
-                      <Tooltip text="A 6-digit PIN required on the PWA to edit settings or view sensitive information. Leave blank to disable. Click for more info." onClick={() => navigateToHelp('help-pin')} />
-                    </label>
-                    <input 
-                      type="text" 
-                      maxLength={6}
-                      pattern="\d{0,6}"
-                      placeholder="e.g. 123456" 
-                      className="input-field w-full font-mono" 
-                      value={terminalSettingsPin} 
-                      onChange={e => {
-                        const val = e.target.value.replace(/\D/g, '');
-                        setTerminalSettingsPin(val);
-                      }} 
-                    />
-                  </div>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-1.5">
+                          Counter Name
+                        </label>
+                        <input 
+                          type="text" 
+                          required 
+                          placeholder="e.g. Counter 1, Front Desk" 
+                          className="input-field w-full text-xs" 
+                          value={terminalFormName} 
+                          onChange={e => setTerminalFormName(e.target.value)} 
+                        />
+                      </div>
 
-                  <div>
-                    <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2 flex items-center gap-2">
-                      PWA Lockout PIN / Password (Optional)
-                      <Tooltip text="A 4-digit PIN to lock/unlock the cashier counter screen. Leave blank to disable or clear/unlock." />
-                    </label>
-                    <div className="flex gap-2">
-                      <input 
-                        type="password" 
-                        maxLength={4}
-                        pattern="\d{0,4}"
-                        placeholder={editingTerminal?.permissions?.terminal_pin ? "PIN Set (Hidden)" : "e.g. 1234"} 
-                        className="input-field flex-1 font-mono" 
-                        value={terminalLockPin} 
-                        onChange={e => {
-                          const val = e.target.value.replace(/\D/g, '');
-                          setTerminalLockPin(val);
-                        }} 
-                      />
-                      {(editingTerminal?.permissions?.terminal_pin || terminalLockPin) && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTerminalLockPin('');
-                            if (editingTerminal && editingTerminal.permissions) {
-                              editingTerminal.permissions.terminal_pin = null;
-                            }
-                            alert("Lockout PIN reset/cleared. Click 'Save' to apply changes.");
-                          }}
-                          className="btn btn-outline border-red-500 text-red-500 hover:bg-red-500 hover:text-white px-3 py-2 text-xs transition-colors shrink-0"
-                        >
-                          Reset PIN
-                        </button>
-                      )}
+                      <div>
+                        <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                          <span>Settings PIN (Optional)</span>
+                          <Tooltip text="A 6-digit PIN required on the PWA to edit settings or view sensitive information. Leave blank to disable. Click for more info." onClick={() => navigateToHelp('help-pin')} />
+                        </label>
+                        <input 
+                          type="text" 
+                          maxLength={6}
+                          pattern="\d{0,6}"
+                          placeholder="e.g. 123456" 
+                          className="input-field w-full font-mono text-xs tracking-wider" 
+                          value={terminalSettingsPin} 
+                          onChange={e => {
+                            const val = e.target.value.replace(/\D/g, '');
+                            setTerminalSettingsPin(val);
+                          }} 
+                        />
+                        <p className="text-[10px] text-[var(--text-secondary)] mt-1">6-digit PIN for access to counter settings menu.</p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                          <span>PWA Lockout PIN (Optional)</span>
+                          <Tooltip text="A 4-digit PIN to lock/unlock the cashier counter screen. Leave blank to disable or clear/unlock." />
+                        </label>
+                        <div className="flex gap-2">
+                          <input 
+                            type="password" 
+                            maxLength={4}
+                            pattern="\d{0,4}"
+                            placeholder={editingTerminal?.permissions?.terminal_pin ? "PIN Set (Hidden)" : "e.g. 1234"} 
+                            className="input-field flex-1 font-mono text-xs tracking-widest" 
+                            value={terminalLockPin} 
+                            onChange={e => {
+                              const val = e.target.value.replace(/\D/g, '');
+                              setTerminalLockPin(val);
+                            }} 
+                          />
+                          {(editingTerminal?.permissions?.terminal_pin || terminalLockPin) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTerminalLockPin('');
+                                if (editingTerminal && editingTerminal.permissions) {
+                                  editingTerminal.permissions.terminal_pin = null;
+                                }
+                                alert("Lockout PIN reset/cleared. Click 'Save' to apply changes.");
+                              }}
+                              className="btn btn-outline border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white px-2.5 py-1 text-[11px] transition-colors shrink-0 rounded-xl"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-[var(--text-secondary)] mt-1">4-digit code to quickly lock terminal screen.</p>
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Right Side: Permissions Checklist */}
-                <div>
-                  <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">
-                    Terminal Tools & Permissions
-                  </h3>
+                {/* Column 2: Counter Capabilities & Core Tools */}
+                <div className="glass-panel bg-[var(--bg-surface)]/60 border border-[var(--border-color)] p-5 rounded-2xl space-y-4">
+                  <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-[var(--border-color)]">
+                    <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
+                      <Shield size={16} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-[var(--text-primary)] leading-tight">Counter Capabilities</h3>
+                      <p className="text-[10px] text-[var(--text-secondary)] mt-0.5">Primary cashier tools & modules</p>
+                    </div>
+                  </div>
 
-                  <div className="space-y-4 bg-black/30 p-4 rounded-xl border border-zinc-800">
+                  <div className="space-y-3">
                     {/* Verification Panel */}
-                    <div className="flex items-start gap-3 p-1.5 hover:bg-white/5 rounded-lg transition-colors">
+                    <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-emerald-500/40 transition-colors">
                       <input 
                         type="checkbox" 
                         id="perm-verification"
                         checked={permissionsForm.verification_enabled} 
                         disabled 
-                        className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
+                        className="mt-0.5 rounded border-[var(--border-color)] text-emerald-500 focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
                       />
                       <div>
-                        <label htmlFor="perm-verification" className="text-sm font-medium text-white flex items-center gap-1.5 cursor-not-allowed">
-                          Verification Panel <span className="text-[10px] bg-[var(--color-success)]/15 text-[var(--color-success)] px-1.5 py-0.5 rounded font-mono">REQUIRED</span>
+                        <label htmlFor="perm-verification" className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5 cursor-not-allowed">
+                          Verification Panel <span className="text-[9px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded font-mono font-bold">REQUIRED</span>
                         </label>
-                        <p className="text-xs text-[var(--text-secondary)] mt-0.5">Allows cashier to verify incoming MVR bank transfer screenshots.</p>
+                        <p className="text-[10px] text-[var(--text-secondary)] mt-1 leading-relaxed">Allows cashier to verify incoming MVR bank transfer receipts.</p>
                       </div>
                     </div>
 
                     {/* Transaction Ledger */}
-                    <div className="flex items-start gap-3 p-1.5 hover:bg-white/5 rounded-lg transition-colors">
+                    <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-emerald-500/40 transition-colors">
                       <input 
                         type="checkbox" 
                         id="perm-ledger"
                         checked={permissionsForm.ledger_enabled} 
-                        disabled={user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
+                        disabled={isFeatureDisabledByPlan('ledger_enabled')}
                         onChange={e => setPermissionsForm(prev => ({ 
                           ...prev, 
                           ledger_enabled: e.target.checked,
                           ledger_show_balance: e.target.checked ? prev.ledger_show_balance : false,
                           ledger_show_debit: e.target.checked ? prev.ledger_show_debit : false
                         }))}
-                        className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
+                        className="mt-0.5 rounded border-[var(--border-color)] text-emerald-500 focus:ring-0 focus:ring-offset-0 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                       />
                       <div>
-                        <label htmlFor="perm-ledger" className={`text-sm font-medium flex items-center gap-1.5 ${user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499' ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
+                        <label htmlFor="perm-ledger" className={`text-xs font-bold flex items-center gap-1.5 ${isFeatureDisabledByPlan('ledger_enabled') ? 'text-[var(--text-secondary)] cursor-not-allowed opacity-60' : 'text-[var(--text-primary)] cursor-pointer'}`}>
                           Transaction Ledger
+                          {isFeatureDisabledByPlan('ledger_enabled') && (
+                            <span className="text-[9px] bg-amber-500/15 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono font-bold">DISABLED BY PLAN</span>
+                          )}
                         </label>
-                        <p className="text-xs text-[var(--text-secondary)] mt-0.5">Allows cashier to view account transaction ledger/history.</p>
+                        <p className="text-[10px] text-[var(--text-secondary)] mt-1 leading-relaxed">Allows cashier to view account transaction statement history.</p>
                       </div>
                     </div>
 
-                    {/* Show Account Balance */}
-                    <div className="flex items-start gap-3 p-1.5 hover:bg-white/5 rounded-lg transition-colors">
-                      <input 
-                        type="checkbox" 
-                        id="perm-ledger-balance"
-                        checked={permissionsForm.ledger_show_balance} 
-                        disabled={user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
-                        onChange={e => setPermissionsForm(prev => ({ ...prev, ledger_show_balance: e.target.checked }))}
-                        className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
-                      />
-                      <div>
-                        <label htmlFor="perm-ledger-balance" className={`text-sm font-medium flex items-center gap-1.5 ${user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499' ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
-                          Show Account Balance
-                        </label>
-                        <p className="text-xs text-[var(--text-secondary)] mt-0.5">Expose real-time balance metrics for connected accounts.</p>
-                      </div>
-                    </div>
-
-                    {/* Show Outward Transactions (DEBIT) */}
-                    <div className="flex items-start gap-3 p-1.5 hover:bg-white/5 rounded-lg transition-colors">
-                      <input 
-                        type="checkbox" 
-                        id="perm-ledger-debit"
-                        checked={permissionsForm.ledger_show_debit} 
-                        disabled={user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
-                        onChange={e => setPermissionsForm(prev => ({ ...prev, ledger_show_debit: e.target.checked }))}
-                        className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
-                      />
-                      <div>
-                        <label htmlFor="perm-ledger-debit" className={`text-sm font-medium flex items-center gap-1.5 ${user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499' ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
-                          Show Outward Transactions (DEBIT)
-                        </label>
-                        <p className="text-xs text-[var(--text-secondary)] mt-0.5">Display outward transfers and charges alongside credits.</p>
-                      </div>
-                    </div>
-
-                    {/* Reports */}
-                    <div className="flex items-start gap-3 p-1.5 hover:bg-white/5 rounded-lg transition-colors">
+                    {/* View Analytics & Reports */}
+                    <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-emerald-500/40 transition-colors">
                       <input 
                         type="checkbox" 
                         id="perm-reports"
                         checked={permissionsForm.reports_enabled} 
                         onChange={e => setPermissionsForm(prev => ({ ...prev, reports_enabled: e.target.checked }))}
-                        disabled={user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499'}
-                        className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
+                        disabled={isFeatureDisabledByPlan('reports_enabled')}
+                        className="mt-0.5 rounded border-[var(--border-color)] text-emerald-500 focus:ring-0 focus:ring-offset-0 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                       />
                       <div>
-                        <label htmlFor="perm-reports" className={`text-sm font-medium flex items-center gap-1.5 ${user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499' ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
+                        <label htmlFor="perm-reports" className={`text-xs font-bold flex items-center gap-1.5 ${isFeatureDisabledByPlan('reports_enabled') ? 'text-[var(--text-secondary)] cursor-not-allowed opacity-60' : 'text-[var(--text-primary)] cursor-pointer'}`}>
                           View Analytics & Reports
+                          {isFeatureDisabledByPlan('reports_enabled') && (
+                            <span className="text-[9px] bg-amber-500/15 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono font-bold">DISABLED BY PLAN</span>
+                          )}
                         </label>
-                        <p className="text-xs text-[var(--text-secondary)] mt-0.5">Allow access to historical charts and performance reports.</p>
+                        <p className="text-[10px] text-[var(--text-secondary)] mt-1 leading-relaxed">Grants access to reporting charts and analytics panels.</p>
+                      </div>
+                    </div>
+
+                    {/* Bank Statements */}
+                    <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-emerald-500/40 transition-colors">
+                      <input 
+                        type="checkbox" 
+                        id="perm-statement"
+                        checked={permissionsForm.statement_enabled} 
+                        onChange={e => setPermissionsForm(prev => ({ ...prev, statement_enabled: e.target.checked }))}
+                        disabled={isFeatureDisabledByPlan('statement_enabled')}
+                        className="mt-0.5 rounded border-[var(--border-color)] text-emerald-500 focus:ring-0 focus:ring-offset-0 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                      />
+                      <div>
+                        <label htmlFor="perm-statement" className={`text-xs font-bold flex items-center gap-1.5 ${isFeatureDisabledByPlan('statement_enabled') ? 'text-[var(--text-secondary)] cursor-not-allowed opacity-60' : 'text-[var(--text-primary)] cursor-pointer'}`}>
+                          Bank Statements Generator
+                          {isFeatureDisabledByPlan('statement_enabled') && (
+                            <span className="text-[9px] bg-amber-500/15 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono font-bold">DISABLED BY PLAN</span>
+                          )}
+                        </label>
+                        <p className="text-[10px] text-[var(--text-secondary)] mt-1 leading-relaxed">Allows cashier to generate and export bank account statements.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Column 3: Advanced Data Controls & Diagnostics */}
+                <div className="glass-panel bg-[var(--bg-surface)]/60 border border-[var(--border-color)] p-5 rounded-2xl space-y-4">
+                  <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-[var(--border-color)]">
+                    <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center shrink-0">
+                      <Settings size={16} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-[var(--text-primary)] leading-tight">Advanced Data Controls</h3>
+                      <p className="text-[10px] text-[var(--text-secondary)] mt-0.5">Ledger details & diagnostic logging</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {/* Show Account Balance */}
+                    <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-emerald-500/40 transition-colors">
+                      <input 
+                        type="checkbox" 
+                        id="perm-ledger-balance"
+                        checked={permissionsForm.ledger_show_balance} 
+                        disabled={isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_balance')}
+                        onChange={e => setPermissionsForm(prev => ({ ...prev, ledger_show_balance: e.target.checked }))}
+                        className="mt-0.5 rounded border-[var(--border-color)] text-emerald-500 focus:ring-0 focus:ring-offset-0 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                      />
+                      <div>
+                        <label htmlFor="perm-ledger-balance" className={`text-xs font-bold flex items-center gap-1.5 ${(isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_balance')) ? 'text-[var(--text-secondary)] cursor-not-allowed opacity-60' : 'text-[var(--text-primary)] cursor-pointer'}`}>
+                          Show Account Balance
+                          {(isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_balance')) && (
+                            <span className="text-[9px] bg-amber-500/15 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono font-bold">DISABLED BY PLAN</span>
+                          )}
+                        </label>
+                        <p className="text-[10px] text-[var(--text-secondary)] mt-1 leading-relaxed">Display live bank account balances on the cashier terminal.</p>
+                      </div>
+                    </div>
+
+                    {/* Show Outward Transactions (DEBIT) */}
+                    <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-emerald-500/40 transition-colors">
+                      <input 
+                        type="checkbox" 
+                        id="perm-ledger-debit"
+                        checked={permissionsForm.ledger_show_debit} 
+                        disabled={isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_debit')}
+                        onChange={e => setPermissionsForm(prev => ({ ...prev, ledger_show_debit: e.target.checked }))}
+                        className="mt-0.5 rounded border-[var(--border-color)] text-emerald-500 focus:ring-0 focus:ring-offset-0 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                      />
+                      <div>
+                        <label htmlFor="perm-ledger-debit" className={`text-xs font-bold flex items-center gap-1.5 ${(isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_debit')) ? 'text-[var(--text-secondary)] cursor-not-allowed opacity-60' : 'text-[var(--text-primary)] cursor-pointer'}`}>
+                          Show Outward Debit Transfers
+                          {(isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_debit')) && (
+                            <span className="text-[9px] bg-amber-500/15 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono font-bold">DISABLED BY PLAN</span>
+                          )}
+                        </label>
+                        <p className="text-[10px] text-[var(--text-secondary)] mt-1 leading-relaxed">Display outgoing payments alongside incoming credits.</p>
                       </div>
                     </div>
 
                     {/* Share PWA Logs */}
-                    <div className="flex items-start gap-3 p-1.5 hover:bg-white/5 rounded-lg transition-colors mt-4 pt-4 border-t border-zinc-800">
+                    <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-emerald-500/40 transition-colors">
                       <input 
                         type="checkbox" 
                         id="perm-share-logs"
                         checked={permissionsForm.share_pwa_logs} 
                         onChange={e => setPermissionsForm(prev => ({ ...prev, share_pwa_logs: e.target.checked }))}
-                        className="mt-1 rounded border-zinc-700 text-[var(--color-success)] focus:ring-0 focus:ring-offset-0"
+                        className="mt-0.5 rounded border-[var(--border-color)] text-emerald-500 focus:ring-0 focus:ring-offset-0"
                       />
                       <div>
-                        <label htmlFor="perm-share-logs" className="text-sm font-medium flex items-center gap-1.5 text-white cursor-pointer">
-                          Share PWA Logs to Viri for Debug & Software Improvements
+                        <label htmlFor="perm-share-logs" className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5 cursor-pointer">
+                          Share Diagnostic Logs
                         </label>
-                        <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-normal">
-                          Automatically send terminal execution logs to the superadmin log. Sensitive info (passwords, authenticator seeds) is masked. If disabled, superadmin cannot debug unless temporarily granted access via the Terminals tab.
+                        <p className="text-[10px] text-[var(--text-secondary)] mt-1 leading-relaxed">
+                          Automatically send anonymized execution logs for superadmin troubleshooting.
                         </p>
                       </div>
                     </div>
@@ -2681,66 +3305,66 @@ export default function CompanyDashboard() {
 
               {/* Starter Tier Locked Premium Card */}
               {(user?.tenant?.subscription_tier === 'free' || user?.tenant?.subscription_tier === '499') && (
-                <div className="relative overflow-hidden bg-zinc-950 border border-zinc-800 rounded-lg p-5">
+                <div className="relative overflow-hidden bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl p-5">
                   <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-32 bg-purple-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
                   <div className="flex justify-between items-center mb-3">
-                    <h4 className="text-xs uppercase tracking-wider font-bold text-zinc-500 flex items-center gap-1.5">
+                    <h4 className="text-xs uppercase tracking-wider font-bold text-[var(--text-secondary)] flex items-center gap-1.5">
                       🔒 Feature Preview: Transaction Ledger
                     </h4>
                     <span className="text-[10px] bg-purple-500/10 border border-purple-500/30 text-purple-400 px-2 py-0.5 rounded font-medium">Growth / Enterprise</span>
                   </div>
 
                   <div className="blur-[2px] opacity-25 select-none pointer-events-none transition-all duration-300">
-                    <div className="flex justify-between items-end border-b border-zinc-800 pb-2 mb-3">
+                    <div className="flex justify-between items-end border-b border-[var(--border-color)] pb-2 mb-3">
                       <div>
-                        <div className="text-[9px] text-zinc-400">Available Balance</div>
+                        <div className="text-[9px] text-[var(--text-secondary)]">Available Balance</div>
                         <div className="text-sm font-bold font-mono text-emerald-400">MVR 124,539.20</div>
                       </div>
-                      <div className="text-[9px] text-zinc-500 font-mono">Last synced: Just now</div>
+                      <div className="text-[9px] text-[var(--text-secondary)] font-mono">Last synced: Just now</div>
                     </div>
                     <div className="space-y-2">
-                      <div className="flex justify-between text-[10px] border-b border-zinc-900 pb-1.5">
-                        <span className="text-zinc-300">Transfer from Ahmed Niyaz</span>
+                      <div className="flex justify-between text-[10px] border-b border-[var(--border-color)] pb-1.5">
+                        <span className="text-[var(--text-primary)]">Transfer from Ahmed Niyaz</span>
                         <span className="font-mono text-emerald-400 font-bold">+MVR 500.00</span>
                       </div>
-                      <div className="flex justify-between text-[10px] border-b border-zinc-900 pb-1.5">
-                        <span className="text-zinc-300">BML POS Terminal Charge</span>
+                      <div className="flex justify-between text-[10px] border-b border-[var(--border-color)] pb-1.5">
+                        <span className="text-[var(--text-primary)]">BML POS Terminal Charge</span>
                         <span className="font-mono text-red-400 font-bold">-MVR 45.00</span>
                       </div>
                       <div className="flex justify-between text-[10px] pb-0.5">
-                        <span className="text-zinc-300">Transfer from Aminath Ali</span>
+                        <span className="text-[var(--text-primary)]">Transfer from Aminath Ali</span>
                         <span className="font-mono text-emerald-400 font-bold">+MVR 2,400.00</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/95 to-zinc-950/80 flex flex-col items-center justify-center text-center p-6">
-                    <div className="w-10 h-10 rounded-full bg-purple-950/60 border border-purple-500/30 flex items-center justify-center text-purple-400 mb-2">
+                  <div className="absolute inset-0 bg-gradient-to-t from-[var(--bg-card)] via-[var(--bg-card)]/95 to-[var(--bg-card)]/80 flex flex-col items-center justify-center text-center p-6">
+                    <div className="w-10 h-10 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400 mb-2">
                       <Shield size={18} />
                     </div>
-                    <p className="text-xs font-semibold text-zinc-200 max-w-sm mb-1">
+                    <p className="text-xs font-semibold text-[var(--text-primary)] max-w-sm mb-1">
                       Unlock full Cashier features in Growth & Enterprise plans!
                     </p>
-                    <p className="text-[10px] text-zinc-400 max-w-sm">
+                    <p className="text-[10px] text-[var(--text-secondary)] max-w-sm">
                       Enable real-time bank statements, ledger views, debit filtering and live balance indicators right on the terminal counters.
                     </p>
                   </div>
                 </div>
               )}
 
-              <div className="flex justify-end gap-3 border-t border-zinc-800 pt-5 mt-6">
+              <div className="flex justify-end gap-3 border-t border-[var(--border-color)] pt-5 mt-6">
                 <button 
                   type="button" 
                   onClick={() => setIsTerminalModalOpen(false)} 
-                  className="btn btn-outline border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white py-2 px-4 text-sm"
+                  className="btn btn-outline text-xs px-4 py-2 rounded-xl"
                 >
                   Cancel
                 </button>
                 <button 
                   type="submit" 
                   disabled={isSavingTerminal}
-                  className="btn btn-success py-2 px-6 text-sm font-semibold flex items-center justify-center gap-2"
+                  className="btn btn-success text-xs px-6 py-2 rounded-xl font-bold flex items-center justify-center gap-2"
                 >
                   {isSavingTerminal ? (
                     <>
@@ -2757,20 +3381,20 @@ export default function CompanyDashboard() {
       )}
 
       {isBankAccountModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-zinc-900 border border-zinc-700/80 rounded-xl max-w-xl w-full p-6 shadow-2xl relative animate-in fade-in zoom-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md">
+          <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl max-w-xl w-full p-4 sm:p-6 shadow-2xl relative animate-in fade-in zoom-in duration-200 max-h-[90vh] overflow-y-auto">
             <button 
               type="button"
               onClick={() => {
                 setIsBankAccountModalOpen(false);
                 setEditingBankAccount(null);
               }} 
-              className="absolute top-4 right-4 text-zinc-400 hover:text-white p-1 rounded-full hover:bg-white/5 transition-colors"
+              className="absolute top-4 right-4 text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1 rounded-full hover:bg-[var(--bg-surface)] transition-colors"
             >
               <X size={20} />
             </button>
 
-            <h2 className="text-xl font-bold text-white mb-6">
+            <h2 className="text-xl font-bold text-[var(--text-primary)] mb-6">
               Edit Bank Account Details
             </h2>
 

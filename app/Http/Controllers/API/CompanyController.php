@@ -14,10 +14,10 @@ class CompanyController extends Controller
     public function getAuditLogs(Request $request)
     {
         $tenantId = $request->user()->tenant_id;
+        $perPage = min((int) $request->input('per_page', 20), 100);
         $logs = AuditLog::where('tenant_id', $tenantId)
             ->orderBy('created_at', 'desc')
-            ->limit(500)
-            ->get();
+            ->paginate($perPage);
         return response()->json($logs);
     }
 
@@ -61,12 +61,11 @@ class CompanyController extends Controller
         $isFreeOr499 = ($tier === 'free' || $tier === '499');
 
         $hasFeature = function($key) use ($features, $isFreeOr499) {
-            if ($features === null) {
-                if ($key === 'verification_enabled') return true;
-                if ($isFreeOr499) return false;
-                return true;
+            if ($key === 'verification_enabled') return true;
+            if ($features !== null && is_array($features) && array_key_exists($key, $features)) {
+                return filter_var($features[$key], FILTER_VALIDATE_BOOLEAN);
             }
-            return filter_var($features[$key] ?? false, FILTER_VALIDATE_BOOLEAN);
+            return !$isFreeOr499;
         };
 
         $permissions = [
@@ -75,9 +74,10 @@ class CompanyController extends Controller
             'ledger_show_balance' => $hasFeature('ledger_show_balance') && filter_var($permissions['ledger_show_balance'] ?? false, FILTER_VALIDATE_BOOLEAN),
             'ledger_show_debit' => $hasFeature('ledger_show_debit') && filter_var($permissions['ledger_show_debit'] ?? false, FILTER_VALIDATE_BOOLEAN),
             'reports_enabled' => $hasFeature('reports_enabled') && filter_var($permissions['reports_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
+            'statement_enabled' => $hasFeature('statement_enabled') && filter_var($permissions['statement_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
             'show_vbtl' => filter_var($permissions['show_vbtl'] ?? false, FILTER_VALIDATE_BOOLEAN),
             'share_pwa_logs' => filter_var($permissions['share_pwa_logs'] ?? true, FILTER_VALIDATE_BOOLEAN),
-            'terminal_pin' => isset($permissions['terminal_pin']) && $permissions['terminal_pin'] !== '' ? (string)$permissions['terminal_pin'] : null
+            'terminal_pin' => isset($permissions['terminal_pin']) && $permissions['terminal_pin'] !== '' ? substr(preg_replace('/\D/', '', (string)$permissions['terminal_pin']), 0, 4) : null
         ];
 
         $terminal = Terminal::create([
@@ -120,12 +120,11 @@ class CompanyController extends Controller
             $isFreeOr499 = ($tier === 'free' || $tier === '499');
 
             $hasFeature = function($key) use ($features, $isFreeOr499) {
-                if ($features === null) {
-                    if ($key === 'verification_enabled') return true;
-                    if ($isFreeOr499) return false;
-                    return true;
+                if ($key === 'verification_enabled') return true;
+                if ($features !== null && is_array($features) && array_key_exists($key, $features)) {
+                    return filter_var($features[$key], FILTER_VALIDATE_BOOLEAN);
                 }
-                return filter_var($features[$key] ?? false, FILTER_VALIDATE_BOOLEAN);
+                return !$isFreeOr499;
             };
 
             $permissions = [
@@ -134,9 +133,10 @@ class CompanyController extends Controller
                 'ledger_show_balance' => $hasFeature('ledger_show_balance') && filter_var($permissions['ledger_show_balance'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'ledger_show_debit' => $hasFeature('ledger_show_debit') && filter_var($permissions['ledger_show_debit'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'reports_enabled' => $hasFeature('reports_enabled') && filter_var($permissions['reports_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'statement_enabled' => $hasFeature('statement_enabled') && filter_var($permissions['statement_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'show_vbtl' => filter_var($permissions['show_vbtl'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'share_pwa_logs' => filter_var($permissions['share_pwa_logs'] ?? true, FILTER_VALIDATE_BOOLEAN),
-                'terminal_pin' => isset($permissions['terminal_pin']) && $permissions['terminal_pin'] !== '' ? (string)$permissions['terminal_pin'] : null
+                'terminal_pin' => isset($permissions['terminal_pin']) && $permissions['terminal_pin'] !== '' ? substr(preg_replace('/\D/', '', (string)$permissions['terminal_pin']), 0, 4) : null
             ];
 
             $terminal->update([

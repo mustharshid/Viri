@@ -30,24 +30,30 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/logout', [AuthController::class, 'logout']);
 
-    // Superadmin Routes
-    // Note: In production, add a role middleware here
-    Route::get('/admin/companies', [SuperadminController::class, 'listCompanies']);
-    Route::put('/admin/companies/{id}', [SuperadminController::class, 'updateCompany']);
-    Route::delete('/admin/companies/{id}', [SuperadminController::class, 'deleteCompany']);
-    Route::put('/admin/terminals/{id}', [SuperadminController::class, 'updateTerminal']);
-    Route::post('/admin/terminals/{id}/view-log', [SuperadminController::class, 'viewTerminalLog']);
-    Route::post('/admin/users/{id}/reset-password', [SuperadminController::class, 'resetPassword']);
-    
-    // Subscription Plans CRUD
-    Route::get('/admin/subscription-plans', [SuperadminController::class, 'listSubscriptionPlans']);
-    Route::post('/admin/subscription-plans', [SuperadminController::class, 'createSubscriptionPlan']);
-    Route::put('/admin/subscription-plans/{id}', [SuperadminController::class, 'updateSubscriptionPlan']);
-    Route::delete('/admin/subscription-plans/{id}', [SuperadminController::class, 'deleteSubscriptionPlan']);
+    // Superadmin Routes (role-gated)
+    Route::middleware('auth.admin')->prefix('admin')->group(function () {
+        Route::get('/companies', [SuperadminController::class, 'listCompanies']);
+        Route::put('/companies/{id}', [SuperadminController::class, 'updateCompany']);
+        Route::delete('/companies/{id}', [SuperadminController::class, 'deleteCompany']);
+        Route::put('/terminals/{id}', [SuperadminController::class, 'updateTerminal']);
+        Route::post('/terminals/{id}/view-log', [SuperadminController::class, 'viewTerminalLog']);
+        Route::post('/users/{id}/reset-password', [SuperadminController::class, 'resetPassword']);
+        Route::get('/subscription-plans', [SuperadminController::class, 'listSubscriptionPlans']);
+        Route::post('/subscription-plans', [SuperadminController::class, 'createSubscriptionPlan']);
+        Route::put('/subscription-plans/{id}', [SuperadminController::class, 'updateSubscriptionPlan']);
+        Route::delete('/subscription-plans/{id}', [SuperadminController::class, 'deleteSubscriptionPlan']);
+        Route::post('/run-migrations', [SuperadminController::class, 'runMigrations']);
+        Route::get('/session-logs', [SuperadminController::class, 'getSessionLogs']);
+        Route::get('/system-settings', [SuperadminController::class, 'getSystemSettings']);
+        Route::post('/system-settings', [SuperadminController::class, 'updateSystemSettings']);
+        Route::get('/payments', [SuperadminController::class, 'getPayments']);
+        Route::post('/payments/{id}/approve', [SuperadminController::class, 'approvePayment']);
+        Route::post('/payments/{id}/reject', [SuperadminController::class, 'rejectPayment']);
+        Route::post('/bank-accounts/{id}/clear-lock', [SuperadminController::class, 'clearStuckLock']);
+        Route::get('/debug-info', [SuperadminController::class, 'getDebugInfo']);
+    });
 
-    // Admin DB Migration Runner
-    Route::post('/admin/run-migrations', [SuperadminController::class, 'runMigrations']);
-
+    // Company Routes
     Route::get('/company/terminals', [CompanyController::class, 'getTerminals']);
     Route::post('/company/terminals', [CompanyController::class, 'createTerminal']);
     Route::put('/company/terminals/{id}', [CompanyController::class, 'updateTerminal']);
@@ -68,16 +74,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/company/payments', [CompanyController::class, 'storePayment']);
     
     Route::get('/company/audit-logs', [CompanyController::class, 'getAuditLogs']);
-
-    // Session activity logs for Superadmin
-    Route::get('/admin/session-logs', [SuperadminController::class, 'getSessionLogs']);
-    Route::get('/admin/system-settings', [SuperadminController::class, 'getSystemSettings']);
-    Route::post('/admin/system-settings', [SuperadminController::class, 'updateSystemSettings']);
-    Route::get('/admin/payments', [SuperadminController::class, 'getPayments']);
-    Route::post('/admin/payments/{id}/approve', [SuperadminController::class, 'approvePayment']);
-    Route::post('/admin/payments/{id}/reject', [SuperadminController::class, 'rejectPayment']);
-    Route::post('/admin/bank-accounts/{id}/clear-lock', [SuperadminController::class, 'clearStuckLock']);
-    Route::get('/admin/debug-info', [SuperadminController::class, 'getDebugInfo']);
 
     // Credential Sync (Company Dashboard)
     Route::post('/company/credential-sync/initiate',            [CredentialSyncController::class, 'initiate']);
@@ -301,10 +297,11 @@ Route::post('/verify-terminal', function (Request $request) {
         'should_upload_logs' => (isset($terminal->permissions['share_pwa_logs']) ? $terminal->permissions['share_pwa_logs'] : true) || ($terminal->allow_debug_until && now()->lessThan($terminal->allow_debug_until)),
         'permissions' => [
             'verification_enabled' => (bool) ($tenant->features['verification_enabled'] ?? true),
-            'ledger_enabled' => (bool) ($tenant->features['ledger_enabled'] ?? (($tier === 'free' || $tier === '499') ? false : ($terminal->permissions['ledger_enabled'] ?? true))),
-            'ledger_show_balance' => (bool) ($tenant->features['ledger_show_balance'] ?? (($tier === 'free' || $tier === '499') ? false : ($terminal->permissions['ledger_show_balance'] ?? true))),
-            'ledger_show_debit' => (bool) ($tenant->features['ledger_show_debit'] ?? (($tier === 'free' || $tier === '499') ? false : ($terminal->permissions['ledger_show_debit'] ?? true))),
-            'reports_enabled' => (bool) ($tenant->features['reports_enabled'] ?? (($tier === 'free' || $tier === '499') ? false : ($terminal->permissions['reports_enabled'] ?? false))),
+            'ledger_enabled' => (bool) (($tenant->features['ledger_enabled'] ?? !$isFreeOr499) && ($terminal->permissions['ledger_enabled'] ?? true)),
+            'ledger_show_balance' => (bool) (($tenant->features['ledger_show_balance'] ?? !$isFreeOr499) && ($terminal->permissions['ledger_show_balance'] ?? true)),
+            'ledger_show_debit' => (bool) (($tenant->features['ledger_show_debit'] ?? !$isFreeOr499) && ($terminal->permissions['ledger_show_debit'] ?? true)),
+            'reports_enabled' => (bool) (($tenant->features['reports_enabled'] ?? !$isFreeOr499) && ($terminal->permissions['reports_enabled'] ?? false)),
+            'statement_enabled' => (bool) (($tenant->features['statement_enabled'] ?? !$isFreeOr499) && ($terminal->permissions['statement_enabled'] ?? false)),
             'share_pwa_logs' => (bool) ($terminal->permissions['share_pwa_logs'] ?? true),
             'show_vbtl' => (bool) ($terminal->permissions['show_vbtl'] ?? false),
             'recent_tx_limit' => (function() use ($tenant) {

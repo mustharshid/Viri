@@ -7,6 +7,7 @@
 :root {
   --bg-base: #09090b;
   --bg-surface: rgba(24, 24, 27, 0.4);
+  --bg-card: #18181b;
   --bg-canvas: #18181b;
 
   --text-primary: #f8fafc;
@@ -23,6 +24,7 @@
 [data-theme="light"] {
   --bg-base: #f8fafc;
   --bg-surface: #ffffff;
+  --bg-card: #ffffff;
   --bg-canvas: #ffffff;
 
   --text-primary: #0f172a;
@@ -72,7 +74,7 @@
   background-color: #ffffff !important;
 }
 
-[data-theme="light"] [class*="bg-black"] {
+[data-theme="light"] .bg-black {
   background-color: #0f172a !important;
   color: #f8fafc !important;
 }

@@ -15,14 +15,12 @@ class AdminAuthMiddleware
      */
     public function handle(Request $request, Closure $next): Response
     {
-        // Simple Bearer token check for Super-Admin access.
-        // In a real scenario, this would validate against a hashed key or use Sanctum.
-        $token = $request->bearerToken();
-        
-        $expectedToken = env('ADMIN_API_TOKEN');
+        $user = $request->user();
 
-        if (!$token || $token !== $expectedToken) {
-            return response()->json(['error' => 'Unauthorized'], 401);
+        if (!$user || $user->role !== 'superadmin') {
+            return response()->json([
+                'message' => 'Forbidden. Superadmin privileges required.'
+            ], 403);
         }
 
         return $next($request);

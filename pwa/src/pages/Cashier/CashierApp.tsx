@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, ChevronDown, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, KeyRound, Download, FileText, Check, Briefcase, Heart } from 'lucide-react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, ChevronDown, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, KeyRound, Download, FileText, Check, Briefcase, Sparkles } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import CryptoJS from 'crypto-js';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
@@ -243,6 +243,102 @@ const getTransactionIcon = (description: string) => {
     return <div className="w-8 h-8 rounded-lg bg-red-955/20 flex items-center justify-center text-red-400 border border-red-900/30"><MonitorSmartphone size={14} /></div>;
   }
   return <div className="w-8 h-8 rounded-lg bg-emerald-955/20 flex items-center justify-center text-emerald-400 border border-emerald-900/30"><BookOpen size={14} /></div>;
+};
+
+const matchesDateFilter = (txDateRaw: string | undefined | null, filterDateStr: string | null): boolean => {
+  if (!filterDateStr) return true;
+  if (!txDateRaw) return false;
+
+  const raw = txDateRaw.trim();
+  if (!raw) return false;
+
+  const [targetYear, targetMonthStr, targetDayStr] = filterDateStr.split('-');
+  if (!targetYear || !targetMonthStr || !targetDayStr) return true;
+
+  const targetYearNum = parseInt(targetYear, 10);
+  const targetMonthNum = parseInt(targetMonthStr, 10);
+  const targetDayNum = parseInt(targetDayStr, 10);
+
+  // 1. Direct ISO / substring match (e.g. "2026-05-18")
+  if (raw.includes(filterDateStr)) return true;
+
+  // 2. Formatted date match (e.g. "18/05/2026", "18-05-2026")
+  const targetDayPadded = targetDayStr.padStart(2, '0');
+  const targetMonthPadded = targetMonthStr.padStart(2, '0');
+  const ddmm = `${targetDayPadded}/${targetMonthPadded}/${targetYear}`;
+  const ddmmdash = `${targetDayPadded}-${targetMonthPadded}-${targetYear}`;
+  if (raw.includes(ddmm) || raw.includes(ddmmdash)) return true;
+
+  // 3. Short / Long Month + Day match (e.g. "May 18", "18 May", "May 05", "May 5")
+  const dateObj = new Date(targetYearNum, targetMonthNum - 1, targetDayNum);
+  const monthShort = dateObj.toLocaleString('en-US', { month: 'short' }).toLowerCase();
+  const monthFull = dateObj.toLocaleString('en-US', { month: 'long' }).toLowerCase();
+
+  const rawLower = raw.toLowerCase();
+  if (rawLower.includes(monthShort) || rawLower.includes(monthFull)) {
+    const dayRegex = new RegExp(`\\b0?${targetDayNum}\\b`, 'i');
+    if (dayRegex.test(raw)) return true;
+  }
+
+  // 4. JS Date parsing fallback
+  const parsed = new Date(raw);
+  if (!isNaN(parsed.getTime())) {
+    return (
+      parsed.getFullYear() === targetYearNum &&
+      (parsed.getMonth() + 1) === targetMonthNum &&
+      parsed.getDate() === targetDayNum
+    );
+  }
+
+  return false;
+};
+
+const matchesSearchQuery = (tx: any, searchQuery: string): boolean => {
+  const trimmed = searchQuery.trim().toLowerCase();
+  if (!trimmed) return true;
+
+  const tokens = trimmed.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return true;
+
+  const detailsParts = (tx?.details || '').split('\n');
+  const description = (detailsParts[0] || '').trim();
+  let senderName = tx?.sender || tx?.benefName || tx?.narrative2 || '';
+  if (typeof senderName === 'string') {
+    senderName = senderName.trim().replace(/^\/+\s*/, '');
+    if (senderName.toLowerCase() === 'null' || senderName.toLowerCase() === 'undefined') senderName = '';
+  } else {
+    senderName = '';
+  }
+  if (!senderName && detailsParts.length > 1) {
+    const line1 = detailsParts[1].trim().replace(/^\/+\s*/, '');
+    if (line1 && !line1.startsWith('Ref:') && !line1.startsWith('ID:') && !line1.match(/^[A-Z0-9]{10,}$/)) {
+      senderName = line1;
+    }
+  }
+
+  const beneficiaryName = (senderName || description || '').toUpperCase();
+
+  const searchableText = [
+    tx?.details,
+    description,
+    senderName,
+    beneficiaryName,
+    tx?.reference,
+    tx?.sender,
+    tx?.benefName,
+    tx?.narrative1,
+    tx?.narrative2,
+    tx?.narrative3,
+    tx?.date,
+    tx?.amount,
+    tx?.runningBalance,
+    tx?.hash
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return tokens.every(token => searchableText.includes(token));
 };
 
 const TransactionRow = React.memo(({
@@ -626,6 +722,7 @@ function App() {
     ledger_show_balance: true,
     ledger_show_debit: true,
     reports_enabled: false,
+    statement_enabled: false,
     show_vbtl: false,
     recent_tx_limit: 3
   });
@@ -751,7 +848,11 @@ function App() {
 
   // Derived state for the selected account's recent transactions
   const rawTxs = selectedAccountId ? recentTxCache[selectedAccountId]?.transactions : undefined;
-  const lastTransactions = Array.isArray(rawTxs) ? rawTxs : [];
+  const lastTransactions = useMemo(() => {
+    if (!Array.isArray(rawTxs)) return [];
+    if (permissions.ledger_show_debit) return rawTxs;
+    return rawTxs.filter(tx => typeof tx.amount === 'string' ? tx.amount.startsWith('+') : true);
+  }, [rawTxs, permissions.ledger_show_debit]);
   const lastTransactionsLabel = selectedAccountId ? (recentTxCache[selectedAccountId]?.label || '') : '';
   const lastPopulatedTime = selectedAccountId ? (recentTxCache[selectedAccountId]?.lastUpdated || '') : '';
   const lastPopulatedTimestamp = selectedAccountId ? (recentTxCache[selectedAccountId]?.timestamp || null) : null;
@@ -1079,24 +1180,11 @@ function App() {
       if (ledgerFilter === 'in' && !isCredit) return false;
       if (ledgerFilter === 'out' && isCredit) return false;
 
-      // 2. Search Query Matching (description, details, date)
-      if (ledgerSearch.trim()) {
-        const query = ledgerSearch.toLowerCase();
-        const matchesDesc = (tx.details || '').toLowerCase().includes(query);
-        const matchesDate = (tx.date || '').toLowerCase().includes(query);
-        const matchesAmount = (tx.amount || '').toLowerCase().includes(query);
-        if (!(matchesDesc || matchesDate || matchesAmount)) return false;
-      }
+      // 2. Search Query Matching (MVR/BML/MIB text & reference fields)
+      if (!matchesSearchQuery(tx, ledgerSearch)) return false;
 
-      // 3. Date Filter
-      if (ledgerDateFilter) {
-        // tx.date format: "Jul 5, 14:06" → match by "Jul D," prefix
-        const picked = new Date(ledgerDateFilter);
-        const monthShort = picked.toLocaleString('en-US', { month: 'short' });
-        const day = picked.getDate();
-        const prefix = `${monthShort} ${day},`;
-        if (!(tx.date || '').startsWith(prefix)) return false;
-      }
+      // 3. Date Filter (BML & MIB date format matching)
+      if (!matchesDateFilter(tx.date, ledgerDateFilter)) return false;
 
       return true;
     });
@@ -1436,16 +1524,6 @@ function App() {
     if (!cache || !Array.isArray(cache.transactions)) return [];
 
     const rawTransactions = cache.transactions;
-    const searchTrimmed = ledgerSearch.trim().toLowerCase();
-
-    // Parse date filter once outside the loop to avoid expensive formatting inside filter loop
-    let datePrefix = '';
-    if (ledgerDateFilter) {
-      const picked = new Date(ledgerDateFilter);
-      const monthShort = picked.toLocaleString('en-US', { month: 'short' });
-      const day = picked.getDate();
-      datePrefix = `${monthShort} ${day},`;
-    }
 
     return rawTransactions.filter(tx => {
       if (!tx || typeof tx.amount !== 'string') return false;
@@ -1458,20 +1536,11 @@ function App() {
       if (ledgerFilter === 'in' && !isCredit) return false;
       if (ledgerFilter === 'out' && isCredit) return false;
 
-      // 2. Search Query Matching
-      if (searchTrimmed) {
-        const details = (tx.details || '').toLowerCase();
-        const txDate = (tx.date || '').toLowerCase();
-        const txAmount = (tx.amount || '').toLowerCase();
-        if (!details.includes(searchTrimmed) && !txDate.includes(searchTrimmed) && !txAmount.includes(searchTrimmed)) {
-          return false;
-        }
-      }
+      // 2. Search Query Matching (MVR/BML/MIB text & reference fields)
+      if (!matchesSearchQuery(tx, ledgerSearch)) return false;
 
-      // 3. Date Filter
-      if (datePrefix) {
-        if (!tx.date || !tx.date.startsWith(datePrefix)) return false;
-      }
+      // 3. Date Filter (BML & MIB date format matching)
+      if (!matchesDateFilter(tx.date, ledgerDateFilter)) return false;
 
       return true;
     });
@@ -1940,6 +2009,7 @@ function App() {
             ledger_show_balance: data.permissions.ledger_show_balance ?? true,
             ledger_show_debit: data.permissions.ledger_show_debit ?? true,
             reports_enabled: data.permissions.reports_enabled ?? false,
+            statement_enabled: data.permissions.statement_enabled ?? false,
             show_vbtl: data.permissions.show_vbtl ?? false,
             recent_tx_limit: data.permissions.recent_tx_limit ?? 3
           });
@@ -2015,6 +2085,9 @@ function App() {
       setActiveTab('verify');
     }
     if (!permissions.reports_enabled && activeTab === 'reports') {
+      setActiveTab('verify');
+    }
+    if (!permissions.statement_enabled && activeTab === 'statements') {
       setActiveTab('verify');
     }
   }, [permissions, activeTab]);
@@ -3611,7 +3684,7 @@ function App() {
             <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Reports</span>
           </button>
         )}
-        {permissions.reports_enabled && (
+        {permissions.statement_enabled && (
           <button
             onClick={() => { setShowSettings(false); setActiveTab('statements'); }}
             className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
@@ -3799,10 +3872,10 @@ function App() {
                   title={`Current Theme: ${theme.toUpperCase()}. Click to rotate.`}
                   className="w-8 h-8 flex items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--color-success)] transition-all shrink-0"
                 >
-                  {theme === 'dark' && <Moon size={15} />}
-                  {theme === 'light' && <Sun size={15} />}
-                  {theme === 'corporate' && <Briefcase size={15} />}
-                  {theme === 'cute' && <Heart size={15} />}
+                  {theme === 'dark' && <Moon size={15} className="text-indigo-400" />}
+                  {theme === 'light' && <Sun size={15} className="text-amber-400" />}
+                  {theme === 'corporate' && <Briefcase size={15} className="text-blue-400" />}
+                  {theme === 'cute' && <Sparkles size={15} className="text-pink-400" />}
                 </button>
                 <button
                   onClick={() => setShowSettings(false)}
@@ -4191,10 +4264,10 @@ function App() {
                   title={`Current Theme: ${theme.toUpperCase()}. Click to rotate.`}
                   className="w-8 h-8 flex items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--color-success)] transition-all shrink-0"
                 >
-                  {theme === 'dark' && <Moon size={15} />}
-                  {theme === 'light' && <Sun size={15} />}
-                  {theme === 'corporate' && <Briefcase size={15} />}
-                  {theme === 'cute' && <Heart size={15} />}
+                  {theme === 'dark' && <Moon size={15} className="text-indigo-400" />}
+                  {theme === 'light' && <Sun size={15} className="text-amber-400" />}
+                  {theme === 'corporate' && <Briefcase size={15} className="text-blue-400" />}
+                  {theme === 'cute' && <Sparkles size={15} className="text-pink-400" />}
                 </button>
               </div>
             </div>

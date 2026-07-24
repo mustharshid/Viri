@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2, Server, Database, Code, Zap, Activity } from 'lucide-react';
+import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2, Server, Database, Code, Zap, Activity, Sun, Moon, Briefcase, Sparkles, Clock, AlertTriangle, Search } from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group/tooltip ml-1.5 cursor-help align-middle">
@@ -13,6 +14,7 @@ const Tooltip = ({ text }: { text: string }) => (
 );
 
 export default function AdminDashboard() {
+  const [theme, toggleTheme] = useTheme();
   const [companies, setCompanies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -44,7 +46,10 @@ export default function AdminDashboard() {
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRunIdx, setSelectedRunIdx] = useState<number>(0);
 
-  const [activeTab, setActiveTab] = useState<'companies' | 'archived' | 'tiers' | 'logs' | 'settings' | 'payments' | 'debug'>('companies');
+  const [activeTab, setActiveTab] = useState<'overview' | 'companies' | 'archived' | 'tiers' | 'logs' | 'settings' | 'payments' | 'debug'>('overview');
+  const [singleCompanyFilterId, setSingleCompanyFilterId] = useState<number | null>(null);
+  const [overviewSearch, setOverviewSearch] = useState('');
+  const [overviewStatusFilter, setOverviewStatusFilter] = useState('all');
   const [sessionLogs, setSessionLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsPage, setLogsPage] = useState(1);
@@ -254,6 +259,7 @@ export default function AdminDashboard() {
       ledger_show_balance: false,
       ledger_show_debit: false,
       reports_enabled: false,
+      statement_enabled: false,
       custom_recent_tx_limit: false
     }
   });
@@ -265,10 +271,10 @@ export default function AdminDashboard() {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'companies') {
+    if (activeTab === 'companies' || activeTab === 'overview') {
       fetchData();
     }
-  }, [companiesPage]);
+  }, [companiesPage, activeTab]);
 
 
   useEffect(() => {
@@ -360,7 +366,8 @@ export default function AdminDashboard() {
         throw new Error('Not an admin');
       }
 
-      const compRes = await fetch(`/api/admin/companies?page=${companiesPage}&per_page=10`, { headers });
+      const perPage = activeTab === 'overview' ? 200 : 10;
+      const compRes = await fetch(`/api/admin/companies?page=${companiesPage}&per_page=${perPage}`, { headers });
       const compData = await compRes.json();
       if (compData.data !== undefined) {
         setCompanies(compData.data);
@@ -562,6 +569,7 @@ export default function AdminDashboard() {
             ledger_show_balance: false,
             ledger_show_debit: false,
             reports_enabled: false,
+            statement_enabled: false,
             custom_recent_tx_limit: false
           }
         });
@@ -950,6 +958,7 @@ export default function AdminDashboard() {
                 { key: 'ledger_show_balance', label: 'Ledger Show Balance' },
                 { key: 'ledger_show_debit', label: 'Ledger Show Debit (Outgoing)' },
                 { key: 'reports_enabled', label: 'Reports & Analytics' },
+                { key: 'statement_enabled', label: 'Bank Statements Generator' },
                 { key: 'custom_recent_tx_limit', label: 'Configurable Recent Tx Count' }
               ].map(f => {
                 const currentFeatures = draft.features !== undefined ? draft.features : (company.features || {});
@@ -1159,6 +1168,7 @@ export default function AdminDashboard() {
                   { key: 'ledger_show_balance', label: 'Ledger Show Balance' },
                   { key: 'ledger_show_debit', label: 'Ledger Show Debit (Outgoing)' },
                   { key: 'reports_enabled', label: 'Reports & Analytics' },
+                  { key: 'statement_enabled', label: 'Bank Statements Generator' },
                   { key: 'custom_recent_tx_limit', label: 'Configurable Recent Tx Count' }
                 ].map(f => {
                   const isChecked = (planForm.features as any)[f.key] ?? false;
@@ -1204,6 +1214,7 @@ export default function AdminDashboard() {
                         ledger_show_balance: false,
                         ledger_show_debit: false,
                         reports_enabled: false,
+                        statement_enabled: false,
                         custom_recent_tx_limit: false
                       }
                     });
@@ -1297,6 +1308,7 @@ export default function AdminDashboard() {
                         ledger_show_balance: plan.features?.ledger_show_balance ?? false,
                         ledger_show_debit: plan.features?.ledger_show_debit ?? false,
                         reports_enabled: plan.features?.reports_enabled ?? false,
+                        statement_enabled: plan.features?.statement_enabled ?? false,
                         custom_recent_tx_limit: plan.features?.custom_recent_tx_limit ?? false
                       }
                     });
@@ -2148,6 +2160,256 @@ export default function AdminDashboard() {
     );
   };
 
+  const renderOverviewTab = () => {
+    const activeCompanies = companies.filter((c: any) => c.status !== 'archived');
+    const pendingCompanies = activeCompanies.filter((c: any) => c.status === 'pending');
+    const expiredCompanies = activeCompanies.filter((c: any) => c.license_expires_at && new Date(c.license_expires_at).getTime() < Date.now());
+    const expiringSoonCompanies = activeCompanies.filter((c: any) => {
+      if (!c.license_expires_at) return false;
+      const t = new Date(c.license_expires_at).getTime();
+      return t >= Date.now() && t <= Date.now() + 7 * 86400000;
+    });
+
+    const filteredOverview = activeCompanies.filter((c: any) => {
+      const adminUser = c.users?.find((u: any) => u.role === 'company_admin') || c.users?.[0];
+      const matchesSearch = !overviewSearch || 
+        c.name?.toLowerCase().includes(overviewSearch.toLowerCase()) ||
+        adminUser?.email?.toLowerCase().includes(overviewSearch.toLowerCase()) ||
+        (adminUser?.phone_number && adminUser.phone_number.includes(overviewSearch));
+      const matchesStatus = overviewStatusFilter === 'all' || c.status === overviewStatusFilter;
+      return matchesSearch && matchesStatus;
+    });
+
+    // Priority sorting:
+    // 1. Pending approval companies AT THE VERY TOP
+    // 2. Shortest plan expiry date first (expired & nearest expiring dates at top)
+    const sortedOverview = [...filteredOverview].sort((a: any, b: any) => {
+      if (a.status === 'pending' && b.status !== 'pending') return -1;
+      if (a.status !== 'pending' && b.status === 'pending') return 1;
+
+      const dateA = a.license_expires_at ? new Date(a.license_expires_at).getTime() : Infinity;
+      const dateB = b.license_expires_at ? new Date(b.license_expires_at).getTime() : Infinity;
+      return dateA - dateB;
+    });
+
+    return (
+      <div className="space-y-6 animate-fade-in pb-12">
+        {/* Top Telemetry KPI Bar */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="glass-panel p-4 rounded-2xl border border-white/10 flex items-center gap-4 bg-white/5 backdrop-blur-xl">
+            <div className="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+              <Building2 size={22} />
+            </div>
+            <div>
+              <div className="text-xs text-zinc-400 font-medium uppercase tracking-wider">Registered Companies</div>
+              <div className="text-2xl font-bold font-mono text-white mt-0.5">{activeCompanies.length}</div>
+              <div className="text-[10px] text-zinc-400 mt-0.5">Total registered tenants</div>
+            </div>
+          </div>
+
+          <div className={`glass-panel p-4 rounded-2xl border flex items-center gap-4 backdrop-blur-xl transition-all ${
+            pendingCompanies.length > 0 ? 'bg-amber-500/10 border-amber-500/30' : 'bg-white/5 border-white/10'
+          }`}>
+            <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0 relative">
+              <Clock size={22} />
+              {pendingCompanies.length > 0 && (
+                <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 rounded-full animate-ping"></span>
+              )}
+            </div>
+            <div>
+              <div className="text-xs text-zinc-400 font-medium uppercase tracking-wider">Pending Approvals</div>
+              <div className="text-2xl font-bold font-mono text-amber-400 mt-0.5">{pendingCompanies.length}</div>
+              <div className="text-[10px] text-amber-300 font-semibold mt-0.5">Prioritized at top of list</div>
+            </div>
+          </div>
+
+          <div className="glass-panel p-4 rounded-2xl border border-white/10 flex items-center gap-4 bg-white/5 backdrop-blur-xl">
+            <div className="w-12 h-12 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 shrink-0">
+              <AlertTriangle size={22} />
+            </div>
+            <div>
+              <div className="text-xs text-zinc-400 font-medium uppercase tracking-wider">Expired Plans</div>
+              <div className="text-2xl font-bold font-mono text-red-400 mt-0.5">{expiredCompanies.length}</div>
+              <div className="text-[10px] text-red-300 mt-0.5">Past license expiration</div>
+            </div>
+          </div>
+
+          <div className="glass-panel p-4 rounded-2xl border border-white/10 flex items-center gap-4 bg-white/5 backdrop-blur-xl">
+            <div className="w-12 h-12 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center text-yellow-400 shrink-0">
+              <Clock size={22} />
+            </div>
+            <div>
+              <div className="text-xs text-zinc-400 font-medium uppercase tracking-wider">Expiring &lt; 7 Days</div>
+              <div className="text-2xl font-bold font-mono text-yellow-400 mt-0.5">{expiringSoonCompanies.length}</div>
+              <div className="text-[10px] text-zinc-400 mt-0.5">Due for license renewal</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Filter Controls Bar */}
+        <div className="glass-panel p-4 rounded-2xl border border-white/10 flex flex-col sm:flex-row gap-4 items-center justify-between bg-white/5">
+          <div className="relative flex-1 max-w-md w-full">
+            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+            <input
+              type="text"
+              placeholder="Search companies by name, email, or phone..."
+              value={overviewSearch}
+              onChange={(e) => setOverviewSearch(e.target.value)}
+              className="w-full bg-black/40 border border-white/10 rounded-xl pl-10 pr-4 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-yellow-500/50"
+            />
+            {overviewSearch && (
+              <button onClick={() => setOverviewSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <select
+              value={overviewStatusFilter}
+              onChange={(e) => setOverviewStatusFilter(e.target.value)}
+              className="bg-black/40 border border-white/10 text-xs text-white px-3 py-2 rounded-xl focus:outline-none focus:border-yellow-500/50 cursor-pointer"
+            >
+              <option value="all">All Statuses</option>
+              <option value="pending">Pending Approval Only</option>
+              <option value="active">Active Only</option>
+              <option value="suspended">Suspended Only</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Overview Companies Table */}
+        <div className="glass-panel p-5 rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-white/10 text-zinc-400 uppercase tracking-wider font-semibold text-[10px]">
+                  <th className="py-3 px-4">Company & Admin Details</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Subscription Plan</th>
+                  <th className="py-3 px-4">Plan Expiry Date</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/10 text-zinc-300">
+                {sortedOverview.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-12 text-center text-zinc-500 italic">
+                      No registered companies found.
+                    </td>
+                  </tr>
+                ) : (
+                  sortedOverview.map((company: any) => {
+                    const adminUser = company.users?.find((u: any) => u.role === 'company_admin') || company.users?.[0];
+                    const isPending = company.status === 'pending';
+                    const hasExpiry = !!company.license_expires_at;
+                    const expiryTime = hasExpiry ? new Date(company.license_expires_at).getTime() : Infinity;
+                    const daysRemaining = hasExpiry ? Math.ceil((expiryTime - Date.now()) / (1000 * 3600 * 24)) : null;
+                    const isExpired = daysRemaining !== null && daysRemaining < 0;
+                    const isExpiringSoon = daysRemaining !== null && daysRemaining >= 0 && daysRemaining <= 7;
+
+                    return (
+                      <tr 
+                        key={company.id} 
+                        className={`transition-colors ${
+                          isPending ? 'bg-amber-500/10 hover:bg-amber-500/15' : 'hover:bg-white/5'
+                        }`}
+                      >
+                        {/* Company Details */}
+                        <td className="py-3.5 px-4">
+                          <div className="font-bold text-white text-sm flex items-center gap-2">
+                            {company.name}
+                            <span className="text-[10px] text-zinc-500 font-mono font-normal">#{company.id}</span>
+                          </div>
+                          <div className="text-[11px] text-zinc-400 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono">
+                            <span>{adminUser?.email || 'No admin email'}</span>
+                            {adminUser?.phone_number && (
+                              <>
+                                <span className="text-zinc-600">•</span>
+                                <span>{adminUser.phone_number}</span>
+                              </>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Status */}
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          {isPending ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[11px] font-bold animate-pulse">
+                              <Clock size={13} />
+                              PENDING APPROVAL 🔔
+                            </span>
+                          ) : company.status === 'active' ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-semibold">
+                              <CheckCircle2 size={13} />
+                              Active
+                            </span>
+                          ) : company.status === 'suspended' ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-red-500/15 text-red-400 border border-red-500/30 text-xs font-semibold">
+                              Suspended
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-800 text-zinc-400 border border-zinc-700 text-xs font-semibold">
+                              {company.status}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Subscription Plan */}
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          <span className="px-2.5 py-1 rounded-lg bg-zinc-800 text-zinc-200 border border-zinc-700 text-xs font-medium uppercase font-mono">
+                            {company.subscription_tier || 'free'}
+                          </span>
+                        </td>
+
+                        {/* Plan Expiry Date & Countdown */}
+                        <td className="py-3.5 px-4 whitespace-nowrap font-mono text-xs">
+                          {isPending ? (
+                            <span className="text-amber-400 font-semibold italic">Awaiting Approval</span>
+                          ) : isExpired ? (
+                            <span className="inline-flex items-center gap-1 text-red-400 font-bold bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded">
+                              <AlertTriangle size={12} />
+                              Expired {Math.abs(daysRemaining!)}d ago ({new Date(company.license_expires_at).toLocaleDateString()})
+                            </span>
+                          ) : isExpiringSoon ? (
+                            <span className="inline-flex items-center gap-1 text-yellow-400 font-bold bg-yellow-500/10 border border-yellow-500/20 px-2 py-0.5 rounded">
+                              <Clock size={12} />
+                              Expires in {daysRemaining}d ({new Date(company.license_expires_at).toLocaleDateString()})
+                            </span>
+                          ) : hasExpiry ? (
+                            <span className="text-zinc-300">
+                              {new Date(company.license_expires_at).toLocaleDateString()} (in {daysRemaining}d)
+                            </span>
+                          ) : (
+                            <span className="text-zinc-500 italic">No Expiry Set</span>
+                          )}
+                        </td>
+
+                        {/* Edit Settings Action */}
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                          <button
+                            onClick={() => {
+                              setSingleCompanyFilterId(company.id);
+                              setActiveTab('companies');
+                            }}
+                            className="btn btn-outline text-xs px-3 py-1.5 flex items-center gap-1.5 text-yellow-500 border-yellow-500/30 hover:bg-yellow-500/10 font-bold ml-auto"
+                          >
+                            <Edit size={13} />
+                            Edit Settings
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (loading) return <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center text-white">Loading...</div>;
 
   return (
@@ -2162,6 +2424,17 @@ export default function AdminDashboard() {
             <p className="text-[var(--text-secondary)]">Manage tenant subscriptions and approvals</p>
           </div>
           <div className="flex gap-2">
+            <button
+              onClick={toggleTheme}
+              title={`Current Theme: ${theme.toUpperCase()}. Click to rotate.`}
+              className="btn btn-outline flex items-center gap-2 capitalize"
+            >
+              {theme === 'dark' && <Moon size={16} className="text-indigo-400" />}
+              {theme === 'light' && <Sun size={16} className="text-amber-400" />}
+              {theme === 'corporate' && <Briefcase size={16} className="text-blue-400" />}
+              {theme === 'cute' && <Sparkles size={16} className="text-pink-400" />}
+              <span>{theme}</span>
+            </button>
             <button onClick={handleRefresh} className="btn btn-outline flex items-center gap-2">
               <RefreshCw size={16} /> Refresh
             </button>
@@ -2173,6 +2446,22 @@ export default function AdminDashboard() {
 
         {/* Navigation Tabs */}
         <div className="flex border-b border-zinc-800 mb-6 flex-wrap gap-2">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 relative ${
+              activeTab === 'overview'
+                ? 'border-yellow-500 text-yellow-500'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Activity size={16} className="shrink-0" />
+            <span>Overview & Expiries</span>
+            {companies.filter(c => c.status === 'pending').length > 0 && (
+              <span className="px-1.5 py-0.5 text-[9px] font-bold bg-amber-500 text-black rounded-full leading-none shrink-0 animate-pulse">
+                {companies.filter(c => c.status === 'pending').length} PENDING
+              </span>
+            )}
+          </button>
           <button
             onClick={() => setActiveTab('companies')}
             className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
@@ -2271,35 +2560,62 @@ export default function AdminDashboard() {
           </div>
         </div>
         <div className="flex flex-col gap-6">
-          {activeTab === 'companies' && (
-            companies.filter(c => c.status !== 'archived').length === 0 ? (
-              <div className="glass-panel p-8 text-center text-zinc-500 italic bg-black/20 rounded-2xl border border-zinc-850">
-                No active registered companies found.
-              </div>
-            ) : (
+          {activeTab === 'overview' && renderOverviewTab()}
+
+          {activeTab === 'companies' && (() => {
+            const displayedCompanies = singleCompanyFilterId 
+              ? companies.filter(c => c.id === singleCompanyFilterId)
+              : companies.filter(c => c.status !== 'archived');
+
+            return (
               <>
-                {companies.filter(c => c.status !== 'archived').map(company => renderCompanyCard(company))}
-                
-                <div className="flex justify-between items-center bg-black/20 p-4 rounded-xl border border-white/10 mt-4">
-                  <button 
-                    onClick={() => setCompaniesPage(prev => Math.max(prev - 1, 1))}
-                    disabled={companiesPage === 1}
-                    className="btn btn-outline text-xs px-4 py-1.5"
-                  >
-                    Previous
-                  </button>
-                  <span className="text-sm text-zinc-400">Page {companiesPage} of {companiesTotalPages}</span>
-                  <button 
-                    onClick={() => setCompaniesPage(prev => Math.min(prev + 1, companiesTotalPages))}
-                    disabled={companiesPage === companiesTotalPages}
-                    className="btn btn-outline text-xs px-4 py-1.5"
-                  >
-                    Next
-                  </button>
-                </div>
+                {singleCompanyFilterId && (
+                  <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-2xl flex items-center justify-between text-xs text-amber-300 mb-2">
+                    <span className="flex items-center gap-2 font-medium">
+                      <Info size={16} />
+                      Showing single company settings for <strong>#{singleCompanyFilterId} ({companies.find(c => c.id === singleCompanyFilterId)?.name})</strong>
+                    </span>
+                    <button
+                      onClick={() => setSingleCompanyFilterId(null)}
+                      className="btn btn-outline text-xs px-3 py-1.5 border-amber-500/40 text-amber-300 hover:bg-amber-500/20 font-bold"
+                    >
+                      Show All Companies
+                    </button>
+                  </div>
+                )}
+
+                {displayedCompanies.length === 0 ? (
+                  <div className="glass-panel p-8 text-center text-zinc-500 italic bg-black/20 rounded-2xl border border-zinc-850">
+                    No active registered companies found.
+                  </div>
+                ) : (
+                  <>
+                    {displayedCompanies.map(company => renderCompanyCard(company))}
+                    
+                    {!singleCompanyFilterId && (
+                      <div className="flex justify-between items-center bg-black/20 p-4 rounded-xl border border-white/10 mt-4">
+                        <button 
+                          onClick={() => setCompaniesPage(prev => Math.max(prev - 1, 1))}
+                          disabled={companiesPage === 1}
+                          className="btn btn-outline text-xs px-4 py-1.5"
+                        >
+                          Previous
+                        </button>
+                        <span className="text-sm text-zinc-400">Page {companiesPage} of {companiesTotalPages}</span>
+                        <button 
+                          onClick={() => setCompaniesPage(prev => Math.min(prev + 1, companiesTotalPages))}
+                          disabled={companiesPage === companiesTotalPages}
+                          className="btn btn-outline text-xs px-4 py-1.5"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
               </>
-            )
-          )}
+            );
+          })()}
 
           {activeTab === 'archived' && (
             companies.filter(c => c.status === 'archived').length === 0 ? (
