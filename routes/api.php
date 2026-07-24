@@ -249,6 +249,10 @@ Route::post('/verify-terminal', function (Request $request) {
         'backlog' => $totalBacklog,
     ];
 
+    $isFreeOr499 = in_array($tier, ['free', '499']);
+    $tenantFeatures = is_array($tenant->features) ? $tenant->features : [];
+    $terminalPermissions = is_array($terminal->permissions) ? $terminal->permissions : [];
+
     return response()->json([
         'status' => 'authorized',
         'terminal_id' => $terminal->id,
@@ -258,8 +262,8 @@ Route::post('/verify-terminal', function (Request $request) {
         'sync_health_summary' => $syncHealthSummary,
         'operation_mode' => $operationMode,
         'active_terminals_count' => $activeTerminalsCount,
-        'license_expires_at' => $tenant->license_expires_at ? $tenant->license_expires_at->toIso8601String() : null,
-        'expiry_warning_days' => (int) ($tenant->features['expiry_warning_days'] ?? 7),
+        'license_expires_at' => $tenant->license_expires_at ? \Carbon\Carbon::parse($tenant->license_expires_at)->toIso8601String() : null,
+        'expiry_warning_days' => (int) ($tenantFeatures['expiry_warning_days'] ?? 7),
         'tenant' => [
             'name' => $tenant->name,
             'logo' => $tenant->company_logo,
@@ -286,31 +290,31 @@ Route::post('/verify-terminal', function (Request $request) {
                     'login_credentials_hash' => $account->login_credentials_hash,
                     'session_holder_terminal_id' => $account->session_holder_terminal_id,
                     'session_holder_name' => $account->sessionHolder?->terminal_name,
-                    'session_claimed_at' => $account->session_claimed_at ? $account->session_claimed_at->toIso8601String() : null,
-                    'session_last_heartbeat_at' => $account->session_last_heartbeat_at ? $account->session_last_heartbeat_at->toIso8601String() : null,
+                    'session_claimed_at' => $account->session_claimed_at ? \Carbon\Carbon::parse($account->session_claimed_at)->toIso8601String() : null,
+                    'session_last_heartbeat_at' => $account->session_last_heartbeat_at ? \Carbon\Carbon::parse($account->session_last_heartbeat_at)->toIso8601String() : null,
                 ];
             })
         ],
         'terminal_name' => $terminal->terminal_name,
         'settings_pin' => $terminal->settings_pin,
-        'terminal_pin' => $terminal->permissions['terminal_pin'] ?? null,
+        'terminal_pin' => $terminalPermissions['terminal_pin'] ?? null,
         // 'credentials' intentionally omitted — credentials are never transmitted by server (ZK architecture)
-        'should_upload_logs' => (isset($terminal->permissions['share_pwa_logs']) ? $terminal->permissions['share_pwa_logs'] : true) || ($terminal->allow_debug_until && now()->lessThan($terminal->allow_debug_until)),
+        'should_upload_logs' => (isset($terminalPermissions['share_pwa_logs']) ? $terminalPermissions['share_pwa_logs'] : true) || ($terminal->allow_debug_until && now()->lessThan($terminal->allow_debug_until)),
         'permissions' => [
-            'verification_enabled' => (bool) ($tenant->features['verification_enabled'] ?? true),
-            'ledger_enabled' => (bool) (($tenant->features['ledger_enabled'] ?? !$isFreeOr499) && ($terminal->permissions['ledger_enabled'] ?? true)),
-            'ledger_show_balance' => (bool) (($tenant->features['ledger_show_balance'] ?? !$isFreeOr499) && ($terminal->permissions['ledger_show_balance'] ?? true)),
-            'ledger_show_debit' => (bool) (($tenant->features['ledger_show_debit'] ?? !$isFreeOr499) && ($terminal->permissions['ledger_show_debit'] ?? true)),
-            'reports_enabled' => (bool) (($tenant->features['reports_enabled'] ?? !$isFreeOr499) && ($terminal->permissions['reports_enabled'] ?? false)),
-            'statement_enabled' => (bool) (($tenant->features['statement_enabled'] ?? !$isFreeOr499) && ($terminal->permissions['statement_enabled'] ?? false)),
-            'share_pwa_logs' => (bool) ($terminal->permissions['share_pwa_logs'] ?? true),
-            'show_vbtl' => (bool) ($terminal->permissions['show_vbtl'] ?? false),
-            'recent_tx_limit' => (function() use ($tenant) {
-                $hasFeature = (bool) ($tenant->features['custom_recent_tx_limit'] ?? false);
+            'verification_enabled' => (bool) ($tenantFeatures['verification_enabled'] ?? true),
+            'ledger_enabled' => (bool) (($tenantFeatures['ledger_enabled'] ?? !$isFreeOr499) && ($terminalPermissions['ledger_enabled'] ?? true)),
+            'ledger_show_balance' => (bool) (($tenantFeatures['ledger_show_balance'] ?? !$isFreeOr499) && ($terminalPermissions['ledger_show_balance'] ?? true)),
+            'ledger_show_debit' => (bool) (($tenantFeatures['ledger_show_debit'] ?? !$isFreeOr499) && ($terminalPermissions['ledger_show_debit'] ?? true)),
+            'reports_enabled' => (bool) (($tenantFeatures['reports_enabled'] ?? !$isFreeOr499) && ($terminalPermissions['reports_enabled'] ?? false)),
+            'statement_enabled' => (bool) (($tenantFeatures['statement_enabled'] ?? !$isFreeOr499) && ($terminalPermissions['statement_enabled'] ?? false)),
+            'share_pwa_logs' => (bool) ($terminalPermissions['share_pwa_logs'] ?? true),
+            'show_vbtl' => (bool) ($terminalPermissions['show_vbtl'] ?? false),
+            'recent_tx_limit' => (function() use ($tenantFeatures) {
+                $hasFeature = (bool) ($tenantFeatures['custom_recent_tx_limit'] ?? false);
                 if (!$hasFeature) {
                     return 3;
                 }
-                $limit = (int) ($tenant->features['recent_tx_limit'] ?? 3);
+                $limit = (int) ($tenantFeatures['recent_tx_limit'] ?? 3);
                 return ($limit === 0 || $limit >= 9999) ? 9999 : $limit;
             })()
         ]
