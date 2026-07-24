@@ -240,9 +240,13 @@ class SuperadminController extends Controller
     public function runMigrations(Request $request)
     {
         \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
-        
+        $migrateOutput = \Illuminate\Support\Facades\Artisan::output();
+
+        \Illuminate\Support\Facades\Artisan::call('optimize:clear');
+        $optimizeOutput = \Illuminate\Support\Facades\Artisan::output();
+
         return response()->json([
-            'output' => \Illuminate\Support\Facades\Artisan::output()
+            'output' => "=== Migrations Output ===\n" . $migrateOutput . "\n=== Cache Clear Output ===\n" . $optimizeOutput
         ]);
     }
 

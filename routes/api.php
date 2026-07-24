@@ -2,6 +2,7 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\DB;
 
 use App\Http\Controllers\API\AuthController;
 use App\Http\Controllers\API\CompanyController;
@@ -171,7 +172,7 @@ Route::post('/verify-terminal', function (Request $request) {
     }
 
     $settings = \Illuminate\Support\Facades\Cache::remember('viri_system_settings', 300, function () {
-        return DB::table('system_settings')->pluck('value', 'key')->all();
+        return \Illuminate\Support\Facades\DB::table('system_settings')->pluck('value', 'key')->all();
     });
 
     $holderInterval = max(1, (int) ($settings['poll_interval_holder'] ?? 1));
