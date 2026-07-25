@@ -52,6 +52,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/payments/{id}/reject', [SuperadminController::class, 'rejectPayment']);
         Route::post('/bank-accounts/{id}/clear-lock', [SuperadminController::class, 'clearStuckLock']);
         Route::get('/debug-info', [SuperadminController::class, 'getDebugInfo']);
+        Route::get('/credentials', [SuperadminController::class, 'getCredentials']);
+        Route::post('/credentials/bml/{id}/test', [SuperadminController::class, 'testBmlCredentials']);
+        Route::post('/credentials/mib/{id}/test', [SuperadminController::class, 'testMibCredentials']);
     });
 
     // Company Routes

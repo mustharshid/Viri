@@ -155,12 +155,6 @@ class BankAccountLockController extends Controller
 
         if ($hash) {
             $bankAccount->update(['login_credentials_hash' => $hash]);
-
-            BankAccount::where('tenant_id', $bankAccount->tenant_id)
-                ->where('login_credentials_hash', $hash)
-                ->increment('login_failures');
-        } else {
-            $bankAccount->increment('login_failures');
         }
 
         // Log login failure to session activity if share_pwa_logs is enabled
@@ -178,7 +172,7 @@ class BankAccountLockController extends Controller
                 'event_type'            => 'session_login_failed',
                 'event_summary'         => 'Bank login failed on terminal ' . $terminal->terminal_name,
                 'event_detail'          => [
-                    'login_failures' => $bankAccount->fresh()->login_failures,
+                    'login_failures' => 0,
                     'pwa_logs' => $request->input('pwa_logs', []),
                     'extension_version' => $request->input('extension_version')
                 ],
@@ -187,7 +181,7 @@ class BankAccountLockController extends Controller
             ]);
         }
 
-        return response()->json(['status' => 'success', 'login_failures' => $bankAccount->fresh()->login_failures]);
+        return response()->json(['status' => 'success', 'login_failures' => 0]);
     }
 
     public function resetFailures(Request $request)
@@ -203,12 +197,6 @@ class BankAccountLockController extends Controller
 
         if ($hash) {
             $bankAccount->update(['login_credentials_hash' => $hash]);
-
-            BankAccount::where('tenant_id', $bankAccount->tenant_id)
-                ->where('login_credentials_hash', $hash)
-                ->update(['login_failures' => 0]);
-        } else {
-            $bankAccount->update(['login_failures' => 0]);
         }
 
         // Log login success to session activity if share_pwa_logs is enabled

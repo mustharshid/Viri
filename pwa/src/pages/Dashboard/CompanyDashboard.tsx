@@ -827,22 +827,7 @@ export default function CompanyDashboard() {
     }
   };
 
-  const resetBankAccountFailures = async (id: number) => {
-    const token = localStorage.getItem('viri_token');
-    const res = await fetch(`/api/company/bank-accounts/${id}/reset-failures`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-    if (res.ok) {
-      fetchData();
-    } else {
-      const data = await res.json().catch(() => ({}));
-      alert(data.message || 'Error resetting failures');
-    }
-  };
+
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -1615,13 +1600,7 @@ export default function CompanyDashboard() {
                       <div className="min-w-0">
                         <div className="font-bold text-sm text-[var(--text-primary)] flex items-center gap-1.5 truncate">
                           <span className="truncate">{acc.label ? acc.label : (acc.bank_name === 'BML' ? 'BML Account' : 'MIB Account')}</span>
-                          {(acc.login_failures || 0) >= 2 ? (
-                            <span className="text-[8px] font-extrabold text-red-400 bg-red-950/40 border border-red-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">Locked</span>
-                          ) : (acc.login_failures || 0) > 0 ? (
-                            <span className="text-[8px] font-extrabold text-yellow-500 bg-yellow-950/40 border border-yellow-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">{acc.login_failures} Fail</span>
-                          ) : (
-                            <span className="text-[8px] font-extrabold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">Secure</span>
-                          )}
+                          <span className="text-[8px] font-extrabold text-emerald-400 bg-emerald-955/40 border border-emerald-500/30 px-1.5 py-0.5 rounded uppercase font-sans shrink-0">Secure</span>
                         </div>
                         <div className="text-[10px] text-[var(--text-secondary)] font-mono mt-0.5 truncate">{acc.account_name}</div>
                         <div className="font-mono text-xs text-[var(--text-secondary)] flex items-center gap-1.5 mt-0.5">
@@ -1639,15 +1618,6 @@ export default function CompanyDashboard() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {(acc.login_failures || 0) > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => resetBankAccountFailures(acc.id)}
-                          className="text-[9px] font-bold px-2.5 py-1.5 rounded-lg border border-red-500/30 bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 transition-all"
-                        >
-                          Reset
-                        </button>
-                      )}
                       <button onClick={() => editBankAccount(acc)} className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-white/5 rounded-lg transition-colors" title="Edit Account Details"><Edit size={16}/></button>
                       <button onClick={() => setDeleteConfirm({isOpen: true, type: 'account', id: acc.id, name: `${acc.bank_name} - ${acc.account_name} (${acc.account_number})`})} className="p-2 text-[var(--text-secondary)] hover:text-red-400 hover:bg-red-500/5 rounded-lg transition-colors" title="Delete Account"><Trash2 size={16}/></button>
                     </div>

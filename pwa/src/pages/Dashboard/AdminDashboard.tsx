@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2, Server, Database, Code, Zap, Activity, Sun, Moon, Briefcase, Sparkles, Clock, AlertTriangle, Search } from 'lucide-react';
+import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2, Server, Database, Code, Zap, Activity, Sun, Moon, Briefcase, Sparkles, Clock, AlertTriangle, Search, Key } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 
 const Tooltip = ({ text }: { text: string }) => (
@@ -46,7 +46,7 @@ export default function AdminDashboard() {
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRunIdx, setSelectedRunIdx] = useState<number>(0);
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'companies' | 'archived' | 'tiers' | 'logs' | 'settings' | 'payments' | 'debug'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'companies' | 'archived' | 'tiers' | 'logs' | 'settings' | 'payments' | 'debug' | 'credentials'>('overview');
   const [singleCompanyFilterId, setSingleCompanyFilterId] = useState<number | null>(null);
   const [overviewSearch, setOverviewSearch] = useState('');
   const [overviewStatusFilter, setOverviewStatusFilter] = useState('all');
@@ -60,6 +60,17 @@ export default function AdminDashboard() {
   // Debug state
   const [debugData, setDebugData] = useState<{ mib_keys: any[]; bml_tokens: any[]; total_mib_keys: number; total_bml_tokens: number } | null>(null);
   const [debugLoading, setDebugLoading] = useState(false);
+
+  // Credentials Inspector State
+  const [credsData, setCredsData] = useState<{ bml_groups: any[]; mib_groups: any[]; total_bml: number; total_mib: number } | null>(null);
+  const [credsLoading, setCredsLoading] = useState(false);
+  const [credsTestingId, setCredsTestingId] = useState<string | null>(null);
+  const [credsTestResults, setCredsTestResults] = useState<Record<string, any>>({});
+  const [revealedCreds, setRevealedCreds] = useState<Record<string, boolean>>({});
+
+  const toggleReveal = (key: string) => {
+    setRevealedCreds(prev => ({ ...prev, [key]: !prev[key] }));
+  };
 
   // Payments State
   const [payments, setPayments] = useState<any[]>([]);
@@ -233,6 +244,8 @@ export default function AdminDashboard() {
       fetchSystemSettings();
     } else if (activeTab === 'payments') {
       fetchPayments();
+    } else if (activeTab === 'credentials') {
+      fetchCredentials();
     }
   }, [activeTab]);
 
@@ -345,6 +358,42 @@ export default function AdminDashboard() {
       console.error('Failed to fetch debug info:', err);
     } finally {
       setDebugLoading(false);
+    }
+  };
+
+  const fetchCredentials = async () => {
+    setCredsLoading(true);
+    try {
+      const token = localStorage.getItem('viri_token');
+      if (!token) return;
+      const res = await fetch('/api/admin/credentials', {
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+      });
+      if (res.ok) setCredsData(await res.json());
+    } catch (err) {
+      console.error('Failed to fetch credentials:', err);
+    } finally {
+      setCredsLoading(false);
+    }
+  };
+
+  const testCredential = async (type: 'bml' | 'mib', id: number) => {
+    const key = `${type}-${id}`;
+    setCredsTestingId(key);
+    setCredsTestResults(prev => ({ ...prev, [key]: { loading: true } }));
+    try {
+      const token = localStorage.getItem('viri_token');
+      if (!token) return;
+      const res = await fetch(`/api/admin/credentials/${type}/${id}/test`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+      });
+      const data = await res.json();
+      setCredsTestResults(prev => ({ ...prev, [key]: data }));
+    } catch (err: any) {
+      setCredsTestResults(prev => ({ ...prev, [key]: { error: err.message, valid: false } }));
+    } finally {
+      setCredsTestingId(null);
     }
   };
 
@@ -2533,6 +2582,17 @@ export default function AdminDashboard() {
               </span>
             )}
           </button>
+          <button
+            onClick={() => { setActiveTab('credentials'); fetchCredentials(); }}
+            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+              activeTab === 'credentials'
+                ? 'border-yellow-500 text-yellow-500'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Key size={16} className="shrink-0" />
+            <span>Credentials</span>
+          </button>
         </div>
 
         {/* Security Confirmation PIN display */}
@@ -2701,6 +2761,311 @@ export default function AdminDashboard() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {activeTab === 'credentials' && (
+            <div className="space-y-6">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold flex items-center gap-2">
+                    <Key size={22} className="text-yellow-400" />
+                    Credential Inspector
+                  </h2>
+                  <p className="text-sm text-zinc-400 mt-1">
+                    View all stored bank credentials across the platform and test their validity against bank APIs.
+                  </p>
+                </div>
+                <button onClick={fetchCredentials} className="btn btn-outline text-sm" disabled={credsLoading}>
+                  <RefreshCw size={14} className={`mr-1 ${credsLoading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </button>
+              </div>
+
+              {/* BML Credential Groups */}
+              <div className="glass-panel p-5 border border-zinc-800 rounded-xl">
+                <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                  <Database size={16} className="text-blue-400" />
+                  BML OAuth Credentials ({credsData?.total_bml ?? 0})
+                </h3>
+                {!credsData ? (
+                  <p className="text-zinc-500 text-sm italic">Click Refresh to load credentials.</p>
+                ) : credsData.bml_groups.length === 0 ? (
+                  <p className="text-zinc-500 text-sm italic">No BML credential groups stored.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {credsData.bml_groups.map((group: any) => {
+                      const testKey = `bml-${group.id}`;
+                      const testResult = credsTestResults[testKey];
+                      return (
+                        <div key={group.id} className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
+                            <div className="text-xs font-mono">
+                              <span className="text-zinc-500">Tenant:</span>
+                              <span className="text-zinc-300 ml-1">{group.tenant_name || 'N/A'}</span>
+                            </div>
+                            <div className="text-xs font-mono">
+                              <span className="text-zinc-500">Terminal:</span>
+                              <span className="text-zinc-300 ml-1">{group.terminal_name || 'N/A'}</span>
+                            </div>
+                            <div className="text-xs font-mono">
+                              <span className="text-zinc-500">BML Username:</span>
+                              <span className="text-zinc-300 ml-1">{group.bml_username || 'N/A'}</span>
+                            </div>
+                            <div className="text-xs font-mono">
+                              <span className="text-zinc-500">Profile:</span>
+                              <span className="text-zinc-300 ml-1">{group.profile_type}</span>
+                            </div>
+                            <div className="text-xs font-mono">
+                              <span className="text-zinc-500">Device ID:</span>
+                              <span className="text-zinc-300 ml-1">{group.device_id || 'N/A'}</span>
+                            </div>
+                            <div className="text-xs font-mono col-span-1 md:col-span-3">
+                              <span className="text-zinc-500">Token:</span>
+                              <span className={group.has_access_token ? 'text-emerald-400' : 'text-red-400'}>
+                                {group.has_access_token ? 'Yes' : 'No'}
+                              </span>
+                              <span className="text-zinc-500 mx-1">/</span>
+                              <span className="text-zinc-500">Refresh:</span>
+                              <span className={group.has_refresh_token ? 'text-emerald-400' : 'text-red-400'}>
+                                {group.has_refresh_token ? 'Yes' : 'No'}
+                              </span>
+                            </div>
+                            <div className="text-xs font-mono">
+                              <span className="text-zinc-500">Expires:</span>
+                              <span className={group.expired ? 'text-red-400' : 'text-emerald-400'}>
+                                {group.expires_at ? new Date(group.expires_at).toLocaleString() : 'N/A'}
+                              </span>
+                            </div>
+                            <div className="text-xs font-mono">
+                              <span className="text-zinc-500">Obtained:</span>
+                              <span className="text-zinc-300">{group.obtained_at ? new Date(group.obtained_at).toLocaleString() : 'N/A'}</span>
+                            </div>
+                          </div>
+
+                          {/* Linked accounts */}
+                          {group.linked_accounts?.length > 0 && (
+                            <div className="mb-3 text-xs">
+                              <span className="text-zinc-500">Linked Accounts:</span>
+                              <div className="flex flex-wrap gap-2 mt-1">
+                                {group.linked_accounts.map((acc: any) => (
+                                  <span key={acc.id} className="px-2 py-0.5 bg-zinc-800 rounded text-zinc-300">
+                                    {acc.bank_name} {acc.account_number} ({acc.account_name})
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Token values */}
+                          <div className="mb-3 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => toggleReveal(`bml-${group.id}-at`)} className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 px-1.5 py-0.5 rounded font-mono transition-colors">
+                                {revealedCreds[`bml-${group.id}-at`] ? 'Hide' : 'Show'} Access Token
+                              </button>
+                              {group.has_access_token && revealedCreds[`bml-${group.id}-at`] && (
+                                <button onClick={() => navigator.clipboard.writeText(group.access_token)} className="text-[10px] text-blue-400 hover:text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded font-mono transition-colors">
+                                  Copy
+                                </button>
+                              )}
+                            </div>
+                            {revealedCreds[`bml-${group.id}-at`] && (
+                              <div className="bg-black/40 border border-zinc-800 rounded p-2">
+                                <pre className="text-[10px] text-zinc-300 font-mono whitespace-pre-wrap break-all leading-relaxed">{group.access_token || <span className="text-zinc-600 italic">No access token stored</span>}</pre>
+                              </div>
+                            )}
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => toggleReveal(`bml-${group.id}-rt`)} className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 px-1.5 py-0.5 rounded font-mono transition-colors">
+                                {revealedCreds[`bml-${group.id}-rt`] ? 'Hide' : 'Show'} Refresh Token
+                              </button>
+                              {group.has_refresh_token && revealedCreds[`bml-${group.id}-rt`] && (
+                                <button onClick={() => navigator.clipboard.writeText(group.refresh_token)} className="text-[10px] text-blue-400 hover:text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded font-mono transition-colors">
+                                  Copy
+                                </button>
+                              )}
+                            </div>
+                            {revealedCreds[`bml-${group.id}-rt`] && (
+                              <div className="bg-black/40 border border-zinc-800 rounded p-2">
+                                <pre className="text-[10px] text-zinc-300 font-mono whitespace-pre-wrap break-all leading-relaxed">{group.refresh_token || <span className="text-zinc-600 italic">No refresh token stored</span>}</pre>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Test button + result */}
+                          <div className="flex items-center gap-3 mt-3 pt-3 border-t border-zinc-800">
+                            <button
+                              onClick={() => testCredential('bml', group.id)}
+                              disabled={credsTestingId === testKey}
+                              className="btn btn-outline text-xs border-emerald-700/40 text-emerald-400 hover:bg-emerald-900/30"
+                            >
+                              <Shield size={12} className="mr-1" />
+                              {credsTestingId === testKey ? 'Testing...' : 'Test BML Token'}
+                            </button>
+                            {testResult && !testResult.loading && (
+                              <div className="flex items-center gap-2 text-xs">
+                                <span className={testResult.valid ? 'text-emerald-400' : 'text-red-400'}>
+                                  {testResult.valid ? 'Valid' : 'Invalid'}
+                                </span>
+                                {testResult.token_expired && (
+                                  <span className="text-red-400 font-semibold">(Expired)</span>
+                                )}
+                                {testResult.error && (
+                                  <span className="text-red-400">{testResult.error}</span>
+                                )}
+                                {testResult.results?.dashboard_api && (
+                                  <span className="text-zinc-500">
+                                    API: {testResult.results.dashboard_api.status_code}
+                                    {testResult.results.dashboard_api.error ? ` - ${testResult.results.dashboard_api.error}` : ''}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* MIB Credential Groups */}
+              <div className="glass-panel p-5 border border-zinc-800 rounded-xl">
+                <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                  <Server size={16} className="text-emerald-400" />
+                  MIB Device Key Credentials ({credsData?.total_mib ?? 0})
+                </h3>
+                {!credsData ? (
+                  <p className="text-zinc-500 text-sm italic">Click Refresh to load credentials.</p>
+                ) : credsData.mib_groups.length === 0 ? (
+                  <p className="text-zinc-500 text-sm italic">No MIB credential groups stored.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {credsData.mib_groups.map((group: any) => {
+                      const testKey = `mib-${group.id}`;
+                      const testResult = credsTestResults[testKey];
+                      return (
+                        <div key={group.id} className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
+                            <div className="text-xs font-mono">
+                              <span className="text-zinc-500">Tenant:</span>
+                              <span className="text-zinc-300 ml-1">{group.tenant_name || 'N/A'}</span>
+                            </div>
+                            <div className="text-xs font-mono">
+                              <span className="text-zinc-500">Terminal:</span>
+                              <span className="text-zinc-300 ml-1">{group.terminal_name || 'N/A'}</span>
+                            </div>
+                            <div className="text-xs font-mono">
+                              <span className="text-zinc-500">MIB Username:</span>
+                              <span className="text-zinc-300 ml-1">{group.mib_username || 'N/A'}</span>
+                            </div>
+                            <div className="text-xs font-mono">
+                              <span className="text-zinc-500">App ID:</span>
+                              <span className="text-zinc-300 ml-1">{group.app_id || 'N/A'}</span>
+                            </div>
+                            <div className="text-xs font-mono">
+                              <span className="text-zinc-500">Key1:</span>
+                              <span className={group.has_key1 ? 'text-emerald-400' : 'text-red-400'}>
+                                {group.has_key1 ? 'Present' : 'Missing'}
+                              </span>
+                            </div>
+                            <div className="text-xs font-mono">
+                              <span className="text-zinc-500">Key2:</span>
+                              <span className={group.has_key2 ? 'text-emerald-400' : 'text-red-400'}>
+                                {group.has_key2 ? 'Present' : 'Missing'}
+                              </span>
+                            </div>
+                            <div className="text-xs font-mono">
+                              <span className="text-zinc-500">Obtained:</span>
+                              <span className="text-zinc-300">{group.obtained_at ? new Date(group.obtained_at).toLocaleString() : 'N/A'}</span>
+                            </div>
+                          </div>
+
+                          {/* Profiles & linked accounts */}
+                          {group.profiles?.map((profile: any) => (
+                            <div key={profile.profile_id} className="mb-2 text-xs bg-black/20 rounded-lg p-2">
+                              <span className="text-zinc-500">Profile:</span>
+                              <span className="text-zinc-300 ml-1">{profile.profile_name || profile.profile_id}</span>
+                              <span className="text-zinc-500 mx-2">Type:</span>
+                              <span className="text-zinc-300">{profile.profile_type}</span>
+                              {profile.linked_accounts?.length > 0 && (
+                                <div className="flex flex-wrap gap-2 mt-1">
+                                  {profile.linked_accounts.map((acc: any) => (
+                                    <span key={acc.id} className="px-2 py-0.5 bg-zinc-800 rounded text-zinc-300">
+                                      {acc.account_number} ({acc.account_name})
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+
+                          {/* Key values */}
+                          <div className="mb-3 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => toggleReveal(`mib-${group.id}-k1`)} className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 px-1.5 py-0.5 rounded font-mono transition-colors">
+                                {revealedCreds[`mib-${group.id}-k1`] ? 'Hide' : 'Show'} Key1
+                              </button>
+                              {group.has_key1 && revealedCreds[`mib-${group.id}-k1`] && (
+                                <button onClick={() => navigator.clipboard.writeText(group.key1)} className="text-[10px] text-blue-400 hover:text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded font-mono transition-colors">
+                                  Copy
+                                </button>
+                              )}
+                            </div>
+                            {revealedCreds[`mib-${group.id}-k1`] && (
+                              <div className="bg-black/40 border border-zinc-800 rounded p-2">
+                                <pre className="text-[10px] text-zinc-300 font-mono whitespace-pre-wrap break-all leading-relaxed">{group.key1 || <span className="text-zinc-600 italic">No key1 stored</span>}</pre>
+                              </div>
+                            )}
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => toggleReveal(`mib-${group.id}-k2`)} className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 px-1.5 py-0.5 rounded font-mono transition-colors">
+                                {revealedCreds[`mib-${group.id}-k2`] ? 'Hide' : 'Show'} Key2
+                              </button>
+                              {group.has_key2 && revealedCreds[`mib-${group.id}-k2`] && (
+                                <button onClick={() => navigator.clipboard.writeText(group.key2)} className="text-[10px] text-blue-400 hover:text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded font-mono transition-colors">
+                                  Copy
+                                </button>
+                              )}
+                            </div>
+                            {revealedCreds[`mib-${group.id}-k2`] && (
+                              <div className="bg-black/40 border border-zinc-800 rounded p-2">
+                                <pre className="text-[10px] text-zinc-300 font-mono whitespace-pre-wrap break-all leading-relaxed">{group.key2 || <span className="text-zinc-600 italic">No key2 stored</span>}</pre>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Test button + result */}
+                          <div className="flex items-center gap-3 mt-3 pt-3 border-t border-zinc-800">
+                            <button
+                              onClick={() => testCredential('mib', group.id)}
+                              disabled={credsTestingId === testKey}
+                              className="btn btn-outline text-xs border-emerald-700/40 text-emerald-400 hover:bg-emerald-900/30"
+                            >
+                              <Shield size={12} className="mr-1" />
+                              {credsTestingId === testKey ? 'Testing...' : 'Test MIB Connection'}
+                            </button>
+                            {testResult && !testResult.loading && (
+                              <div className="flex items-center gap-2 text-xs">
+                                <span className="text-zinc-500">
+                                  MIB reachable: {testResult.results?.mib_api_reachability?.success ? 'Yes' : 'No'}
+                                </span>
+                                {testResult.results?.mib_api_reachability?.status_code && (
+                                  <span className="text-zinc-500">
+                                    Status: {testResult.results.mib_api_reachability.status_code}
+                                  </span>
+                                )}
+                                {testResult.note && (
+                                  <span className="text-zinc-600 italic max-w-md">{testResult.note}</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

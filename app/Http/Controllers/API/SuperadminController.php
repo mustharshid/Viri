@@ -6,6 +6,11 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Models\BmlCredentialGroup;
+use App\Models\MibCredentialGroup;
+use App\Models\BankAccount;
+use App\Models\Terminal;
+use Illuminate\Support\Facades\Http;
 
 class SuperadminController extends Controller
 {
@@ -469,6 +474,164 @@ class SuperadminController extends Controller
             'bml_tokens' => $bmlTokens,
             'total_mib_keys' => count($mibKeys),
             'total_bml_tokens' => count($bmlTokens),
+        ]);
+    }
+
+    // =========================================================================
+    // CREDENTIAL INSPECTOR (for superadmin debugging)
+    // =========================================================================
+
+    public function getCredentials()
+    {
+        $bmlGroups = BmlCredentialGroup::with(['terminal', 'bankAccounts', 'tenant'])->get()->map(function ($g) {
+            $isExpired = $g->expires_at && $g->expires_at->isPast();
+            return [
+                'id'              => $g->id,
+                'tenant_name'     => $g->tenant?->name,
+                'terminal_name'   => $g->terminal?->terminal_name,
+                'bml_username'    => $g->bml_username,
+                'profile_type'    => $g->profile_type,
+                'device_id'       => $g->device_id,
+                'access_token'    => $g->access_token,
+                'refresh_token'   => $g->refresh_token,
+                'has_access_token'  => !empty($g->access_token),
+                'has_refresh_token' => !empty($g->refresh_token),
+                'token_type'      => $g->token_type,
+                'last_grant'      => $g->last_grant,
+                'expires_in'      => $g->expires_in,
+                'expires_at'      => $g->expires_at?->toIso8601String(),
+                'expired'         => $isExpired,
+                'obtained_at'     => $g->obtained_at?->toIso8601String(),
+                'linked_accounts' => $g->bankAccounts->map(fn ($a) => [
+                    'id'             => $a->id,
+                    'account_number' => $a->account_number,
+                    'account_name'   => $a->account_name,
+                    'bank_name'      => $a->bank_name,
+                ]),
+            ];
+        });
+
+        $mibGroups = MibCredentialGroup::with(['terminal', 'profiles.bankAccounts', 'tenant'])->get()->map(function ($g) {
+            return [
+                'id'            => $g->id,
+                'tenant_name'   => $g->tenant?->name,
+                'terminal_name' => $g->terminal?->terminal_name,
+                'mib_username'  => $g->mib_username,
+                'app_id'        => $g->app_id,
+                'key1'          => $g->key1,
+                'key2'          => $g->key2,
+                'has_key1'      => !empty($g->key1),
+                'has_key2'      => !empty($g->key2),
+                'obtained_at'   => $g->obtained_at?->toIso8601String(),
+                'profiles'      => $g->profiles->map(fn ($p) => [
+                    'profile_id'   => $p->profile_id,
+                    'profile_type' => $p->profile_type,
+                    'profile_name' => $p->profile_name,
+                    'linked_accounts' => $p->bankAccounts->map(fn ($a) => [
+                        'id'             => $a->id,
+                        'account_number' => $a->account_number,
+                        'account_name'   => $a->account_name,
+                    ]),
+                ]),
+            ];
+        });
+
+        return response()->json([
+            'bml_groups' => $bmlGroups,
+            'mib_groups' => $mibGroups,
+            'total_bml'  => $bmlGroups->count(),
+            'total_mib'  => $mibGroups->count(),
+        ]);
+    }
+
+    public function testBmlCredentials(Request $request, $id)
+    {
+        $group = BmlCredentialGroup::with('tenant', 'bankAccounts')->find($id);
+        if (!$group) {
+            return response()->json(['error' => 'Credential group not found'], 404);
+        }
+
+        if (empty($group->access_token)) {
+            return response()->json([
+                'valid'  => false,
+                'error'  => 'No access token stored.',
+                'status' => 'no_token',
+            ]);
+        }
+
+        $results = [];
+
+        // Attempt to call BML dashboard API with the stored token
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $group->access_token,
+                'Accept'        => 'application/json',
+            ])->timeout(15)->get('https://www.bankofmaldives.com.mv/internetbanking/api/dashboard');
+
+            $results['dashboard_api'] = [
+                'status_code' => $response->status(),
+                'success'     => $response->successful(),
+                'body'        => $response->successful()
+                    ? '(dashboard data received — token is active)'
+                    : ($response->body() ?: '(empty response)'),
+            ];
+        } catch (\Exception $e) {
+            $results['dashboard_api'] = [
+                'success'     => false,
+                'error'       => $e->getMessage(),
+            ];
+        }
+
+        $tokenExpired = $group->expires_at && $group->expires_at->isPast();
+        $allSuccessful = collect($results)->every(fn ($r) => ($r['success'] ?? false) === true);
+
+        return response()->json([
+            'valid'          => $allSuccessful && !$tokenExpired,
+            'token_expired'  => $tokenExpired,
+            'bml_username'   => $group->bml_username,
+            'device_id'      => $group->device_id,
+            'expires_at'     => $group->expires_at?->toIso8601String(),
+            'results'        => $results,
+        ]);
+    }
+
+    public function testMibCredentials(Request $request, $id)
+    {
+        $group = MibCredentialGroup::with('tenant', 'profiles.bankAccounts')->find($id);
+        if (!$group) {
+            return response()->json(['error' => 'Credential group not found'], 404);
+        }
+
+        $results = [];
+
+        // Attempt to reach MIB's API with stored credentials
+        try {
+            $response = Http::withHeaders([
+                'Accept' => 'application/json',
+            ])->timeout(15)->get('https://faisanet.mib.com.mv/accounts');
+
+            $results['mib_api_reachability'] = [
+                'status_code' => $response->status(),
+                'success'     => $response->successful(),
+                'note'        => $response->successful()
+                    ? 'MIB server is reachable. Full key validation requires the Chrome Extension (DH crypto).'
+                    : 'MIB server returned status ' . $response->status(),
+            ];
+        } catch (\Exception $e) {
+            $results['mib_api_reachability'] = [
+                'success' => false,
+                'error'   => $e->getMessage(),
+            ];
+        }
+
+        return response()->json([
+            'valid'       => false,
+            'mib_username' => $group->mib_username,
+            'app_id'      => $group->app_id,
+            'has_key1'    => !empty($group->key1),
+            'has_key2'    => !empty($group->key2),
+            'note'        => 'MIB uses Diffie-Hellman device keys. Full validation requires the Chrome Extension to perform the DH key exchange. Server-side check confirms reachability only.',
+            'results'     => $results,
         ]);
     }
 }

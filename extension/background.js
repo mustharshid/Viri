@@ -572,10 +572,10 @@ function normalizeTransactions(rawTxList, bankType, limit = 50) {
     }
     let formattedAmount = '';
     if (bankType === 'MIB') {
-      formattedAmount = `${amount >= 0 ? '' : '-'}${Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      formattedAmount = `${amount >= 0 ? '+' : '-'}${Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     } else {
       const isCredit = tx.type === 'credit' || amount > 0;
-      formattedAmount = `${isCredit ? '' : '-'}${Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      formattedAmount = `${isCredit ? '+' : '-'}${Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
 
     const runningBal = tx.runningBalance || tx.balance || tx.closingBalance || tx.endingBalance;
@@ -1461,22 +1461,47 @@ async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields =
   // Yield before synchronous encryption to keep service worker responsive
   await yieldToEventLoop();
   const encrypted = blowfishEncrypt(JSON.stringify(dataPayload), encryptKey);
-  const formParts = [];
-  for (const [k, v] of Object.entries(extraFormFields)) {
-    formParts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+  const uriEncoded = encodeURIComponent(encrypted);
+
+  let url, method, headers, body;
+
+  if (sfunc === 'r' || sfunc === 'i') {
+    const formParts = [];
+    for (const [k, v] of Object.entries(extraFormFields)) {
+      if (k === 'sfunc') continue;
+      formParts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+    }
+    formParts.push(`sfunc=${sfunc}`);
+    formParts.push(`data=${uriEncoded}`);
+    url = `https://faisanet.mib.com.mv/faisamobilex_smvc/`;
+    method = 'POST';
+    headers = {
+      'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
+      'User-Agent': 'android/1.0'
+    };
+    body = formParts.join('&');
+  } else {
+    const formParts = [];
+    for (const [k, v] of Object.entries(extraFormFields)) {
+      formParts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+    }
+    formParts.push(`data=${uriEncoded}`);
+    url = `https://faisanet.mib.com.mv/faisamobilex_smvc/`;
+    method = 'POST';
+    headers = {
+      'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
+      'User-Agent': 'android/1.0'
+    };
+    body = formParts.join('&');
   }
-  formParts.push(`data=${encodeURIComponent(encrypted)}`);
-  const formBody = formParts.join('&');
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-  const resp = await fetch('https://faisanet.mib.com.mv/faisamobilex_smvc/', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
-    },
-    body: formBody,
+  const resp = await fetch(url, {
+    method,
+    headers,
+    body,
     credentials: 'include',
     signal: controller.signal
   });
@@ -1563,7 +1588,7 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
     const rSodium = generateSodium();
     const rXxid = generateXxid();
     const rPayload = { cmod: computeCmod().toString(), appId: storedAppId, routePath: 'S40', sodium: rSodium, xxid: rXxid };
-    const rResp = await executeMibSfunc('r', rPayload, DEFAULT_KEY, { sfunc: 'r' });
+    const rResp = await executeMibSfunc('r', rPayload, DEFAULT_KEY);
     console.log(`[MIB] sfunc=r response success=${rResp.success} code=${rResp.responseCode} reason=${rResp.reasonText} xxid=${rResp.xxid}`);
     if (!rResp.success) {
       throw new Error(`sfunc=r failed: ${rResp.reasonText} (${rResp.reasonCode})`);
@@ -1586,7 +1611,7 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
       
       try {
         const iPayload = { cmod: computeCmod().toString(), appId: storedAppId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
-        const iResp = await executeMibSfunc('i', iPayload, sessionState.key1, { key2: sessionState.key2, sfunc: 'i' });
+        const iResp = await executeMibSfunc('i', iPayload, sessionState.key1, { key2: sessionState.key2 });
         
         // Save new session data
         sessionState.sessionKey = await deriveSessionKey(iResp.smod);
@@ -1641,7 +1666,7 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
 
     try {
       const iPayload = { cmod: computeCmod().toString(), appId: storedAppId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
-      const iResp = await executeMibSfunc('i', iPayload, sessionState.key1, { key2: sessionState.key2, sfunc: 'i' });
+      const iResp = await executeMibSfunc('i', iPayload, sessionState.key1, { key2: sessionState.key2 });
       sessionState.sessionKey = await deriveSessionKey(iResp.smod);
       sessionState.xxid = String(iResp.xxid);
       sessionState.nonceGenerator = iResp.nonceGenerator;
@@ -1891,7 +1916,7 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
         if(port) emitLog(port, '> [MIB-API] Establishing web session via A41...');
         // sfunc=i resume with new keys
         const iPayload = { cmod: computeCmod().toString(), appId: sessionState.appId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
-        const iResp = await executeMibSfunc('i', iPayload, key1ToSave, { key2: key2ToSave, sfunc: 'i' });
+        const iResp = await executeMibSfunc('i', iPayload, key1ToSave, { key2: key2ToSave });
         const webSessionKey = await deriveSessionKey(iResp.smod);
         const webXxid = String(iResp.xxid);
         const webNonceGen = iResp.nonceGenerator;
@@ -2020,7 +2045,7 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
 
   const iPayload = { cmod: computeCmod().toString(), appId: localRes.mib_appId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
   try {
-    const iResp = await executeMibSfunc('i', iPayload, localRes.mib_key1, { key2: localRes.mib_key2, sfunc: 'i' });
+    const iResp = await executeMibSfunc('i', iPayload, localRes.mib_key1, { key2: localRes.mib_key2 });
     mibSession = {
       appId: localRes.mib_appId,
       key1: localRes.mib_key1,
@@ -2205,7 +2230,7 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
         const rXxid = generateXxid();
         const rAppId = localRes.mib_appId || generateAppId();
         const rPayload = { cmod: computeCmod().toString(), appId: rAppId, routePath: 'S40', sodium: rSodium, xxid: rXxid };
-        const rResp = await executeMibSfunc('r', rPayload, DEFAULT_KEY, { sfunc: 'r' });
+        const rResp = await executeMibSfunc('r', rPayload, DEFAULT_KEY);
         if (!rResp.success || !rResp.key1 || !rResp.key2) {
           throw new Error(`sfunc=r re-registration failed: ${rResp?.reasonText || 'no keys returned'}`);
         }
@@ -2239,7 +2264,8 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
           if(port) emitLog(port, `> [MIB-API] Warning: failed to upload fresh keys to server: ${uploadErr.message}`);
         }
         // Retry with new keys
-        const iResp = await executeMibSfunc('i', iPayload, rResp.key1, { key2: rResp.key2, sfunc: 'i' });
+        const iPayloadRe = { cmod: computeCmod().toString(), appId: freshAppId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
+        const iResp = await executeMibSfunc('i', iPayloadRe, rResp.key1, { key2: rResp.key2 });
         mibSession = {
           appId: freshAppId, key1: rResp.key1, key2: rResp.key2,
           sessionKey: await deriveSessionKey(iResp.smod),
@@ -2428,7 +2454,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
       const cb = () => { if (++done === 5) resolve(); };
       chrome.cookies.set({ url: `https://${domain}/`, name: 'xxid', value: mibSession.xxid, domain, path: '/' }, cb);
       chrome.cookies.set({ url: `https://${domain}/`, name: 'IBSID', value: mibSession.xxid, domain, path: '/' }, cb);
-      chrome.cookies.set({ url: `https://${domain}/`, name: 'mbnonce', value: mibSession.nonceGenerator, domain, path: '/' }, cb);
+      chrome.cookies.set({ url: `https://${domain}/`, name: 'mbnonce', value: generateNonce(mibSession.nonceGenerator), domain, path: '/' }, cb);
       chrome.cookies.set({ url: `https://${domain}/`, name: 'mbmodel', value: 'IOS-1.0', domain, path: '/' }, cb);
       chrome.cookies.set({ url: `https://${domain}/`, name: 'time-tracker', value: '597', domain, path: '/' }, cb);
     });

@@ -37,10 +37,7 @@ const safeJsonParse = <T,>(raw: string | null, fallback: T): T => {
   catch { return fallback; }
 };
 
-const computeCredsHash = async (bank: string, username: string): Promise<string> => {
-  if (!username) return '';
-  return sha256(`${bank}_${username.trim().toLowerCase()}`);
-};
+
 
 // ---------------------------------------------------------------------------
 // Zero-Knowledge Credential Sync Helpers
@@ -864,7 +861,7 @@ function App() {
   const [_terminalId, setTerminalId] = useState<number | null>(null);
   const [accountToClear, setAccountToClear] = useState<any | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const LATEST_EXTENSION_VERSION = "1.2.82";
+  const LATEST_EXTENSION_VERSION = "1.2.83";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -2553,11 +2550,6 @@ function App() {
     const selectedAccount = bankAccounts.find(a => a.id.toString() === selectedAccountId);
     const selectedBankName = selectedAccount ? selectedAccount.bank_name : 'BML';
 
-    const isLocked = selectedAccount && (selectedAccount.login_failures || 0) >= 2;
-    if (isLocked) {
-      setError("This account is currently locked due to 2 consecutive failed logins. Please unlock it via the Company Admin Panel.");
-      return;
-    }
     if (mode === 'search' && (!amount || isNaN(Number(amount)) || Number(amount) <= 0)) {
       setError("Please enter a valid transfer amount.");
       return;
@@ -2749,7 +2741,7 @@ function App() {
                   availableBalance: response.availableBalance || response.balance || '0.00',
                   lastUpdated: new Date().toLocaleTimeString(),
                   lastUpdatedTimestamp: Date.now(),
-                  transactions: prevAcc.transactions || []
+                  transactions: (response.transactions && response.transactions.length > 0) ? response.transactions : (prevAcc.transactions || [])
                 }
               };
             });
@@ -2776,32 +2768,13 @@ function App() {
             setSessionStatus('holder');
           }
 
+          isVerifyingRef.current = false;
           port.disconnect();
           activePortRef.current = null;
           releaseLock();
-          isVerifyingRef.current = false;
           uploadLogsToServer();
 
-          // Reset failures on server
-          const currentCreds = accountsCreds[selectedAccountId] || {};
-          const activeUsername = currentCreds.username || '';
-          const hash = await computeCredsHash(selectedBankName, activeUsername);
-          try {
-            await fetch(`${backendUrl}/terminal/bank-accounts/reset-failures`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                hardware_id: hardwareId, 
-                bank_account_id: parseInt(selectedAccountId), 
-                credentials_hash: hash, 
-                pwa_logs: logsRef.current,
-                extension_version: extensionVersion || LATEST_EXTENSION_VERSION
-              })
-            });
-            fetchAccounts();
-          } catch (e) {
-            console.error("Failed to reset failures:", e);
-          }
+          fetchAccounts();
             } catch (err) {
               console.error("Verification success handler crashed:", err);
               setLoading(false);
@@ -2827,27 +2800,7 @@ function App() {
         const isAuthError = !isInfraError && !response.login_success && (response.auth_failed || (progress.stage === 'init' || progress.stage === 'auth' ||
           /login|credential|auth|password|seed|incorrect|invalid/i.test(response.error || '')));
         if (isAuthError) {
-          addLog("> [System] Invalid bank credentials detected. Incrementing failure count...");
-          const currentCreds = accountsCreds[selectedAccountId] || {};
-          const activeUsername = currentCreds.username || '';
-          computeCredsHash(selectedBankName, activeUsername).then(async (hash) => {
-            try {
-              await fetch(`${backendUrl}/terminal/bank-accounts/increment-failures`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                  hardware_id: hardwareId, 
-                  bank_account_id: parseInt(selectedAccountId), 
-                  credentials_hash: hash, 
-                  pwa_logs: logsRef.current,
-                  extension_version: extensionVersion || LATEST_EXTENSION_VERSION
-                })
-              });
-              fetchAccounts();
-            } catch (e) {
-              console.error("Failed to increment failures:", e);
-            }
-          });
+          fetchAccounts();
         } else {
           // Log non-auth errors (HTTP failures, timeouts, etc.) to session activity
           const eventType = isSearchNotFound ? 'search_not_found' : 'fetch_request_failed';
@@ -3084,39 +3037,23 @@ function App() {
             }
           }));
 
-          try {
-            const hash = await computeCredsHash(selectedBankName, activeCreds.username);
-            await fetch(`${backendUrl}/terminal/bank-accounts/reset-failures`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                hardware_id: hardwareId, 
-                bank_account_id: parseInt(targetAccountId), 
-                credentials_hash: hash, 
-                pwa_logs: logsRef.current,
-                extension_version: extensionVersion || LATEST_EXTENSION_VERSION
-              })
+          if (sessionStatus === 'claiming') {
+            port.postMessage({
+              action: 'CLAIM_SESSION',
+              payload: {
+                accountId: targetAccountId,
+                accountNumber: selectedAccount ? selectedAccount.account_number : '',
+                bankName: selectedBankName,
+                backendUrl: backendUrl,
+                hardwareId: hardwareId,
+                credentials: activeCreds,
+                bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
+                bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
+                debugLogMibHtml: appConfig.debug_log_mib_html
+              }
             });
-            if (sessionStatus === 'claiming') {
-              port.postMessage({
-                action: 'CLAIM_SESSION',
-                payload: {
-                  accountId: targetAccountId,
-                  accountNumber: selectedAccount ? selectedAccount.account_number : '',
-                  bankName: selectedBankName,
-                  backendUrl: backendUrl,
-                  hardwareId: hardwareId,
-                  credentials: activeCreds,
-                  bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
-                  bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
-                  debugLogMibHtml: appConfig.debug_log_mib_html
-                }
-              });
-              setSessionStatus('holder');
-              setSessionHolderAccountId(targetAccountId);
-            }
-          } catch (e) {
-            console.error("Failed to reset failures:", e);
+            setSessionStatus('holder');
+            setSessionHolderAccountId(targetAccountId);
           }
         }, 1500);
       } else if (response.type === 'history_page_success') {
@@ -3177,22 +3114,7 @@ function App() {
             }
           }));
 
-          try {
-            const hash = await computeCredsHash(selectedBankName, activeCreds.username);
-            await fetch(`${backendUrl}/terminal/bank-accounts/reset-failures`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                hardware_id: hardwareId, 
-                bank_account_id: parseInt(targetAccountId), 
-                credentials_hash: hash, 
-                pwa_logs: logsRef.current,
-                extension_version: extensionVersion || LATEST_EXTENSION_VERSION
-              })
-            });
-          } catch (e) {
-            console.error("Failed to reset failures:", e);
-          }
+
         }, 1500);
       } else if (response.type === 'history_page_error') {
         setError(response.error || "An unknown error occurred during page sync.");
@@ -3231,26 +3153,7 @@ function App() {
         const isAuthError = !isInfraError && !response.login_success && (response.auth_failed || (progress.stage === 'init' || progress.stage === 'auth' ||
           /login|credential|auth|password|seed|incorrect|invalid/i.test(response.error || '')));
         if (isAuthError) {
-          const currentCreds = accountsCreds[targetAccountId] || {};
-          const activeUsername = currentCreds.username || '';
-          computeCredsHash(selectedBankName, activeUsername).then(async (hash) => {
-            try {
-              await fetch(`${backendUrl}/terminal/bank-accounts/increment-failures`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                  hardware_id: hardwareId, 
-                  bank_account_id: parseInt(targetAccountId), 
-                  credentials_hash: hash, 
-                  pwa_logs: logsRef.current,
-                  extension_version: extensionVersion || LATEST_EXTENSION_VERSION
-                })
-              });
-              fetchAccounts();
-            } catch (e) {
-              console.error("Failed to increment failures:", e);
-            }
-          });
+          fetchAccounts();
         } else {
           // Log non-auth errors (HTTP failures, timeouts, etc.) to session activity
           const eventType = isSearchNotFound ? 'search_not_found' : 'fetch_request_failed';
@@ -3404,12 +3307,6 @@ function App() {
     const selectedAccount = bankAccounts.find(a => a.id.toString() === targetAccountId);
     if (!selectedAccount) return;
 
-    const selectedBankName = selectedAccount.bank_name;
-    const isLocked = (selectedAccount.login_failures || 0) >= 2;
-    if (isLocked) {
-      setError("This account is currently locked due to 2 consecutive failed logins. Please unlock it via the Company Admin Panel.");
-      return;
-    }
     if (!extensionId) {
       setError("Extension ID is not configured.");
       setShowSettings(true);
@@ -3428,7 +3325,7 @@ function App() {
 
     // Cache is stale or expired, sync directly
     addLog(`> [Cache] Syncing page ${pageNum} transactions directly from bank...`);
-    await syncLedgerLocally(targetAccountId, selectedAccount, selectedBankName, pageNum);
+    await syncLedgerLocally(targetAccountId, selectedAccount, selectedAccount.bank_name, pageNum);
   };
 
   const companyName = tenantName || "Unregistered Cashier Counter";
@@ -3448,7 +3345,7 @@ function App() {
         !!selectedAccountCreds.totpSeed?.trim()
       );
 
-  const isSelectedAccountLocked = selectedAccount ? (selectedAccount.login_failures || 0) >= 2 : false;
+  const isSelectedAccountLocked = false;
 
   const activeLedgerAcc = selectedLedgerAccountId
     ? bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId)
@@ -3888,16 +3785,14 @@ function App() {
 
             {/* Bank Accounts Manager (MOVED TO TOP) */}
             <div className="mb-8 p-5 bg-zinc-950/40 border border-[var(--border-color)] rounded-xl">
-              <h4 className="text-sm font-semibold mb-3 flex items-center gap-1.5 text-white">Managed Bank Accounts & Login Safety Status <Tooltip text="Lock status of bank accounts under this cashier counter. If failures >= 2, functions are disabled." helpSectionId="bank-credentials" /></h4>
-              <p className="text-xs text-[var(--text-secondary)] mb-4">Accounts are synced from company dashboard. Reset failed logins in the Company Admin Panel to unlock terminal operations.</p>
+              <h4 className="text-sm font-semibold mb-3 flex items-center gap-1.5 text-white">Managed Bank Accounts</h4>
+              <p className="text-xs text-[var(--text-secondary)] mb-4">Accounts are synced from company dashboard.</p>
 
               <div className="space-y-3 mb-4">
                 {bankAccounts.length === 0 ? (
                   <p className="text-xs text-[var(--text-secondary)] italic">No accounts configured. Please add them in the company dashboard.</p>
                 ) : (
                   bankAccounts.map(acc => {
-                    const failures = acc.login_failures || 0;
-                    const isLocked = failures >= 2;
                     const isBmlApiManaged = acc.bank_name === 'BML';
                     const isMibApiManaged = acc.bank_name === 'MIB';
                     const isApiManaged = isBmlApiManaged || isMibApiManaged;
@@ -3934,19 +3829,9 @@ function App() {
                                     Linked ×{siblingCount}
                                   </span>
                                 )}
-                                {isLocked ? (
-                                  <span className="text-[9px] font-bold text-red-400 bg-red-955/40 border border-red-500/30 px-2 py-0.5 rounded uppercase">
-                                    Locked
-                                  </span>
-                                ) : failures > 0 ? (
-                                  <span className="text-[9px] font-bold text-yellow-500 bg-yellow-955/40 border border-yellow-500/30 px-2 py-0.5 rounded uppercase">
-                                    {failures} Fail
-                                  </span>
-                                ) : (
                                   <span className="text-[9px] font-bold text-emerald-400 bg-emerald-955/40 border border-emerald-500/30 px-2 py-0.5 rounded uppercase font-sans">
                                     Secure
                                   </span>
-                                )}
                               </div>
                               <div className="text-[var(--text-secondary)] text-xs mt-0.5 font-mono">Account: {acc.account_number}</div>
                             </div>
@@ -5315,22 +5200,25 @@ function App() {
 
                         <div className="flex flex-wrap items-center gap-4">
                           {/* Segmented Filter Control */}
-                          <div className="segmented-control">
+                          <div className="bg-zinc-900/80 p-0.5 rounded-lg border border-zinc-800 flex items-center gap-1">
                             <button
                               onClick={() => { setLedgerFilter('all'); setLedgerPage(1); }}
-                              className={`segmented-btn ${ledgerFilter === 'all' ? 'segmented-btn-active' : ''}`}
+                              className={`px-3 py-1 text-xs rounded-md transition-all ${ledgerFilter === 'all' ? 'bg-[var(--color-success)] text-black font-bold shadow-sm' : 'text-zinc-400 hover:text-white font-medium'
+                                }`}
                             >
                               All
                             </button>
                             <button
                               onClick={() => { setLedgerFilter('in'); setLedgerPage(1); }}
-                              className={`segmented-btn ${ledgerFilter === 'in' ? 'segmented-btn-active' : ''}`}
+                              className={`px-3 py-1 text-xs rounded-md transition-all ${ledgerFilter === 'in' ? 'bg-[var(--color-success)] text-black font-bold shadow-sm' : 'text-zinc-400 hover:text-white font-medium'
+                                }`}
                             >
                               Inwards
                             </button>
                             <button
                               onClick={() => { setLedgerFilter('out'); setLedgerPage(1); }}
-                              className={`segmented-btn ${ledgerFilter === 'out' ? 'segmented-btn-active' : ''}`}
+                              className={`px-3 py-1 text-xs rounded-md transition-all ${ledgerFilter === 'out' ? 'bg-[var(--color-success)] text-black font-bold shadow-sm' : 'text-zinc-400 hover:text-white font-medium'
+                                }`}
                             >
                               Outwards
                             </button>
