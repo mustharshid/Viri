@@ -5315,25 +5315,22 @@ function App() {
 
                         <div className="flex flex-wrap items-center gap-4">
                           {/* Segmented Filter Control */}
-                          <div className="bg-zinc-900/80 p-0.5 rounded-lg border border-zinc-800 flex items-center gap-1">
+                          <div className="segmented-control">
                             <button
                               onClick={() => { setLedgerFilter('all'); setLedgerPage(1); }}
-                              className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${ledgerFilter === 'all' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
-                                }`}
+                              className={`segmented-btn ${ledgerFilter === 'all' ? 'segmented-btn-active' : ''}`}
                             >
                               All
                             </button>
                             <button
                               onClick={() => { setLedgerFilter('in'); setLedgerPage(1); }}
-                              className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${ledgerFilter === 'in' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
-                                }`}
+                              className={`segmented-btn ${ledgerFilter === 'in' ? 'segmented-btn-active' : ''}`}
                             >
                               Inwards
                             </button>
                             <button
                               onClick={() => { setLedgerFilter('out'); setLedgerPage(1); }}
-                              className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${ledgerFilter === 'out' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
-                                }`}
+                              className={`segmented-btn ${ledgerFilter === 'out' ? 'segmented-btn-active' : ''}`}
                             >
                               Outwards
                             </button>

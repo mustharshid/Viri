@@ -1,6 +1,6 @@
-const CACHE_NAME = 'viri-admin-v5';
+const CACHE_NAME = 'viri-admin-v6';
 const ASSETS = [
-  '/favicon.png',
+  'favicon.png',
 ];
 
 self.addEventListener('install', (e) => {
