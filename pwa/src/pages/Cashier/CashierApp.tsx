@@ -2327,6 +2327,23 @@ function App() {
           logs: logsRef.current
         })
       });
+      // Also post to session activity log so superadmin sees PWA events
+      await fetch(`${backendUrl}/terminal/session/log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hardware_id: hardwareId,
+          event_type: 'pwa_debug_logs',
+          bank_account_id: selectedAccountId ? parseInt(selectedAccountId) : null,
+          pwa_logs: logsRef.current,
+          event_detail: {
+            action: 'verification_complete',
+            bank: selectedAccount?.bank_name || 'unknown',
+            account_number: selectedAccount?.account_number || null,
+            log_count: logsRef.current.length
+          }
+        })
+      });
     } catch (err) {
       console.error("Failed to upload debug logs:", err);
     }

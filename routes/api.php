@@ -45,6 +45,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/subscription-plans/{id}', [SuperadminController::class, 'deleteSubscriptionPlan']);
         Route::post('/run-migrations', [SuperadminController::class, 'runMigrations']);
         Route::get('/session-logs', [SuperadminController::class, 'getSessionLogs']);
+        Route::get('/terminal-debug-logs', [SuperadminController::class, 'listTerminalDebugLogs']);
+        Route::get('/terminal-debug-logs/{id}', [SuperadminController::class, 'getTerminalDebugLog']);
         Route::get('/system-settings', [SuperadminController::class, 'getSystemSettings']);
         Route::post('/system-settings', [SuperadminController::class, 'updateSystemSettings']);
         Route::get('/payments', [SuperadminController::class, 'getPayments']);

@@ -135,16 +135,32 @@ chrome.storage.local.get(['viri_held_session', 'viri_debug_log_mib_html'], (resu
 });
 
 async function logSessionEvent(event_type, detail = {}, pwa_logs = []) {
-  if (!heldSession || !heldSession.backendUrl) return;
-  await fetch(`${heldSession.backendUrl}/terminal/session/log`, {
+  if (!heldSession || !heldSession.backendUrl) {
+    // Try with storage-cached session if no in-memory session
+    return chrome.storage.local.get(['viri_held_session'], (result) => {
+      const sess = result.viri_held_session;
+      if (!sess || !sess.backendUrl) return;
+      _postSessionEvent(sess, event_type, detail, pwa_logs);
+    });
+  }
+  _postSessionEvent(heldSession, event_type, detail, pwa_logs);
+}
+
+function _postSessionEvent(session, event_type, detail, pwa_logs) {
+  const body = {
+    hardware_id: session.hardwareId,
+    event_type: event_type
+  };
+  if (session.accountId) body.bank_account_id = parseInt(session.accountId);
+  if (session.bankName) body.bank_name = session.bankName;
+  if (detail && Object.keys(detail).length > 0) body.event_detail = detail;
+  if (EXTENSION_VERSION) body.extension_version = EXTENSION_VERSION;
+  if (pwa_logs && pwa_logs.length > 0) body.pwa_logs = pwa_logs;
+
+  fetch(`${session.backendUrl}/terminal/session/log`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      hardware_id: heldSession.hardwareId,
-      event_type,
-      ...detail,
-      pwa_logs
-    })
+    body: JSON.stringify(body)
   }).catch(() => {});
 }
 
@@ -1043,6 +1059,7 @@ async function getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bml
 // -------------------------------------------------------------
 async function runBmlApiFlow(credentials, targetAccount, accountName, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', bmlAuthState = null, payloadHardwareId = '', payloadBackendUrl = '') {
   emitLog(port, `> [BML-API] Starting API auth flow (sessionMode: ${sessionMode}, profileType: ${profileType})...`);
+  logSessionEvent('login_started', { account: targetAccount, mode: mode, bank: 'BML', session_mode: sessionMode });
   let last3Txs = [];
   let loginSuccess = false;
   const BASE_URL = 'https://www.bankofmaldives.com.mv/internetbanking';
@@ -1071,11 +1088,12 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
         if (!newAccessToken) {
             throw new Error("Failed to acquire OAuth token after login.");
         }
-    } else {
+      } else {
         emitLog(port, `> [BML-API] Valid OAuth token acquired.`);
-    }
+      }
 
     loginSuccess = true;
+    logSessionEvent('login_success', { account: targetAccount, mode: mode, bank: 'BML' });
 
     if (sessionMode === 'claim_and_login') {
       emitLog(port, `> [BML-API] Session claimed. Auth sequence complete.`);
@@ -1139,6 +1157,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
 
     // Fetch history
     emitLog(port, `> [BML-API] GET ${BASE_URL}/api/mobile/account/${accountInternalId}/history/today`);
+    logSessionEvent('fetch_request_submitted', { account: accountNumber, mode: mode, bank: 'BML' });
     const historyRes = await authFetch(`${BASE_URL}/api/mobile/account/${accountInternalId}/history/today`);
     
     let pendingData = null;
@@ -1176,6 +1195,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     const availableBalance = dashboardAvailableBalance;
 
     if (mode === 'ledger' || mode === 'history') {
+      logSessionEvent('fetch_request_fulfilled', { account: accountNumber, tx_count: formattedTxs.length, mode: mode, bank: 'BML' });
       port.postMessage({
         type: 'success',
         match: null,
@@ -1216,6 +1236,8 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     }
   } catch (error) {
     emitLog(port, `> [BML-API] ERROR: ${error.message}`);
+    const isAuth = /login|invalid payload|401|credential/i.test(error.message);
+    logSessionEvent(isAuth ? 'login_failed' : 'fetch_request_failed', { account: targetAccount, error: error.message, bank: 'BML' });
     if (port) {
       try {
         const isAuth = /login window was closed|invalid payload|401/i.test(error.message);
@@ -2026,6 +2048,7 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
       };
       const a80Resp = await executeMibSfunc('n', a80Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
       if (a80Resp.success) {
+        logSessionEvent('session_reused', { account: targetAccount || 'unknown' });
         return mibSession;
       }
       if(port) emitLog(port, '> [MIB-API] Cached session invalid, re-establishing...');
@@ -2078,6 +2101,7 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
     };
     await chrome.storage.session.set({ [mibSessionKey]: mibSession });
     if(port) emitLog(port, '> [MIB-API] Session resumed successfully.');
+    logSessionEvent('session_created', { account: targetAccount || 'unknown' });
 
     // Get stored profile (if any) for later use (per-account)
     const { [mibProfileIdKey]: mib_profileId, [mibProfileTypeKey]: mib_profileType } = await chrome.storage.local.get([mibProfileIdKey, mibProfileTypeKey]);
@@ -2300,6 +2324,7 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
         };
         await chrome.storage.session.set({ [mibSessionKey]: mibSession });
         if(port) emitLog(port, '> [MIB-API] Session re-established with fresh keys.');
+        logSessionEvent('session_renewed', { account: targetAccount || 'unknown' });
         // Retry profile selection + A40 fallback
         let profileSelected = false;
         try {
@@ -2455,6 +2480,7 @@ async function selectMibProfile(profileId, profileType) {
 
 async function runMibApiFlow(credentials, targetAccount, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', hardwareId = '', backendUrl = '') {
   emitLog(port, `> [MIB-API] Starting API ledger flow (mode: ${mode})...`);
+  logSessionEvent('login_started', { account: targetAccount, mode: mode, session_mode: sessionMode });
   let last3Txs = [];
   
   try {
@@ -2467,7 +2493,8 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     }
     
     const mibSession = await ensureMibSession(port, hardwareId, backendUrl, credentials, targetAccount);
-    
+    logSessionEvent('login_success', { account: targetAccount, mode: mode });
+
     // Check if ensureMibSession saved a balance from A40 into session storage
     let accountBalance = null;
     let accountReservedBalance = '0.00';
@@ -2633,6 +2660,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
 
     const detailsUrl = `https://${wvDomain}//accountDetails?trxh=1&dashurl=1&accountNo=${targetAccount}`;
     emitLog(port, `> [MIB-API] Fetching transactions from ${wvDomain}/ajaxAccounts/trxHistory...`);
+    logSessionEvent('fetch_request_submitted', { account: targetAccount, mode: mode });
     const trxRes = await fetch(`https://${wvDomain}/ajaxAccounts/trxHistory`, {
       method: 'POST',
       credentials: 'include',
@@ -2733,6 +2761,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     }
 
     if (mode === 'ledger' || mode === 'history') {
+      logSessionEvent('fetch_request_fulfilled', { account: targetAccount, tx_count: formattedTxs.length, mode: mode });
       port.postMessage({
         type: 'success',
         match: null,
@@ -2758,6 +2787,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
 
     if (matchedTx) {
       emitLog(port, `> [MIB-API] Match FOUND for ${targetAmount}.`);
+      logSessionEvent('fetch_request_fulfilled', { account: targetAccount, matched: true, amount: targetAmount });
       port.postMessage({ 
         type: 'success', 
         match: matchedTx, 
@@ -2782,6 +2812,8 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
   } catch (error) {
     try {
       emitLog(port, `> [MIB-API] ERROR: ${error.message}`);
+      const isAuth = /auth|login|credential|password/i.test(error.message);
+      logSessionEvent(isAuth ? 'login_failed' : 'fetch_request_failed', { account: targetAccount, error: error.message });
       if (mode === 'fetch_only') {
         port.postMessage({ type: 'statement_error', error: error.message });
       } else {

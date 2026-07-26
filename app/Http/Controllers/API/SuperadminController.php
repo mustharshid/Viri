@@ -159,6 +159,48 @@ class SuperadminController extends Controller
         return response()->json($response);
     }
 
+    public function listTerminalDebugLogs(Request $request)
+    {
+        $terminals = \App\Models\Terminal::with('tenant')
+            ->whereNotNull('debug_logs')
+            ->where('debug_logs', '!=', 'null')
+            ->where('debug_logs', '!=', '[]')
+            ->orderBy('updated_at', 'desc')
+            ->get()
+            ->map(function ($terminal) {
+                $logs = json_decode($terminal->debug_logs, true);
+                $runs = is_array($logs) ? count($logs) : 0;
+                $lastRun = is_array($logs) && count($logs) > 0 && isset($logs[0]['timestamp'])
+                    ? $logs[0]['timestamp']
+                    : ($terminal->updated_at ? $terminal->updated_at->toIso8601String() : null);
+                return [
+                    'id' => $terminal->id,
+                    'terminal_name' => $terminal->terminal_name,
+                    'hardware_id' => $terminal->hardware_id,
+                    'tenant_name' => $terminal->tenant?->tenant_name ?? 'Unknown',
+                    'status' => $terminal->status,
+                    'log_runs' => $runs,
+                    'last_run_at' => $lastRun,
+                ];
+            });
+
+        return response()->json(['terminals' => $terminals]);
+    }
+
+    public function getTerminalDebugLog(Request $request, $id)
+    {
+        $terminal = \App\Models\Terminal::with('tenant')->findOrFail($id);
+        $logs = json_decode($terminal->debug_logs, true) ?? [];
+
+        return response()->json([
+            'terminal_name' => $terminal->terminal_name,
+            'hardware_id' => $terminal->hardware_id,
+            'tenant_name' => $terminal->tenant?->tenant_name ?? 'Unknown',
+            'status' => $terminal->status,
+            'runs' => $logs,
+        ]);
+    }
+
     public function deleteCompany($id)
     {
         $tenant = Tenant::findOrFail($id);
