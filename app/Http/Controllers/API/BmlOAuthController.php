@@ -24,7 +24,7 @@ class BmlOAuthController extends Controller
             'credentials_hash' => 'sometimes|nullable|string',
         ]);
 
-        $terminal = \App\Models\Terminal::where('hardware_id', $validated['hardware_id'])->first();
+        $terminal = $this->resolveTerminal($validated['hardware_id'], $validated['bank_account_id']);
         if (!$terminal) return response()->json(['error' => 'Unauthorized terminal'], 403);
 
         $expiresAt = Carbon::now()->addSeconds($validated['expires_in']);
@@ -107,11 +107,14 @@ class BmlOAuthController extends Controller
             'hardware_id' => 'required|string',
         ]);
 
-        $terminal = \App\Models\Terminal::where('hardware_id', $request->hardware_id)->first();
+        $terminal = $this->resolveTerminal(
+            $request->hardware_id,
+            $request->has('bank_account_id') ? (int) $request->bank_account_id : null
+        );
         if (!$terminal) return response()->json(['error' => 'Unauthorized terminal'], 403);
 
         $group = null;
-        $account = null;
+        $dbAccount = null;
 
         if ($request->has('bml_username') && $request->has('profile_type') && $request->bml_username !== null && $request->bml_username !== '') {
             // Groups are now keyed by tenant, not terminal — look up by tenant scope.
@@ -121,11 +124,54 @@ class BmlOAuthController extends Controller
                 ->where('profile_type', $request->profile_type)
                 ->first();
         } else if ($request->has('bank_account_id')) {
-            $account = \App\Models\BankAccount::where('id', $request->bank_account_id)
+            $dbAccount = \App\Models\BankAccount::where('id', $request->bank_account_id)
                 ->where('tenant_id', $terminal->tenant_id)
                 ->first();
-            if ($account) {
-                $group = $account->bmlCredentialGroup;
+            if ($dbAccount && $dbAccount->bmlCredentialGroup) {
+                $group = $dbAccount->bmlCredentialGroup;
+                // If the caller requested a specific profile_type, verify the group
+                // matches. The FK chain is 1:1 — an account can only point to one
+                // group — but a user may have both personal and business profiles.
+                // A mismatch means the FK points to the OTHER profile's group.
+                if ($request->has('profile_type') && $group->profile_type !== $request->profile_type) {
+                    $group = null;
+                }
+            }
+
+            // Direct group lookup: when the FK chain yields nothing (either the FK
+            // is NULL or its profile_type doesn't match), search BmlCredentialGroup
+            // directly. Strategy differs by username availability:
+            //
+            // KNOWN username: groups are tenant-scoped (unique on tenant+bml_username+profile_type).
+            // Use tenant scope — this finds groups created by sibling terminals in the same tenant.
+            //
+            // NULL username: groups are per-terminal (NULLs are distinct in unique index).
+            // Use terminal+tenant scope with null bml_username filter and deterministic ordering
+            // (updated_at DESC) to handle the multi-NULL-row case.
+            if (!$group && $request->has('profile_type')) {
+                $query = \App\Models\BmlCredentialGroup::where('profile_type', $request->profile_type);
+
+                if ($request->has('bml_username') && $request->bml_username !== null && $request->bml_username !== '') {
+                    $query->where('tenant_id', $terminal->tenant_id)
+                          ->where('bml_username', $request->bml_username);
+                } else {
+                    $query->where('terminal_id', $terminal->id)
+                          ->where('tenant_id', $terminal->tenant_id)
+                          ->whereNull('bml_username')
+                          ->orderByDesc('updated_at');
+                }
+                $group = $query->first();
+
+                // Validate token after decrypt — whereNotNull can't filter encrypted columns
+                if ($group && empty($group->access_token)) {
+                    $group = null;
+                }
+
+                // Self-heal: link the account to the group ONLY if the account has no
+                // existing FK. Never overwrite an FK set by store() — it's authoritative.
+                if ($group && $dbAccount && !$dbAccount->bml_credential_group_id) {
+                    $dbAccount->update(['bml_credential_group_id' => $group->id]);
+                }
             }
         }
 
@@ -170,7 +216,7 @@ class BmlOAuthController extends Controller
             'expires_in' => 'sometimes|integer',
         ]);
 
-        $terminal = \App\Models\Terminal::where('hardware_id', $validated['hardware_id'])->first();
+        $terminal = $this->resolveTerminal($validated['hardware_id'], $validated['bank_account_id']);
         if (!$terminal) return response()->json(['error' => 'Unauthorized terminal'], 403);
 
         $account = \App\Models\BankAccount::where('id', $validated['bank_account_id'])
@@ -208,5 +254,30 @@ class BmlOAuthController extends Controller
         $group->save();
 
         return response()->json(['success' => true]);
+    }
+
+    /**
+     * Resolve a terminal by hardware_id, falling back to the bank account's
+     * BML credential group chain when the hardware_id doesn't match.
+     *
+     * This handles PWA reinstall / extension re-pairing scenarios where the
+     * hardware_id changes but the bank_account → credential_group → terminal
+     * chain remains authoritative.
+     */
+    private function resolveTerminal(string $hardwareId, ?int $bankAccountId): ?\App\Models\Terminal
+    {
+        $terminal = \App\Models\Terminal::where('hardware_id', $hardwareId)->first();
+        if ($terminal) {
+            return $terminal;
+        }
+
+        if (!$bankAccountId) {
+            return null;
+        }
+
+        $account = \App\Models\BankAccount::with('bmlCredentialGroup.terminal')
+            ->find($bankAccountId);
+
+        return $account?->bmlCredentialGroup?->terminal;
     }
 }
