@@ -19,3 +19,8 @@ php artisan serve & php artisan queue:work & php artisan schedule:work & npm run
 
 Simple command to git push
 git add . && git commit -m "fix: resolve verify-terminal 500 error and array type checks" && git push
+
+After creating a new Cashier Counter, by design I can see all the account used by the company. To fix this problem, I want to create a architecture where admin specify which accounts should be seen in which terminals. I want this to be a very visual GUI system. I also want to ensure:
+- all the credential tokens can be access by the new terminal
+- for MIB, tokens, username & password are available for the terminal
+- any tokens, usernames of password can be stored locally the browser, if needed.

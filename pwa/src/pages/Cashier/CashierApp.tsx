@@ -2420,9 +2420,10 @@ function App() {
               try {
                 addLog(`> [Session] Fulfilling delegated request ID ${req.id} (${req.request_type}) in background...`);
 
-                const activeCreds = accountsCreds[sessionHolderAccountId];
+                const targetAccId = req.bank_account_id || sessionHolderAccountId;
+                const activeCreds = accountsCreds[targetAccId] || accountsCreds[sessionHolderAccountId];
                 if (!activeCreds) {
-                  throw new Error("No saved bank account credentials for session holder.");
+                  throw new Error("No saved bank account credentials for the requested account.");
                 }
 
                 if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
@@ -2457,7 +2458,7 @@ function App() {
                         password: activeCreds.password,
                         totpSeed: activeCreds.totpSeed
                       },
-                      bankName: bankAccounts.find(a => a.id.toString() === sessionHolderAccountId)?.bank_name || 'BML',
+                      bankName: bankAccounts.find(a => a.id.toString() === targetAccId)?.bank_name || bankAccounts.find(a => a.id.toString() === sessionHolderAccountId)?.bank_name || 'BML',
                       debugLogMibHtml: appConfig.debug_log_mib_html
                     }
                   });
@@ -2949,10 +2950,7 @@ function App() {
       totpSeed: currentCreds.totpSeed || ''
     };
 
-    const isApiManaged = (selectedAccount?.bank_name === 'BML' && appConfig.bml_login_procedure === 'api') || 
-                         (selectedAccount?.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api');
-
-    if (!isApiManaged && (!activeCreds.username || !activeCreds.password)) {
+    if (!activeCreds.username || !activeCreds.password) {
       setError("Credentials missing for this account. Please re-pair the cashier counter or check account settings.");
       addLog("> [System] Missing credentials. Aborting sync.");
       setLoading(false);

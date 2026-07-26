@@ -1,9 +1,13 @@
 # Custom Rules for Viri Workspace
 
 ## Extension Versioning Guideline
-* **Increment Version on Modification**: Whenever any code in the Chrome extension (`extension/` directory) is modified, you must increment the extension version number inside [manifest.json](file:///Users/Mustho/Documents/Viri/extension/manifest.json).
-* **Sync Version check in PWA**: Whenever the extension version number is incremented, you must update `LATEST_EXTENSION_VERSION` constant in the Terminal PWA code [CashierApp.tsx](file:///Users/Mustho/Documents/Viri/pwa/src/pages/Cashier/CashierApp.tsx) to match, ensuring the System Health panel reflects the correct version compatibility.
-* **Package and Distribute Extension**: Whenever the extension version number is incremented, you must package/zip the `extension` directory and copy it to `public/viri/viri-bridge.zip` (and all other download link destinations) so cashiers can download the latest version directly from the PWA dashboard interface.
+Whenever any code in the Chrome extension (`extension/` directory) is modified or when asked to bump the extension version, you MUST perform ALL of the following steps:
+1. **Manifest Version**: Increment `version` string in `extension/manifest.json`.
+2. **PWA Cashier App**: Update `LATEST_EXTENSION_VERSION` constant in `pwa/src/pages/Cashier/CashierApp.tsx` to match the new version.
+3. **PWA Company Dashboard**: Update `LATEST_EXTENSION_VERSION` constant in `pwa/src/pages/Dashboard/CompanyDashboard.tsx` to match the new version.
+4. **Package Extension**: Run `./package-extension.sh` to build and distribute `viri-bridge.zip` and versioned zips across all download paths.
+5. **Rebuild & Deploy PWA**: Clean old bundle assets and deploy fresh built assets by running:
+   `rm -rf public/viri/assets && npm run --prefix pwa build && cp -R pwa/dist/* public/viri/`
 
 ## 3-Tier Feature Governance Rule
 * **3-Tier Cascade Governance**: Every feature/permission option (such as `verification_enabled`, `ledger_enabled`, `ledger_show_balance`, `ledger_show_debit`, `reports_enabled`, `statement_enabled`, etc.) MUST follow the 3-tier governance model:
