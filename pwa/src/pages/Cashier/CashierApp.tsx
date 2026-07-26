@@ -861,7 +861,7 @@ function App() {
   const [_terminalId, setTerminalId] = useState<number | null>(null);
   const [accountToClear, setAccountToClear] = useState<any | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const LATEST_EXTENSION_VERSION = "1.2.86";
+  const LATEST_EXTENSION_VERSION = "1.2.87";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -2335,6 +2335,7 @@ function App() {
           hardware_id: hardwareId,
           event_type: 'pwa_debug_logs',
           bank_account_id: selectedAccountId ? parseInt(selectedAccountId) : null,
+          extension_version: extensionVersion || LATEST_EXTENSION_VERSION,
           pwa_logs: logsRef.current,
           event_detail: {
             action: 'verification_complete',

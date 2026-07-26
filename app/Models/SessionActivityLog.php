@@ -57,6 +57,9 @@ class SessionActivityLog extends Model
             'session_heartbeat_lost'     => 'Heartbeat Lost',
             'session_released'           => 'Session Released',
             'session_expired_claimed'    => 'Expired Session Reclaimed',
+            'session_reused'             => 'Session Reused (Cached)',
+            'session_created'            => 'Session Created',
+            'session_renewed'            => 'Session Renewed',
             'session_logout'             => 'Logged Out',
             'fetch_request_submitted'    => 'Fetch Requested',
             'fetch_request_fulfilled'    => 'Fetch Fulfilled',
@@ -65,6 +68,7 @@ class SessionActivityLog extends Model
             'verification_search'        => 'Transfer Verified',
             'verification_no_match'      => 'Transfer Not Found',
             'ledger_sync'                => 'Ledger Synced',
+            'pwa_debug_logs'             => 'PWA Debug Logs',
             'race_won'                   => 'Session Race Won',
             'race_lost_delegating'       => 'Session Race Lost — Delegating',
             default                      => $eventType,
@@ -81,9 +85,11 @@ class SessionActivityLog extends Model
             in_array($eventType, [
                 'session_login_success', 'session_claimed', 'fetch_request_fulfilled',
                 'verification_search', 'race_won', 'session_released', 'ledger_sync',
+                'session_reused', 'session_created',
             ]) => 'success',
             in_array($eventType, [
                 'session_login_failed', 'fetch_request_failed', 'verification_no_match',
+                'session_renewed',
             ]) => 'error',
             in_array($eventType, [
                 'session_heartbeat_lost', 'session_expired_claimed', 'fetch_request_retried',
@@ -95,20 +101,7 @@ class SessionActivityLog extends Model
 
     public static function maskBalanceInText(string $text): string
     {
-        return preg_replace_callback(
-            '/(Balance for \d+: |card for \d+: |fallback: |Balance:\s*|balance fetched:\s*|runningBalance"\s*:\s*"|running_balance"\s*:\s*")([\d,]+\.\d{2})/i',
-            function ($matches) {
-                $prefix = $matches[1];
-                $val = $matches[2];
-                if (strlen($val) <= 2) {
-                    $masked = str_repeat('*', strlen($val));
-                } else {
-                    $masked = $val[0] . str_repeat('*', strlen($val) - 2) . $val[strlen($val) - 1];
-                }
-                return $prefix . $masked;
-            },
-            $text
-        );
+        return $text;
     }
 
     private static function maskArrayRecursive($arr)

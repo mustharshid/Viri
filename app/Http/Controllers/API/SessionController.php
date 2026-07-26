@@ -399,6 +399,8 @@ class SessionController extends Controller
             'event_summary'  => 'nullable|string',
             'event_detail'   => 'nullable|array',
             'masked_username'=> 'nullable|string',
+            'pwa_logs'       => 'nullable|array|max:5000',
+            'pwa_logs.*'     => 'string|max:50000',
         ]);
 
         $terminal = Terminal::where('hardware_id', $request->hardware_id)

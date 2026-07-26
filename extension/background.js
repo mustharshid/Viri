@@ -59,14 +59,29 @@ function logApiDebug(port, data, tag = 'API') {
         // Legacy HTML string (MIB) — clean img tags
         output = String(data).replace(/<img[^>]*>/gi, '');
       }
-      emitLog(port, `> [${tag}] DEBUG: Payload length: ${output.length}`);
-      emitLog(port, `[${tag}-DEBUG-START]`);
+      // Buffer chunks for session log upload when payload toggle is ON
+      const bufTag = `[${tag}-DEBUG]`;
+      if (debugPayloadBuffer.length >= MAX_DEBUG_BUFFER) {
+        debugPayloadBuffer.splice(0, 1000); // drop oldest 1000 lines to prevent unbounded growth
+      }
+      debugPayloadBuffer.push(`> [${tag}] DEBUG: Payload length: ${output.length}`);
+      debugPayloadBuffer.push(`[${tag}-DEBUG-START]`);
       const chunkSize = 1000;
       for (let i = 0; i < output.length; i += chunkSize) {
-        emitLog(port, `[${tag}-DEBUG] ${output.substring(i, i + chunkSize)}`);
+        const chunk = `${bufTag} ${output.substring(i, i + chunkSize)}`;
+        debugPayloadBuffer.push(chunk);
+        emitLog(port, chunk);
+      }
+      debugPayloadBuffer.push(`[${tag}-DEBUG-END]`);
+      // Also emit to PWA terminal console
+      emitLog(port, `> [${tag}] DEBUG: Payload length: ${output.length}`);
+      emitLog(port, `[${tag}-DEBUG-START]`);
+      for (let i = 0; i < output.length; i += chunkSize) {
+        emitLog(port, `${bufTag} ${output.substring(i, i + chunkSize)}`);
       }
       emitLog(port, `[${tag}-DEBUG-END]`);
     } catch (e) {
+      debugPayloadBuffer.push(`> [${tag}] DEBUG: failed to output payload: ${e.message}`);
       emitLog(port, `> [${tag}] DEBUG: failed to output payload: ${e.message}`);
     }
   });
@@ -120,6 +135,10 @@ let heldSession = null;
 let heartbeatInterval = null;
 let pollInterval = null;
 let debugLogMibHtml = false;
+let debugPayloadBuffer = [];
+let _flushingBuffer = false;
+const _pendingBufferFlush = [];
+const MAX_DEBUG_BUFFER = 5000;
 
 // Restore session state on worker wake up
 chrome.storage.local.get(['viri_held_session', 'viri_debug_log_mib_html'], (result) => {
@@ -154,14 +173,48 @@ function _postSessionEvent(session, event_type, detail, pwa_logs) {
   if (session.accountId) body.bank_account_id = parseInt(session.accountId);
   if (session.bankName) body.bank_name = session.bankName;
   if (detail && Object.keys(detail).length > 0) body.event_detail = detail;
-  if (EXTENSION_VERSION) body.extension_version = EXTENSION_VERSION;
-  if (pwa_logs && pwa_logs.length > 0) body.pwa_logs = pwa_logs;
+  body.extension_version = EXTENSION_VERSION || 'unknown';
+  
+  // Drain the debug payload buffer under a mutex to prevent concurrent corruption
+  const logs = pwa_logs && pwa_logs.length > 0 ? pwa_logs : [];
+  _flushPayloadBuffer(session, logs, (finalLogs) => {
+    if (finalLogs.length > 0) body.pwa_logs = finalLogs;
 
-  fetch(`${session.backendUrl}/terminal/session/log`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  }).catch(() => {});
+    fetch(`${session.backendUrl}/terminal/session/log`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).catch(err => console.warn("[Viri Bridge] Failed to post session event:", err));
+  });
+}
+
+function _flushPayloadBuffer(session, logs, callback) {
+  if (_flushingBuffer) {
+    _pendingBufferFlush.push({ logs, callback });
+    return;
+  }
+  _flushingBuffer = true;
+  try {
+    if (debugLogMibHtml && debugPayloadBuffer.length > 0) {
+      logs.unshift('[API-PAYLOAD-DEBUG-START]');
+      logs.unshift(`> [System] API Payload Debug mode enabled (v${EXTENSION_VERSION}). ${debugPayloadBuffer.length} lines follow.`);
+      while (debugPayloadBuffer.length > 0) {
+        logs.push(debugPayloadBuffer.shift());
+      }
+      logs.push('[API-PAYLOAD-DEBUG-END]');
+      debugPayloadBuffer = [];
+    } else {
+      debugPayloadBuffer = []; // toggle off: discard any stale buffer content
+    }
+    callback(logs);
+  } finally {
+    _flushingBuffer = false;
+    // Drain any queued flushes that arrived while we were busy
+    if (_pendingBufferFlush.length > 0) {
+      const next = _pendingBufferFlush.shift();
+      _flushPayloadBuffer(session, next.logs, next.callback);
+    }
+  }
 }
 
 function startHeartbeat() {
@@ -393,6 +446,7 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         emitLog(port, `> [Session] Session holder status activated.`);
       }
       else if (msg.action === 'RELEASE_SESSION') {
+        logSessionEvent('session_released', { account: heldSession?.accountId });
         stopHeartbeat();
         clearBankSessions();
         heldSession = null;
@@ -1059,7 +1113,7 @@ async function getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bml
 // -------------------------------------------------------------
 async function runBmlApiFlow(credentials, targetAccount, accountName, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', bmlAuthState = null, payloadHardwareId = '', payloadBackendUrl = '') {
   emitLog(port, `> [BML-API] Starting API auth flow (sessionMode: ${sessionMode}, profileType: ${profileType})...`);
-  logSessionEvent('login_started', { account: targetAccount, mode: mode, bank: 'BML', session_mode: sessionMode });
+  logSessionEvent('session_login_started', { account: targetAccount, mode: mode, bank: 'BML', session_mode: sessionMode });
   let last3Txs = [];
   let loginSuccess = false;
   const BASE_URL = 'https://www.bankofmaldives.com.mv/internetbanking';
@@ -1093,7 +1147,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
       }
 
     loginSuccess = true;
-    logSessionEvent('login_success', { account: targetAccount, mode: mode, bank: 'BML' });
+    logSessionEvent('session_login_success', { account: targetAccount, mode: mode, bank: 'BML' });
 
     if (sessionMode === 'claim_and_login') {
       emitLog(port, `> [BML-API] Session claimed. Auth sequence complete.`);
@@ -1157,7 +1211,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
 
     // Fetch history
     emitLog(port, `> [BML-API] GET ${BASE_URL}/api/mobile/account/${accountInternalId}/history/today`);
-    logSessionEvent('fetch_request_submitted', { account: accountNumber, mode: mode, bank: 'BML' });
+    logSessionEvent('fetch_request_submitted', { account: targetAccount, mode: mode, bank: 'BML' });
     const historyRes = await authFetch(`${BASE_URL}/api/mobile/account/${accountInternalId}/history/today`);
     
     let pendingData = null;
@@ -1195,7 +1249,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     const availableBalance = dashboardAvailableBalance;
 
     if (mode === 'ledger' || mode === 'history') {
-      logSessionEvent('fetch_request_fulfilled', { account: accountNumber, tx_count: formattedTxs.length, mode: mode, bank: 'BML' });
+      logSessionEvent('fetch_request_fulfilled', { account: targetAccount, tx_count: formattedTxs.length, mode: mode, bank: 'BML' });
       port.postMessage({
         type: 'success',
         match: null,
@@ -1237,7 +1291,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
   } catch (error) {
     emitLog(port, `> [BML-API] ERROR: ${error.message}`);
     const isAuth = /login|invalid payload|401|credential/i.test(error.message);
-    logSessionEvent(isAuth ? 'login_failed' : 'fetch_request_failed', { account: targetAccount, error: error.message, bank: 'BML' });
+    logSessionEvent(isAuth ? 'session_login_failed' : 'fetch_request_failed', { account: targetAccount, error: error.message, bank: 'BML' });
     if (port) {
       try {
         const isAuth = /login window was closed|invalid payload|401/i.test(error.message);
@@ -2480,7 +2534,7 @@ async function selectMibProfile(profileId, profileType) {
 
 async function runMibApiFlow(credentials, targetAccount, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', hardwareId = '', backendUrl = '') {
   emitLog(port, `> [MIB-API] Starting API ledger flow (mode: ${mode})...`);
-  logSessionEvent('login_started', { account: targetAccount, mode: mode, session_mode: sessionMode });
+  logSessionEvent('session_login_started', { account: targetAccount, mode: mode, session_mode: sessionMode });
   let last3Txs = [];
   
   try {
@@ -2493,7 +2547,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     }
     
     const mibSession = await ensureMibSession(port, hardwareId, backendUrl, credentials, targetAccount);
-    logSessionEvent('login_success', { account: targetAccount, mode: mode });
+    logSessionEvent('session_login_success', { account: targetAccount, mode: mode });
 
     // Check if ensureMibSession saved a balance from A40 into session storage
     let accountBalance = null;
@@ -2813,7 +2867,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     try {
       emitLog(port, `> [MIB-API] ERROR: ${error.message}`);
       const isAuth = /auth|login|credential|password/i.test(error.message);
-      logSessionEvent(isAuth ? 'login_failed' : 'fetch_request_failed', { account: targetAccount, error: error.message });
+      logSessionEvent(isAuth ? 'session_login_failed' : 'fetch_request_failed', { account: targetAccount, error: error.message });
       if (mode === 'fetch_only') {
         port.postMessage({ type: 'statement_error', error: error.message });
       } else {

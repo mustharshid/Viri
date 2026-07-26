@@ -45,8 +45,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/subscription-plans/{id}', [SuperadminController::class, 'deleteSubscriptionPlan']);
         Route::post('/run-migrations', [SuperadminController::class, 'runMigrations']);
         Route::get('/session-logs', [SuperadminController::class, 'getSessionLogs']);
-        Route::get('/terminal-debug-logs', [SuperadminController::class, 'listTerminalDebugLogs']);
-        Route::get('/terminal-debug-logs/{id}', [SuperadminController::class, 'getTerminalDebugLog']);
+        Route::get('/terminal-debug-logs', [SuperadminController::class, 'listTerminalDebugLogs'])->middleware('throttle:30,1');
+        Route::get('/terminal-debug-logs/{id}', [SuperadminController::class, 'getTerminalDebugLog'])->middleware('throttle:30,1');
         Route::get('/system-settings', [SuperadminController::class, 'getSystemSettings']);
         Route::post('/system-settings', [SuperadminController::class, 'updateSystemSettings']);
         Route::get('/payments', [SuperadminController::class, 'getPayments']);
@@ -56,7 +56,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/debug-info', [SuperadminController::class, 'getDebugInfo']);
         Route::get('/credentials', [SuperadminController::class, 'getCredentials']);
         Route::post('/credentials/bml/{id}/test', [SuperadminController::class, 'testBmlCredentials']);
+        Route::post('/credentials/bml/{id}/renew', [SuperadminController::class, 'renewBmlToken']);
         Route::post('/credentials/mib/{id}/test', [SuperadminController::class, 'testMibCredentials']);
+        Route::post('/credentials/mib/{id}/renew', [SuperadminController::class, 'renewMibKeys']);
     });
 
     // Company Routes

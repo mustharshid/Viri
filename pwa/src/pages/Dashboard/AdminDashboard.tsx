@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2, Server, Database, Code, Zap, Activity, Sun, Moon, Briefcase, Sparkles, Clock, AlertTriangle, Search, Key } from 'lucide-react';
+import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2, Server, Database, Code, Zap, Activity, Sun, Moon, Briefcase, Sparkles, Clock, AlertTriangle, Search, Key, ArrowLeft } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 
 const Tooltip = ({ text }: { text: string }) => (
@@ -46,7 +46,7 @@ export default function AdminDashboard() {
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRunIdx, setSelectedRunIdx] = useState<number>(0);
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'companies' | 'archived' | 'tiers' | 'logs' | 'settings' | 'payments' | 'debug' | 'credentials'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'companies' | 'archived' | 'tiers' | 'logs' | 'terminalDebug' | 'settings' | 'payments' | 'debug' | 'credentials'>('overview');
   const [singleCompanyFilterId, setSingleCompanyFilterId] = useState<number | null>(null);
   const [overviewSearch, setOverviewSearch] = useState('');
   const [overviewStatusFilter, setOverviewStatusFilter] = useState('all');
@@ -67,9 +67,63 @@ export default function AdminDashboard() {
   const [credsTestingId, setCredsTestingId] = useState<string | null>(null);
   const [credsTestResults, setCredsTestResults] = useState<Record<string, any>>({});
   const [revealedCreds, setRevealedCreds] = useState<Record<string, boolean>>({});
+  const [openCredComm, setOpenCredComm] = useState<Record<string, boolean>>({});
 
   const toggleReveal = (key: string) => {
     setRevealedCreds(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  // Terminal Debug Logs State
+  const [terminalDebugLogs, setTerminalDebugLogs] = useState<any[]>([]);
+  const [terminalDebugLogsLoading, setTerminalDebugLogsLoading] = useState(false);
+  const [terminalDebugError, setTerminalDebugError] = useState<string | null>(null);
+  const [selectedDebugTerminal, setSelectedDebugTerminal] = useState<number | null>(null);
+  const [selectedDebugTerminalLogs, setSelectedDebugTerminalLogs] = useState<any | null>(null);
+  const [selectedDebugRunIdx, setSelectedDebugRunIdx] = useState<number>(0);
+
+  const fetchTerminalDebugLogs = async () => {
+    setTerminalDebugLogsLoading(true);
+    setTerminalDebugError(null);
+    try {
+      const token = localStorage.getItem('viri_token');
+      const res = await fetch('/api/admin/terminal-debug-logs?per_page=100', {
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTerminalDebugLogs(data.terminals || []);
+      } else {
+        setTerminalDebugError(`Failed to load (${res.status})`);
+      }
+    } catch (err) {
+      console.error(err);
+      setTerminalDebugError('Network error loading terminal debug logs');
+    }
+    finally { setTerminalDebugLogsLoading(false); }
+  };
+
+  const fetchTerminalDebugLogDetail = async (id: number) => {
+    setSelectedDebugTerminal(id);
+    setSelectedDebugRunIdx(0);
+    setSelectedDebugTerminalLogs(null);
+    setTerminalDebugError(null);
+    try {
+      const token = localStorage.getItem('viri_token');
+      const res = await fetch(`/api/admin/terminal-debug-logs/${id}`, {
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedDebugTerminalLogs(data);
+      } else {
+        setTerminalDebugError(`Failed to load logs (${res.status})`);
+        setSelectedDebugTerminalLogs(null);
+      }
+    } catch (err) {
+      console.error(err);
+      setTerminalDebugError('Network error loading terminal log detail');
+      setSelectedDebugTerminalLogs(null);
+    }
   };
 
   // Payments State
@@ -294,6 +348,9 @@ export default function AdminDashboard() {
     if (activeTab === 'logs') {
       fetchSessionLogs(true);
     }
+    if (activeTab === 'terminalDebug') {
+      fetchTerminalDebugLogs();
+    }
   }, [activeTab, logsPage, filterEventType, filterCompanyId]);
 
   useEffect(() => {
@@ -395,6 +452,50 @@ export default function AdminDashboard() {
     } finally {
       setCredsTestingId(null);
     }
+  };
+
+  const renewBmlToken = async (id: number) => {
+    const key = `bml-renew-${id}`;
+    setCredsTestingId(key);
+    setCredsTestResults(prev => ({ ...prev, [key]: { loading: true } }));
+    try {
+      const token = localStorage.getItem('viri_token');
+      if (!token) return;
+      const res = await fetch(`/api/admin/credentials/bml/${id}/renew`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+      });
+      const data = await res.json();
+      setCredsTestResults(prev => ({ ...prev, [key]: data }));
+    } catch (err: any) {
+      setCredsTestResults(prev => ({ ...prev, [key]: { error: err.message, success: false } }));
+    } finally {
+      setCredsTestingId(null);
+    }
+  };
+
+  const renewMibKeys = async (id: number) => {
+    const key = `mib-renew-${id}`;
+    setCredsTestingId(key);
+    setCredsTestResults(prev => ({ ...prev, [key]: { loading: true } }));
+    try {
+      const token = localStorage.getItem('viri_token');
+      if (!token) return;
+      const res = await fetch(`/api/admin/credentials/mib/${id}/renew`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+      });
+      const data = await res.json();
+      setCredsTestResults(prev => ({ ...prev, [key]: data }));
+    } catch (err: any) {
+      setCredsTestResults(prev => ({ ...prev, [key]: { error: err.message, cleared: false } }));
+    } finally {
+      setCredsTestingId(null);
+    }
+  };
+
+  const toggleCredComm = (key: string) => {
+    setOpenCredComm(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
   const fetchData = async () => {
@@ -2071,9 +2172,14 @@ export default function AdminDashboard() {
               <option value="session_claimed">Session Claimed</option>
               <option value="session_heartbeat_lost">Heartbeat Lost</option>
               <option value="session_released">Session Released</option>
+              <option value="session_reused">Session Reused (Cached)</option>
+              <option value="session_created">Session Created</option>
+              <option value="session_renewed">Session Renewed</option>
               <option value="fetch_request_submitted">Request Submitted</option>
               <option value="fetch_request_fulfilled">Request Fulfilled</option>
               <option value="fetch_request_failed">Request Failed</option>
+              <option value="fetch_request_retried">Request Retried</option>
+              <option value="pwa_debug_logs">PWA Debug Logs</option>
             </select>
           </div>
         </div>
@@ -2203,6 +2309,122 @@ export default function AdminDashboard() {
                 Next
               </button>
             </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderTerminalDebugLogsTab = () => {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold">Terminal Debug Logs</h2>
+            <p className="text-xs text-zinc-500 mt-1">View PWA/extension debug logs uploaded by active terminals.</p>
+          </div>
+          <button onClick={fetchTerminalDebugLogs} className="btn btn-outline text-sm" disabled={terminalDebugLogsLoading}>
+            <RefreshCw size={14} className={`mr-1 ${terminalDebugLogsLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+
+        {terminalDebugError && (
+          <div className="bg-red-950/30 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-xs flex items-center gap-2">
+            <AlertTriangle size={14} />
+            <span>{terminalDebugError}</span>
+            <button onClick={() => { setTerminalDebugError(null); fetchTerminalDebugLogs(); }} className="ml-auto text-red-300 hover:text-red-200 underline">Retry</button>
+          </div>
+        )}
+
+        {selectedDebugTerminal && selectedDebugTerminalLogs ? (
+          <div className="space-y-4">
+            <button onClick={() => { setSelectedDebugTerminal(null); setSelectedDebugTerminalLogs(null); }} className="text-xs text-yellow-500 hover:text-yellow-400 mb-2 flex items-center gap-1">
+              <ArrowLeft size={12} /> Back to terminal list
+            </button>
+            <div className="bg-zinc-950/60 border border-zinc-800 rounded-xl p-4">
+              <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                <Terminal size={16} />
+                {selectedDebugTerminalLogs.terminal_name}
+                <span className="text-[10px] text-zinc-500 font-mono">({selectedDebugTerminalLogs.hardware_id})</span>
+              </h3>
+              <p className="text-xs text-zinc-500 mt-1">{selectedDebugTerminalLogs.tenant_name}</p>
+            </div>
+
+            {selectedDebugTerminalLogs.runs && selectedDebugTerminalLogs.runs.length > 0 ? (
+              <>
+                {selectedDebugTerminalLogs.runs.length > 1 && (
+                  <div className="flex gap-2 flex-wrap">
+                    {selectedDebugTerminalLogs.runs.map((run: any, idx: number) => (
+                      <button
+                        key={idx}
+                        onClick={() => setSelectedDebugRunIdx(idx)}
+                        className={`text-xs px-3 py-1 rounded-md font-mono transition-all ${idx === selectedDebugRunIdx ? 'bg-yellow-500 text-black font-bold' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}
+                      >
+                        Run #{idx + 1}
+                        <span className="block text-[9px] text-zinc-500">{run.timestamp?.substring(0, 19) || 'unknown'}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="bg-black border border-zinc-800 rounded-lg overflow-hidden">
+                  <div className="bg-zinc-900 px-4 py-2 border-b border-zinc-800 flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                    <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                    <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                    <span className="text-xs text-zinc-400 ml-2 font-mono">
+                      {selectedDebugTerminalLogs.runs[selectedDebugRunIdx]?.timestamp || 'Unknown timestamp'}
+                    </span>
+                  </div>
+                  <div className="p-4 font-mono text-xs text-green-400 h-96 overflow-y-auto flex flex-col gap-0.5 scrollbar-thin">
+                    {(selectedDebugTerminalLogs.runs[selectedDebugRunIdx]?.logs || []).map((line: string, i: number) => (
+                      <div key={i} className={line.includes('error') || line.includes('ERROR') || line.includes('Failed') ? 'text-red-400' : ''}>
+                        {line}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-zinc-500 italic">No log runs available for this terminal.</p>
+            )}
+          </div>
+        ) : terminalDebugLogsLoading ? (
+          <div className="text-center py-12 text-zinc-500 font-medium animate-pulse">Loading terminal debug logs...</div>
+        ) : terminalDebugLogs.length === 0 ? (
+          <div className="text-center py-12 text-zinc-500 italic">No terminals have uploaded debug logs yet.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-zinc-800 text-zinc-400 font-semibold">
+                  <th className="pb-3 pr-4">Terminal</th>
+                  <th className="pb-3 pr-4">Tenant</th>
+                  <th className="pb-3 pr-4">Hardware ID</th>
+                  <th className="pb-3 pr-4">Status</th>
+                  <th className="pb-3 pr-4">Runs</th>
+                  <th className="pb-3 pr-4">Last Run</th>
+                  <th className="pb-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {terminalDebugLogs.map((t: any) => (
+                  <tr key={t.id} className="border-b border-zinc-800/50 hover:bg-zinc-900/30">
+                    <td className="py-3 pr-4 font-medium text-white">{t.terminal_name}</td>
+                    <td className="py-3 pr-4 text-zinc-400">{t.tenant_name}</td>
+                    <td className="py-3 pr-4 text-zinc-500 font-mono text-[10px]">{t.hardware_id}</td>
+                    <td className="py-3 pr-4">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${t.status === 'active' ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-500/30' : 'bg-zinc-800 text-zinc-400'}`}>{t.status}</span>
+                    </td>
+                    <td className="py-3 pr-4 text-zinc-300 font-mono">{t.log_runs}</td>
+                    <td className="py-3 pr-4 text-zinc-500 text-[10px]">{t.last_run_at?.substring(0, 19) || '—'}</td>
+                    <td className="py-3">
+                      <button onClick={() => fetchTerminalDebugLogDetail(t.id)} className="text-yellow-500 hover:text-yellow-400 text-xs font-bold">View</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -2556,6 +2778,17 @@ export default function AdminDashboard() {
             <span>Session Activity Log</span>
           </button>
           <button
+            onClick={() => setActiveTab('terminalDebug')}
+            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+              activeTab === 'terminalDebug'
+                ? 'border-yellow-500 text-yellow-500'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Activity size={16} className="shrink-0" />
+            <span>Terminal Debug Logs</span>
+          </button>
+          <button
             onClick={() => setActiveTab('settings')}
             className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
               activeTab === 'settings'
@@ -2690,6 +2923,8 @@ export default function AdminDashboard() {
           {activeTab === 'tiers' && renderSubscriptionTiersManager()}
 
           {activeTab === 'logs' && renderSessionLogsTab()}
+
+          {activeTab === 'terminalDebug' && renderTerminalDebugLogsTab()}
 
           {activeTab === 'settings' && renderSystemSettingsTab()}
 
@@ -2892,35 +3127,159 @@ export default function AdminDashboard() {
                             )}
                           </div>
 
-                          {/* Test button + result */}
-                          <div className="flex items-center gap-3 mt-3 pt-3 border-t border-zinc-800">
-                            <button
-                              onClick={() => testCredential('bml', group.id)}
-                              disabled={credsTestingId === testKey}
-                              className="btn btn-outline text-xs border-emerald-700/40 text-emerald-400 hover:bg-emerald-900/30"
-                            >
-                              <Shield size={12} className="mr-1" />
-                              {credsTestingId === testKey ? 'Testing...' : 'Test BML Token'}
-                            </button>
+                          {/* Test / Renew buttons + result */}
+                          <div className="mt-3 pt-3 border-t border-zinc-800 space-y-2">
+                            <div className="flex items-center gap-3">
+                              <button
+                                onClick={() => testCredential('bml', group.id)}
+                                disabled={credsTestingId === testKey}
+                                className="btn btn-outline text-xs border-emerald-700/40 text-emerald-400 hover:bg-emerald-900/30"
+                              >
+                                <Shield size={12} className="mr-1" />
+                                {credsTestingId === testKey ? 'Testing...' : 'Test BML Token'}
+                              </button>
+                              <button
+                                onClick={() => renewBmlToken(group.id)}
+                                disabled={credsTestingId === `bml-renew-${group.id}`}
+                                className="btn btn-outline text-xs border-blue-700/40 text-blue-400 hover:bg-blue-900/30"
+                              >
+                                <RefreshCw size={12} className={`mr-1 ${credsTestingId === `bml-renew-${group.id}` ? 'animate-spin' : ''}`} />
+                                {credsTestingId === `bml-renew-${group.id}` ? 'Renewing...' : 'Renew Token'}
+                              </button>
+                            </div>
                             {testResult && !testResult.loading && (
-                              <div className="flex items-center gap-2 text-xs">
-                                <span className={testResult.valid ? 'text-emerald-400' : 'text-red-400'}>
-                                  {testResult.valid ? 'Valid' : 'Invalid'}
-                                </span>
-                                {testResult.token_expired && (
-                                  <span className="text-red-400 font-semibold">(Expired)</span>
-                                )}
-                                {testResult.error && (
-                                  <span className="text-red-400">{testResult.error}</span>
-                                )}
-                                {testResult.results?.dashboard_api && (
-                                  <span className="text-zinc-500">
-                                    API: {testResult.results.dashboard_api.status_code}
-                                    {testResult.results.dashboard_api.error ? ` - ${testResult.results.dashboard_api.error}` : ''}
+                              <div className="space-y-1 text-xs">
+                                <div className="flex items-center gap-2">
+                                  <span className={testResult.valid ? 'text-emerald-400' : 'text-red-400'}>
+                                    {testResult.valid ? 'Valid' : 'Invalid'}
                                   </span>
+                                  {testResult.token_expired && (
+                                    <span className="text-red-400 font-semibold">(Expired)</span>
+                                  )}
+                                  {testResult.error && (
+                                    <span className="text-red-400">{testResult.error}</span>
+                                  )}
+                                  {testResult.results?.mobile_dashboard?.response?.status_code && (
+                                    <span className="text-zinc-500">
+                                      Dashboard: {testResult.results.mobile_dashboard.response.status_code}
+                                    </span>
+                                  )}
+                                  {testResult.results?.sample_history?.response?.status_code && (
+                                    <span className="text-zinc-500">
+                                      History: {testResult.results.sample_history.response.status_code}
+                                    </span>
+                                  )}
+                                </div>
+                                {/* View Raw Communication toggle */}
+                                <button
+                                  onClick={() => toggleCredComm(testKey)}
+                                  className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 px-1.5 py-0.5 rounded font-mono transition-colors"
+                                >
+                                  {openCredComm[testKey] ? 'Hide' : 'View'} Raw Communication
+                                </button>
+                                {openCredComm[testKey] && testResult.results && (
+                                  <div className="space-y-3">
+                                    {Object.entries(testResult.results).map(([callName, callData]: [string, any]) => (
+                                      <div key={callName} className="bg-black/40 border border-zinc-800 rounded p-3 space-y-2">
+                                        <h4 className="text-[11px] font-bold text-yellow-500 uppercase tracking-wider">{callName.replace(/_/g, ' ')}</h4>
+                                        {callData.request && (
+                                          <div>
+                                            <div className="text-[10px] text-zinc-500 mb-1">Request</div>
+                                            <div className="bg-black/60 rounded p-2 font-mono text-[10px] text-zinc-300 space-y-0.5">
+                                              <div><span className="text-blue-400">{callData.request.method}</span> {callData.request.url}</div>
+                                              {callData.request.headers && Object.entries(callData.request.headers).map(([hk, hv]: [string, any]) => (
+                                                <div key={hk} className="text-zinc-500"><span className="text-zinc-400">{hk}:</span> {hv}</div>
+                                              ))}
+                                              {callData.request.body && (
+                                                <div className="mt-1 pt-1 border-t border-zinc-800 whitespace-pre-wrap break-all">{callData.request.body}</div>
+                                              )}
+                                            </div>
+                                          </div>
+                                        )}
+                                        {callData.response && (
+                                          <div>
+                                            <div className="text-[10px] text-zinc-500 mb-1">Response</div>
+                                            <div className="bg-black/60 rounded p-2 font-mono text-[10px]">
+                                              <div className="text-zinc-400">Status: <span className={callData.response.success ? 'text-emerald-400' : 'text-red-400'}>{callData.response.status_code || 'Error'}</span></div>
+                                              {callData.response.error && (
+                                                <div className="text-red-400 mt-1">Error: {callData.response.error}</div>
+                                              )}
+                                              {callData.response.body && (
+                                                <div className="mt-1 max-h-60 overflow-y-auto">
+                                                  <pre className="text-green-400/80 whitespace-pre-wrap break-all leading-relaxed">
+                                                    {callData.response.body_truncated ? callData.response.body.substring(0, 5000) + '\n... (truncated)' : callData.response.body}
+                                                  </pre>
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
                                 )}
                               </div>
                             )}
+                            {/* Renew token result */}
+                            {(() => {
+                              const renewKey = `bml-renew-${group.id}`;
+                              const renewResult = credsTestResults[renewKey];
+                              if (!renewResult || renewResult.loading) return null;
+                              return (
+                                <div className="space-y-1 text-xs">
+                                  <div className="flex items-center gap-2">
+                                    <span className={renewResult.renewed ? 'text-emerald-400' : 'text-red-400'}>
+                                      {renewResult.renewed ? 'Token Renewed' : 'Renew Failed'}
+                                    </span>
+                                    {renewResult.error && <span className="text-red-400">{renewResult.error}</span>}
+                                  </div>
+                                  {/* Renew Raw Communication toggle */}
+                                  <button
+                                    onClick={() => toggleCredComm(renewKey)}
+                                    className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 px-1.5 py-0.5 rounded font-mono transition-colors"
+                                  >
+                                    {openCredComm[renewKey] ? 'Hide' : 'View'} Renew Communication
+                                  </button>
+                                  {openCredComm[renewKey] && renewResult.debug && (
+                                    <div className="bg-black/40 border border-zinc-800 rounded p-3 space-y-2">
+                                      <h4 className="text-[11px] font-bold text-yellow-500 uppercase tracking-wider">Token Renewal</h4>
+                                      {renewResult.debug.request && (
+                                        <div>
+                                          <div className="text-[10px] text-zinc-500 mb-1">Request</div>
+                                          <div className="bg-black/60 rounded p-2 font-mono text-[10px] text-zinc-300 space-y-0.5">
+                                            <div><span className="text-blue-400">{renewResult.debug.request.method}</span> {renewResult.debug.request.url}</div>
+                                            {renewResult.debug.request.headers && Object.entries(renewResult.debug.request.headers).map(([hk, hv]: [string, any]) => (
+                                              <div key={hk} className="text-zinc-500"><span className="text-zinc-400">{hk}:</span> {String(hv)}</div>
+                                            ))}
+                                            {renewResult.debug.request.body && (
+                                              <div className="mt-1 pt-1 border-t border-zinc-800 whitespace-pre-wrap break-all text-zinc-400">{renewResult.debug.request.body}</div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      )}
+                                      {renewResult.debug.response && (
+                                        <div>
+                                          <div className="text-[10px] text-zinc-500 mb-1">Response</div>
+                                          <div className="bg-black/60 rounded p-2 font-mono text-[10px]">
+                                            <div className="text-zinc-400">Status: <span className={renewResult.renewed ? 'text-emerald-400' : 'text-red-400'}>{renewResult.debug.response.status_code || 'Error'}</span></div>
+                                            {renewResult.debug.response.error && (
+                                              <div className="text-red-400 mt-1">Error: {renewResult.debug.response.error}</div>
+                                            )}
+                                            {renewResult.debug.response.body && (
+                                              <div className="mt-1 max-h-60 overflow-y-auto">
+                                                <pre className="text-green-400/80 whitespace-pre-wrap break-all leading-relaxed">
+                                                  {renewResult.debug.response.body_truncated ? renewResult.debug.response.body.substring(0, 5000) + '\n... (truncated)' : renewResult.debug.response.body}
+                                                </pre>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
                       );
@@ -3034,31 +3393,110 @@ export default function AdminDashboard() {
                             )}
                           </div>
 
-                          {/* Test button + result */}
-                          <div className="flex items-center gap-3 mt-3 pt-3 border-t border-zinc-800">
-                            <button
-                              onClick={() => testCredential('mib', group.id)}
-                              disabled={credsTestingId === testKey}
-                              className="btn btn-outline text-xs border-emerald-700/40 text-emerald-400 hover:bg-emerald-900/30"
-                            >
-                              <Shield size={12} className="mr-1" />
-                              {credsTestingId === testKey ? 'Testing...' : 'Test MIB Connection'}
-                            </button>
+                          {/* Test / Reset buttons + result */}
+                          <div className="space-y-2 mt-3 pt-3 border-t border-zinc-800">
+                            <div className="flex items-center gap-3">
+                              <button
+                                onClick={() => testCredential('mib', group.id)}
+                                disabled={credsTestingId === testKey}
+                                className="btn btn-outline text-xs border-emerald-700/40 text-emerald-400 hover:bg-emerald-900/30"
+                              >
+                                <Shield size={12} className="mr-1" />
+                                {credsTestingId === testKey ? 'Testing...' : 'Test MIB Connection'}
+                              </button>
+                              <button
+                                onClick={() => renewMibKeys(group.id)}
+                                disabled={credsTestingId === `mib-renew-${group.id}`}
+                                className="btn btn-outline text-xs border-orange-700/40 text-orange-400 hover:bg-orange-900/30"
+                              >
+                                <RefreshCw size={12} className={`mr-1 ${credsTestingId === `mib-renew-${group.id}` ? 'animate-spin' : ''}`} />
+                                {credsTestingId === `mib-renew-${group.id}` ? 'Resetting...' : 'Reset MIB Keys'}
+                              </button>
+                            </div>
                             {testResult && !testResult.loading && (
-                              <div className="flex items-center gap-2 text-xs">
-                                <span className="text-zinc-500">
-                                  MIB reachable: {testResult.results?.mib_api_reachability?.success ? 'Yes' : 'No'}
-                                </span>
-                                {testResult.results?.mib_api_reachability?.status_code && (
+                              <div className="space-y-1 text-xs">
+                                <div className="flex items-center gap-2">
                                   <span className="text-zinc-500">
-                                    Status: {testResult.results.mib_api_reachability.status_code}
+                                    MIB reachable: {testResult.results?.mib_api_reachability?.response?.success ? 'Yes' : 'No'}
                                   </span>
-                                )}
-                                {testResult.note && (
-                                  <span className="text-zinc-600 italic max-w-md">{testResult.note}</span>
+                                  {testResult.results?.mib_api_reachability?.response?.status_code && (
+                                    <span className="text-zinc-500">
+                                      Status: {testResult.results.mib_api_reachability.response.status_code}
+                                    </span>
+                                  )}
+                                  {testResult.note && (
+                                    <span className="text-zinc-600 italic max-w-md">{testResult.note}</span>
+                                  )}
+                                </div>
+                                {/* MIB Raw Communication toggle */}
+                                <button
+                                  onClick={() => toggleCredComm(testKey)}
+                                  className="text-[10px] text-zinc-500 hover:text-zinc-300 border border-zinc-700 px-1.5 py-0.5 rounded font-mono transition-colors"
+                                >
+                                  {openCredComm[testKey] ? 'Hide' : 'View'} Raw Communication
+                                </button>
+                                {openCredComm[testKey] && testResult.results?.mib_api_reachability && (
+                                  <div className="bg-black/40 border border-zinc-800 rounded p-3 space-y-2">
+                                    <h4 className="text-[11px] font-bold text-yellow-500 uppercase tracking-wider">MIB Reachability</h4>
+                                    {testResult.results.mib_api_reachability.request && (
+                                      <div>
+                                        <div className="text-[10px] text-zinc-500 mb-1">Request</div>
+                                        <div className="bg-black/60 rounded p-2 font-mono text-[10px] text-zinc-300 space-y-0.5">
+                                          <div><span className="text-blue-400">{testResult.results.mib_api_reachability.request.method}</span> {testResult.results.mib_api_reachability.request.url}</div>
+                                          {testResult.results.mib_api_reachability.request.headers && Object.entries(testResult.results.mib_api_reachability.request.headers).map(([hk, hv]: [string, any]) => (
+                                            <div key={hk} className="text-zinc-500"><span className="text-zinc-400">{hk}:</span> {hv}</div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                    {testResult.results.mib_api_reachability.response && (
+                                      <div>
+                                        <div className="text-[10px] text-zinc-500 mb-1">Response</div>
+                                        <div className="bg-black/60 rounded p-2 font-mono text-[10px]">
+                                          <div className="text-zinc-400">Status: <span className={testResult.results.mib_api_reachability.response.success ? 'text-emerald-400' : 'text-red-400'}>{testResult.results.mib_api_reachability.response.status_code || 'Error'}</span></div>
+                                          {testResult.results.mib_api_reachability.response.error && (
+                                            <div className="text-red-400 mt-1">Error: {testResult.results.mib_api_reachability.response.error}</div>
+                                          )}
+                                          {testResult.results.mib_api_reachability.response.body && (
+                                            <div className="mt-1 max-h-60 overflow-y-auto">
+                                              <pre className="text-green-400/80 whitespace-pre-wrap break-all leading-relaxed">
+                                                {testResult.results.mib_api_reachability.response.body_truncated
+                                                  ? testResult.results.mib_api_reachability.response.body.substring(0, 5000) + '\n... (truncated)'
+                                                  : testResult.results.mib_api_reachability.response.body}
+                                              </pre>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             )}
+                            {/* Reset MIB Keys result */}
+                            {(() => {
+                              const resetKey = `mib-renew-${group.id}`;
+                              const resetResult = credsTestResults[resetKey];
+                              if (!resetResult || resetResult.loading) return null;
+                              return (
+                                <div className="text-xs space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className={resetResult.cleared ? 'text-emerald-400' : 'text-red-400'}>
+                                      {resetResult.cleared ? 'Keys Cleared' : 'Reset Failed'}
+                                    </span>
+                                    {resetResult.error && <span className="text-red-400">{resetResult.error}</span>}
+                                  </div>
+                                  {resetResult.cleared && (
+                                    <div className="text-zinc-500">
+                                      Key1: {resetResult.had_key1 ? 'Was present' : 'Was empty'} | Key2: {resetResult.had_key2 ? 'Was present' : 'Was empty'} | Profiles cleared: {resetResult.profile_count}
+                                    </div>
+                                  )}
+                                  {resetResult.note && (
+                                    <div className="text-zinc-600 italic">{resetResult.note}</div>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
                       );

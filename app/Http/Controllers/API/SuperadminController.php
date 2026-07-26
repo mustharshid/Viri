@@ -161,30 +161,44 @@ class SuperadminController extends Controller
 
     public function listTerminalDebugLogs(Request $request)
     {
+        $perPage = min((int) $request->input('per_page', 50), 100);
         $terminals = \App\Models\Terminal::with('tenant')
             ->whereNotNull('debug_logs')
-            ->where('debug_logs', '!=', 'null')
             ->where('debug_logs', '!=', '[]')
             ->orderBy('updated_at', 'desc')
-            ->get()
-            ->map(function ($terminal) {
-                $logs = json_decode($terminal->debug_logs, true);
-                $runs = is_array($logs) ? count($logs) : 0;
-                $lastRun = is_array($logs) && count($logs) > 0 && isset($logs[0]['timestamp'])
-                    ? $logs[0]['timestamp']
-                    : ($terminal->updated_at ? $terminal->updated_at->toIso8601String() : null);
-                return [
-                    'id' => $terminal->id,
-                    'terminal_name' => $terminal->terminal_name,
-                    'hardware_id' => $terminal->hardware_id,
-                    'tenant_name' => $terminal->tenant?->tenant_name ?? 'Unknown',
-                    'status' => $terminal->status,
-                    'log_runs' => $runs,
-                    'last_run_at' => $lastRun,
-                ];
-            });
+            ->paginate($perPage);
 
-        return response()->json(['terminals' => $terminals]);
+        $mapped = $terminals->getCollection()->map(function ($terminal) {
+            $logs = json_decode($terminal->debug_logs, true);
+            $runs = is_array($logs) ? count($logs) : 0;
+            $lastRun = null;
+            if (is_array($logs) && count($logs) > 0) {
+                $firstRun = reset($logs);
+                if (isset($firstRun['timestamp'])) {
+                    $lastRun = $firstRun['timestamp'];
+                }
+            }
+            if ($lastRun === null) {
+                $lastRun = $terminal->updated_at ? $terminal->updated_at->toIso8601String() : null;
+            }
+            return [
+                'id' => $terminal->id,
+                'terminal_name' => $terminal->terminal_name,
+                'hardware_id' => $terminal->hardware_id,
+                'tenant_name' => $terminal->tenant?->tenant_name ?? 'Unknown',
+                'status' => $terminal->status,
+                'log_runs' => $runs,
+                'last_run_at' => $lastRun,
+            ];
+        });
+
+        return response()->json([
+            'terminals' => $mapped,
+            'total' => $terminals->total(),
+            'per_page' => $perPage,
+            'current_page' => $terminals->currentPage(),
+            'last_page' => $terminals->lastPage(),
+        ]);
     }
 
     public function getTerminalDebugLog(Request $request, $id)
@@ -602,39 +616,207 @@ class SuperadminController extends Controller
         }
 
         $results = [];
+        $deviceId = $group->device_id ?? '';
 
-        // Attempt to call BML dashboard API with the stored token
+        // --- Test 1: Mobile Dashboard API ---
         try {
-            $response = Http::withHeaders([
+            $headers = [
                 'Authorization' => 'Bearer ' . $group->access_token,
                 'Accept'        => 'application/json',
-            ])->timeout(15)->get('https://www.bankofmaldives.com.mv/internetbanking/api/dashboard');
+                'User-Agent'    => 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)',
+                'x-app-version' => '2.1.44.348',
+                'X-Device-ID'   => $deviceId,
+            ];
 
-            $results['dashboard_api'] = [
-                'status_code' => $response->status(),
-                'success'     => $response->successful(),
-                'body'        => $response->successful()
-                    ? '(dashboard data received — token is active)'
-                    : ($response->body() ?: '(empty response)'),
+            $response = Http::withHeaders($headers)
+                ->timeout(15)
+                ->get('https://www.bankofmaldives.com.mv/internetbanking/api/mobile/dashboard');
+
+            $respBody = $response->body();
+            $respJson = json_decode($respBody, true);
+            $isValid = $response->successful() && ($respJson['success'] ?? false) === true;
+
+            $results['mobile_dashboard'] = [
+                'request' => [
+                    'url'     => 'https://www.bankofmaldives.com.mv/internetbanking/api/mobile/dashboard',
+                    'method'  => 'GET',
+                    'headers' => $headers,
+                ],
+                'response' => [
+                    'status_code' => $response->status(),
+                    'success'     => $response->successful(),
+                    'body'        => $isValid ? $respBody : $respBody,
+                    'body_truncated' => strlen($respBody) > 5000,
+                ],
             ];
         } catch (\Exception $e) {
-            $results['dashboard_api'] = [
-                'success'     => false,
-                'error'       => $e->getMessage(),
+            $results['mobile_dashboard'] = [
+                'request' => [
+                    'url'     => 'https://www.bankofmaldives.com.mv/internetbanking/api/mobile/dashboard',
+                    'method'  => 'GET',
+                    'headers' => $headers ?? [],
+                ],
+                'response' => [
+                    'error' => $e->getMessage(),
+                ],
             ];
         }
 
+        // --- Test 2: Sample transaction history (if dashboard was valid) ---
+        if (($results['mobile_dashboard']['response']['success'] ?? false) && !empty($results['mobile_dashboard']['response']['body'])) {
+            $dashData = json_decode($results['mobile_dashboard']['response']['body'], true);
+            $accountObj = null;
+            if (isset($dashData['payload']['dashboard']) && is_array($dashData['payload']['dashboard'])) {
+                $accountObj = $dashData['payload']['dashboard'][0] ?? null;
+            }
+            if ($accountObj && isset($accountObj['id'])) {
+                $acctId = $accountObj['id'];
+                try {
+                    $histHeaders = [
+                        'Authorization' => 'Bearer ' . $group->access_token,
+                        'Accept'        => 'application/json',
+                        'User-Agent'    => 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)',
+                        'x-app-version' => '2.1.44.348',
+                        'X-Device-ID'   => $deviceId,
+                    ];
+                    $histRes = Http::withHeaders($histHeaders)
+                        ->timeout(15)
+                        ->get("https://www.bankofmaldives.com.mv/internetbanking/api/mobile/account/{$acctId}/history/today");
+
+                    $histBody = $histRes->body();
+                    $results['sample_history'] = [
+                        'request' => [
+                            'url'     => "https://www.bankofmaldives.com.mv/internetbanking/api/mobile/account/{$acctId}/history/today",
+                            'method'  => 'GET',
+                            'headers' => $histHeaders,
+                        ],
+                        'response' => [
+                            'status_code' => $histRes->status(),
+                            'success'     => $histRes->successful(),
+                            'body'        => $histBody,
+                            'body_truncated' => strlen($histBody) > 5000,
+                        ],
+                    ];
+                } catch (\Exception $e) {
+                    $results['sample_history'] = [
+                        'request' => [
+                            'url'     => "https://www.bankofmaldives.com.mv/internetbanking/api/mobile/account/{$acctId}/history/today",
+                            'method'  => 'GET',
+                            'headers' => $histHeaders ?? [],
+                        ],
+                        'response' => [
+                            'error' => $e->getMessage(),
+                        ],
+                    ];
+                }
+            }
+        }
+
         $tokenExpired = $group->expires_at && $group->expires_at->isPast();
-        $allSuccessful = collect($results)->every(fn ($r) => ($r['success'] ?? false) === true);
+        $allSuccessful = collect($results)->every(fn ($r) => ($r['response']['success'] ?? false) === true);
+
+        $valid = $allSuccessful && !$tokenExpired;
 
         return response()->json([
-            'valid'          => $allSuccessful && !$tokenExpired,
+            'valid'          => $valid,
             'token_expired'  => $tokenExpired,
             'bml_username'   => $group->bml_username,
             'device_id'      => $group->device_id,
             'expires_at'     => $group->expires_at?->toIso8601String(),
             'results'        => $results,
         ]);
+    }
+
+    public function renewBmlToken(Request $request, $id)
+    {
+        $group = BmlCredentialGroup::with('tenant', 'bankAccounts')->find($id);
+        if (!$group) {
+            return response()->json(['error' => 'Credential group not found'], 404);
+        }
+
+        if (empty($group->refresh_token)) {
+            return response()->json([
+                'error' => 'No refresh token stored. Cannot renew — the bank account must be re-linked.',
+            ]);
+        }
+
+        $deviceId = $group->device_id ?? '';
+        $requestBody = http_build_query([
+            'grant_type'    => 'refresh_token',
+            'refresh_token' => $group->refresh_token,
+            'client_id'     => '98C83590-513F-4716-B02B-EC68B7D9E7E7',
+            'Device-ID'     => $deviceId,
+            'User-Agent'    => 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)',
+            'x-app-version' => '2.1.44.348',
+        ]);
+
+        $requestHeaders = [
+            'Content-Type' => 'application/x-www-form-urlencoded',
+            'User-Agent'   => 'Mozilla/5.0 (Android 14; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0',
+            'Accept'       => 'application/json',
+            'X-Device-ID'  => $deviceId,
+        ];
+
+        try {
+            $response = Http::withHeaders($requestHeaders)
+                ->withBody($requestBody, 'application/x-www-form-urlencoded')
+                ->timeout(20)
+                ->post('https://www.bankofmaldives.com.mv/internetbanking/oauth/token');
+
+            $respBody = $response->body();
+            $respJson = json_decode($respBody, true);
+            $success = $response->successful() && isset($respJson['access_token']);
+
+            if ($success) {
+                $newAccessToken = $respJson['access_token'];
+                $newRefreshToken = $respJson['refresh_token'] ?? $group->refresh_token;
+                $expiresIn = $respJson['expires_in'] ?? $group->expires_in;
+
+                $group->access_token = $newAccessToken;
+                $group->refresh_token = $newRefreshToken;
+                $group->expires_in = $expiresIn;
+                $group->expires_at = \Carbon\Carbon::now()->addSeconds($expiresIn);
+                $group->obtained_at = \Carbon\Carbon::now();
+                $group->save();
+            }
+
+            return response()->json([
+                'success'  => $success,
+                'renewed'  => $success,
+                'expires_at' => $group->expires_at?->toIso8601String(),
+                'error'    => $success ? null : ($respJson['error_description'] ?? $respJson['error'] ?? 'Unknown error'),
+                'debug'    => [
+                    'request' => [
+                        'url'     => 'https://www.bankofmaldives.com.mv/internetbanking/oauth/token',
+                        'method'  => 'POST',
+                        'headers' => $requestHeaders,
+                        'body'    => preg_replace('/refresh_token=[^&]+/', 'refresh_token=***', $requestBody),
+                    ],
+                    'response' => [
+                        'status_code' => $response->status(),
+                        'body'        => $respBody,
+                        'body_truncated' => strlen($respBody) > 5000,
+                    ],
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'renewed' => false,
+                'error'   => $e->getMessage(),
+                'debug'   => [
+                    'request' => [
+                        'url'     => 'https://www.bankofmaldives.com.mv/internetbanking/oauth/token',
+                        'method'  => 'POST',
+                        'headers' => $requestHeaders,
+                        'body'    => preg_replace('/refresh_token=[^&]+/', 'refresh_token=***', $requestBody),
+                    ],
+                    'response' => [
+                        'error' => $e->getMessage(),
+                    ],
+                ],
+            ]);
+        }
     }
 
     public function testMibCredentials(Request $request, $id)
@@ -648,21 +830,39 @@ class SuperadminController extends Controller
 
         // Attempt to reach MIB's API with stored credentials
         try {
-            $response = Http::withHeaders([
+            $reqHeaders = [
                 'Accept' => 'application/json',
-            ])->timeout(15)->get('https://faisanet.mib.com.mv/accounts');
+                'User-Agent' => 'Mozilla/5.0',
+            ];
+            $response = Http::withHeaders($reqHeaders)
+                ->timeout(15)
+                ->get('https://faisanet.mib.com.mv/accounts');
+
+            $respBody = $response->body();
 
             $results['mib_api_reachability'] = [
-                'status_code' => $response->status(),
-                'success'     => $response->successful(),
-                'note'        => $response->successful()
-                    ? 'MIB server is reachable. Full key validation requires the Chrome Extension (DH crypto).'
-                    : 'MIB server returned status ' . $response->status(),
+                'request' => [
+                    'url'     => 'https://faisanet.mib.com.mv/accounts',
+                    'method'  => 'GET',
+                    'headers' => $reqHeaders,
+                ],
+                'response' => [
+                    'status_code' => $response->status(),
+                    'success'     => $response->successful(),
+                    'body'        => $respBody,
+                    'body_truncated' => strlen($respBody) > 5000,
+                ],
             ];
         } catch (\Exception $e) {
             $results['mib_api_reachability'] = [
-                'success' => false,
-                'error'   => $e->getMessage(),
+                'request' => [
+                    'url'     => 'https://faisanet.mib.com.mv/accounts',
+                    'method'  => 'GET',
+                    'headers' => $reqHeaders ?? [],
+                ],
+                'response' => [
+                    'error' => $e->getMessage(),
+                ],
             ];
         }
 
@@ -675,5 +875,42 @@ class SuperadminController extends Controller
             'note'        => 'MIB uses Diffie-Hellman device keys. Full validation requires the Chrome Extension to perform the DH key exchange. Server-side check confirms reachability only.',
             'results'     => $results,
         ]);
+    }
+
+    public function renewMibKeys(Request $request, $id)
+    {
+        $group = MibCredentialGroup::with('profiles.bankAccounts')->find($id);
+        if (!$group) {
+            return response()->json(['error' => 'Credential group not found'], 404);
+        }
+
+        // Capture the old state for confirmation
+        $result = [
+            'mib_username' => $group->mib_username,
+            'had_key1'     => !empty($group->key1),
+            'had_key2'     => !empty($group->key2),
+            'had_app_id'   => !empty($group->app_id),
+            'profile_count' => $group->profiles->count(),
+        ];
+
+        // Clear keys — forces the extension to re-register with MIB
+        $group->key1 = null;
+        $group->key2 = null;
+        $group->app_id = null;
+        $group->save();
+
+        // Also clear all profiles under this group (they were linked to specific keys)
+        foreach ($group->profiles as $profile) {
+            foreach ($profile->bankAccounts as $account) {
+                $account->mib_credential_profile_id = null;
+                $account->save();
+            }
+            $profile->delete();
+        }
+
+        $result['cleared'] = true;
+        $result['note'] = 'MIB device keys have been cleared. The extension will re-register the next time it accesses this account.';
+
+        return response()->json($result);
     }
 }
