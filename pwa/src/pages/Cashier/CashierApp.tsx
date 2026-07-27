@@ -2961,14 +2961,17 @@ function App() {
     activePortRef.current = port;
     addLog("> [System] Extension port connected. Preparing credentials...");
 
+    const isBmlApi = selectedBankName === 'BML' && appConfig.bml_login_procedure === 'api';
+
     const currentCreds = accountsCreds[targetAccountId] || {};
     const activeCreds = {
       username: currentCreds.username || '',
       password: currentCreds.password || '',
-      totpSeed: currentCreds.totpSeed || ''
+      totpSeed: currentCreds.totpSeed || '',
+      token: localStorage.getItem('viri_token') || ''
     };
 
-    if (!activeCreds.username || !activeCreds.password) {
+    if (!isBmlApi && (!activeCreds.username || !activeCreds.password)) {
       setError("Credentials missing for this account. Please re-pair the cashier counter or check account settings.");
       addLog("> [System] Missing credentials. Aborting sync.");
       setLoading(false);
@@ -2977,8 +2980,6 @@ function App() {
       activePortRef.current = null;
       return;
     }
-
-    const isBmlApi = selectedBankName === 'BML' && appConfig.bml_login_procedure === 'api';
 
     port.onMessage.addListener((response: any) => {
       if (response.type === 'log') {
@@ -3239,7 +3240,10 @@ function App() {
                 credentials: activeCreds,
                 debugLogMibHtml: appConfig.debug_log_mib_html,
                 bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
-                mibLoginProcedure: appConfig.mib_login_procedure || 'legacy'
+                mibLoginProcedure: appConfig.mib_login_procedure || 'legacy',
+                backendUrl: backendUrl,
+                hardwareId: hardwareId,
+                sanctumToken: localStorage.getItem('viri_token') || ''
               }
             });
           }
@@ -3302,7 +3306,10 @@ function App() {
               credentials: activeCreds,
               debugLogMibHtml: appConfig.debug_log_mib_html,
               bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
-              mibLoginProcedure: appConfig.mib_login_procedure || 'legacy'
+              mibLoginProcedure: appConfig.mib_login_procedure || 'legacy',
+              backendUrl: backendUrl,
+              hardwareId: hardwareId,
+              sanctumToken: localStorage.getItem('viri_token') || ''
             }
           });
         }

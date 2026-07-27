@@ -360,9 +360,17 @@ chrome.runtime.onConnectExternal.addListener((port) => {
       // Handle the new frontend structure
       if (msg.action === 'VERIFY_TRANSFER') {
         const payload = msg.payload;
+        if (!payload) {
+          console.warn('[Viri Bridge] VERIFY_TRANSFER received without payload');
+          try { port.postMessage({ type: 'error', error: 'VERIFY_TRANSFER: payload is required' }); } catch(e) {}
+          return;
+        }
         const targetAcc = payload.accountNumber || payload.accountId || payload.account;
         const mode = payload.mode || 'search';
         const sessionMode = payload.sessionMode || 'fresh_login';
+        if (!payload.hardwareId || !payload.backendUrl) {
+          console.warn('[Viri Bridge] VERIFY_TRANSFER payload missing backendUrl/hardwareId', { mode, bank: payload.bank, hasBackendUrl: !!payload.backendUrl, hasHardwareId: !!payload.hardwareId, hasSanctumToken: !!payload.sanctumToken });
+        }
         // Store sanctumToken for backend-authenticated operations (e.g., MIB key fetch)
         if (payload.sanctumToken) {
           chrome.storage.local.set({ sanctumToken: payload.sanctumToken });
@@ -406,6 +414,10 @@ chrome.runtime.onConnectExternal.addListener((port) => {
       }
       else if (msg.action === 'FETCH_BML_HISTORY_PAGE') {
         const payload = msg.payload;
+        emitLog(port, '> [Viri Bridge] FETCH_BML_HISTORY_PAGE received');
+        if (payload.sanctumToken) {
+          chrome.storage.local.set({ sanctumToken: payload.sanctumToken });
+        }
         const targetAccId = payload.accountId || (heldSession ? heldSession.accountId : '');
         const targetAccNum = payload.accountNumber || (heldSession ? heldSession.accountNumber : null) || targetAccId;
         const page = payload.page || 1;
