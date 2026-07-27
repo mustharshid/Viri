@@ -57,6 +57,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/credentials', [SuperadminController::class, 'getCredentials']);
         Route::post('/credentials/bml/{id}/test', [SuperadminController::class, 'testBmlCredentials']);
         Route::post('/credentials/bml/{id}/renew', [SuperadminController::class, 'renewBmlToken']);
+        Route::post('/credentials/bml/{id}/clone', [SuperadminController::class, 'cloneBmlCredentials']);
+        Route::get('/credentials/bml/unlinked-accounts', [SuperadminController::class, 'getUnlinkedBmlAccounts']);
         Route::post('/credentials/mib/{id}/test', [SuperadminController::class, 'testMibCredentials']);
         Route::post('/credentials/mib/{id}/renew', [SuperadminController::class, 'renewMibKeys']);
     });

@@ -70,6 +70,51 @@ export default function AdminDashboard() {
   const [revealedCreds, setRevealedCreds] = useState<Record<string, boolean>>({});
   const [openCredComm, setOpenCredComm] = useState<Record<string, boolean>>({});
 
+  // Clone credential modal
+  const [cloneModal, setCloneModal] = useState<{isOpen: boolean; sourceGroup: any | null; unlinkedAccounts: any[]; selectedAccountId: number | null; loading: boolean; loadingAccounts: boolean; result: any | null; error: string | null}>({
+    isOpen: false, sourceGroup: null, unlinkedAccounts: [], selectedAccountId: null, loading: false, loadingAccounts: false, result: null, error: null,
+  });
+
+  const openCloneModal = async (group: any) => {
+    setCloneModal({isOpen: true, sourceGroup: group, unlinkedAccounts: [], selectedAccountId: null, loading: false, loadingAccounts: true, result: null, error: null});
+    try {
+      const token = localStorage.getItem('viri_token');
+      const res = await fetch(`/api/admin/credentials/bml/unlinked-accounts?tenant_id=${group.tenant_id}`, {
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+      });
+      const data = await res.json();
+      setCloneModal(prev => ({ ...prev, unlinkedAccounts: Array.isArray(data) ? data : [], loadingAccounts: false }));
+    } catch {
+      setCloneModal(prev => ({ ...prev, error: 'Failed to load unlinked accounts', loadingAccounts: false }));
+    }
+  };
+
+  const executeClone = async () => {
+    const group = cloneModal.sourceGroup;
+    if (!group || !cloneModal.selectedAccountId) return;
+    setCloneModal(prev => ({ ...prev, loading: true, result: null, error: null }));
+    try {
+      const token = localStorage.getItem('viri_token');
+      const res = await fetch(`/api/admin/credentials/bml/${group.id}/clone`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bank_account_id: cloneModal.selectedAccountId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCloneModal(prev => ({ ...prev, error: data.error || 'Clone failed', loading: false }));
+      } else {
+        setCloneModal(prev => ({ ...prev, result: data, loading: false }));
+      }
+    } catch (err: any) {
+      setCloneModal(prev => ({ ...prev, error: err.message || 'Network error', loading: false }));
+    }
+  };
+
+  const closeCloneModal = () => {
+    setCloneModal(prev => ({ ...prev, isOpen: false }));
+  };
+
   const toggleReveal = (key: string) => {
     setRevealedCreds(prev => ({ ...prev, [key]: !prev[key] }));
   };
@@ -1193,8 +1238,8 @@ export default function AdminDashboard() {
                         className="text-[10px] text-blue-400 hover:text-blue-300 border border-blue-500/30 px-2.5 py-1 rounded hover:bg-blue-500/10 transition-all flex items-center gap-1 font-mono font-medium"
                       >
                         <Terminal size={10} /> View Logs
-                      </button>
-                    </div>
+                            </button>
+                            </div>
                   </div>
                 );
               })}
@@ -3182,6 +3227,13 @@ export default function AdminDashboard() {
                                 <RefreshCw size={12} className={`mr-1 ${credsTestingId === `bml-renew-${group.id}` ? 'animate-spin' : ''}`} />
                                 {credsTestingId === `bml-renew-${group.id}` ? 'Renewing...' : 'Renew Token'}
                               </button>
+                              <button
+                                onClick={() => openCloneModal(group)}
+                                className="btn btn-outline text-xs border-purple-700/40 text-purple-400 hover:bg-purple-900/30"
+                              >
+                                <Copy size={12} className="mr-1" />
+                                Clone to Account
+                              </button>
                             </div>
                             {testResult && !testResult.loading && (
                               <div className="space-y-1 text-xs">
@@ -3884,6 +3936,71 @@ export default function AdminDashboard() {
             <div className="flex justify-end mt-4">
               <button className="btn btn-primary" onClick={() => alertModalState.resolve()}>OK</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {cloneModal.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-4 animate-scale-in relative">
+            <button onClick={closeCloneModal} className="absolute top-3 right-3 text-zinc-500 hover:text-zinc-300"><X size={18} /></button>
+            <h3 className="text-lg font-bold text-white">Clone BML Credentials</h3>
+
+            {cloneModal.result ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-emerald-400">
+                  <CheckCircle2 size={18} />
+                  <span className="font-semibold">Credentials Cloned Successfully</span>
+                </div>
+                <div className="bg-black/40 border border-zinc-800 rounded p-3 text-sm space-y-1">
+                  <p><span className="text-zinc-400">Group:</span> <span className="text-white">#{cloneModal.result.group_id}</span></p>
+                  <p><span className="text-zinc-400">Account:</span> <span className="text-white">{cloneModal.result.account.account_name} ({cloneModal.result.account.account_number})</span></p>
+                </div>
+                <button className="btn btn-primary w-full" onClick={() => { closeCloneModal(); location.reload(); }}>
+                  Reload to refresh credentials list
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="text-sm text-zinc-300">
+                  Clone credentials from <span className="text-white font-semibold">Group #{cloneModal.sourceGroup?.id}</span> to an unlinked BML account.
+                </div>
+
+                {cloneModal.loadingAccounts ? (
+                  <p className="text-sm text-zinc-500 italic">Loading unlinked accounts...</p>
+                ) : cloneModal.error ? (
+                  <p className="text-sm text-red-400">{cloneModal.error}</p>
+                ) : cloneModal.unlinkedAccounts.length === 0 ? (
+                  <p className="text-sm text-yellow-400">No unlinked BML accounts available for this tenant.</p>
+                ) : (
+                  <select
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white"
+                    value={cloneModal.selectedAccountId ?? ''}
+                    onChange={e => setCloneModal(prev => ({ ...prev, selectedAccountId: Number(e.target.value) }))}
+                  >
+                    <option value="" disabled>Select a target account...</option>
+                    {cloneModal.unlinkedAccounts.map((acc: any) => (
+                      <option key={acc.id} value={acc.id}>{acc.account_name} ({acc.account_number})</option>
+                    ))}
+                  </select>
+                )}
+
+                {cloneModal.error && !cloneModal.loadingAccounts && (
+                  <p className="text-sm text-red-400">{cloneModal.error}</p>
+                )}
+
+                <div className="flex justify-end gap-3 mt-2">
+                  <button className="btn btn-outline border-zinc-700 text-zinc-400" onClick={closeCloneModal}>Cancel</button>
+                  <button
+                    className="btn btn-primary"
+                    disabled={!cloneModal.selectedAccountId || cloneModal.loading || cloneModal.unlinkedAccounts.length === 0}
+                    onClick={executeClone}
+                  >
+                    {cloneModal.loading ? 'Cloning...' : 'Clone'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

@@ -71,6 +71,7 @@ class SessionActivityLog extends Model
             'pwa_debug_logs'             => 'PWA Debug Logs',
             'race_won'                   => 'Session Race Won',
             'race_lost_delegating'       => 'Session Race Lost — Delegating',
+            'credential_cloned'          => 'Credentials Cloned',
             default                      => $eventType,
         };
     }

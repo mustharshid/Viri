@@ -11,6 +11,8 @@ use App\Models\MibCredentialGroup;
 use App\Models\BankAccount;
 use App\Models\Terminal;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class SuperadminController extends Controller
 {
@@ -912,5 +914,108 @@ class SuperadminController extends Controller
         $result['note'] = 'MIB device keys have been cleared. The extension will re-register the next time it accesses this account.';
 
         return response()->json($result);
+    }
+
+    public function getUnlinkedBmlAccounts(Request $request)
+    {
+        $tenantId = $request->input('tenant_id');
+        if (!$tenantId) {
+            return response()->json(
+                BankAccount::where('bank_name', 'BML')
+                    ->whereNull('bml_credential_group_id')
+                    ->get(['id', 'account_number', 'account_name', 'tenant_id'])
+            );
+        }
+
+        $accounts = BankAccount::where('tenant_id', $tenantId)
+            ->where('bank_name', 'BML')
+            ->whereNull('bml_credential_group_id')
+            ->get(['id', 'account_number', 'account_name']);
+
+        return response()->json($accounts);
+    }
+
+    public function cloneBmlCredentials(Request $request, $id)
+    {
+        $request->validate(['bank_account_id' => 'required|integer']);
+
+        $source = BmlCredentialGroup::find($id);
+        if (!$source) {
+            return response()->json(['error' => 'Credential group not found'], 404);
+        }
+
+        if (empty($source->access_token)) {
+            return response()->json(['error' => 'Source credentials have no access token — cannot clone'], 422);
+        }
+
+        $target = BankAccount::where('id', $request->bank_account_id)
+            ->where('tenant_id', $source->tenant_id)
+            ->first();
+
+        if (!$target) {
+            return response()->json(['error' => 'Bank account not found for this tenant'], 404);
+        }
+
+        if (strtolower($target->bank_name) !== 'bml') {
+            return response()->json(['error' => 'Target account is not a BML account'], 422);
+        }
+
+        if ($target->bml_credential_group_id !== null) {
+            return response()->json([
+                'error' => 'Target bank account is already linked to BML credential group #' . $target->bml_credential_group_id . '. Unlink it first or choose a different account.',
+                'existing_group_id' => $target->bml_credential_group_id,
+            ], 422);
+        }
+
+        $clone = BmlCredentialGroup::create([
+            'tenant_id'     => $source->tenant_id,
+            'terminal_id'   => $source->terminal_id,
+            'bml_username'  => null,
+            'profile_type'  => $source->profile_type,
+            'access_token'  => $source->access_token,
+            'refresh_token' => $source->refresh_token,
+            'device_id'     => Str::random(16),
+            'expires_in'    => $source->expires_in,
+            'expires_at'    => $source->expires_at,
+            'obtained_at'   => now(),
+            'token_type'    => 'Bearer',
+            'last_grant'    => 'clone',
+        ]);
+
+        $target->bml_credential_group_id = $clone->id;
+        $target->save();
+
+        \App\Models\SessionActivityLog::create([
+            'tenant_id'    => $source->tenant_id,
+            'event_type'   => 'credential_cloned',
+            'event_summary'=> "BML credentials cloned from group #{$source->id} to bank account #{$target->id} ({$target->account_number})",
+            'event_detail' => [
+                'source_group_id'      => $source->id,
+                'clone_group_id'       => $clone->id,
+                'target_account_id'    => $target->id,
+                'target_account_number'=> $target->account_number,
+                'profile_type'         => $source->profile_type,
+                'performed_by'         => auth()->id(),
+            ],
+            'created_at'   => now(),
+        ]);
+
+        Log::info('BML credentials cloned', [
+            'source_group_id' => $source->id,
+            'clone_group_id'  => $clone->id,
+            'target_account'  => $target->account_number,
+            'admin_user_id'   => auth()->id(),
+        ]);
+
+        return response()->json([
+            'success'  => true,
+            'group_id' => $clone->id,
+            'account'  => [
+                'id'             => $target->id,
+                'account_number' => $target->account_number,
+                'account_name'   => $target->account_name,
+                'bank_name'      => $target->bank_name,
+            ],
+        ]);
     }
 }
