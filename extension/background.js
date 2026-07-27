@@ -139,6 +139,7 @@ let debugPayloadBuffer = [];
 let _flushingBuffer = false;
 const _pendingBufferFlush = [];
 const MAX_DEBUG_BUFFER = 5000;
+const _bmlRefreshLocks = {};
 
 // Restore session state on worker wake up
 chrome.storage.local.get(['viri_held_session', 'viri_debug_log_mib_html'], (result) => {
@@ -955,7 +956,9 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
                         if (!tokenData.access_token) throw new Error(`Token response missing access_token: ${tokenRawText.substring(0, 200)}`);
                         
                         log('Tokens obtained! Saving to chrome.storage...');
-                        const cacheKey = `bml_oauth_${bmlUsername}_${profileType}`;
+    const cacheKey = (bmlUsername && bmlUsername.length > 0)
+        ? `bml_oauth_${bmlUsername}_${profileType}`       // known username → shared across sibling accounts
+        : `bml_oauth_acct_${bankAccountId}_${profileType}`; // null username → scoped per account
                         await chrome.storage.local.set({
                             [cacheKey]: {
                                 access_token: tokenData.access_token,
@@ -1023,7 +1026,9 @@ async function startBmlOAuthFlow(terminalId, bankAccountId, backendUrl, bmlUsern
 }
 
 async function getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken) {
-    const cacheKey = `bml_oauth_${bmlUsername}_${profileType}`;
+    const cacheKey = (bmlUsername && bmlUsername.length > 0)
+        ? `bml_oauth_${bmlUsername}_${profileType}`       // known username → shared across sibling accounts
+        : `bml_oauth_acct_${bankAccountId}_${profileType}`; // null username → scoped per account
     let tokens = null;
     
     // Check local cache
@@ -1034,16 +1039,35 @@ async function getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bml
         // Fetch from server
         try {
             const profileTypeParam = profileType === '1' ? 'business' : 'personal';
-            const res = await fetch(`${backendUrl}/bml/oauth/tokens?hardware_id=${terminalId}&bank_account_id=${bankAccountId}&profile_type=${profileTypeParam}`, {
+            let queryUrl = `${backendUrl}/bml/oauth/tokens?hardware_id=${terminalId}&bank_account_id=${bankAccountId}&profile_type=${profileTypeParam}`;
+            if (bmlUsername && bmlUsername.length > 0) {
+                queryUrl += `&bml_username=${encodeURIComponent(bmlUsername)}`;
+            }
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const res = await fetch(queryUrl, {
                 headers: {
                     'Accept': 'application/json',
                     'Authorization': `Bearer ${sanctumToken}`
-                }
+                },
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
             if (res.status === 200) {
                 tokens = await res.json();
-                tokens.expires_at = new Date(tokens.expires_at).getTime();
-                await chrome.storage.local.set({ [cacheKey]: tokens });
+                if (!tokens || !tokens.access_token) {
+                    console.warn('[Viri Bridge] Server returned tokens without access_token for', cacheKey,
+                        '— keys:', tokens ? Object.keys(tokens).join(',') : 'null');
+                    tokens = null;
+                } else {
+                    tokens.expires_at = new Date(tokens.expires_at).getTime();
+                    await chrome.storage.local.set({ [cacheKey]: tokens });
+                }
+            } else {
+                let errBody = '';
+                try { errBody = (await res.text()).substring(0, 200); } catch(_) {}
+                console.warn('[Viri Bridge] Server returned HTTP', res.status, 'for', cacheKey,
+                    errBody ? `— ${errBody}` : '');
             }
         } catch(e) { console.error('Failed to fetch tokens from server', e); }
     }
@@ -1052,39 +1076,142 @@ async function getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bml
 
     // Check expiry (5 min buffer)
     if (tokens.expires_at < Date.now() + 5 * 60 * 1000) {
-        // Refresh
-        const tokenBody = new URLSearchParams({
-            'grant_type': 'refresh_token',
-            'refresh_token': tokens.refresh_token,
-            'client_id': '98C83590-513F-4716-B02B-EC68B7D9E7E7',
-            'Device-ID': tokens.device_id,
-            'User-Agent': 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)',
-            'x-app-version': '2.1.44.348'
-        });
-        
-        try {
-            const tokenRes = await fetch('https://www.bankofmaldives.com.mv/internetbanking/oauth/token', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0',
-                    'Accept': 'application/json',
-                    'X-Device-ID': tokens.device_id
-                },
-                body: tokenBody.toString()
+        // === Thundering-herd protection ===
+        // If another call is already refreshing the same cacheKey, wait for it to finish,
+        // then check if it put fresh tokens in the cache.
+        if (_bmlRefreshLocks[cacheKey]) {
+            try { await _bmlRefreshLocks[cacheKey]; } catch(e) {}
+            const data = await chrome.storage.local.get(cacheKey);
+            if (data[cacheKey] && data[cacheKey].expires_at >= Date.now() + 5 * 60 * 1000) {
+                return data[cacheKey].access_token;
+            }
+            // In-flight refresh must have failed — fall through to try our own
+            tokens = data[cacheKey] || tokens;
+        }
+
+        // Perform the full refresh under a lock to prevent concurrent BML OAuth calls
+        const doRefresh = async () => {
+            // === Check OUR server first before trying BML OAuth directly ===
+            // The superadmin may have renewed tokens on the server via the Credential Inspector.
+            // If the cached copy is stale, the server might have fresh tokens from another
+            // terminal's renewal. Always check the server as the source of truth.
+            let serverTokens = null;
+            try {
+                const profileTypeParam = profileType === '1' ? 'business' : 'personal';
+                let chkUrl = `${backendUrl}/bml/oauth/tokens?hardware_id=${terminalId}&bank_account_id=${bankAccountId}&profile_type=${profileTypeParam}`;
+                if (bmlUsername && bmlUsername.length > 0) {
+                    chkUrl += `&bml_username=${encodeURIComponent(bmlUsername)}`;
+                }
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                const checkRes = await fetch(chkUrl, {
+                    headers: {
+                        'Accept': 'application/json',
+                        'Authorization': `Bearer ${sanctumToken}`
+                    },
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                if (checkRes.status === 200) {
+                    serverTokens = await checkRes.json();
+                    if (!serverTokens || !serverTokens.access_token) {
+                        console.warn('[Viri Bridge] Refresh check: server returned 200 without access_token');
+                        serverTokens = null;
+                    } else {
+                        serverTokens.expires_at = new Date(serverTokens.expires_at).getTime();
+                    }
+                } else {
+                    let errBody = '';
+                    try { errBody = (await checkRes.text()).substring(0, 200); } catch(_) {}
+                    console.warn('[Viri Bridge] Refresh check: server HTTP', checkRes.status,
+                        errBody ? `— ${errBody}` : '');
+                }
+            } catch(e) { console.warn('[Viri Bridge] Server token check failed, falling back to BML OAuth:', e.message); }
+
+            // If server has a token that is NOT expired (with 5 min buffer), use it
+            if (serverTokens && serverTokens.expires_at >= Date.now() + 5 * 60 * 1000) {
+                const resultTokens = { ...serverTokens };
+                await chrome.storage.local.set({ [cacheKey]: resultTokens });
+                console.log('[Viri Bridge] Using fresh token from server — skipped BML OAuth refresh.');
+                return resultTokens.access_token;
+            }
+
+            // Server token is also stale (or unreachable). Use the best available refresh_token.
+            // Keep refresh_token + device_id as a set from the same source — they were
+            // issued together by BML and must match for the OAuth refresh to succeed.
+            const useServerSet = serverTokens && serverTokens.refresh_token && serverTokens.device_id;
+            const bestRefresh = useServerSet ? serverTokens.refresh_token : tokens.refresh_token;
+            const bestDeviceId = useServerSet ? serverTokens.device_id : tokens.device_id;
+
+            const tokenBody = new URLSearchParams({
+                'grant_type': 'refresh_token',
+                'refresh_token': bestRefresh,
+                'client_id': '98C83590-513F-4716-B02B-EC68B7D9E7E7',
+                'Device-ID': bestDeviceId,
+                'User-Agent': 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)',
+                'x-app-version': '2.1.44.348'
             });
-            
-            if (tokenRes.status !== 200) throw new Error('Refresh failed');
-            const tokenData = await tokenRes.json();
-            
-            tokens.access_token = tokenData.access_token;
-            tokens.refresh_token = tokenData.refresh_token || tokens.refresh_token; // rotation
-            tokens.expires_in = tokenData.expires_in;
-            tokens.expires_at = Date.now() + (tokenData.expires_in * 1000);
-            
-            await chrome.storage.local.set({ [cacheKey]: tokens });
-            
-            // Sync to server
+
+            // Retry BML OAuth on transient errors (5xx, network) up to 2 times.
+            // 400/401 = token truly expired/revoked — do NOT retry.
+            let tokenRes, tokenData;
+            for (let attempt = 0; attempt < 3; attempt++) {
+                if (attempt > 0) {
+                    const delay = 1000 * Math.pow(2, attempt - 1);
+                    console.warn(`[Viri Bridge] BML OAuth retry ${attempt}/2 in ${delay}ms`);
+                    await new Promise(r => setTimeout(r, delay));
+                }
+                try {
+                    const controller2 = new AbortController();
+                    const timeoutId2 = setTimeout(() => controller2.abort(), 15000);
+                    tokenRes = await fetch('https://www.bankofmaldives.com.mv/internetbanking/oauth/token', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0',
+                            'Accept': 'application/json',
+                            'X-Device-ID': bestDeviceId
+                        },
+                        body: tokenBody.toString(),
+                        signal: controller2.signal
+                    });
+                    clearTimeout(timeoutId2);
+
+                    if (tokenRes.status === 200) {
+                        tokenData = await tokenRes.json();
+                        break;
+                    }
+                    if (tokenRes.status === 400 || tokenRes.status === 401) {
+                        // Permanent: token revoked or expired — no retry
+                        throw new Error('Refresh failed: token expired or revoked');
+                    }
+                    // 5xx — transient, will retry
+                    if (attempt === 2) {
+                        throw new Error(`BML OAuth unreachable (HTTP ${tokenRes.status} after 3 attempts)`);
+                    }
+                } catch (e) {
+                    if (e.message && e.message.startsWith('Refresh failed:')) throw e;
+                    if (e.name === 'AbortError' || (e.message && e.message.includes('fetch'))) {
+                        // Network / timeout — transient
+                        if (attempt === 2) throw new Error('BML OAuth unreachable (network error after 3 attempts)');
+                        continue;
+                    }
+                    if (e.message && e.message.includes('BML OAuth unreachable')) throw e;
+                    throw e;
+                }
+            }
+
+            if (!tokenData || !tokenData.access_token) throw new Error('Refresh failed');
+
+            const resultTokens = { ...tokens };
+            resultTokens.access_token = tokenData.access_token;
+            resultTokens.refresh_token = tokenData.refresh_token || bestRefresh; // rotation
+            resultTokens.expires_in = tokenData.expires_in;
+            resultTokens.expires_at = Date.now() + (tokenData.expires_in * 1000);
+
+            await chrome.storage.local.set({ [cacheKey]: resultTokens });
+
+            // Sync to server (fire-and-forget)
             fetch(`${backendUrl}/bml/oauth/update`, {
                 method: 'POST',
                 headers: {
@@ -1094,15 +1221,29 @@ async function getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bml
                 body: JSON.stringify({
                     hardware_id: terminalId,
                     bank_account_id: bankAccountId,
-                    access_token: tokens.access_token,
-                    refresh_token: tokens.refresh_token,
-                    expires_in: tokens.expires_in
+                    access_token: resultTokens.access_token,
+                    refresh_token: resultTokens.refresh_token,
+                    expires_in: resultTokens.expires_in
                 })
             }).catch(()=>{});
+
+            return resultTokens.access_token;
+        };
+
+        const refreshPromise = doRefresh();
+        _bmlRefreshLocks[cacheKey] = refreshPromise;
+        try {
+            const accessToken = await refreshPromise;
+            if (!accessToken) {
+                await chrome.storage.local.remove(cacheKey);
+                return null;
+            }
+            return accessToken;
         } catch(e) {
             console.error('Refresh failed', e);
-            await chrome.storage.local.remove(cacheKey);
-            return null; // Force re-link
+            return null;
+        } finally {
+            delete _bmlRefreshLocks[cacheKey];
         }
     }
     return tokens.access_token;
@@ -1529,6 +1670,10 @@ class MibSessionExpiredError extends Error {
   constructor(message) { super(message); this.name = 'MibSessionExpiredError'; }
 }
 
+class MibTransientError extends Error {
+  constructor(message) { super(message); this.name = 'MibTransientError'; }
+}
+
 // Yield control back to the event loop to prevent service worker blockage
 // during synchronous crypto operations (Blowfish, BigInt modPow)
 const yieldToEventLoop = () => new Promise(r => setTimeout(r, 0));
@@ -1587,8 +1732,20 @@ async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields =
     throw new MibSessionExpiredError('HTTP 419 — session expired');
   }
 
+  // Transient errors: server 5xx, rate limiting — NOT stale keys.
+  // MIB may return HTML error pages (WebView errors) on these.
+  if (resp.status >= 500 || resp.status === 429) {
+    throw new MibTransientError(`MIB transient: HTTP ${resp.status}`);
+  }
+
   const cipherBody = await resp.text();
   if (!cipherBody) throw new Error("Empty response from MIB API");
+
+  // Detect HTML / WebView error pages (start with '<').
+  // These are transient server errors incorrectly routed to the API endpoint.
+  if (cipherBody.charCodeAt(0) === 0x3C) {
+    throw new MibTransientError(`MIB returned HTML/WebView error page (HTTP ${resp.status})`);
+  }
 
   // Detect plaintext JSON error responses (MIB may return plaintext
   // on HTTP 500, 400, etc. — e.g. "internal Token/Digest fail"). 
@@ -1599,8 +1756,9 @@ async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields =
       if (plainErr.reasonText) {
         throw new Error(`MIB API error: ${plainErr.reasonText} (HTTP ${resp.status}, code ${plainErr.reasonCode})`);
       }
+      throw new MibTransientError(`MIB returned plaintext JSON without reasonText (HTTP ${resp.status})`);
     } catch (e) {
-      if (e.message.startsWith('MIB API error')) throw e;
+      if (e.message.startsWith('MIB API error') || e.message.includes('without reasonText')) throw e;
     }
   }
 
@@ -1711,6 +1869,7 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
         if(port) emitLog(port, '> [MIB-API] Fast-path successful. Keys were valid.');
         return { success: true, skipOtp: true };
       } catch (e) {
+        if (e instanceof MibTransientError) throw e;
         if(port) emitLog(port, '> [MIB-API] Fast-path keys were stale. Falling back to C41...');
         sessionState.key1 = DEFAULT_KEY;
         sessionState.key2 = DEFAULT_KEY;
@@ -2132,19 +2291,84 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
     if (!keysResp.ok) throw new Error("Missing MIB device credentials. Please link account again.");
     const keysData = await keysResp.json();
     if (!keysData.key1 || !keysData.key2) throw new Error("Server has no MIB keys. Please link account again.");
+    const profileUpdate = {};
+    if (keysData.profileId) profileUpdate[mibProfileIdKey] = keysData.profileId;
+    if (keysData.profileType) profileUpdate[mibProfileTypeKey] = keysData.profileType;
     await chrome.storage.local.set({
       mib_key1: keysData.key1,
       mib_key2: keysData.key2,
       mib_appId: keysData.appId,
-      [mibProfileIdKey]: keysData.profileId || '',
-      [mibProfileTypeKey]: keysData.profileType || '0'
+      ...profileUpdate
     });
     localRes = { mib_appId: keysData.appId, mib_key1: keysData.key1, mib_key2: keysData.key2 };
+  } else {
+    // === ALWAYS check server for potentially newer keys ===
+    // Another terminal may have registered the same MIB username with fresh keys.
+    // If the server has different keys, prefer them — it avoids an unnecessary
+    // sfunc=r re-registration and OTP prompt.
+    try {
+      const tokenRes = await chrome.storage.local.get('sanctumToken');
+      if (tokenRes.sanctumToken) {
+        const params = new URLSearchParams({ hardware_id: terminalId });
+        if (targetAccount) params.append('account_number', targetAccount);
+        const keysResp = await fetch(`${backendUrl}/mib/keys?${params}`, {
+          headers: { 'Authorization': `Bearer ${tokenRes.sanctumToken}` }
+        });
+        if (keysResp.ok) {
+          const keysData = await keysResp.json();
+          if (keysData.key1 && keysData.key2 &&
+              (keysData.key1 !== localRes.mib_key1 || keysData.key2 !== localRes.mib_key2)) {
+            if(port) emitLog(port, '> [MIB-API] Server has newer keys than local cache. Using server keys.');
+            const profUpdate = {};
+            if (keysData.profileId) profUpdate[mibProfileIdKey] = keysData.profileId;
+            if (keysData.profileType) profUpdate[mibProfileTypeKey] = keysData.profileType;
+            await chrome.storage.local.set({
+              mib_key1: keysData.key1,
+              mib_key2: keysData.key2,
+              mib_appId: keysData.appId || localRes.mib_appId,
+              ...profUpdate
+            });
+            localRes = { mib_appId: keysData.appId || localRes.mib_appId, mib_key1: keysData.key1, mib_key2: keysData.key2 };
+          }
+        }
+      }
+    } catch(e) {
+      // Server check is best-effort; if unreachable, continue with local keys
+      if(port) emitLog(port, `> [MIB-API] Server key check skipped: ${e.message}`);
+    }
   }
 
-  const iPayload = { cmod: computeCmod().toString(), appId: localRes.mib_appId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
   try {
-    const iResp = await executeMibSfunc('i', iPayload, localRes.mib_key1, { key2: localRes.mib_key2 });
+    // sfunc=i resume with retry for transient server errors.
+    // MibSessionExpiredError / stale keys are permanent — propagate to outer catch → sfunc=r.
+    let iResp;
+    let retryCount = 0;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        const delay = 1000 * Math.pow(2, attempt - 1);
+        if(port) emitLog(port, `> [MIB-API] Retrying sfunc=i (attempt ${attempt + 1}/3, ${delay}ms)...`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+      const freshPayload = { cmod: computeCmod().toString(), appId: localRes.mib_appId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
+      try {
+        iResp = await executeMibSfunc('i', freshPayload, localRes.mib_key1, { key2: localRes.mib_key2 });
+        retryCount = attempt;
+        break;
+      } catch (err) {
+        if (err instanceof MibSessionExpiredError || /stale keys/i.test(err.message)) {
+          throw err; // permanent — let outer catch handle with sfunc=r
+        }
+        if (err instanceof MibTransientError || err.name === 'AbortError' || err.name === 'TypeError') {
+          if (attempt === 2) throw err; // exhausted retries
+          continue;
+        }
+        throw err; // unexpected — don't retry
+      }
+    }
+    if (!iResp) throw new Error('sfunc=i failed after retries');
+    if (retryCount > 0) {
+      if(port) emitLog(port, `> [MIB-API] sfunc=i succeeded after ${retryCount + 1} attempt(s).`);
+    }
     mibSession = {
       appId: localRes.mib_appId,
       key1: localRes.mib_key1,

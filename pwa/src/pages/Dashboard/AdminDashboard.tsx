@@ -17,6 +17,7 @@ export default function AdminDashboard() {
   const [theme, toggleTheme] = useTheme();
   const [companies, setCompanies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<{ message: string; retry: () => void } | null>(null);
   const navigate = useNavigate();
   const pinInputRef = useRef<HTMLInputElement>(null);
 
@@ -509,7 +510,16 @@ export default function AdminDashboard() {
       };
 
       const userRes = await fetch('/api/me', { headers });
-      if (!userRes.ok) throw new Error('Unauthorized');
+      if (!userRes.ok) {
+        if (userRes.status === 401 || userRes.status === 419) {
+          // Truly expired / revoked — only these clear token and redirect to login
+          localStorage.removeItem('viri_token');
+          navigate('/login');
+          return;
+        }
+        // 5xx, 403, 429, etc. — server issue, not a stale token
+        throw new Error(`Server returned ${userRes.status}`);
+      }
       const userData = await userRes.json();
       
       if (userData.user.role !== 'superadmin') {
@@ -531,15 +541,21 @@ export default function AdminDashboard() {
         setSubscriptionPlans(await plansRes.json());
       }
 
-    } catch (err) {
-      navigate('/login');
+    } catch (err: any) {
+      const isNetworkError = err instanceof TypeError;
+      if (isNetworkError) {
+        setFetchError({ message: 'Connection lost. Check your internet connection.', retry: fetchData });
+      } else {
+        setFetchError({ message: err.message || 'Something went wrong.', retry: fetchData });
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const handleRefresh = () => {
-    if (activeTab === 'companies' || activeTab === 'archived' || activeTab === 'tiers') {
+    setFetchError(null);
+    if (activeTab === 'overview' || activeTab === 'companies' || activeTab === 'archived' || activeTab === 'tiers') {
       fetchData();
     } else if (activeTab === 'logs') {
       fetchSessionLogs(true);
@@ -2682,6 +2698,26 @@ export default function AdminDashboard() {
   };
 
   if (loading) return <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center text-white">Loading...</div>;
+
+  if (fetchError) {
+    return (
+      <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center">
+        <div className="bg-[var(--bg-card)] border border-red-500/30 rounded-2xl p-8 max-w-md w-full text-center shadow-2xl">
+          <AlertTriangle size={48} className="text-red-400 mx-auto mb-4" />
+          <h2 className="text-white text-lg font-semibold mb-2">Connection Issue</h2>
+          <p className="text-[var(--text-secondary)] mb-6">{fetchError.message}</p>
+          <div className="flex gap-3 justify-center">
+            <button onClick={fetchError.retry} className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-medium transition-colors shadow-lg shadow-emerald-500/20 flex items-center gap-2">
+              <RefreshCw size={16} /> Retry
+            </button>
+            <button onClick={handleLogout} className="px-6 py-2.5 rounded-xl bg-[var(--bg-dark)] border border-zinc-700 text-white hover:bg-zinc-800 transition-colors font-medium">
+              Logout
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)] p-6">

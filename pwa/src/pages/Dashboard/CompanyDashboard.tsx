@@ -67,12 +67,13 @@ const DeleteConfirmModal = ({ isOpen, onClose, onConfirm, title, message, itemNa
 };
 
 export default function CompanyDashboard() {
-  const LATEST_EXTENSION_VERSION = "1.2.87";
+  const LATEST_EXTENSION_VERSION = "1.2.88";
   const [theme, toggleTheme] = useTheme();
   const [user, setUser] = useState<any>(null);
   const [terminals, setTerminals] = useState<any[]>([]);
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<{ message: string; retry: () => void } | null>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -425,7 +426,16 @@ export default function CompanyDashboard() {
       };
 
       const userRes = await fetch('/api/me', { headers });
-      if (!userRes.ok) throw new Error('Unauthorized');
+      if (!userRes.ok) {
+        if (userRes.status === 401 || userRes.status === 419) {
+          // Truly expired / revoked — only these clear token and redirect to login
+          localStorage.removeItem('viri_token');
+          navigate('/login');
+          return;
+        }
+        // 5xx, 403, 429, etc. — server issue, not a stale token
+        throw new Error(`Server returned ${userRes.status}`);
+      }
       const userData = await userRes.json();
       setUser(userData.user);
       setSettingsPhone(userData.user.phone_number || '');
@@ -443,8 +453,13 @@ export default function CompanyDashboard() {
       setAuditLogs(logsData.data);
       setTotalAuditLogs(logsData.total);
 
-    } catch (err) {
-      navigate('/login');
+    } catch (err: any) {
+      const isNetworkError = err instanceof TypeError;
+      if (isNetworkError) {
+        setFetchError({ message: 'Connection lost. Check your internet connection.', retry: fetchData });
+      } else {
+        setFetchError({ message: err.message || 'Something went wrong.', retry: fetchData });
+      }
     } finally {
       setLoading(false);
     }
@@ -835,6 +850,26 @@ export default function CompanyDashboard() {
   };
 
   if (loading) return <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center text-white">Loading...</div>;
+
+  if (fetchError) {
+    return (
+      <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center">
+        <div className="bg-[var(--bg-card)] border border-red-500/30 rounded-2xl p-8 max-w-md w-full text-center shadow-2xl">
+          <AlertTriangle size={48} className="text-red-400 mx-auto mb-4" />
+          <h2 className="text-white text-lg font-semibold mb-2">Connection Issue</h2>
+          <p className="text-[var(--text-secondary)] mb-6">{fetchError.message}</p>
+          <div className="flex gap-3 justify-center">
+            <button onClick={fetchError.retry} className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-medium transition-colors shadow-lg shadow-emerald-500/20 flex items-center gap-2">
+              <RefreshCw size={16} /> Retry
+            </button>
+            <button onClick={handleLogout} className="px-6 py-2.5 rounded-xl bg-[var(--bg-dark)] border border-zinc-700 text-white hover:bg-zinc-800 transition-colors font-medium">
+              Logout
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)] flex font-sans antialiased">
