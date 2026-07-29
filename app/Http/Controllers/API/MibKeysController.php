@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-
+use App\Models\BankAccount;
+use App\Models\MibCredentialGroup;
+use App\Models\MibCredentialProfile;
 use App\Models\MibDeviceCredential;
+use App\Models\Terminal;
 use Carbon\Carbon;
+use Illuminate\Http\Request;
 
 class MibKeysController extends Controller
 {
@@ -25,22 +28,24 @@ class MibKeysController extends Controller
             'credentials_hash' => 'sometimes|nullable|string',
         ]);
 
-        $terminal = \App\Models\Terminal::where('hardware_id', $validated['hardware_id'])->first();
-        if (!$terminal) return response()->json(['error' => 'Unauthorized terminal'], 403);
+        $terminal = Terminal::where('hardware_id', $validated['hardware_id'])->first();
+        if (! $terminal) {
+            return response()->json(['error' => 'Unauthorized terminal'], 403);
+        }
 
         // 1. Upsert credential group — keyed by (tenant_id, mib_username) so the same credentials
         //    share ONE group across all terminals. terminal_id tracks whichever terminal most
         //    recently registered or refreshed the device keys.
-        $group = \App\Models\MibCredentialGroup::updateOrCreate(
+        $group = MibCredentialGroup::updateOrCreate(
             [
-                'tenant_id'    => $terminal->tenant_id,
+                'tenant_id' => $terminal->tenant_id,
                 'mib_username' => $validated['mib_username'],
             ],
             [
                 'terminal_id' => $terminal->id,
-                'key1'        => $validated['key1'],
-                'key2'        => $validated['key2'],
-                'app_id'      => $validated['app_id'],
+                'key1' => $validated['key1'],
+                'key2' => $validated['key2'],
+                'app_id' => $validated['app_id'],
                 'obtained_at' => Carbon::now(),
             ]
         );
@@ -50,10 +55,10 @@ class MibKeysController extends Controller
         $profileType = $validated['profile_type'] ?? '0';
         $profileName = $validated['profile_name'] ?? '';
 
-        $profile = \App\Models\MibCredentialProfile::updateOrCreate(
+        $profile = MibCredentialProfile::updateOrCreate(
             [
                 'credential_group_id' => $group->id,
-                'profile_id'          => $profileId,
+                'profile_id' => $profileId,
             ],
             [
                 'profile_type' => $profileType,
@@ -62,7 +67,7 @@ class MibKeysController extends Controller
         );
 
         // 3. Link requesting bank account to this profile
-        $account = \App\Models\BankAccount::where('id', $validated['bank_account_id'])
+        $account = BankAccount::where('id', $validated['bank_account_id'])
             ->where('tenant_id', $terminal->tenant_id)
             ->first();
 
@@ -79,8 +84,10 @@ class MibKeysController extends Controller
             'hardware_id' => 'required|string',
         ]);
 
-        $terminal = \App\Models\Terminal::where('hardware_id', $request->hardware_id)->first();
-        if (!$terminal) return response()->json(['error' => 'Unauthorized terminal'], 403);
+        $terminal = Terminal::where('hardware_id', $request->hardware_id)->first();
+        if (! $terminal) {
+            return response()->json(['error' => 'Unauthorized terminal'], 403);
+        }
 
         $group = null;
         $profile = null;
@@ -88,19 +95,19 @@ class MibKeysController extends Controller
 
         if ($request->has('mib_username')) {
             // Groups are now keyed by tenant, not terminal — look up by tenant scope.
-            $group = \App\Models\MibCredentialGroup::where('tenant_id', $terminal->tenant_id)
+            $group = MibCredentialGroup::where('tenant_id', $terminal->tenant_id)
                 ->where('mib_username', $request->mib_username)
                 ->first();
-        } else if ($request->has('bank_account_id')) {
-            $account = \App\Models\BankAccount::where('id', $request->bank_account_id)
+        } elseif ($request->has('bank_account_id')) {
+            $account = BankAccount::where('id', $request->bank_account_id)
                 ->where('tenant_id', $terminal->tenant_id)
                 ->first();
             if ($account) {
                 $profile = $account->mibCredentialProfile;
                 $group = $profile?->credentialGroup;
             }
-        } else if ($request->has('account_number')) {
-            $account = \App\Models\BankAccount::where('account_number', $request->account_number)
+        } elseif ($request->has('account_number')) {
+            $account = BankAccount::where('account_number', $request->account_number)
                 ->where('tenant_id', $terminal->tenant_id)
                 ->first();
             if ($account) {
@@ -110,22 +117,22 @@ class MibKeysController extends Controller
         }
 
         // Fallback 1: any group for this tenant (for legacy accounts not yet linked)
-        if (!$group) {
-            $group = \App\Models\MibCredentialGroup::where('tenant_id', $terminal->tenant_id)->first();
+        if (! $group) {
+            $group = MibCredentialGroup::where('tenant_id', $terminal->tenant_id)->first();
             if ($group && $account) {
                 $profile = $account->mibCredentialProfile;
             }
         }
 
         // Fallback 2: Legacy MibDeviceCredential table lookup
-        if (!$group) {
-            $query = \App\Models\MibDeviceCredential::where('terminal_id', $terminal->id);
+        if (! $group) {
+            $query = MibDeviceCredential::where('terminal_id', $terminal->id);
             if ($request->has('mib_username')) {
                 $query->where('mib_username', $request->mib_username);
-            } else if ($request->has('bank_account_id')) {
+            } elseif ($request->has('bank_account_id')) {
                 $query->where('bank_account_id', $request->bank_account_id);
-            } else if ($request->has('account_number')) {
-                $query->whereHas('bankAccount', function($q) use ($request) {
+            } elseif ($request->has('account_number')) {
+                $query->whereHas('bankAccount', function ($q) use ($request) {
                     $q->where('account_number', $request->account_number);
                 });
             }
@@ -138,24 +145,25 @@ class MibKeysController extends Controller
                     'obtained_at' => $legacy->obtained_at ? $legacy->obtained_at->toIso8601String() : null,
                 ]);
             }
+
             return response()->json(['error' => 'Not found'], 404);
         }
 
         $allProfiles = $group->profiles()->get()->map(function ($p) {
             return [
-                'profile_id'   => $p->profile_id,
+                'profile_id' => $p->profile_id,
                 'profile_type' => $p->profile_type,
                 'profile_name' => $p->profile_name,
             ];
         });
 
         return response()->json([
-            'key1'        => $group->key1,
-            'key2'        => $group->key2,
-            'appId'       => $group->app_id,
-            'profileId'   => $profile?->profile_id,
+            'key1' => $group->key1,
+            'key2' => $group->key2,
+            'appId' => $group->app_id,
+            'profileId' => $profile?->profile_id,
             'profileType' => $profile?->profile_type ?? '0',
-            'profiles'    => $allProfiles,
+            'profiles' => $allProfiles,
             'obtained_at' => $group->obtained_at ? $group->obtained_at->toIso8601String() : null,
         ]);
     }
@@ -173,8 +181,10 @@ class MibKeysController extends Controller
             $tenantId = $request->user()->tenant_id;
         } else {
             $request->validate(['hardware_id' => 'required|string']);
-            $terminal = \App\Models\Terminal::where('hardware_id', $request->hardware_id)->first();
-            if (!$terminal) return response()->json(['error' => 'Unauthorized terminal'], 403);
+            $terminal = Terminal::where('hardware_id', $request->hardware_id)->first();
+            if (! $terminal) {
+                return response()->json(['error' => 'Unauthorized terminal'], 403);
+            }
             $tenantId = $terminal->tenant_id;
         }
 
@@ -182,11 +192,11 @@ class MibKeysController extends Controller
         $hash = $request->credentials_hash;
         $newAccountId = $request->bank_account_id;
 
-        $newAccount = \App\Models\BankAccount::where('tenant_id', $tenantId)->findOrFail($newAccountId);
+        $newAccount = BankAccount::where('tenant_id', $tenantId)->findOrFail($newAccountId);
 
         // Find any other bank account in this tenant with the same credentials hash
         // that has already been linked to a group or profile, matching the profile type.
-        $siblingQuery = \App\Models\BankAccount::where('tenant_id', $tenantId)
+        $siblingQuery = BankAccount::where('tenant_id', $tenantId)
             ->where('bank_name', $bankName)
             ->where('login_credentials_hash', $hash)
             ->where('id', '!=', $newAccountId);
@@ -194,23 +204,23 @@ class MibKeysController extends Controller
         if ($bankName === 'MIB') {
             $isBusiness = ($newAccount->mib_profile_type === '1');
             $siblingQuery->whereNotNull('mib_credential_profile_id')
-                ->where(function($q) use ($isBusiness) {
+                ->where(function ($q) use ($isBusiness) {
                     if ($isBusiness) {
                         $q->where('mib_profile_type', '1');
                     } else {
                         $q->where('mib_profile_type', '0')
-                          ->orWhereNull('mib_profile_type');
+                            ->orWhereNull('mib_profile_type');
                     }
                 });
-        } else if ($bankName === 'BML') {
+        } elseif ($bankName === 'BML') {
             $isBusiness = ($newAccount->bml_profile_type === '1');
             $siblingQuery->whereNotNull('bml_credential_group_id')
-                ->where(function($q) use ($isBusiness) {
+                ->where(function ($q) use ($isBusiness) {
                     if ($isBusiness) {
                         $q->where('bml_profile_type', '1');
                     } else {
                         $q->where('bml_profile_type', '0')
-                          ->orWhereNull('bml_profile_type');
+                            ->orWhereNull('bml_profile_type');
                     }
                 });
         } else {
@@ -225,17 +235,19 @@ class MibKeysController extends Controller
         if ($sibling) {
             if ($bankName === 'MIB') {
                 $newAccount->update(['mib_credential_profile_id' => $sibling->mib_credential_profile_id]);
-                $linkedAccounts = \App\Models\BankAccount::where('mib_credential_profile_id', $sibling->mib_credential_profile_id)
+                $linkedAccounts = BankAccount::where('mib_credential_profile_id', $sibling->mib_credential_profile_id)
                     ->pluck('account_number');
+
                 return response()->json([
                     'has_existing_group' => true,
                     'linked_accounts' => $linkedAccounts,
                     'can_link' => true,
                 ]);
-            } else if ($bankName === 'BML') {
+            } elseif ($bankName === 'BML') {
                 $newAccount->update(['bml_credential_group_id' => $sibling->bml_credential_group_id]);
-                $linkedAccounts = \App\Models\BankAccount::where('bml_credential_group_id', $sibling->bml_credential_group_id)
+                $linkedAccounts = BankAccount::where('bml_credential_group_id', $sibling->bml_credential_group_id)
                     ->pluck('account_number');
+
                 return response()->json([
                     'has_existing_group' => true,
                     'linked_accounts' => $linkedAccounts,
@@ -257,12 +269,14 @@ class MibKeysController extends Controller
             $tenantId = $request->user()->tenant_id;
         } else {
             $request->validate(['hardware_id' => 'required|string']);
-            $terminal = \App\Models\Terminal::where('hardware_id', $request->hardware_id)->first();
-            if (!$terminal) return response()->json(['error' => 'Unauthorized terminal'], 403);
+            $terminal = Terminal::where('hardware_id', $request->hardware_id)->first();
+            if (! $terminal) {
+                return response()->json(['error' => 'Unauthorized terminal'], 403);
+            }
             $tenantId = $terminal->tenant_id;
         }
 
-        $accounts = \App\Models\BankAccount::where('tenant_id', $tenantId)
+        $accounts = BankAccount::where('tenant_id', $tenantId)
             ->with(['mibCredentialProfile.credentialGroup', 'bmlCredentialGroup'])
             ->get();
 
@@ -276,19 +290,19 @@ class MibKeysController extends Controller
                 $group = $profile?->credentialGroup;
                 if ($group) {
                     $groupKey = $group->mib_username;
-                    if (!isset($mibGroups[$groupKey])) {
+                    if (! isset($mibGroups[$groupKey])) {
                         $mibGroups[$groupKey] = [
                             'username' => $group->mib_username,
-                            'profiles' => []
+                            'profiles' => [],
                         ];
                     }
                     $profileKey = $profile->profile_id;
-                    if (!isset($mibGroups[$groupKey]['profiles'][$profileKey])) {
+                    if (! isset($mibGroups[$groupKey]['profiles'][$profileKey])) {
                         $mibGroups[$groupKey]['profiles'][$profileKey] = [
                             'profile_id' => $profile->profile_id,
                             'profile_type' => $profile->profile_type,
                             'profile_name' => $profile->profile_name,
-                            'accounts' => []
+                            'accounts' => [],
                         ];
                     }
                     $mibGroups[$groupKey]['profiles'][$profileKey]['accounts'][] = [
@@ -312,15 +326,15 @@ class MibKeysController extends Controller
                         'has_api_token' => $acc->has_api_token,
                     ];
                 }
-            } else if ($acc->bank_name === 'BML') {
+            } elseif ($acc->bank_name === 'BML') {
                 $group = $acc->bmlCredentialGroup;
                 if ($group) {
-                    $groupKey = $group->bml_username . '_' . $group->profile_type;
-                    if (!isset($bmlGroups[$groupKey])) {
+                    $groupKey = $group->bml_username.'_'.$group->profile_type;
+                    if (! isset($bmlGroups[$groupKey])) {
                         $bmlGroups[$groupKey] = [
                             'username' => $group->bml_username,
                             'profile_type' => $group->profile_type,
-                            'accounts' => []
+                            'accounts' => [],
                         ];
                     }
                     $bmlGroups[$groupKey]['accounts'][] = [
@@ -372,4 +386,3 @@ class MibKeysController extends Controller
         ]);
     }
 }
-

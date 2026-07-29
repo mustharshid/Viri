@@ -13,7 +13,7 @@ class SubscriptionPlan extends Model
         'max_terminals',
         'max_bank_accounts',
         'lock_timeout',
-        'features'
+        'features',
     ];
 
     protected $casts = [
@@ -21,6 +21,6 @@ class SubscriptionPlan extends Model
         'max_terminals' => 'integer',
         'max_bank_accounts' => 'integer',
         'lock_timeout' => 'integer',
-        'features' => 'array'
+        'features' => 'array',
     ];
 }

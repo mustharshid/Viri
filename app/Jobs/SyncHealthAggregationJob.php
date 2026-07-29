@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\BankAccount;
+use App\Models\SessionActivityLog;
 use App\Services\SyncHealthService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -58,21 +59,23 @@ class SyncHealthAggregationJob implements ShouldQueue
     private function runLockWatchdog(int $accountId): void
     {
         $account = BankAccount::find($accountId);
-        if (!$account) return;
+        if (! $account) {
+            return;
+        }
 
         if ($account->fetch_in_progress_until
             && $account->fetch_in_progress_until->isPast()
             && $account->sync_requested_version > $account->sync_version) {
-            
+
             // Watchdog detects a crashed extension that locked the account
             // Release the lock and write transition log
             BankAccount::where('id', $accountId)->update([
                 'fetch_in_progress_until' => null,
                 'fetch_started_by_terminal_id' => null,
             ]);
-            
+
             dispatch(function () use ($account) {
-                \App\Models\SessionActivityLog::create([
+                SessionActivityLog::create([
                     'tenant_id' => $account->tenant_id,
                     'bank_account_id' => $account->id,
                     'bank_name' => $account->bank_name,

@@ -13,7 +13,7 @@ class PaymentReceipt extends Model
         'receipt_slip_path',
         'status',
         'remarks',
-        'previous_license_expires_at'
+        'previous_license_expires_at',
     ];
 
     public function tenant()

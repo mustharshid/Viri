@@ -2,6 +2,7 @@
 
 namespace App\Console;
 
+use App\Jobs\SyncHealthAggregationJob;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
 
@@ -12,13 +13,13 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        $schedule->job(new \App\Jobs\SyncHealthAggregationJob)
-                 ->everyMinute()
-                 ->timezone('Asia/Maldives');
+        $schedule->job(new SyncHealthAggregationJob)
+            ->everyMinute()
+            ->timezone('Asia/Maldives');
 
         $schedule->command('viri:prune-logs')
-                 ->daily()
-                 ->timezone('Asia/Maldives');
+            ->daily()
+            ->timezone('Asia/Maldives');
     }
 
     /**

@@ -13,6 +13,7 @@ class LedgerReport extends Model
     protected $fillable = [
         'tenant_id',
         'terminal_id',
+        'report_type',
         'date',
         'bank',
         'account_name',

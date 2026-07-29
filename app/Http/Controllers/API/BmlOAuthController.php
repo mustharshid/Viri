@@ -3,29 +3,33 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-
+use App\Models\BankAccount;
+use App\Models\BmlCredentialGroup;
 use App\Models\BmlOAuthToken;
+use App\Models\Terminal;
 use Carbon\Carbon;
+use Illuminate\Http\Request;
 
 class BmlOAuthController extends Controller
 {
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'hardware_id'    => 'required|string',
-            'bank_account_id'=> 'required|integer',
-            'bml_username'   => 'nullable|string',   // optional: not always known in browser-based OAuth
-            'profile_type'   => 'required|in:personal,business',
-            'access_token'   => 'required|string',
-            'refresh_token'  => 'required|string',
-            'device_id'      => 'required|string',
-            'expires_in'     => 'required|integer',
+            'hardware_id' => 'required|string',
+            'bank_account_id' => 'required|integer',
+            'bml_username' => 'nullable|string',   // optional: not always known in browser-based OAuth
+            'profile_type' => 'required|in:personal,business',
+            'access_token' => 'required|string',
+            'refresh_token' => 'required|string',
+            'device_id' => 'required|string',
+            'expires_in' => 'required|integer',
             'credentials_hash' => 'sometimes|nullable|string',
         ]);
 
         $terminal = $this->resolveTerminal($validated['hardware_id'], $validated['bank_account_id']);
-        if (!$terminal) return response()->json(['error' => 'Unauthorized terminal'], 403);
+        if (! $terminal) {
+            return response()->json(['error' => 'Unauthorized terminal'], 403);
+        }
 
         $expiresAt = Carbon::now()->addSeconds($validated['expires_in']);
 
@@ -35,7 +39,7 @@ class BmlOAuthController extends Controller
         $bmlUsername = ($validated['bml_username'] ?? '') ?: null;
 
         // Look up the account first — needed for both group resolution and linking.
-        $account = \App\Models\BankAccount::where('id', $validated['bank_account_id'])
+        $account = BankAccount::where('id', $validated['bank_account_id'])
             ->where('tenant_id', $terminal->tenant_id)
             ->first();
 
@@ -43,20 +47,20 @@ class BmlOAuthController extends Controller
             // --- Username known: upsert the tenant-scoped shared group ---------------
             // Same credentials across multiple accounts (siblings) correctly share ONE
             // group and therefore ONE token/device_id.
-            $group = \App\Models\BmlCredentialGroup::updateOrCreate(
+            $group = BmlCredentialGroup::updateOrCreate(
                 [
-                    'tenant_id'    => $terminal->tenant_id,
+                    'tenant_id' => $terminal->tenant_id,
                     'bml_username' => $bmlUsername,
                     'profile_type' => $validated['profile_type'],
                 ],
                 [
-                    'terminal_id'   => $terminal->id,
-                    'access_token'  => $validated['access_token'],
+                    'terminal_id' => $terminal->id,
+                    'access_token' => $validated['access_token'],
                     'refresh_token' => $validated['refresh_token'],
-                    'device_id'     => $validated['device_id'],
-                    'expires_in'    => $validated['expires_in'],
-                    'expires_at'    => $expiresAt,
-                    'obtained_at'   => Carbon::now(),
+                    'device_id' => $validated['device_id'],
+                    'expires_in' => $validated['expires_in'],
+                    'expires_at' => $expiresAt,
+                    'obtained_at' => Carbon::now(),
                 ]
             );
         } else {
@@ -68,24 +72,24 @@ class BmlOAuthController extends Controller
             // NULL groups are NOT subject to the username-based unique constraint, so
             // they never collide with other null-username accounts.
             $group = $account?->bml_credential_group_id
-                ? \App\Models\BmlCredentialGroup::find($account->bml_credential_group_id)
+                ? BmlCredentialGroup::find($account->bml_credential_group_id)
                 : null;
 
             $tokenFields = [
-                'terminal_id'   => $terminal->id,
-                'access_token'  => $validated['access_token'],
+                'terminal_id' => $terminal->id,
+                'access_token' => $validated['access_token'],
                 'refresh_token' => $validated['refresh_token'],
-                'device_id'     => $validated['device_id'],
-                'expires_in'    => $validated['expires_in'],
-                'expires_at'    => $expiresAt,
-                'obtained_at'   => Carbon::now(),
+                'device_id' => $validated['device_id'],
+                'expires_in' => $validated['expires_in'],
+                'expires_at' => $expiresAt,
+                'obtained_at' => Carbon::now(),
             ];
 
             if ($group) {
                 $group->update($tokenFields);
             } else {
-                $group = \App\Models\BmlCredentialGroup::create(array_merge($tokenFields, [
-                    'tenant_id'    => $terminal->tenant_id,
+                $group = BmlCredentialGroup::create(array_merge($tokenFields, [
+                    'tenant_id' => $terminal->tenant_id,
                     'bml_username' => null,
                     'profile_type' => $validated['profile_type'],
                 ]));
@@ -111,7 +115,9 @@ class BmlOAuthController extends Controller
             $request->hardware_id,
             $request->has('bank_account_id') ? (int) $request->bank_account_id : null
         );
-        if (!$terminal) return response()->json(['error' => 'Unauthorized terminal'], 403);
+        if (! $terminal) {
+            return response()->json(['error' => 'Unauthorized terminal'], 403);
+        }
 
         $group = null;
         $dbAccount = null;
@@ -119,12 +125,12 @@ class BmlOAuthController extends Controller
         if ($request->has('bml_username') && $request->has('profile_type') && $request->bml_username !== null && $request->bml_username !== '') {
             // Groups are now keyed by tenant, not terminal — look up by tenant scope.
             // Only use this path when a real (non-null/non-empty) username is provided.
-            $group = \App\Models\BmlCredentialGroup::where('tenant_id', $terminal->tenant_id)
+            $group = BmlCredentialGroup::where('tenant_id', $terminal->tenant_id)
                 ->where('bml_username', $request->bml_username)
                 ->where('profile_type', $request->profile_type)
                 ->first();
-        } else if ($request->has('bank_account_id')) {
-            $dbAccount = \App\Models\BankAccount::where('id', $request->bank_account_id)
+        } elseif ($request->has('bank_account_id')) {
+            $dbAccount = BankAccount::where('id', $request->bank_account_id)
                 ->where('tenant_id', $terminal->tenant_id)
                 ->first();
             if ($dbAccount && $dbAccount->bmlCredentialGroup) {
@@ -148,17 +154,17 @@ class BmlOAuthController extends Controller
             // NULL username: groups are per-terminal (NULLs are distinct in unique index).
             // Use terminal+tenant scope with null bml_username filter and deterministic ordering
             // (updated_at DESC) to handle the multi-NULL-row case.
-            if (!$group && $request->has('profile_type')) {
-                $query = \App\Models\BmlCredentialGroup::where('profile_type', $request->profile_type);
+            if (! $group && $request->has('profile_type')) {
+                $query = BmlCredentialGroup::where('profile_type', $request->profile_type);
 
                 if ($request->has('bml_username') && $request->bml_username !== null && $request->bml_username !== '') {
                     $query->where('tenant_id', $terminal->tenant_id)
-                          ->where('bml_username', $request->bml_username);
+                        ->where('bml_username', $request->bml_username);
                 } else {
                     $query->where('terminal_id', $terminal->id)
-                          ->where('tenant_id', $terminal->tenant_id)
-                          ->whereNull('bml_username')
-                          ->orderByDesc('updated_at');
+                        ->where('tenant_id', $terminal->tenant_id)
+                        ->whereNull('bml_username')
+                        ->orderByDesc('updated_at');
                 }
                 $group = $query->first();
 
@@ -169,19 +175,19 @@ class BmlOAuthController extends Controller
 
                 // Self-heal: link the account to the group ONLY if the account has no
                 // existing FK. Never overwrite an FK set by store() — it's authoritative.
-                if ($group && $dbAccount && !$dbAccount->bml_credential_group_id) {
+                if ($group && $dbAccount && ! $dbAccount->bml_credential_group_id) {
                     $dbAccount->update(['bml_credential_group_id' => $group->id]);
                 }
             }
         }
 
         // Fallback: Legacy BmlOAuthToken lookup
-        if (!$group) {
-            $query = \App\Models\BmlOAuthToken::where('terminal_id', $terminal->id);
+        if (! $group) {
+            $query = BmlOAuthToken::where('terminal_id', $terminal->id);
             if ($request->has('bml_username') && $request->has('profile_type')) {
                 $query->where('bml_username', $request->bml_username)
-                      ->where('profile_type', $request->profile_type);
-            } else if ($request->has('bank_account_id')) {
+                    ->where('profile_type', $request->profile_type);
+            } elseif ($request->has('bank_account_id')) {
                 $query->where('bank_account_id', $request->bank_account_id);
             }
             $legacy = $query->first();
@@ -194,6 +200,7 @@ class BmlOAuthController extends Controller
                     'expires_at' => $legacy->expires_at ? $legacy->expires_at->toIso8601String() : null,
                 ]);
             }
+
             return response()->json(['error' => 'Not found'], 404);
         }
 
@@ -217,17 +224,19 @@ class BmlOAuthController extends Controller
         ]);
 
         $terminal = $this->resolveTerminal($validated['hardware_id'], $validated['bank_account_id']);
-        if (!$terminal) return response()->json(['error' => 'Unauthorized terminal'], 403);
+        if (! $terminal) {
+            return response()->json(['error' => 'Unauthorized terminal'], 403);
+        }
 
-        $account = \App\Models\BankAccount::where('id', $validated['bank_account_id'])
+        $account = BankAccount::where('id', $validated['bank_account_id'])
             ->where('tenant_id', $terminal->tenant_id)
             ->first();
 
         $group = $account ? $account->bmlCredentialGroup : null;
 
-        if (!$group) {
+        if (! $group) {
             // Fallback: check legacy
-            $legacy = \App\Models\BmlOAuthToken::where('terminal_id', $terminal->id)
+            $legacy = BmlOAuthToken::where('terminal_id', $terminal->id)
                 ->where('bank_account_id', $validated['bank_account_id'])
                 ->first();
             if ($legacy) {
@@ -239,8 +248,10 @@ class BmlOAuthController extends Controller
                     $legacy->obtained_at = Carbon::now();
                 }
                 $legacy->save();
+
                 return response()->json(['success' => true]);
             }
+
             return response()->json(['error' => 'Not found'], 404);
         }
 
@@ -264,18 +275,18 @@ class BmlOAuthController extends Controller
      * hardware_id changes but the bank_account → credential_group → terminal
      * chain remains authoritative.
      */
-    private function resolveTerminal(string $hardwareId, ?int $bankAccountId): ?\App\Models\Terminal
+    private function resolveTerminal(string $hardwareId, ?int $bankAccountId): ?Terminal
     {
-        $terminal = \App\Models\Terminal::where('hardware_id', $hardwareId)->first();
+        $terminal = Terminal::where('hardware_id', $hardwareId)->first();
         if ($terminal) {
             return $terminal;
         }
 
-        if (!$bankAccountId) {
+        if (! $bankAccountId) {
             return null;
         }
 
-        $account = \App\Models\BankAccount::with('bmlCredentialGroup.terminal')
+        $account = BankAccount::with('bmlCredentialGroup.terminal')
             ->find($bankAccountId);
 
         return $account?->bmlCredentialGroup?->terminal;

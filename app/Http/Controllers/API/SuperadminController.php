@@ -3,13 +3,23 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use App\Models\Tenant;
-use App\Models\User;
+use App\Models\BankAccount;
+use App\Models\BankAccountLock;
 use App\Models\BmlCredentialGroup;
 use App\Models\MibCredentialGroup;
-use App\Models\BankAccount;
+use App\Models\PaymentReceipt;
+use App\Models\SessionActivityLog;
+use App\Models\SessionFetchRequest;
+use App\Models\SubscriptionPlan;
+use App\Models\Tenant;
 use App\Models\Terminal;
+use App\Models\User;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -20,8 +30,21 @@ class SuperadminController extends Controller
     {
         $perPage = min((int) $request->input('per_page', 10), 200);
         $companies = Tenant::with('terminals', 'bankAccounts', 'users')
+            ->withCount('claimedSales')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
+
+        $companies->getCollection()->transform(function ($tenant) {
+            $lastLog = SessionActivityLog::where('tenant_id', $tenant->id)
+                ->latest('created_at')
+                ->first();
+
+            $tenant->last_activity_at = $lastLog ? $lastLog->created_at->toIso8601String() : ($tenant->updated_at ? $tenant->updated_at->toIso8601String() : null);
+            $tenant->verifications_used = $tenant->claimed_sales_count ?? $tenant->verifications_count ?? 0;
+
+            return $tenant;
+        });
+
         return response()->json($companies);
     }
 
@@ -39,11 +62,11 @@ class SuperadminController extends Controller
         ]);
 
         $tenant = Tenant::findOrFail($id);
-        
+
         $oldTier = $tenant->subscription_tier;
         $tenant->status = $request->status;
         $tenant->subscription_tier = $request->subscription_tier;
-        
+
         if ($request->has('lock_timeout')) {
             $tenant->lock_timeout = $request->lock_timeout;
         }
@@ -61,16 +84,22 @@ class SuperadminController extends Controller
         }
 
         // Features updates
-        $plan = \App\Models\SubscriptionPlan::where('tier_key', $request->subscription_tier)->first();
+        $plan = SubscriptionPlan::where('tier_key', $request->subscription_tier)->first();
         if ($request->filled('features') && is_array($request->features)) {
             $tenant->features = $request->features;
         } else {
             // If features is missing or empty, or tier changed, apply plan defaults if tenant has no features
             if (($oldTier !== $request->subscription_tier || empty($tenant->features)) && $plan) {
                 $tenant->features = $plan->features ?? [];
-                if (!$request->has('max_terminals')) $tenant->max_terminals = $plan->max_terminals;
-                if (!$request->has('max_bank_accounts')) $tenant->max_bank_accounts = $plan->max_bank_accounts;
-                if (!$request->has('lock_timeout')) $tenant->lock_timeout = $plan->lock_timeout;
+                if (! $request->has('max_terminals')) {
+                    $tenant->max_terminals = $plan->max_terminals;
+                }
+                if (! $request->has('max_bank_accounts')) {
+                    $tenant->max_bank_accounts = $plan->max_bank_accounts;
+                }
+                if (! $request->has('lock_timeout')) {
+                    $tenant->lock_timeout = $plan->lock_timeout;
+                }
             }
         }
 
@@ -86,16 +115,16 @@ class SuperadminController extends Controller
     public function viewTerminalLog(Request $request, $id)
     {
         $request->validate([
-            'one_time_code' => 'required|string'
+            'one_time_code' => 'required|string',
         ]);
 
-        $terminal = \App\Models\Terminal::findOrFail($id);
+        $terminal = Terminal::findOrFail($id);
 
-        if (!$terminal->allow_debug_until || now()->greaterThan($terminal->allow_debug_until)) {
+        if (! $terminal->allow_debug_until || now()->greaterThan($terminal->allow_debug_until)) {
             return response()->json(['error' => 'Debug access is not enabled or has expired for this terminal.'], 403);
         }
 
-        if (!$terminal->debug_one_time_code || $terminal->debug_one_time_code !== strtoupper($request->one_time_code)) {
+        if (! $terminal->debug_one_time_code || $terminal->debug_one_time_code !== strtoupper($request->one_time_code)) {
             return response()->json(['error' => 'Invalid debug one-time code.'], 403);
         }
 
@@ -104,22 +133,22 @@ class SuperadminController extends Controller
         // Clear the one-time code immediately upon first successful view
         $terminal->update([
             'debug_one_time_code' => null,
-            'allow_debug_until' => null
+            'allow_debug_until' => null,
         ]);
 
         return response()->json([
             'terminal_name' => $terminal->terminal_name,
-            'logs' => $logs
+            'logs' => $logs,
         ]);
     }
 
     public function updateTerminal(Request $request, $id)
     {
         $request->validate([
-            'show_vbtl' => 'required|boolean'
+            'show_vbtl' => 'required|boolean',
         ]);
 
-        $terminal = \App\Models\Terminal::findOrFail($id);
+        $terminal = Terminal::findOrFail($id);
         $permissions = $terminal->permissions;
         $permissions['show_vbtl'] = (bool) $request->show_vbtl;
         $terminal->permissions = $permissions;
@@ -131,7 +160,7 @@ class SuperadminController extends Controller
     public function getSessionLogs(Request $request)
     {
         // Query builder on SessionActivityLog
-        $query = \App\Models\SessionActivityLog::with(['tenant', 'terminal', 'bankAccount'])
+        $query = SessionActivityLog::with(['tenant', 'terminal', 'bankAccount'])
             ->orderBy('created_at', 'desc');
 
         if ($request->filled('tenant_id')) {
@@ -154,9 +183,9 @@ class SuperadminController extends Controller
         }
 
         $logs = $query->paginate($request->input('per_page', 50));
-        
+
         $response = $logs->toArray();
-        $response['active_terminals'] = \App\Models\Terminal::where('status', 'active')->count();
+        $response['active_terminals'] = Terminal::where('status', 'active')->count();
 
         return response()->json($response);
     }
@@ -164,7 +193,7 @@ class SuperadminController extends Controller
     public function listTerminalDebugLogs(Request $request)
     {
         $perPage = min((int) $request->input('per_page', 50), 100);
-        $terminals = \App\Models\Terminal::with('tenant')
+        $terminals = Terminal::with('tenant')
             ->whereNotNull('debug_logs')
             ->where('debug_logs', '!=', '[]')
             ->orderBy('updated_at', 'desc')
@@ -183,6 +212,7 @@ class SuperadminController extends Controller
             if ($lastRun === null) {
                 $lastRun = $terminal->updated_at ? $terminal->updated_at->toIso8601String() : null;
             }
+
             return [
                 'id' => $terminal->id,
                 'terminal_name' => $terminal->terminal_name,
@@ -205,7 +235,7 @@ class SuperadminController extends Controller
 
     public function getTerminalDebugLog(Request $request, $id)
     {
-        $terminal = \App\Models\Terminal::with('tenant')->findOrFail($id);
+        $terminal = Terminal::with('tenant')->findOrFail($id);
         $logs = json_decode($terminal->debug_logs, true) ?? [];
 
         return response()->json([
@@ -230,9 +260,9 @@ class SuperadminController extends Controller
         $tenant->users()->delete();
         $tenant->invoices()->delete();
         $tenant->auditLogs()->delete();
-        
-        \App\Models\SessionActivityLog::where('tenant_id', $tenant->id)->delete();
-        \App\Models\SessionFetchRequest::whereHas('bankAccount', function($q) use ($tenant) {
+
+        SessionActivityLog::where('tenant_id', $tenant->id)->delete();
+        SessionFetchRequest::whereHas('bankAccount', function ($q) use ($tenant) {
             $q->where('tenant_id', $tenant->id);
         })->delete();
 
@@ -248,7 +278,7 @@ class SuperadminController extends Controller
         ]);
 
         $user = User::findOrFail($id);
-        $user->password = \Illuminate\Support\Facades\Hash::make($request->password);
+        $user->password = Hash::make($request->password);
         $user->save();
 
         return response()->json(['message' => 'Password reset successfully']);
@@ -256,7 +286,8 @@ class SuperadminController extends Controller
 
     public function listSubscriptionPlans()
     {
-        $plans = \App\Models\SubscriptionPlan::orderBy('price', 'asc')->get();
+        $plans = SubscriptionPlan::orderBy('price', 'asc')->get();
+
         return response()->json($plans);
     }
 
@@ -269,59 +300,62 @@ class SuperadminController extends Controller
             'max_terminals' => 'required|integer|min:1',
             'max_bank_accounts' => 'required|integer|min:1',
             'lock_timeout' => 'required|integer|min:5|max:300',
-            'features' => 'required|array'
+            'features' => 'required|array',
         ]);
 
-        $plan = \App\Models\SubscriptionPlan::create($request->all());
+        $plan = SubscriptionPlan::create($request->all());
+
         return response()->json(['message' => 'Subscription plan created successfully', 'plan' => $plan]);
     }
 
     public function updateSubscriptionPlan(Request $request, $id)
     {
         $request->validate([
-            'tier_key' => 'required|string|unique:subscription_plans,tier_key,' . $id,
+            'tier_key' => 'required|string|unique:subscription_plans,tier_key,'.$id,
             'name' => 'required|string',
             'price' => 'required|numeric|min:0',
             'max_terminals' => 'required|integer|min:1',
             'max_bank_accounts' => 'required|integer|min:1',
             'lock_timeout' => 'required|integer|min:5|max:300',
-            'features' => 'required|array'
+            'features' => 'required|array',
         ]);
 
-        $plan = \App\Models\SubscriptionPlan::findOrFail($id);
+        $plan = SubscriptionPlan::findOrFail($id);
         $plan->update($request->all());
+
         return response()->json(['message' => 'Subscription plan updated successfully', 'plan' => $plan]);
     }
 
     public function deleteSubscriptionPlan($id)
     {
-        $plan = \App\Models\SubscriptionPlan::findOrFail($id);
+        $plan = SubscriptionPlan::findOrFail($id);
         $plan->delete();
+
         return response()->json(['message' => 'Subscription plan deleted successfully']);
     }
 
     public function runMigrations(Request $request)
     {
-        \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
-        $migrateOutput = \Illuminate\Support\Facades\Artisan::output();
+        Artisan::call('migrate', ['--force' => true]);
+        $migrateOutput = Artisan::output();
 
-        \Illuminate\Support\Facades\Artisan::call('optimize:clear');
-        $optimizeOutput = \Illuminate\Support\Facades\Artisan::output();
+        Artisan::call('optimize:clear');
+        $optimizeOutput = Artisan::output();
 
         return response()->json([
-            'output' => "=== Migrations Output ===\n" . $migrateOutput . "\n=== Cache Clear Output ===\n" . $optimizeOutput
+            'output' => "=== Migrations Output ===\n".$migrateOutput."\n=== Cache Clear Output ===\n".$optimizeOutput,
         ]);
     }
 
     public function getSystemSettings(Request $request)
     {
-        $settings = \Illuminate\Support\Facades\DB::table('system_settings')->get();
-        
+        $settings = DB::table('system_settings')->get();
+
         $serverInfo = [
             'php_version' => phpversion(),
             'laravel_version' => app()->version(),
-            'mysql_version' => \Illuminate\Support\Facades\DB::select('select version() as version')[0]->version ?? 'Unknown',
-            'server_os' => php_uname('s') . ' ' . php_uname('r'),
+            'mysql_version' => DB::select('select version() as version')[0]->version ?? 'Unknown',
+            'server_os' => php_uname('s').' '.php_uname('r'),
             'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'Unknown',
             'ini' => [
                 'memory_limit' => ini_get('memory_limit') ?: '512M',
@@ -330,7 +364,7 @@ class SuperadminController extends Controller
                 'post_max_size' => ini_get('post_max_size') ?: '8M (Default)',
                 'upload_max_filesize' => ini_get('upload_max_filesize') ?: '2M (Default)',
                 'opcache_enable' => ini_get('opcache.enable') ? 'on' : 'off',
-                'disable_functions' => ini_get('disable_functions') ?: 'opcache_get_status'
+                'disable_functions' => ini_get('disable_functions') ?: 'opcache_get_status',
             ],
             'fpm' => [
                 'pm_max_children' => 10,
@@ -338,8 +372,8 @@ class SuperadminController extends Controller
                 'pm' => 'ondemand',
                 'pm_start_servers' => 1,
                 'pm_min_spare_servers' => 1,
-                'pm_max_spare_servers' => 1
-            ]
+                'pm_max_spare_servers' => 1,
+            ],
         ];
 
         return response()->json([
@@ -353,7 +387,7 @@ class SuperadminController extends Controller
         $request->validate([
             'settings' => 'required|array',
             'settings.*.key' => 'required|string',
-            'settings.*.value' => 'required|string'
+            'settings.*.value' => 'required|string',
         ]);
 
         foreach ($request->settings as $setting) {
@@ -370,7 +404,7 @@ class SuperadminController extends Controller
                 return response()->json(['error' => 'Idle interval must be at least 5 seconds'], 422);
             }
 
-            \Illuminate\Support\Facades\DB::table('system_settings')
+            DB::table('system_settings')
                 ->updateOrInsert(
                     ['key' => $key],
                     [
@@ -380,7 +414,7 @@ class SuperadminController extends Controller
                 );
         }
 
-        \Illuminate\Support\Facades\Cache::forget('viri_system_settings');
+        Cache::forget('viri_system_settings');
 
         return response()->json(['message' => 'System settings updated successfully']);
     }
@@ -388,7 +422,7 @@ class SuperadminController extends Controller
     public function getPayments(Request $request)
     {
         $perPage = min((int) $request->input('per_page', 50), 200);
-        $payments = \App\Models\PaymentReceipt::with('tenant')
+        $payments = PaymentReceipt::with('tenant')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
 
@@ -400,55 +434,55 @@ class SuperadminController extends Controller
         $request->validate([
             'subscription_tier' => 'required|string',
             'license_expires_at' => 'required|date',
-            'remarks' => 'nullable|string'
+            'remarks' => 'nullable|string',
         ]);
 
-        $payment = \App\Models\PaymentReceipt::findOrFail($id);
-        
+        $payment = PaymentReceipt::findOrFail($id);
+
         $payment->update([
             'status' => 'approved',
-            'remarks' => $request->remarks ?: $payment->remarks
+            'remarks' => $request->remarks ?: $payment->remarks,
         ]);
 
         $tenant = $payment->tenant;
         $tenant->update([
             'subscription_tier' => $request->subscription_tier,
-            'license_expires_at' => \Carbon\Carbon::parse($request->license_expires_at),
-            'verifications_count' => 0
+            'license_expires_at' => Carbon::parse($request->license_expires_at),
+            'verifications_count' => 0,
         ]);
 
-        \App\Models\SessionActivityLog::create([
+        SessionActivityLog::create([
             'tenant_id' => $tenant->id,
             'event_type' => 'billing_payment_approved',
-            'event_summary' => "Payment reference {$payment->reference_number} approved. Extended license to " . $tenant->license_expires_at->toDateString(),
+            'event_summary' => "Payment reference {$payment->reference_number} approved. Extended license to ".$tenant->license_expires_at->toDateString(),
             'event_detail' => [
                 'payment_id' => $payment->id,
                 'amount' => $payment->amount,
                 'reference_number' => $payment->reference_number,
                 'new_tier' => $tenant->subscription_tier,
-                'new_expiry' => $tenant->license_expires_at->toIso8601String()
+                'new_expiry' => $tenant->license_expires_at->toIso8601String(),
             ],
-            'created_at' => now()
+            'created_at' => now(),
         ]);
 
         return response()->json([
-            'message' => 'Payment approved successfully. Subscription plan updated.'
+            'message' => 'Payment approved successfully. Subscription plan updated.',
         ]);
     }
 
     public function rejectPayment(Request $request, $id)
     {
         $request->validate([
-            'remarks' => 'required|string|max:1000'
+            'remarks' => 'required|string|max:1000',
         ]);
 
-        $payment = \App\Models\PaymentReceipt::findOrFail($id);
+        $payment = PaymentReceipt::findOrFail($id);
         $tenant = $payment->tenant;
         $previousExpiry = $payment->previous_license_expires_at;
 
         $payment->update([
             'status' => 'rejected',
-            'remarks' => $request->remarks
+            'remarks' => $request->remarks,
         ]);
 
         // Revert license expiry if previous expiry exists
@@ -458,17 +492,17 @@ class SuperadminController extends Controller
         }
 
         return response()->json([
-            'message' => 'Payment rejected and license expiry reverted if applicable.'
+            'message' => 'Payment rejected and license expiry reverted if applicable.',
         ]);
     }
 
     public function clearStuckLock(Request $request, $id)
     {
-        $bankAccount = \App\Models\BankAccount::findOrFail($id);
-        
+        $bankAccount = BankAccount::findOrFail($id);
+
         // Clear bank account lock table record
-        \App\Models\BankAccountLock::where('bank_account_id', $id)->delete();
-        
+        BankAccountLock::where('bank_account_id', $id)->delete();
+
         // Also clear fetch-in-progress indicators
         $bankAccount->update([
             'fetch_in_progress_until' => null,
@@ -478,19 +512,20 @@ class SuperadminController extends Controller
 
         return response()->json([
             'status' => 'success',
-            'message' => 'Stuck fetch lock cleared successfully'
+            'message' => 'Stuck fetch lock cleared successfully',
         ]);
     }
 
     public function getDebugInfo()
     {
-        $mibKeys = \App\Models\MibCredentialGroup::with(['terminal', 'profiles.bankAccounts'])->get()->map(function ($group) {
+        $mibKeys = MibCredentialGroup::with(['terminal', 'profiles.bankAccounts'])->get()->map(function ($group) {
             $accounts = [];
             foreach ($group->profiles as $profile) {
                 foreach ($profile->bankAccounts as $acc) {
                     $accounts[] = "{$acc->bank_name} {$acc->account_number} ({$profile->profile_name})";
                 }
             }
+
             return [
                 'id' => $group->id,
                 'terminal_id' => $group->terminal_id,
@@ -498,18 +533,19 @@ class SuperadminController extends Controller
                 'bank_account_id' => null,
                 'account_name' => count($accounts) > 0 ? implode(', ', $accounts) : 'None linked',
                 'mib_username' => $group->mib_username,
-                'key1_prefix' => substr($group->key1 ?? '', 0, 8) . '...',
-                'key2_prefix' => substr($group->key2 ?? '', 0, 8) . '...',
+                'key1_prefix' => substr($group->key1 ?? '', 0, 8).'...',
+                'key2_prefix' => substr($group->key2 ?? '', 0, 8).'...',
                 'app_id' => $group->app_id,
                 'obtained_at' => $group->obtained_at ? $group->obtained_at->toIso8601String() : null,
             ];
         });
 
-        $bmlTokens = \App\Models\BmlCredentialGroup::with(['terminal', 'bankAccounts'])->get()->map(function ($group) {
+        $bmlTokens = BmlCredentialGroup::with(['terminal', 'bankAccounts'])->get()->map(function ($group) {
             $accounts = [];
             foreach ($group->bankAccounts as $acc) {
                 $accounts[] = "{$acc->bank_name} {$acc->account_number}";
             }
+
             return [
                 'id' => $group->id,
                 'terminal_id' => $group->terminal_id,
@@ -522,8 +558,8 @@ class SuperadminController extends Controller
                 'last_grant' => $group->last_grant,
                 'obtained_at' => $group->obtained_at ? $group->obtained_at->toIso8601String() : null,
                 'expires_at' => $group->expires_at ? $group->expires_at->toIso8601String() : null,
-                'has_access_token' => !empty($group->access_token),
-                'has_refresh_token' => !empty($group->refresh_token),
+                'has_access_token' => ! empty($group->access_token),
+                'has_refresh_token' => ! empty($group->refresh_token),
             ];
         });
 
@@ -543,52 +579,53 @@ class SuperadminController extends Controller
     {
         $bmlGroups = BmlCredentialGroup::with(['terminal', 'bankAccounts', 'tenant'])->get()->map(function ($g) {
             $isExpired = $g->expires_at && $g->expires_at->isPast();
+
             return [
-                'id'              => $g->id,
-                'tenant_name'     => $g->tenant?->name,
-                'terminal_name'   => $g->terminal?->terminal_name,
-                'bml_username'    => $g->bml_username,
-                'profile_type'    => $g->profile_type,
-                'device_id'       => $g->device_id,
-                'access_token'    => $g->access_token,
-                'refresh_token'   => $g->refresh_token,
-                'has_access_token'  => !empty($g->access_token),
-                'has_refresh_token' => !empty($g->refresh_token),
-                'token_type'      => $g->token_type,
-                'last_grant'      => $g->last_grant,
-                'expires_in'      => $g->expires_in,
-                'expires_at'      => $g->expires_at?->toIso8601String(),
-                'expired'         => $isExpired,
-                'obtained_at'     => $g->obtained_at?->toIso8601String(),
+                'id' => $g->id,
+                'tenant_name' => $g->tenant?->name,
+                'terminal_name' => $g->terminal?->terminal_name,
+                'bml_username' => $g->bml_username,
+                'profile_type' => $g->profile_type,
+                'device_id' => $g->device_id,
+                'access_token' => $g->access_token,
+                'refresh_token' => $g->refresh_token,
+                'has_access_token' => ! empty($g->access_token),
+                'has_refresh_token' => ! empty($g->refresh_token),
+                'token_type' => $g->token_type,
+                'last_grant' => $g->last_grant,
+                'expires_in' => $g->expires_in,
+                'expires_at' => $g->expires_at?->toIso8601String(),
+                'expired' => $isExpired,
+                'obtained_at' => $g->obtained_at?->toIso8601String(),
                 'linked_accounts' => $g->bankAccounts->map(fn ($a) => [
-                    'id'             => $a->id,
+                    'id' => $a->id,
                     'account_number' => $a->account_number,
-                    'account_name'   => $a->account_name,
-                    'bank_name'      => $a->bank_name,
+                    'account_name' => $a->account_name,
+                    'bank_name' => $a->bank_name,
                 ]),
             ];
         });
 
         $mibGroups = MibCredentialGroup::with(['terminal', 'profiles.bankAccounts', 'tenant'])->get()->map(function ($g) {
             return [
-                'id'            => $g->id,
-                'tenant_name'   => $g->tenant?->name,
+                'id' => $g->id,
+                'tenant_name' => $g->tenant?->name,
                 'terminal_name' => $g->terminal?->terminal_name,
-                'mib_username'  => $g->mib_username,
-                'app_id'        => $g->app_id,
-                'key1'          => $g->key1,
-                'key2'          => $g->key2,
-                'has_key1'      => !empty($g->key1),
-                'has_key2'      => !empty($g->key2),
-                'obtained_at'   => $g->obtained_at?->toIso8601String(),
-                'profiles'      => $g->profiles->map(fn ($p) => [
-                    'profile_id'   => $p->profile_id,
+                'mib_username' => $g->mib_username,
+                'app_id' => $g->app_id,
+                'key1' => $g->key1,
+                'key2' => $g->key2,
+                'has_key1' => ! empty($g->key1),
+                'has_key2' => ! empty($g->key2),
+                'obtained_at' => $g->obtained_at?->toIso8601String(),
+                'profiles' => $g->profiles->map(fn ($p) => [
+                    'profile_id' => $p->profile_id,
                     'profile_type' => $p->profile_type,
                     'profile_name' => $p->profile_name,
                     'linked_accounts' => $p->bankAccounts->map(fn ($a) => [
-                        'id'             => $a->id,
+                        'id' => $a->id,
                         'account_number' => $a->account_number,
-                        'account_name'   => $a->account_name,
+                        'account_name' => $a->account_name,
                     ]),
                 ]),
             ];
@@ -597,22 +634,22 @@ class SuperadminController extends Controller
         return response()->json([
             'bml_groups' => $bmlGroups,
             'mib_groups' => $mibGroups,
-            'total_bml'  => $bmlGroups->count(),
-            'total_mib'  => $mibGroups->count(),
+            'total_bml' => $bmlGroups->count(),
+            'total_mib' => $mibGroups->count(),
         ]);
     }
 
     public function testBmlCredentials(Request $request, $id)
     {
         $group = BmlCredentialGroup::with('tenant', 'bankAccounts')->find($id);
-        if (!$group) {
+        if (! $group) {
             return response()->json(['error' => 'Credential group not found'], 404);
         }
 
         if (empty($group->access_token)) {
             return response()->json([
-                'valid'  => false,
-                'error'  => 'No access token stored.',
+                'valid' => false,
+                'error' => 'No access token stored.',
                 'status' => 'no_token',
             ]);
         }
@@ -623,11 +660,11 @@ class SuperadminController extends Controller
         // --- Test 1: Mobile Dashboard API ---
         try {
             $headers = [
-                'Authorization' => 'Bearer ' . $group->access_token,
-                'Accept'        => 'application/json',
-                'User-Agent'    => 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)',
+                'Authorization' => 'Bearer '.$group->access_token,
+                'Accept' => 'application/json',
+                'User-Agent' => 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)',
                 'x-app-version' => '2.1.44.348',
-                'X-Device-ID'   => $deviceId,
+                'X-Device-ID' => $deviceId,
             ];
 
             $response = Http::withHeaders($headers)
@@ -640,22 +677,22 @@ class SuperadminController extends Controller
 
             $results['mobile_dashboard'] = [
                 'request' => [
-                    'url'     => 'https://www.bankofmaldives.com.mv/internetbanking/api/mobile/dashboard',
-                    'method'  => 'GET',
+                    'url' => 'https://www.bankofmaldives.com.mv/internetbanking/api/mobile/dashboard',
+                    'method' => 'GET',
                     'headers' => $headers,
                 ],
                 'response' => [
                     'status_code' => $response->status(),
-                    'success'     => $response->successful(),
-                    'body'        => $isValid ? $respBody : $respBody,
+                    'success' => $response->successful(),
+                    'body' => $isValid ? $respBody : $respBody,
                     'body_truncated' => strlen($respBody) > 5000,
                 ],
             ];
         } catch (\Exception $e) {
             $results['mobile_dashboard'] = [
                 'request' => [
-                    'url'     => 'https://www.bankofmaldives.com.mv/internetbanking/api/mobile/dashboard',
-                    'method'  => 'GET',
+                    'url' => 'https://www.bankofmaldives.com.mv/internetbanking/api/mobile/dashboard',
+                    'method' => 'GET',
                     'headers' => $headers ?? [],
                 ],
                 'response' => [
@@ -665,7 +702,7 @@ class SuperadminController extends Controller
         }
 
         // --- Test 2: Sample transaction history (if dashboard was valid) ---
-        if (($results['mobile_dashboard']['response']['success'] ?? false) && !empty($results['mobile_dashboard']['response']['body'])) {
+        if (($results['mobile_dashboard']['response']['success'] ?? false) && ! empty($results['mobile_dashboard']['response']['body'])) {
             $dashData = json_decode($results['mobile_dashboard']['response']['body'], true);
             $accountObj = null;
             if (isset($dashData['payload']['dashboard']) && is_array($dashData['payload']['dashboard'])) {
@@ -675,11 +712,11 @@ class SuperadminController extends Controller
                 $acctId = $accountObj['id'];
                 try {
                     $histHeaders = [
-                        'Authorization' => 'Bearer ' . $group->access_token,
-                        'Accept'        => 'application/json',
-                        'User-Agent'    => 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)',
+                        'Authorization' => 'Bearer '.$group->access_token,
+                        'Accept' => 'application/json',
+                        'User-Agent' => 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)',
                         'x-app-version' => '2.1.44.348',
-                        'X-Device-ID'   => $deviceId,
+                        'X-Device-ID' => $deviceId,
                     ];
                     $histRes = Http::withHeaders($histHeaders)
                         ->timeout(15)
@@ -688,22 +725,22 @@ class SuperadminController extends Controller
                     $histBody = $histRes->body();
                     $results['sample_history'] = [
                         'request' => [
-                            'url'     => "https://www.bankofmaldives.com.mv/internetbanking/api/mobile/account/{$acctId}/history/today",
-                            'method'  => 'GET',
+                            'url' => "https://www.bankofmaldives.com.mv/internetbanking/api/mobile/account/{$acctId}/history/today",
+                            'method' => 'GET',
                             'headers' => $histHeaders,
                         ],
                         'response' => [
                             'status_code' => $histRes->status(),
-                            'success'     => $histRes->successful(),
-                            'body'        => $histBody,
+                            'success' => $histRes->successful(),
+                            'body' => $histBody,
                             'body_truncated' => strlen($histBody) > 5000,
                         ],
                     ];
                 } catch (\Exception $e) {
                     $results['sample_history'] = [
                         'request' => [
-                            'url'     => "https://www.bankofmaldives.com.mv/internetbanking/api/mobile/account/{$acctId}/history/today",
-                            'method'  => 'GET',
+                            'url' => "https://www.bankofmaldives.com.mv/internetbanking/api/mobile/account/{$acctId}/history/today",
+                            'method' => 'GET',
                             'headers' => $histHeaders ?? [],
                         ],
                         'response' => [
@@ -717,22 +754,22 @@ class SuperadminController extends Controller
         $tokenExpired = $group->expires_at && $group->expires_at->isPast();
         $allSuccessful = collect($results)->every(fn ($r) => ($r['response']['success'] ?? false) === true);
 
-        $valid = $allSuccessful && !$tokenExpired;
+        $valid = $allSuccessful && ! $tokenExpired;
 
         return response()->json([
-            'valid'          => $valid,
-            'token_expired'  => $tokenExpired,
-            'bml_username'   => $group->bml_username,
-            'device_id'      => $group->device_id,
-            'expires_at'     => $group->expires_at?->toIso8601String(),
-            'results'        => $results,
+            'valid' => $valid,
+            'token_expired' => $tokenExpired,
+            'bml_username' => $group->bml_username,
+            'device_id' => $group->device_id,
+            'expires_at' => $group->expires_at?->toIso8601String(),
+            'results' => $results,
         ]);
     }
 
     public function renewBmlToken(Request $request, $id)
     {
         $group = BmlCredentialGroup::with('tenant', 'bankAccounts')->find($id);
-        if (!$group) {
+        if (! $group) {
             return response()->json(['error' => 'Credential group not found'], 404);
         }
 
@@ -744,19 +781,19 @@ class SuperadminController extends Controller
 
         $deviceId = $group->device_id ?? '';
         $requestBody = http_build_query([
-            'grant_type'    => 'refresh_token',
+            'grant_type' => 'refresh_token',
             'refresh_token' => $group->refresh_token,
-            'client_id'     => '98C83590-513F-4716-B02B-EC68B7D9E7E7',
-            'Device-ID'     => $deviceId,
-            'User-Agent'    => 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)',
+            'client_id' => '98C83590-513F-4716-B02B-EC68B7D9E7E7',
+            'Device-ID' => $deviceId,
+            'User-Agent' => 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)',
             'x-app-version' => '2.1.44.348',
         ]);
 
         $requestHeaders = [
             'Content-Type' => 'application/x-www-form-urlencoded',
-            'User-Agent'   => 'Mozilla/5.0 (Android 14; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0',
-            'Accept'       => 'application/json',
-            'X-Device-ID'  => $deviceId,
+            'User-Agent' => 'Mozilla/5.0 (Android 14; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0',
+            'Accept' => 'application/json',
+            'X-Device-ID' => $deviceId,
         ];
 
         try {
@@ -777,26 +814,26 @@ class SuperadminController extends Controller
                 $group->access_token = $newAccessToken;
                 $group->refresh_token = $newRefreshToken;
                 $group->expires_in = $expiresIn;
-                $group->expires_at = \Carbon\Carbon::now()->addSeconds($expiresIn);
-                $group->obtained_at = \Carbon\Carbon::now();
+                $group->expires_at = Carbon::now()->addSeconds($expiresIn);
+                $group->obtained_at = Carbon::now();
                 $group->save();
             }
 
             return response()->json([
-                'success'  => $success,
-                'renewed'  => $success,
+                'success' => $success,
+                'renewed' => $success,
                 'expires_at' => $group->expires_at?->toIso8601String(),
-                'error'    => $success ? null : ($respJson['error_description'] ?? $respJson['error'] ?? 'Unknown error'),
-                'debug'    => [
+                'error' => $success ? null : ($respJson['error_description'] ?? $respJson['error'] ?? 'Unknown error'),
+                'debug' => [
                     'request' => [
-                        'url'     => 'https://www.bankofmaldives.com.mv/internetbanking/oauth/token',
-                        'method'  => 'POST',
+                        'url' => 'https://www.bankofmaldives.com.mv/internetbanking/oauth/token',
+                        'method' => 'POST',
                         'headers' => $requestHeaders,
-                        'body'    => preg_replace('/refresh_token=[^&]+/', 'refresh_token=***', $requestBody),
+                        'body' => preg_replace('/refresh_token=[^&]+/', 'refresh_token=***', $requestBody),
                     ],
                     'response' => [
                         'status_code' => $response->status(),
-                        'body'        => $respBody,
+                        'body' => $respBody,
                         'body_truncated' => strlen($respBody) > 5000,
                     ],
                 ],
@@ -805,13 +842,13 @@ class SuperadminController extends Controller
             return response()->json([
                 'success' => false,
                 'renewed' => false,
-                'error'   => $e->getMessage(),
-                'debug'   => [
+                'error' => $e->getMessage(),
+                'debug' => [
                     'request' => [
-                        'url'     => 'https://www.bankofmaldives.com.mv/internetbanking/oauth/token',
-                        'method'  => 'POST',
+                        'url' => 'https://www.bankofmaldives.com.mv/internetbanking/oauth/token',
+                        'method' => 'POST',
                         'headers' => $requestHeaders,
-                        'body'    => preg_replace('/refresh_token=[^&]+/', 'refresh_token=***', $requestBody),
+                        'body' => preg_replace('/refresh_token=[^&]+/', 'refresh_token=***', $requestBody),
                     ],
                     'response' => [
                         'error' => $e->getMessage(),
@@ -824,7 +861,7 @@ class SuperadminController extends Controller
     public function testMibCredentials(Request $request, $id)
     {
         $group = MibCredentialGroup::with('tenant', 'profiles.bankAccounts')->find($id);
-        if (!$group) {
+        if (! $group) {
             return response()->json(['error' => 'Credential group not found'], 404);
         }
 
@@ -844,22 +881,22 @@ class SuperadminController extends Controller
 
             $results['mib_api_reachability'] = [
                 'request' => [
-                    'url'     => 'https://faisanet.mib.com.mv/accounts',
-                    'method'  => 'GET',
+                    'url' => 'https://faisanet.mib.com.mv/accounts',
+                    'method' => 'GET',
                     'headers' => $reqHeaders,
                 ],
                 'response' => [
                     'status_code' => $response->status(),
-                    'success'     => $response->successful(),
-                    'body'        => $respBody,
+                    'success' => $response->successful(),
+                    'body' => $respBody,
                     'body_truncated' => strlen($respBody) > 5000,
                 ],
             ];
         } catch (\Exception $e) {
             $results['mib_api_reachability'] = [
                 'request' => [
-                    'url'     => 'https://faisanet.mib.com.mv/accounts',
-                    'method'  => 'GET',
+                    'url' => 'https://faisanet.mib.com.mv/accounts',
+                    'method' => 'GET',
                     'headers' => $reqHeaders ?? [],
                 ],
                 'response' => [
@@ -869,29 +906,29 @@ class SuperadminController extends Controller
         }
 
         return response()->json([
-            'valid'       => false,
+            'valid' => false,
             'mib_username' => $group->mib_username,
-            'app_id'      => $group->app_id,
-            'has_key1'    => !empty($group->key1),
-            'has_key2'    => !empty($group->key2),
-            'note'        => 'MIB uses Diffie-Hellman device keys. Full validation requires the Chrome Extension to perform the DH key exchange. Server-side check confirms reachability only.',
-            'results'     => $results,
+            'app_id' => $group->app_id,
+            'has_key1' => ! empty($group->key1),
+            'has_key2' => ! empty($group->key2),
+            'note' => 'MIB uses Diffie-Hellman device keys. Full validation requires the Chrome Extension to perform the DH key exchange. Server-side check confirms reachability only.',
+            'results' => $results,
         ]);
     }
 
     public function renewMibKeys(Request $request, $id)
     {
         $group = MibCredentialGroup::with('profiles.bankAccounts')->find($id);
-        if (!$group) {
+        if (! $group) {
             return response()->json(['error' => 'Credential group not found'], 404);
         }
 
         // Capture the old state for confirmation
         $result = [
             'mib_username' => $group->mib_username,
-            'had_key1'     => !empty($group->key1),
-            'had_key2'     => !empty($group->key2),
-            'had_app_id'   => !empty($group->app_id),
+            'had_key1' => ! empty($group->key1),
+            'had_key2' => ! empty($group->key2),
+            'had_app_id' => ! empty($group->app_id),
             'profile_count' => $group->profiles->count(),
         ];
 
@@ -919,7 +956,7 @@ class SuperadminController extends Controller
     public function getUnlinkedBmlAccounts(Request $request)
     {
         $tenantId = $request->input('tenant_id');
-        if (!$tenantId) {
+        if (! $tenantId) {
             return response()->json(
                 BankAccount::where('bank_name', 'BML')
                     ->whereNull('bml_credential_group_id')
@@ -940,7 +977,7 @@ class SuperadminController extends Controller
         $request->validate(['bank_account_id' => 'required|integer']);
 
         $source = BmlCredentialGroup::find($id);
-        if (!$source) {
+        if (! $source) {
             return response()->json(['error' => 'Credential group not found'], 404);
         }
 
@@ -952,7 +989,7 @@ class SuperadminController extends Controller
             ->where('tenant_id', $source->tenant_id)
             ->first();
 
-        if (!$target) {
+        if (! $target) {
             return response()->json(['error' => 'Bank account not found for this tenant'], 404);
         }
 
@@ -962,59 +999,59 @@ class SuperadminController extends Controller
 
         if ($target->bml_credential_group_id !== null) {
             return response()->json([
-                'error' => 'Target bank account is already linked to BML credential group #' . $target->bml_credential_group_id . '. Unlink it first or choose a different account.',
+                'error' => 'Target bank account is already linked to BML credential group #'.$target->bml_credential_group_id.'. Unlink it first or choose a different account.',
                 'existing_group_id' => $target->bml_credential_group_id,
             ], 422);
         }
 
         $clone = BmlCredentialGroup::create([
-            'tenant_id'     => $source->tenant_id,
-            'terminal_id'   => $source->terminal_id,
-            'bml_username'  => null,
-            'profile_type'  => $source->profile_type,
-            'access_token'  => $source->access_token,
+            'tenant_id' => $source->tenant_id,
+            'terminal_id' => $source->terminal_id,
+            'bml_username' => null,
+            'profile_type' => $source->profile_type,
+            'access_token' => $source->access_token,
             'refresh_token' => $source->refresh_token,
-            'device_id'     => Str::random(16),
-            'expires_in'    => $source->expires_in,
-            'expires_at'    => $source->expires_at,
-            'obtained_at'   => now(),
-            'token_type'    => 'Bearer',
-            'last_grant'    => 'clone',
+            'device_id' => Str::random(16),
+            'expires_in' => $source->expires_in,
+            'expires_at' => $source->expires_at,
+            'obtained_at' => now(),
+            'token_type' => 'Bearer',
+            'last_grant' => 'clone',
         ]);
 
         $target->bml_credential_group_id = $clone->id;
         $target->save();
 
-        \App\Models\SessionActivityLog::create([
-            'tenant_id'    => $source->tenant_id,
-            'event_type'   => 'credential_cloned',
-            'event_summary'=> "BML credentials cloned from group #{$source->id} to bank account #{$target->id} ({$target->account_number})",
+        SessionActivityLog::create([
+            'tenant_id' => $source->tenant_id,
+            'event_type' => 'credential_cloned',
+            'event_summary' => "BML credentials cloned from group #{$source->id} to bank account #{$target->id} ({$target->account_number})",
             'event_detail' => [
-                'source_group_id'      => $source->id,
-                'clone_group_id'       => $clone->id,
-                'target_account_id'    => $target->id,
-                'target_account_number'=> $target->account_number,
-                'profile_type'         => $source->profile_type,
-                'performed_by'         => auth()->id(),
+                'source_group_id' => $source->id,
+                'clone_group_id' => $clone->id,
+                'target_account_id' => $target->id,
+                'target_account_number' => $target->account_number,
+                'profile_type' => $source->profile_type,
+                'performed_by' => auth()->id(),
             ],
-            'created_at'   => now(),
+            'created_at' => now(),
         ]);
 
         Log::info('BML credentials cloned', [
             'source_group_id' => $source->id,
-            'clone_group_id'  => $clone->id,
-            'target_account'  => $target->account_number,
-            'admin_user_id'   => auth()->id(),
+            'clone_group_id' => $clone->id,
+            'target_account' => $target->account_number,
+            'admin_user_id' => auth()->id(),
         ]);
 
         return response()->json([
-            'success'  => true,
+            'success' => true,
             'group_id' => $clone->id,
-            'account'  => [
-                'id'             => $target->id,
+            'account' => [
+                'id' => $target->id,
                 'account_number' => $target->account_number,
-                'account_name'   => $target->account_name,
-                'bank_name'      => $target->bank_name,
+                'account_name' => $target->account_name,
+                'bank_name' => $target->bank_name,
             ],
         ]);
     }

@@ -3,21 +3,21 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use App\Models\Terminal;
 use App\Models\AuditLog;
+use App\Models\Terminal;
+use Illuminate\Http\Request;
 
 class TerminalPairingController extends Controller
 {
     public function pair(Request $request)
     {
         $request->validate([
-            'pairing_code' => 'required|string'
+            'pairing_code' => 'required|string',
         ]);
 
         $terminal = Terminal::where('pairing_code', $request->pairing_code)->first();
 
-        if (!$terminal) {
+        if (! $terminal) {
             return response()->json(['error' => 'Invalid pairing code.'], 404);
         }
 
@@ -44,19 +44,19 @@ class TerminalPairingController extends Controller
     {
         $request->validate([
             'hardware_id' => 'required|string',
-            'credentials' => 'nullable|array'
+            'credentials' => 'nullable|array',
         ]);
 
         $terminal = Terminal::where('hardware_id', $request->hardware_id)
             ->where('status', 'active')
             ->first();
 
-        if (!$terminal) {
+        if (! $terminal) {
             return response()->json(['error' => 'Terminal unauthorized or inactive'], 403);
         }
 
         $terminal->update([
-            'credentials' => $request->credentials
+            'credentials' => $request->credentials,
         ]);
 
         return response()->json(['message' => 'Credentials saved successfully.']);
@@ -66,14 +66,14 @@ class TerminalPairingController extends Controller
     {
         $request->validate([
             'hardware_id' => 'required|string',
-            'logs' => 'required|array'
+            'logs' => 'required|array',
         ]);
 
         $terminal = Terminal::where('hardware_id', $request->hardware_id)
             ->where('status', 'active')
             ->first();
 
-        if (!$terminal) {
+        if (! $terminal) {
             return response()->json(['error' => 'Terminal unauthorized or inactive'], 403);
         }
 
@@ -87,7 +87,7 @@ class TerminalPairingController extends Controller
                 // Convert old flat format to a single run object
                 $runs[] = [
                     'timestamp' => $terminal->updated_at ? $terminal->updated_at->toIso8601String() : now()->toIso8601String(),
-                    'logs' => $existing
+                    'logs' => $existing,
                 ];
             } else {
                 $runs = $existing;
@@ -97,14 +97,14 @@ class TerminalPairingController extends Controller
         // Add the new run at the beginning
         array_unshift($runs, [
             'timestamp' => now()->toIso8601String(),
-            'logs' => $request->logs
+            'logs' => $request->logs,
         ]);
 
         // Limit history to the last 10 runs
         $runs = array_slice($runs, 0, 10);
 
         $terminal->update([
-            'debug_logs' => json_encode($runs)
+            'debug_logs' => json_encode($runs),
         ]);
 
         return response()->json(['message' => 'Logs uploaded successfully.']);
@@ -115,14 +115,14 @@ class TerminalPairingController extends Controller
         $request->validate([
             'hardware_id' => 'required|string',
             'event' => 'required|string', // 'online', 'offline', 'settings_changed'
-            'metadata' => 'nullable|array'
+            'metadata' => 'nullable|array',
         ]);
 
         $terminal = Terminal::where('hardware_id', $request->hardware_id)
             ->where('status', 'active')
             ->first();
 
-        if (!$terminal) {
+        if (! $terminal) {
             return response()->json(['error' => 'Terminal unauthorized'], 403);
         }
 
@@ -131,7 +131,7 @@ class TerminalPairingController extends Controller
             'event_type' => $request->event,
             'actor' => $terminal->terminal_name,
             'ip_address' => $request->ip(),
-            'metadata' => array_merge($request->metadata ?? [], ['hardware_id' => $request->hardware_id])
+            'metadata' => array_merge($request->metadata ?? [], ['hardware_id' => $request->hardware_id]),
         ]);
 
         return response()->json(['message' => 'Event logged successfully.']);

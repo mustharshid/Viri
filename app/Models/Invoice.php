@@ -12,7 +12,7 @@ class Invoice extends Model
         'amount',
         'billing_period_start',
         'billing_period_end',
-        'status'
+        'status',
     ];
 
     protected $casts = [

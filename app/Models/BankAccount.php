@@ -35,13 +35,13 @@ class BankAccount extends Model
     ];
 
     protected $casts = [
-        'is_default'                         => 'boolean',
-        'bml_auth_state'                     => 'array',
-        'session_claimed_at'                 => 'datetime',
-        'session_last_heartbeat_at'          => 'datetime',
-        'last_bank_fetch_at'                 => 'datetime',
-        'fetch_in_progress_until'            => 'datetime',
-        'fetch_started_at'                   => 'datetime',
+        'is_default' => 'boolean',
+        'bml_auth_state' => 'array',
+        'session_claimed_at' => 'datetime',
+        'session_last_heartbeat_at' => 'datetime',
+        'last_bank_fetch_at' => 'datetime',
+        'fetch_in_progress_until' => 'datetime',
+        'fetch_started_at' => 'datetime',
     ];
 
     protected $appends = ['has_api_token'];
@@ -94,5 +94,3 @@ class BankAccount extends Model
             && $this->session_last_heartbeat_at->diffInSeconds(now()) <= 20;
     }
 }
-
-

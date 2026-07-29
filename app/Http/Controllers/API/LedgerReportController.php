@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use App\Models\Terminal;
 use App\Models\LedgerReport;
+use App\Models\Terminal;
+use Illuminate\Http\Request;
 
 class LedgerReportController extends Controller
 {
@@ -22,7 +22,7 @@ class LedgerReportController extends Controller
 
         $terminal = Terminal::where('hardware_id', $request->hardware_id)->first();
 
-        if (!$terminal || $terminal->status !== 'active') {
+        if (! $terminal || $terminal->status !== 'active') {
             return response()->json(['error' => 'Terminal unauthorized'], 403);
         }
 
@@ -42,12 +42,12 @@ class LedgerReportController extends Controller
     public function index(Request $request)
     {
         $request->validate([
-            'hardware_id' => 'required|string'
+            'hardware_id' => 'required|string',
         ]);
 
         $terminal = Terminal::where('hardware_id', $request->hardware_id)->first();
 
-        if (!$terminal || $terminal->status !== 'active') {
+        if (! $terminal || $terminal->status !== 'active') {
             return response()->json(['error' => 'Terminal unauthorized'], 403);
         }
 
@@ -57,15 +57,16 @@ class LedgerReportController extends Controller
 
         return response()->json(['status' => 'success', 'reports' => $reports]);
     }
+
     public function destroy(Request $request, $id)
     {
         $request->validate([
-            'hardware_id' => 'required|string'
+            'hardware_id' => 'required|string',
         ]);
 
         $terminal = Terminal::where('hardware_id', $request->hardware_id)->first();
 
-        if (!$terminal || $terminal->status !== 'active') {
+        if (! $terminal || $terminal->status !== 'active') {
             return response()->json(['error' => 'Terminal unauthorized'], 403);
         }
 
@@ -73,7 +74,7 @@ class LedgerReportController extends Controller
             ->where('tenant_id', $terminal->tenant_id)
             ->first();
 
-        if (!$report) {
+        if (! $report) {
             return response()->json(['error' => 'Report not found'], 404);
         }
 

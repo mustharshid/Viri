@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Plus, Trash2, LogOut, Copy, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound, Lock, Menu, AlertTriangle, Search, FileSpreadsheet, ListFilter, Eye, Activity, Calendar, ChevronRight, User, Briefcase, Sparkles } from 'lucide-react';
+import { Shield, Plus, Trash2, LogOut, Copy, Check, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound, Lock, Menu, AlertTriangle, Search, FileSpreadsheet, ListFilter, Eye, Activity, Calendar, ChevronRight, User, Briefcase, Sparkles } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 
 const Tooltip = ({ text, onClick }: { text: string; onClick?: () => void }) => (
@@ -244,7 +244,9 @@ export default function CompanyDashboard() {
   const [terminalFormName, setTerminalFormName] = useState('');
   const [isSavingTerminal, setIsSavingTerminal] = useState(false);
   const [terminalSettingsPin, setTerminalSettingsPin] = useState('');
+  const [hasTerminalSettingsPin, setHasTerminalSettingsPin] = useState(false);
   const [terminalLockPin, setTerminalLockPin] = useState('');
+  const [copiedPairingTermId, setCopiedPairingTermId] = useState<number | null>(null);
 
   const [permissionsForm, setPermissionsForm] = useState({
     verification_enabled: true,
@@ -254,7 +256,9 @@ export default function CompanyDashboard() {
     reports_enabled: false,
     statement_enabled: false,
     show_vbtl: false,
-    share_pwa_logs: true
+    share_pwa_logs: true,
+    sales_claiming_enabled: true,
+    show_sale_reference_popover: false
   });
   const [accountName, setAccountName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
@@ -609,7 +613,9 @@ export default function CompanyDashboard() {
         reports_enabled: isFeatureDisabledByPlan('reports_enabled') ? false : true,
         statement_enabled: isFeatureDisabledByPlan('statement_enabled') ? false : true,
         show_vbtl: false,
-        share_pwa_logs: true
+        share_pwa_logs: true,
+        sales_claiming_enabled: true,
+        show_sale_reference_popover: false
       });
       setIsTerminalModalOpen(true);
     }
@@ -630,7 +636,8 @@ export default function CompanyDashboard() {
   const editTerminal = (term: any) => {
     setEditingTerminal(term);
     setTerminalFormName(term.terminal_name);
-    setTerminalSettingsPin(term.settings_pin || '');
+    setTerminalSettingsPin('');
+    setHasTerminalSettingsPin(term.has_settings_pin ?? false);
     setTerminalLockPin(term.permissions?.terminal_pin || '');
     setPermissionsForm({
       verification_enabled: term.permissions?.verification_enabled ?? true,
@@ -640,7 +647,9 @@ export default function CompanyDashboard() {
       reports_enabled: isFeatureDisabledByPlan('reports_enabled') ? false : (term.permissions?.reports_enabled ?? false),
       statement_enabled: isFeatureDisabledByPlan('statement_enabled') ? false : (term.permissions?.statement_enabled ?? false),
       show_vbtl: term.permissions?.show_vbtl ?? false,
-      share_pwa_logs: term.permissions?.share_pwa_logs ?? true
+      share_pwa_logs: term.permissions?.share_pwa_logs ?? true,
+      sales_claiming_enabled: term.permissions?.sales_claiming_enabled ?? true,
+      show_sale_reference_popover: term.permissions?.show_sale_reference_popover ?? false
     });
     setIsTerminalModalOpen(true);
   };
@@ -661,7 +670,7 @@ export default function CompanyDashboard() {
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: terminalFormName,
-          settings_pin: String(terminalSettingsPin || '').trim() || null,
+          settings_pin: terminalSettingsPin ? String(terminalSettingsPin).trim() : undefined,
           permissions: {
             ...permissionsForm,
             terminal_pin: terminalLockPin ? String(terminalLockPin).trim() : null
@@ -1233,39 +1242,59 @@ export default function CompanyDashboard() {
                       </div>
 
                       {term.pairing_code && !isExpired ? (
-                        <div className="bg-yellow-950/20 p-4 rounded-xl border border-yellow-500/20 flex justify-between items-center">
+                        <div className="bg-yellow-950/20 p-4 rounded-xl border border-yellow-500/20 flex justify-between items-center gap-3">
                           <div>
                             <div className="text-[9px] font-bold text-yellow-500 uppercase tracking-widest mb-0.5">Pairing Code</div>
-                            <div className="text-2xl font-mono text-yellow-400 tracking-wider font-extrabold">{term.pairing_code}</div>
+                            <div className="flex items-center gap-2">
+                              <div className="text-2xl font-mono text-yellow-400 tracking-wider font-extrabold">{term.pairing_code}</div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(term.pairing_code);
+                                  setCopiedPairingTermId(term.id);
+                                  setTimeout(() => setCopiedPairingTermId(null), 2000);
+                                }}
+                                className="text-[10px] text-yellow-400 hover:text-yellow-200 bg-yellow-950/60 border border-yellow-500/30 hover:border-yellow-400 px-2 py-0.5 rounded transition-all flex items-center gap-1 font-mono font-medium shrink-0"
+                                title="Copy Pairing Code"
+                              >
+                                {copiedPairingTermId === term.id ? <Check size={10} className="text-emerald-400" /> : <Copy size={10} />}
+                                <span>{copiedPairingTermId === term.id ? 'Copied' : 'Copy'}</span>
+                              </button>
+                            </div>
                           </div>
-                          <div className="text-right">
+                          <div className="text-right shrink-0">
                             <div className="text-[9px] text-[var(--text-secondary)] uppercase tracking-widest mb-0.5">Expires</div>
                             <div className="text-xs font-mono text-yellow-300 bg-yellow-950/60 border border-yellow-500/20 px-2 py-0.5 rounded">
                               {minutesLeft}:{secondsLeft.toString().padStart(2, '0')}
                             </div>
                           </div>
                         </div>
-                      ) : term.pairing_code && isExpired ? (
-                        <div className="bg-red-950/20 p-3 rounded-xl border border-red-500/20 flex flex-col gap-2">
-                          <span className="text-red-400 text-xs font-medium">Pairing Code Expired</span>
-                          <button onClick={() => regeneratePairingCode(term.id)} className="w-full text-center text-xs py-1.5 border border-yellow-500/30 text-yellow-500 hover:bg-yellow-500 hover:text-black rounded-lg transition-all font-semibold">Regenerate Code</button>
-                        </div>
                       ) : (
                         <div className="space-y-3.5">
                           
                           {/* Device connected status indicator */}
-                          <div className="flex justify-between items-center bg-emerald-950/10 px-3.5 py-2.5 rounded-xl border border-emerald-500/20">
-                            <span className="flex items-center gap-2 text-xs text-emerald-400 font-semibold uppercase tracking-wider">
-                              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
-                              Connected
-                            </span>
-                            <button onClick={() => copyToClipboard(term.hardware_id)} className="text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center gap-1 font-mono uppercase bg-[var(--bg-card)] border border-[var(--border-color)] px-2 py-0.5 rounded" title="Copy Hardware ID">
-                              Copy ID <Copy size={10} />
-                            </button>
-                          </div>
+                          {term.hardware_id ? (
+                            <div className="flex justify-between items-center bg-emerald-950/10 px-3.5 py-2.5 rounded-xl border border-emerald-500/20">
+                              <span className="flex items-center gap-2 text-xs text-emerald-400 font-semibold uppercase tracking-wider">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+                                Connected
+                              </span>
+                              <button onClick={() => copyToClipboard(term.hardware_id)} className="text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center gap-1 font-mono uppercase bg-[var(--bg-card)] border border-[var(--border-color)] px-2 py-0.5 rounded" title="Copy Hardware ID">
+                                Copy ID <Copy size={10} />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex justify-between items-center bg-amber-950/10 px-3.5 py-2.5 rounded-xl border border-amber-500/20">
+                              <span className="flex items-center gap-2 text-xs text-amber-400 font-semibold uppercase tracking-wider">
+                                <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+                                Not Paired
+                              </span>
+                              <span className="text-[10px] text-zinc-500 font-mono">No device connected</span>
+                            </div>
+                          )}
 
                           <button type="button" onClick={() => regeneratePairingCode(term.id)} className="w-full border border-yellow-500/30 hover:border-yellow-500 text-yellow-500 hover:bg-yellow-500 hover:text-black py-2.5 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all font-semibold shadow-sm">
-                            <RefreshCw size={12} /> Reconnect / Pair Device
+                            <RefreshCw size={12} /> {term.hardware_id ? 'Reconnect / Pair Device' : 'Pair Device'}
                           </button>
 
                           {terminals.filter(t => t.id !== term.id && !t.pairing_code).length > 0 && (
@@ -3070,16 +3099,17 @@ export default function CompanyDashboard() {
                         />
                       </div>
 
-                      <div>
+                       <div>
                         <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-1.5 flex items-center justify-between">
                           <span>Settings PIN (Optional)</span>
                           <Tooltip text="A 6-digit PIN required on the PWA to edit settings or view sensitive information. Leave blank to disable. Click for more info." onClick={() => navigateToHelp('help-pin')} />
                         </label>
+                        {hasTerminalSettingsPin && <p className="text-[10px] text-green-500 mb-1 font-mono">PIN is currently configured. Enter a new PIN to change, or leave blank to keep current.</p>}
                         <input 
                           type="text" 
                           maxLength={6}
                           pattern="\d{0,6}"
-                          placeholder="e.g. 123456" 
+                          placeholder={hasTerminalSettingsPin ? "Leave blank to keep current PIN" : "e.g. 123456"} 
                           className="input-field w-full font-mono text-xs tracking-wider" 
                           value={terminalSettingsPin} 
                           onChange={e => {
@@ -3145,13 +3175,16 @@ export default function CompanyDashboard() {
                   <div className="space-y-3">
                     {/* Verification Panel */}
                     <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-emerald-500/40 transition-colors">
-                      <input 
-                        type="checkbox" 
-                        id="perm-verification"
-                        checked={permissionsForm.verification_enabled} 
-                        disabled 
-                        className="mt-0.5 rounded border-[var(--border-color)] text-emerald-500 focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
-                      />
+                      <label htmlFor="perm-verification" className="relative inline-flex items-center cursor-not-allowed shrink-0 mt-0.5 select-none">
+                        <input 
+                          type="checkbox" 
+                          id="perm-verification"
+                          checked={permissionsForm.verification_enabled} 
+                          disabled 
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-zinc-700/70 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500 peer-disabled:opacity-40"></div>
+                      </label>
                       <div>
                         <label htmlFor="perm-verification" className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5 cursor-not-allowed">
                           Verification Panel <span className="text-[9px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded font-mono font-bold">REQUIRED</span>
@@ -3162,19 +3195,22 @@ export default function CompanyDashboard() {
 
                     {/* Transaction Ledger */}
                     <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-emerald-500/40 transition-colors">
-                      <input 
-                        type="checkbox" 
-                        id="perm-ledger"
-                        checked={permissionsForm.ledger_enabled} 
-                        disabled={isFeatureDisabledByPlan('ledger_enabled')}
-                        onChange={e => setPermissionsForm(prev => ({ 
-                          ...prev, 
-                          ledger_enabled: e.target.checked,
-                          ledger_show_balance: e.target.checked ? prev.ledger_show_balance : false,
-                          ledger_show_debit: e.target.checked ? prev.ledger_show_debit : false
-                        }))}
-                        className="mt-0.5 rounded border-[var(--border-color)] text-emerald-500 focus:ring-0 focus:ring-offset-0 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                      />
+                      <label htmlFor="perm-ledger" className={`relative inline-flex items-center shrink-0 mt-0.5 select-none ${isFeatureDisabledByPlan('ledger_enabled') ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <input 
+                          type="checkbox" 
+                          id="perm-ledger"
+                          checked={permissionsForm.ledger_enabled} 
+                          disabled={isFeatureDisabledByPlan('ledger_enabled')}
+                          onChange={e => setPermissionsForm(prev => ({ 
+                            ...prev, 
+                            ledger_enabled: e.target.checked,
+                            ledger_show_balance: e.target.checked ? prev.ledger_show_balance : false,
+                            ledger_show_debit: e.target.checked ? prev.ledger_show_debit : false
+                          }))}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-zinc-700/70 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500 peer-disabled:opacity-40"></div>
+                      </label>
                       <div>
                         <label htmlFor="perm-ledger" className={`text-xs font-bold flex items-center gap-1.5 ${isFeatureDisabledByPlan('ledger_enabled') ? 'text-[var(--text-secondary)] cursor-not-allowed opacity-60' : 'text-[var(--text-primary)] cursor-pointer'}`}>
                           Transaction Ledger
@@ -3188,14 +3224,17 @@ export default function CompanyDashboard() {
 
                     {/* View Analytics & Reports */}
                     <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-emerald-500/40 transition-colors">
-                      <input 
-                        type="checkbox" 
-                        id="perm-reports"
-                        checked={permissionsForm.reports_enabled} 
-                        onChange={e => setPermissionsForm(prev => ({ ...prev, reports_enabled: e.target.checked }))}
-                        disabled={isFeatureDisabledByPlan('reports_enabled')}
-                        className="mt-0.5 rounded border-[var(--border-color)] text-emerald-500 focus:ring-0 focus:ring-offset-0 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                      />
+                      <label htmlFor="perm-reports" className={`relative inline-flex items-center shrink-0 mt-0.5 select-none ${isFeatureDisabledByPlan('reports_enabled') ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <input 
+                          type="checkbox" 
+                          id="perm-reports"
+                          checked={permissionsForm.reports_enabled} 
+                          onChange={e => setPermissionsForm(prev => ({ ...prev, reports_enabled: e.target.checked }))}
+                          disabled={isFeatureDisabledByPlan('reports_enabled')}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-zinc-700/70 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500 peer-disabled:opacity-40"></div>
+                      </label>
                       <div>
                         <label htmlFor="perm-reports" className={`text-xs font-bold flex items-center gap-1.5 ${isFeatureDisabledByPlan('reports_enabled') ? 'text-[var(--text-secondary)] cursor-not-allowed opacity-60' : 'text-[var(--text-primary)] cursor-pointer'}`}>
                           View Analytics & Reports
@@ -3209,14 +3248,17 @@ export default function CompanyDashboard() {
 
                     {/* Bank Statements */}
                     <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-emerald-500/40 transition-colors">
-                      <input 
-                        type="checkbox" 
-                        id="perm-statement"
-                        checked={permissionsForm.statement_enabled} 
-                        onChange={e => setPermissionsForm(prev => ({ ...prev, statement_enabled: e.target.checked }))}
-                        disabled={isFeatureDisabledByPlan('statement_enabled')}
-                        className="mt-0.5 rounded border-[var(--border-color)] text-emerald-500 focus:ring-0 focus:ring-offset-0 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                      />
+                      <label htmlFor="perm-statement" className={`relative inline-flex items-center shrink-0 mt-0.5 select-none ${isFeatureDisabledByPlan('statement_enabled') ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <input 
+                          type="checkbox" 
+                          id="perm-statement"
+                          checked={permissionsForm.statement_enabled} 
+                          onChange={e => setPermissionsForm(prev => ({ ...prev, statement_enabled: e.target.checked }))}
+                          disabled={isFeatureDisabledByPlan('statement_enabled')}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-zinc-700/70 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500 peer-disabled:opacity-40"></div>
+                      </label>
                       <div>
                         <label htmlFor="perm-statement" className={`text-xs font-bold flex items-center gap-1.5 ${isFeatureDisabledByPlan('statement_enabled') ? 'text-[var(--text-secondary)] cursor-not-allowed opacity-60' : 'text-[var(--text-primary)] cursor-pointer'}`}>
                           Bank Statements Generator
@@ -3245,14 +3287,17 @@ export default function CompanyDashboard() {
                   <div className="space-y-3">
                     {/* Show Account Balance */}
                     <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-emerald-500/40 transition-colors">
-                      <input 
-                        type="checkbox" 
-                        id="perm-ledger-balance"
-                        checked={permissionsForm.ledger_show_balance} 
-                        disabled={isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_balance')}
-                        onChange={e => setPermissionsForm(prev => ({ ...prev, ledger_show_balance: e.target.checked }))}
-                        className="mt-0.5 rounded border-[var(--border-color)] text-emerald-500 focus:ring-0 focus:ring-offset-0 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                      />
+                      <label htmlFor="perm-ledger-balance" className={`relative inline-flex items-center shrink-0 mt-0.5 select-none ${(isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_balance')) ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <input 
+                          type="checkbox" 
+                          id="perm-ledger-balance"
+                          checked={permissionsForm.ledger_show_balance} 
+                          disabled={isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_balance')}
+                          onChange={e => setPermissionsForm(prev => ({ ...prev, ledger_show_balance: e.target.checked }))}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-zinc-700/70 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500 peer-disabled:opacity-40"></div>
+                      </label>
                       <div>
                         <label htmlFor="perm-ledger-balance" className={`text-xs font-bold flex items-center gap-1.5 ${(isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_balance')) ? 'text-[var(--text-secondary)] cursor-not-allowed opacity-60' : 'text-[var(--text-primary)] cursor-pointer'}`}>
                           Show Account Balance
@@ -3266,14 +3311,17 @@ export default function CompanyDashboard() {
 
                     {/* Show Outward Transactions (DEBIT) */}
                     <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-emerald-500/40 transition-colors">
-                      <input 
-                        type="checkbox" 
-                        id="perm-ledger-debit"
-                        checked={permissionsForm.ledger_show_debit} 
-                        disabled={isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_debit')}
-                        onChange={e => setPermissionsForm(prev => ({ ...prev, ledger_show_debit: e.target.checked }))}
-                        className="mt-0.5 rounded border-[var(--border-color)] text-emerald-500 focus:ring-0 focus:ring-offset-0 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                      />
+                      <label htmlFor="perm-ledger-debit" className={`relative inline-flex items-center shrink-0 mt-0.5 select-none ${(isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_debit')) ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <input 
+                          type="checkbox" 
+                          id="perm-ledger-debit"
+                          checked={permissionsForm.ledger_show_debit} 
+                          disabled={isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_debit')}
+                          onChange={e => setPermissionsForm(prev => ({ ...prev, ledger_show_debit: e.target.checked }))}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-zinc-700/70 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500 peer-disabled:opacity-40"></div>
+                      </label>
                       <div>
                         <label htmlFor="perm-ledger-debit" className={`text-xs font-bold flex items-center gap-1.5 ${(isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_debit')) ? 'text-[var(--text-secondary)] cursor-not-allowed opacity-60' : 'text-[var(--text-primary)] cursor-pointer'}`}>
                           Show Outward Debit Transfers
@@ -3285,15 +3333,40 @@ export default function CompanyDashboard() {
                       </div>
                     </div>
 
+                    {/* Show Sale Reference Popover */}
+                    <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-emerald-500/40 transition-colors">
+                      <label htmlFor="perm-sale-ref-popover" className="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5 select-none">
+                        <input 
+                          type="checkbox" 
+                          id="perm-sale-ref-popover"
+                          checked={permissionsForm.show_sale_reference_popover} 
+                          onChange={e => setPermissionsForm(prev => ({ ...prev, show_sale_reference_popover: e.target.checked }))}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-zinc-700/70 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500 peer-disabled:opacity-40"></div>
+                      </label>
+                      <div>
+                        <label htmlFor="perm-sale-ref-popover" className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5 cursor-pointer">
+                          Sale Reference Popover
+                        </label>
+                        <p className="text-[10px] text-[var(--text-secondary)] mt-1 leading-relaxed">
+                          Prompt cashier to enter optional Sale # / Invoice # / POS Slip ID when claiming sales.
+                        </p>
+                      </div>
+                    </div>
+
                     {/* Share PWA Logs */}
                     <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-emerald-500/40 transition-colors">
-                      <input 
-                        type="checkbox" 
-                        id="perm-share-logs"
-                        checked={permissionsForm.share_pwa_logs} 
-                        onChange={e => setPermissionsForm(prev => ({ ...prev, share_pwa_logs: e.target.checked }))}
-                        className="mt-0.5 rounded border-[var(--border-color)] text-emerald-500 focus:ring-0 focus:ring-offset-0"
-                      />
+                      <label htmlFor="perm-share-logs" className="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5 select-none">
+                        <input 
+                          type="checkbox" 
+                          id="perm-share-logs"
+                          checked={permissionsForm.share_pwa_logs} 
+                          onChange={e => setPermissionsForm(prev => ({ ...prev, share_pwa_logs: e.target.checked }))}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-zinc-700/70 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500 peer-disabled:opacity-40"></div>
+                      </label>
                       <div>
                         <label htmlFor="perm-share-logs" className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5 cursor-pointer">
                           Share Diagnostic Logs

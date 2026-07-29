@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Terminal extends Model
 {
+    protected $hidden = ['settings_pin'];
+
     protected $fillable = [
         'tenant_id',
         'terminal_name',
@@ -19,14 +21,21 @@ class Terminal extends Model
         'allow_debug_until',
         'debug_one_time_code',
         'permissions',
-        'credentials'
+        'credentials',
     ];
 
     protected $casts = [
         'pairing_code_expires_at' => 'datetime',
         'allow_debug_until' => 'datetime',
-        'credentials' => 'array'
+        'credentials' => 'array',
     ];
+
+    protected $appends = ['has_settings_pin'];
+
+    public function getHasSettingsPinAttribute(): bool
+    {
+        return ! is_null($this->attributes['settings_pin'] ?? null);
+    }
 
     /**
      * Get permissions merged with defaults.
@@ -36,19 +45,22 @@ class Terminal extends Model
     {
         $defaults = [
             'verification_enabled' => true,
-            'ledger_enabled'       => true,
-            'ledger_show_balance'  => true,
-            'ledger_show_debit'    => true,
-            'reports_enabled'      => false,
-            'statement_enabled'    => false,
-            'show_vbtl'            => false
+            'ledger_enabled' => true,
+            'ledger_show_balance' => true,
+            'ledger_show_debit' => true,
+            'reports_enabled' => false,
+            'statement_enabled' => false,
+            'show_vbtl' => false,
+            'sales_claiming_enabled' => true,
+            'show_sale_reference_popover' => false,
         ];
 
-        if (!$value) {
+        if (! $value) {
             return $defaults;
         }
 
         $decoded = is_array($value) ? $value : json_decode($value, true);
+
         return array_merge($defaults, $decoded ?: []);
     }
 
@@ -58,6 +70,11 @@ class Terminal extends Model
     public function setPermissionsAttribute($value): void
     {
         $this->attributes['permissions'] = is_array($value) ? json_encode($value) : $value;
+    }
+
+    public function setSettingsPinAttribute($value): void
+    {
+        $this->attributes['settings_pin'] = $value ? bcrypt($value) : null;
     }
 
     public function tenant(): BelongsTo

@@ -2,11 +2,10 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
 use App\Models\AuditLog;
 use App\Models\SessionActivityLog;
 use App\Models\SyncExecutionLog;
+use Illuminate\Console\Command;
 
 class PruneLogsCommand extends Command
 {
@@ -49,6 +48,6 @@ class PruneLogsCommand extends Command
         $deletedAudit = AuditLog::where('created_at', '<', $auditCutoff)->delete();
         $this->line("- Deleted {$deletedAudit} audit logs.");
 
-        $this->info("Log pruning completed successfully!");
+        $this->info('Log pruning completed successfully!');
     }
 }

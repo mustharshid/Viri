@@ -15,7 +15,7 @@ return new class extends Migration
             $table->enum('request_type', ['search', 'ledger', 'history']);
             $table->decimal('target_amount', 15, 2)->nullable();
             $table->enum('status', ['pending', 'fulfilled', 'failed', 'needs_retry', 'expired'])
-                  ->default('pending');
+                ->default('pending');
             $table->json('result_json')->nullable();
             $table->text('error_message')->nullable();
             $table->timestamps();

@@ -3,11 +3,13 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Models\AuditLog;
+use App\Models\BankAccount;
+use App\Models\PaymentReceipt;
+use App\Models\Terminal;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use App\Models\Terminal;
-use App\Models\BankAccount;
-use App\Models\AuditLog;
+use Illuminate\Validation\ValidationException;
 
 class CompanyController extends Controller
 {
@@ -18,6 +20,7 @@ class CompanyController extends Controller
         $logs = AuditLog::where('tenant_id', $tenantId)
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
+
         return response()->json($logs);
     }
 
@@ -26,6 +29,7 @@ class CompanyController extends Controller
     {
         $tenantId = $request->user()->tenant_id;
         $terminals = Terminal::where('tenant_id', $tenantId)->get();
+
         return response()->json($terminals);
     }
 
@@ -34,7 +38,7 @@ class CompanyController extends Controller
         $request->validate([
             'name' => 'required|string',
             'permissions' => 'nullable|array',
-            'settings_pin' => 'nullable|string|max:6'
+            'settings_pin' => 'nullable|string|max:6',
         ]);
 
         $tenant = $request->user()->tenant;
@@ -46,12 +50,12 @@ class CompanyController extends Controller
 
         if ($currentTerminals >= $maxTerminals) {
             return response()->json([
-                'message' => 'Cashier terminal limit reached for your subscription plan. Please contact support or upgrade.'
+                'message' => 'Cashier terminal limit reached for your subscription plan. Please contact support or upgrade.',
             ], 403);
         }
 
         // Generate a random hardware ID
-        $hardwareId = 'term_' . bin2hex(random_bytes(8));
+        $hardwareId = 'term_'.bin2hex(random_bytes(8));
         // Generate a 6-digit pairing code
         $pairingCode = str_pad(mt_rand(0, 999999), 6, '0', STR_PAD_LEFT);
 
@@ -60,12 +64,15 @@ class CompanyController extends Controller
         $features = $tenant->features;
         $isFreeOr499 = ($tier === 'free' || $tier === '499');
 
-        $hasFeature = function($key) use ($features, $isFreeOr499) {
-            if ($key === 'verification_enabled') return true;
+        $hasFeature = function ($key) use ($features, $isFreeOr499) {
+            if ($key === 'verification_enabled') {
+                return true;
+            }
             if ($features !== null && is_array($features) && array_key_exists($key, $features)) {
                 return filter_var($features[$key], FILTER_VALIDATE_BOOLEAN);
             }
-            return !$isFreeOr499;
+
+            return ! $isFreeOr499;
         };
 
         $permissions = [
@@ -77,7 +84,7 @@ class CompanyController extends Controller
             'statement_enabled' => $hasFeature('statement_enabled') && filter_var($permissions['statement_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
             'show_vbtl' => filter_var($permissions['show_vbtl'] ?? false, FILTER_VALIDATE_BOOLEAN),
             'share_pwa_logs' => filter_var($permissions['share_pwa_logs'] ?? true, FILTER_VALIDATE_BOOLEAN),
-            'terminal_pin' => isset($permissions['terminal_pin']) && $permissions['terminal_pin'] !== '' ? substr(preg_replace('/\D/', '', (string)$permissions['terminal_pin']), 0, 4) : null
+            'terminal_pin' => isset($permissions['terminal_pin']) && $permissions['terminal_pin'] !== '' ? substr(preg_replace('/\D/', '', (string) $permissions['terminal_pin']), 0, 4) : null,
         ];
 
         $terminal = Terminal::create([
@@ -88,15 +95,15 @@ class CompanyController extends Controller
             'pairing_code_expires_at' => now()->addMinutes(10),
             'settings_pin' => $request->settings_pin,
             'status' => 'active',
-            'permissions' => $permissions
+            'permissions' => $permissions,
         ]);
 
-        \App\Models\AuditLog::create([
+        AuditLog::create([
             'tenant_id' => $tenantId,
             'event_type' => 'terminal_created',
             'actor' => $request->user()->name,
             'ip_address' => $request->ip(),
-            'metadata' => ['terminal_id' => $terminal->id, 'terminal_name' => $terminal->terminal_name]
+            'metadata' => ['terminal_id' => $terminal->id, 'terminal_name' => $terminal->terminal_name],
         ]);
 
         return response()->json(['terminal' => $terminal]);
@@ -108,7 +115,7 @@ class CompanyController extends Controller
             $request->validate([
                 'name' => 'required|string',
                 'permissions' => 'nullable|array',
-                'settings_pin' => 'nullable|string|max:6'
+                'settings_pin' => 'nullable|string|max:6',
             ]);
 
             $tenant = $request->user()->tenant;
@@ -119,12 +126,15 @@ class CompanyController extends Controller
             $features = $tenant->features;
             $isFreeOr499 = ($tier === 'free' || $tier === '499');
 
-            $hasFeature = function($key) use ($features, $isFreeOr499) {
-                if ($key === 'verification_enabled') return true;
+            $hasFeature = function ($key) use ($features, $isFreeOr499) {
+                if ($key === 'verification_enabled') {
+                    return true;
+                }
                 if ($features !== null && is_array($features) && array_key_exists($key, $features)) {
                     return filter_var($features[$key], FILTER_VALIDATE_BOOLEAN);
                 }
-                return !$isFreeOr499;
+
+                return ! $isFreeOr499;
             };
 
             $permissions = [
@@ -136,22 +146,22 @@ class CompanyController extends Controller
                 'statement_enabled' => $hasFeature('statement_enabled') && filter_var($permissions['statement_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'show_vbtl' => filter_var($permissions['show_vbtl'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'share_pwa_logs' => filter_var($permissions['share_pwa_logs'] ?? true, FILTER_VALIDATE_BOOLEAN),
-                'terminal_pin' => isset($permissions['terminal_pin']) && $permissions['terminal_pin'] !== '' ? substr(preg_replace('/\D/', '', (string)$permissions['terminal_pin']), 0, 4) : null
+                'terminal_pin' => isset($permissions['terminal_pin']) && $permissions['terminal_pin'] !== '' ? substr(preg_replace('/\D/', '', (string) $permissions['terminal_pin']), 0, 4) : null,
             ];
 
             $terminal->update([
                 'terminal_name' => $request->name,
                 'settings_pin' => $request->settings_pin,
-                'permissions' => $permissions
+                'permissions' => $permissions,
             ]);
 
             try {
-                \App\Models\AuditLog::create([
+                AuditLog::create([
                     'tenant_id' => $tenant->id,
                     'event_type' => 'terminal_updated',
                     'actor' => $request->user()->name,
                     'ip_address' => $request->ip(),
-                    'metadata' => ['terminal_id' => $terminal->id, 'terminal_name' => $terminal->terminal_name]
+                    'metadata' => ['terminal_id' => $terminal->id, 'terminal_name' => $terminal->terminal_name],
                 ]);
             } catch (\Exception $auditEx) {
                 // Audit log failure should not block terminal update
@@ -159,26 +169,27 @@ class CompanyController extends Controller
 
             return response()->json(['terminal' => $terminal]);
 
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (ValidationException $e) {
             return response()->json(['message' => implode(' ', $e->validator->errors()->all())], 422);
         } catch (\Exception $e) {
-            return response()->json(['message' => 'Failed to update terminal: ' . $e->getMessage()], 500);
+            return response()->json(['message' => 'Failed to update terminal: '.$e->getMessage()], 500);
         }
     }
 
     public function deleteTerminal(Request $request, $id)
     {
         $terminal = Terminal::where('tenant_id', $request->user()->tenant_id)->findOrFail($id);
-        
-        \App\Models\AuditLog::create([
+
+        AuditLog::create([
             'tenant_id' => $request->user()->tenant_id,
             'event_type' => 'terminal_deleted',
             'actor' => $request->user()->name,
             'ip_address' => $request->ip(),
-            'metadata' => ['terminal_id' => $terminal->id, 'terminal_name' => $terminal->terminal_name]
+            'metadata' => ['terminal_id' => $terminal->id, 'terminal_name' => $terminal->terminal_name],
         ]);
 
         $terminal->delete();
+
         return response()->json(['message' => 'Terminal deleted']);
     }
 
@@ -191,13 +202,13 @@ class CompanyController extends Controller
 
         $terminal->update([
             'debug_one_time_code' => $code,
-            'allow_debug_until' => $until
+            'allow_debug_until' => $until,
         ]);
 
         return response()->json([
             'message' => 'Debug access enabled for 2 hours.',
             'debug_one_time_code' => $code,
-            'allow_debug_until' => $until->toIso8601String()
+            'allow_debug_until' => $until->toIso8601String(),
         ]);
     }
 
@@ -217,7 +228,7 @@ class CompanyController extends Controller
         return response()->json([
             'message' => 'Pairing code generated successfully.',
             'pairing_code' => $pairingCode,
-            'pairing_code_expires_at' => $terminal->pairing_code_expires_at->toIso8601String()
+            'pairing_code_expires_at' => $terminal->pairing_code_expires_at->toIso8601String(),
         ]);
     }
 
@@ -228,6 +239,7 @@ class CompanyController extends Controller
         $accounts = BankAccount::where('tenant_id', $tenantId)
             ->with(['mibCredentialProfile.credentialGroup', 'bmlCredentialGroup'])
             ->get();
+
         return response()->json($accounts);
     }
 
@@ -272,6 +284,7 @@ class CompanyController extends Controller
     {
         $account = BankAccount::where('tenant_id', $request->user()->tenant_id)->findOrFail($id);
         $account->delete();
+
         return response()->json(['message' => 'Bank account deleted']);
     }
 
@@ -314,7 +327,7 @@ class CompanyController extends Controller
             'phone_number' => 'required|string|max:255',
             'password' => 'nullable|string|min:8|confirmed',
             'expiry_warning_days' => 'nullable|integer|min:0|max:90',
-            'recent_tx_limit' => 'nullable|integer|in:0,1,3,5,10,9999'
+            'recent_tx_limit' => 'nullable|integer|in:0,1,3,5,10,9999',
         ]);
 
         $user->phone_number = $request->phone_number;
@@ -338,7 +351,7 @@ class CompanyController extends Controller
 
         return response()->json([
             'message' => 'Profile updated successfully',
-            'user' => $user->load('tenant')
+            'user' => $user->load('tenant'),
         ]);
     }
 
@@ -348,20 +361,20 @@ class CompanyController extends Controller
 
         $terminal->update([
             'debug_one_time_code' => null,
-            'allow_debug_until' => null
+            'allow_debug_until' => null,
         ]);
 
         return response()->json([
-            'message' => 'Debug access revoked successfully.'
+            'message' => 'Debug access revoked successfully.',
         ]);
     }
 
     public function getPayments(Request $request)
     {
-        $payments = \App\Models\PaymentReceipt::where('tenant_id', $request->user()->tenant_id)
+        $payments = PaymentReceipt::where('tenant_id', $request->user()->tenant_id)
             ->orderBy('created_at', 'desc')
             ->get();
-            
+
         return response()->json($payments);
     }
 
@@ -371,14 +384,14 @@ class CompanyController extends Controller
             'amount' => 'required|numeric|min:0.01',
             'reference_number' => 'required|string|max:255',
             'receipt_slip' => 'required|image|mimes:jpeg,png|max:5120',
-            'remarks' => 'nullable|string|max:1000'
+            'remarks' => 'nullable|string|max:1000',
         ]);
 
         $user = $request->user();
-        
+
         if ($request->hasFile('receipt_slip')) {
             $path = $request->file('receipt_slip')->store('receipts', 'public');
-            $receiptSlipPath = '/storage/' . $path;
+            $receiptSlipPath = '/storage/'.$path;
         } else {
             return response()->json(['error' => 'Receipt slip file is required'], 400);
         }
@@ -396,7 +409,7 @@ class CompanyController extends Controller
         $tenant->license_expires_at = $newExpiry;
         $tenant->save();
 
-        $payment = \App\Models\PaymentReceipt::create([
+        $payment = PaymentReceipt::create([
             'tenant_id' => $user->tenant_id,
             'amount' => $request->amount,
             'reference_number' => $request->reference_number,
@@ -404,12 +417,12 @@ class CompanyController extends Controller
             'status' => 'pending',
             'remarks' => $request->remarks,
             // Store previous expiry for potential rollback on rejection
-            'previous_license_expires_at' => $previousExpiry
+            'previous_license_expires_at' => $previousExpiry,
         ]);
 
         return response()->json([
             'message' => 'Payment receipt uploaded successfully. Awaiting superadmin verification.',
-            'payment' => $payment
+            'payment' => $payment,
         ]);
     }
 }

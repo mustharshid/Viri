@@ -12,7 +12,7 @@ return new class extends Migration
             $table->unsignedBigInteger('tenant_id')->nullable()->after('id');
             $table->string('role')->default('company_admin')->after('tenant_id'); // superadmin, company_admin
             $table->string('status')->default('pending')->after('role'); // pending, approved, suspended
-            
+
             $table->foreign('tenant_id')->references('id')->on('tenants')->onDelete('cascade');
         });
 

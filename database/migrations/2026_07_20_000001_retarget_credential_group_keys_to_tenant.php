@@ -70,7 +70,7 @@ return new class extends Migration
         // Strategy: drop FK → drop old index → restore FK (the new tenant index provides coverage).
         Schema::table('mib_credential_groups', function (Blueprint $table) {
             // Create the new tenant-scoped index if not already present (idempotent).
-            if (!collect(DB::select('SHOW INDEX FROM mib_credential_groups'))->pluck('Key_name')->contains('unique_mib_credential_group_tenant')) {
+            if (! collect(DB::select('SHOW INDEX FROM mib_credential_groups'))->pluck('Key_name')->contains('unique_mib_credential_group_tenant')) {
                 $table->unique(['tenant_id', 'mib_username'], 'unique_mib_credential_group_tenant');
             }
         });
@@ -122,7 +122,7 @@ return new class extends Migration
 
         // Same pattern for BML: drop FK → drop old index → restore FK.
         Schema::table('bml_credential_groups', function (Blueprint $table) {
-            if (!collect(DB::select('SHOW INDEX FROM bml_credential_groups'))->pluck('Key_name')->contains('unique_bml_credential_group_tenant')) {
+            if (! collect(DB::select('SHOW INDEX FROM bml_credential_groups'))->pluck('Key_name')->contains('unique_bml_credential_group_tenant')) {
                 $table->unique(['tenant_id', 'bml_username', 'profile_type'], 'unique_bml_credential_group_tenant');
             }
         });
@@ -144,7 +144,7 @@ return new class extends Migration
     {
         // Restore terminal-scoped index on mib_credential_groups
         Schema::table('mib_credential_groups', function (Blueprint $table) {
-            if (!collect(DB::select('SHOW INDEX FROM mib_credential_groups'))->pluck('Key_name')->contains('unique_mib_credential_group')) {
+            if (! collect(DB::select('SHOW INDEX FROM mib_credential_groups'))->pluck('Key_name')->contains('unique_mib_credential_group')) {
                 $table->unique(['terminal_id', 'mib_username'], 'unique_mib_credential_group');
             }
         });
@@ -156,7 +156,7 @@ return new class extends Migration
 
         // Restore terminal-scoped index on bml_credential_groups
         Schema::table('bml_credential_groups', function (Blueprint $table) {
-            if (!collect(DB::select('SHOW INDEX FROM bml_credential_groups'))->pluck('Key_name')->contains('unique_bml_credential_group')) {
+            if (! collect(DB::select('SHOW INDEX FROM bml_credential_groups'))->pluck('Key_name')->contains('unique_bml_credential_group')) {
                 $table->unique(['terminal_id', 'bml_username', 'profile_type'], 'unique_bml_credential_group');
             }
         });

@@ -2,10 +2,10 @@
 
 namespace Tests\Feature;
 
-use Illuminate\Foundation\Testing\RefreshDatabase;
-use Tests\TestCase;
 use App\Models\Tenant;
 use App\Models\Terminal;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
 
 class TenantApiTest extends TestCase
 {
@@ -19,27 +19,27 @@ class TenantApiTest extends TestCase
         $tenant = Tenant::create([
             'name' => 'Viri Store 1',
             'status' => 'active',
-            'license_expires_at' => now()->addDays(30)
+            'license_expires_at' => now()->addDays(30),
         ]);
 
         $terminal = Terminal::create([
             'tenant_id' => $tenant->id,
             'terminal_name' => 'Counter A',
             'hardware_id' => 'HW-123456',
-            'status' => 'active'
+            'status' => 'active',
         ]);
 
         $response = $this->postJson('/api/verify-terminal', [
-            'hardware_id' => 'HW-123456'
+            'hardware_id' => 'HW-123456',
         ]);
 
         $response->assertStatus(200)
-                 ->assertJson([
-                     'status' => 'authorized',
-                     'tenant' => [
-                         'name' => 'Viri Store 1'
-                     ]
-                 ]);
+            ->assertJson([
+                'status' => 'authorized',
+                'tenant' => [
+                    'name' => 'Viri Store 1',
+                ],
+            ]);
     }
 
     /**
@@ -50,24 +50,24 @@ class TenantApiTest extends TestCase
         $tenant = Tenant::create([
             'name' => 'Viri Store 2',
             'status' => 'suspended', // Suspended
-            'license_expires_at' => now()->addDays(30)
+            'license_expires_at' => now()->addDays(30),
         ]);
 
         $terminal = Terminal::create([
             'tenant_id' => $tenant->id,
             'terminal_name' => 'Counter B',
             'hardware_id' => 'HW-654321',
-            'status' => 'active'
+            'status' => 'active',
         ]);
 
         $response = $this->postJson('/api/verify-terminal', [
-            'hardware_id' => 'HW-654321'
+            'hardware_id' => 'HW-654321',
         ]);
 
         $response->assertStatus(403)
-                 ->assertJson([
-                     'error' => 'Tenant subscription suspended or expired'
-                 ]);
+            ->assertJson([
+                'error' => 'Tenant subscription suspended or expired',
+            ]);
     }
 
     /**

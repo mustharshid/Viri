@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class BankAccountLock extends Model
 {
     protected $primaryKey = 'bank_account_id';
+
     public $incrementing = false;
 
     protected $fillable = [

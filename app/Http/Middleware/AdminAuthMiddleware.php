@@ -11,15 +11,15 @@ class AdminAuthMiddleware
     /**
      * Handle an incoming request.
      *
-     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
+     * @param  Closure(Request): (Response)  $next
      */
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
 
-        if (!$user || $user->role !== 'superadmin') {
+        if (! $user || $user->role !== 'superadmin') {
             return response()->json([
-                'message' => 'Forbidden. Superadmin privileges required.'
+                'message' => 'Forbidden. Superadmin privileges required.',
             ], 403);
         }
 

@@ -1,17 +1,23 @@
 <?php
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\DB;
-
 use App\Http\Controllers\API\AuthController;
-use App\Http\Controllers\API\CompanyController;
-use App\Http\Controllers\API\CredentialSyncController;
-use App\Http\Controllers\API\SuperadminController;
-use App\Http\Controllers\API\TerminalPairingController;
 use App\Http\Controllers\API\BankAccountLockController;
 use App\Http\Controllers\API\BmlOAuthController;
-
+use App\Http\Controllers\API\ClaimedSaleController;
+use App\Http\Controllers\API\CompanyController;
+use App\Http\Controllers\API\CredentialSyncController;
+use App\Http\Controllers\API\LedgerReportController;
+use App\Http\Controllers\API\MibKeysController;
+use App\Http\Controllers\API\SessionController;
+use App\Http\Controllers\API\SuperadminController;
+use App\Http\Controllers\API\TerminalPairingController;
+use App\Models\SessionFetchRequest;
+use App\Models\Terminal;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -77,19 +83,19 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/company/bank-accounts/{id}', [CompanyController::class, 'updateBankAccount']);
     Route::delete('/company/bank-accounts/{id}', [CompanyController::class, 'deleteBankAccount']);
     Route::post('/company/bank-accounts/{id}/reset-failures', [CompanyController::class, 'resetBankAccountFailures']);
-    Route::get('/company/bank-accounts/sibling-check', [\App\Http\Controllers\API\MibKeysController::class, 'getSiblingCheck']);
-    Route::get('/company/bank-accounts/credential-siblings', [\App\Http\Controllers\API\MibKeysController::class, 'getCredentialSiblings']);
+    Route::get('/company/bank-accounts/sibling-check', [MibKeysController::class, 'getSiblingCheck']);
+    Route::get('/company/bank-accounts/credential-siblings', [MibKeysController::class, 'getCredentialSiblings']);
     Route::put('/company/profile', [CompanyController::class, 'updateProfile']);
     Route::get('/company/payments', [CompanyController::class, 'getPayments']);
     Route::post('/company/payments', [CompanyController::class, 'storePayment']);
-    
+
     Route::get('/company/audit-logs', [CompanyController::class, 'getAuditLogs']);
 
     // Credential Sync (Company Dashboard)
-    Route::post('/company/credential-sync/initiate',            [CredentialSyncController::class, 'initiate']);
-    Route::get('/company/credential-sync/{id}/status',          [CredentialSyncController::class, 'status']);
+    Route::post('/company/credential-sync/initiate', [CredentialSyncController::class, 'initiate']);
+    Route::get('/company/credential-sync/{id}/status', [CredentialSyncController::class, 'status']);
     Route::post('/company/credential-sync/{id}/trigger-import', [CredentialSyncController::class, 'triggerImport']);
-    Route::delete('/company/credential-sync/{id}',              [CredentialSyncController::class, 'cancel']);
+    Route::delete('/company/credential-sync/{id}', [CredentialSyncController::class, 'cancel']);
 });
 
 /*
@@ -100,33 +106,38 @@ Route::middleware('auth:sanctum')->group(function () {
 */
 
 // Real-Time Signaling Endpoints (non-cache)
-Route::post('/terminal/session/acknowledge', function (\Illuminate\Http\Request $request) {
+Route::post('/terminal/session/acknowledge', function (Request $request) {
     $request->validate([
         'hardware_id' => 'required|string',
-        'request_id'  => 'required|integer',
+        'request_id' => 'required|integer',
     ]);
-    $terminal = \App\Models\Terminal::where('hardware_id', $request->hardware_id)
+    $terminal = Terminal::where('hardware_id', $request->hardware_id)
         ->where('status', 'active')->first();
-    if (!$terminal) return response()->json(['error' => 'Terminal unauthorized'], 403);
-    $fetchReq = \App\Models\SessionFetchRequest::find($request->request_id);
-    if (!$fetchReq) return response()->json(['error' => 'Request not found'], 404);
+    if (! $terminal) {
+        return response()->json(['error' => 'Terminal unauthorized'], 403);
+    }
+    $fetchReq = SessionFetchRequest::find($request->request_id);
+    if (! $fetchReq) {
+        return response()->json(['error' => 'Request not found'], 404);
+    }
     $account = $fetchReq->bankAccount;
-    if (!$account || $account->session_holder_terminal_id !== $terminal->id)
+    if (! $account || $account->session_holder_terminal_id !== $terminal->id) {
         return response()->json(['error' => 'Not the session holder for this account'], 403);
+    }
     $fetchReq->update(['status' => 'syncing']);
+
     return response()->json(['status' => 'ok']);
 });
 
 // Session Request & Fulfillment Routes (used by extension-based verification)
-Route::post('/terminal/session/request',    [\App\Http\Controllers\API\SessionController::class, 'submitRequest']);
-Route::post('/terminal/session/pending',    [\App\Http\Controllers\API\SessionController::class, 'getPendingRequests']);
-Route::post('/terminal/session/fulfill',    [\App\Http\Controllers\API\SessionController::class, 'fulfillRequest']);
-Route::get('/terminal/session/result/{id}', [\App\Http\Controllers\API\SessionController::class, 'pollResult']);
-Route::post('/terminal/session/log',        [\App\Http\Controllers\API\SessionController::class, 'logEvent']);
-Route::post('/terminal/session/activity',   [\App\Http\Controllers\API\SessionController::class, 'recordActivity']);
-Route::post('/terminal/session/bml-auth',   [\App\Http\Controllers\API\SessionController::class, 'updateBmlAuth']);
-Route::post('/terminal/account/fingerprint-check', [\App\Http\Controllers\API\SessionController::class, 'checkFingerprint']);
-
+Route::post('/terminal/session/request', [SessionController::class, 'submitRequest']);
+Route::post('/terminal/session/pending', [SessionController::class, 'getPendingRequests']);
+Route::post('/terminal/session/fulfill', [SessionController::class, 'fulfillRequest']);
+Route::get('/terminal/session/result/{id}', [SessionController::class, 'pollResult']);
+Route::post('/terminal/session/log', [SessionController::class, 'logEvent']);
+Route::post('/terminal/session/activity', [SessionController::class, 'recordActivity']);
+Route::post('/terminal/session/bml-auth', [SessionController::class, 'updateBmlAuth']);
+Route::post('/terminal/account/fingerprint-check', [SessionController::class, 'checkFingerprint']);
 
 // BML OAuth Routes (Terminal API)
 Route::post('/bml/oauth/store', [BmlOAuthController::class, 'store']);
@@ -134,22 +145,29 @@ Route::get('/bml/oauth/tokens', [BmlOAuthController::class, 'getTokens']);
 Route::post('/bml/oauth/update', [BmlOAuthController::class, 'updateTokens']);
 
 // MIB Device Credentials (Keys) Endpoints
-Route::post('/mib/keys/store', [\App\Http\Controllers\API\MibKeysController::class, 'store']);
-Route::get('/mib/keys', [\App\Http\Controllers\API\MibKeysController::class, 'getKeys']);
-Route::get('/terminal/bank-accounts/sibling-check', [\App\Http\Controllers\API\MibKeysController::class, 'getSiblingCheck']);
-Route::get('/terminal/bank-accounts/credential-siblings', [\App\Http\Controllers\API\MibKeysController::class, 'getCredentialSiblings']);
+Route::post('/mib/keys/store', [MibKeysController::class, 'store']);
+Route::get('/mib/keys', [MibKeysController::class, 'getKeys']);
+Route::get('/terminal/bank-accounts/sibling-check', [MibKeysController::class, 'getSiblingCheck']);
+Route::get('/terminal/bank-accounts/credential-siblings', [MibKeysController::class, 'getCredentialSiblings']);
 
+// Claimed Deposit Sales & Counter Shift Closing Endpoints
+Route::get('/terminal/claimed-sales', [ClaimedSaleController::class, 'index']);
+Route::post('/terminal/claimed-sales/claim', [ClaimedSaleController::class, 'claim']);
+Route::post('/terminal/claimed-sales/unclaim', [ClaimedSaleController::class, 'unclaim']);
+Route::post('/terminal/counter-shifts/open', [ClaimedSaleController::class, 'openShift']);
+Route::post('/terminal/counter-shifts/close', [ClaimedSaleController::class, 'closeShift']);
+Route::get('/terminal/counter-shifts/reports', [ClaimedSaleController::class, 'shiftReports']);
 
 Route::post('/verify-terminal', function (Request $request) {
     $request->validate([
-        'hardware_id' => 'required|string'
+        'hardware_id' => 'required|string',
     ]);
 
-    $terminal = \App\Models\Terminal::where('hardware_id', $request->hardware_id)
+    $terminal = Terminal::where('hardware_id', $request->hardware_id)
         ->with(['tenant.bankAccounts.sessionHolder'])
         ->first();
 
-    if (!$terminal || $terminal->status !== 'active') {
+    if (! $terminal || $terminal->status !== 'active') {
         return response()->json(['error' => 'Terminal unauthorized or revoked'], 403);
     }
 
@@ -171,17 +189,17 @@ Route::post('/verify-terminal', function (Request $request) {
     $creditsExhausted = ($tenant->verifications_count >= $limit);
 
     $subscriptionExpired = false;
-    if ($tenant->license_expires_at && \Carbon\Carbon::parse($tenant->license_expires_at)->isPast()) {
+    if ($tenant->license_expires_at && Carbon::parse($tenant->license_expires_at)->isPast()) {
         $subscriptionExpired = true;
     }
 
-    if (!$creditsExhausted && !$subscriptionExpired && $request->input('action') === 'verify') {
+    if (! $creditsExhausted && ! $subscriptionExpired && $request->input('action') === 'verify') {
         // Increment count
         $tenant->increment('verifications_count');
     }
 
-    $settings = \Illuminate\Support\Facades\Cache::remember('viri_system_settings', 300, function () {
-        return \Illuminate\Support\Facades\DB::table('system_settings')->pluck('value', 'key')->all();
+    $settings = Cache::remember('viri_system_settings', 300, function () {
+        return DB::table('system_settings')->pluck('value', 'key')->all();
     });
 
     $holderInterval = max(1, (int) ($settings['poll_interval_holder'] ?? 1));
@@ -217,7 +235,7 @@ Route::post('/verify-terminal', function (Request $request) {
     $count = count($bankAccounts);
 
     foreach ($bankAccounts as $acct) {
-        $acctSummary = \Illuminate\Support\Facades\Cache::get("sync_health_summary_{$acct->id}") ?: [
+        $acctSummary = Cache::get("sync_health_summary_{$acct->id}") ?: [
             'status' => 'healthy',
             'sync_confidence_score' => 100,
             'failed_today' => 0,
@@ -232,7 +250,7 @@ Route::post('/verify-terminal', function (Request $request) {
         $totalRequests += $acctSummary['total_requests_count'] ?? 0;
         $totalFetches += $acctSummary['actual_fetches_count'] ?? 0;
         $totalBacklog += $acctSummary['pending_backlog'] ?? 0;
-        
+
         $acctStatus = $acctSummary['status'] ?? 'healthy';
         if ($acctStatus === 'critical') {
             $worstStatus = 'critical';
@@ -245,7 +263,9 @@ Route::post('/verify-terminal', function (Request $request) {
 
     $avgConfidence = $count > 0 ? (int) round($totalConfidence / $count) : 100;
     $avgEfficiency = $count > 0 ? ($totalEfficiency / $count) / 100 : 1.0;
-    if ($avgEfficiency > 1.0) $avgEfficiency = 1.0;
+    if ($avgEfficiency > 1.0) {
+        $avgEfficiency = 1.0;
+    }
 
     $syncHealthSummary = [
         'confidence_score' => $avgConfidence,
@@ -271,7 +291,7 @@ Route::post('/verify-terminal', function (Request $request) {
         'sync_health_summary' => $syncHealthSummary,
         'operation_mode' => $operationMode,
         'active_terminals_count' => $activeTerminalsCount,
-        'license_expires_at' => $tenant->license_expires_at ? \Carbon\Carbon::parse($tenant->license_expires_at)->toIso8601String() : null,
+        'license_expires_at' => $tenant->license_expires_at ? Carbon::parse($tenant->license_expires_at)->toIso8601String() : null,
         'expiry_warning_days' => (int) ($tenantFeatures['expiry_warning_days'] ?? 7),
         'tenant' => [
             'name' => $tenant->name,
@@ -280,7 +300,7 @@ Route::post('/verify-terminal', function (Request $request) {
             'lock_timeout' => $tenant->lock_timeout ?? 20,
             'verifications_used' => $tenant->verifications_count,
             'extension_id' => env('VIRI_EXTENSION_ID', 'viri_default_extension_id'),
-            'bank_accounts' => $tenant->bankAccounts->map(function($account) {
+            'bank_accounts' => $tenant->bankAccounts->map(function ($account) {
                 return [
                     'id' => $account->id,
                     'bank_name' => $account->bank_name,
@@ -299,34 +319,35 @@ Route::post('/verify-terminal', function (Request $request) {
                     'login_credentials_hash' => $account->login_credentials_hash,
                     'session_holder_terminal_id' => $account->session_holder_terminal_id,
                     'session_holder_name' => $account->sessionHolder?->terminal_name,
-                    'session_claimed_at' => $account->session_claimed_at ? \Carbon\Carbon::parse($account->session_claimed_at)->toIso8601String() : null,
-                    'session_last_heartbeat_at' => $account->session_last_heartbeat_at ? \Carbon\Carbon::parse($account->session_last_heartbeat_at)->toIso8601String() : null,
+                    'session_claimed_at' => $account->session_claimed_at ? Carbon::parse($account->session_claimed_at)->toIso8601String() : null,
+                    'session_last_heartbeat_at' => $account->session_last_heartbeat_at ? Carbon::parse($account->session_last_heartbeat_at)->toIso8601String() : null,
                 ];
-            })
+            }),
         ],
         'terminal_name' => $terminal->terminal_name,
-        'settings_pin' => $terminal->settings_pin,
+        'has_settings_pin' => ! is_null($terminal->settings_pin),
         'terminal_pin' => $terminalPermissions['terminal_pin'] ?? null,
         // 'credentials' intentionally omitted — credentials are never transmitted by server (ZK architecture)
         'should_upload_logs' => (isset($terminalPermissions['share_pwa_logs']) ? $terminalPermissions['share_pwa_logs'] : true) || ($terminal->allow_debug_until && now()->lessThan($terminal->allow_debug_until)),
         'permissions' => [
             'verification_enabled' => (bool) ($tenantFeatures['verification_enabled'] ?? true),
-            'ledger_enabled' => (bool) (($tenantFeatures['ledger_enabled'] ?? !$isFreeOr499) && ($terminalPermissions['ledger_enabled'] ?? true)),
-            'ledger_show_balance' => (bool) (($tenantFeatures['ledger_show_balance'] ?? !$isFreeOr499) && ($terminalPermissions['ledger_show_balance'] ?? true)),
-            'ledger_show_debit' => (bool) (($tenantFeatures['ledger_show_debit'] ?? !$isFreeOr499) && ($terminalPermissions['ledger_show_debit'] ?? true)),
-            'reports_enabled' => (bool) (($tenantFeatures['reports_enabled'] ?? !$isFreeOr499) && ($terminalPermissions['reports_enabled'] ?? false)),
-            'statement_enabled' => (bool) (($tenantFeatures['statement_enabled'] ?? !$isFreeOr499) && ($terminalPermissions['statement_enabled'] ?? false)),
+            'ledger_enabled' => (bool) (($tenantFeatures['ledger_enabled'] ?? ! $isFreeOr499) && ($terminalPermissions['ledger_enabled'] ?? true)),
+            'ledger_show_balance' => (bool) (($tenantFeatures['ledger_show_balance'] ?? ! $isFreeOr499) && ($terminalPermissions['ledger_show_balance'] ?? true)),
+            'ledger_show_debit' => (bool) (($tenantFeatures['ledger_show_debit'] ?? ! $isFreeOr499) && ($terminalPermissions['ledger_show_debit'] ?? true)),
+            'reports_enabled' => (bool) (($tenantFeatures['reports_enabled'] ?? ! $isFreeOr499) && ($terminalPermissions['reports_enabled'] ?? false)),
+            'statement_enabled' => (bool) (($tenantFeatures['statement_enabled'] ?? ! $isFreeOr499) && ($terminalPermissions['statement_enabled'] ?? false)),
             'share_pwa_logs' => (bool) ($terminalPermissions['share_pwa_logs'] ?? true),
             'show_vbtl' => (bool) ($terminalPermissions['show_vbtl'] ?? false),
-            'recent_tx_limit' => (function() use ($tenantFeatures) {
+            'recent_tx_limit' => (function () use ($tenantFeatures) {
                 $hasFeature = (bool) ($tenantFeatures['custom_recent_tx_limit'] ?? false);
-                if (!$hasFeature) {
+                if (! $hasFeature) {
                     return 3;
                 }
                 $limit = (int) ($tenantFeatures['recent_tx_limit'] ?? 3);
+
                 return ($limit === 0 || $limit >= 9999) ? 9999 : $limit;
-            })()
-        ]
+            })(),
+        ],
     ]);
 });
 
@@ -343,31 +364,32 @@ Route::post('/terminal/bank-accounts/clear-api-token', [BankAccountLockControlle
 Route::post('/terminal/bank-accounts/map-credentials', [BankAccountLockController::class, 'mapCredentials']);
 
 // Credential Sync (Terminal side — hardware_id auth)
-Route::get('/terminal/credential-sync/sse',                    [CredentialSyncController::class, 'sseStream']);
-Route::get('/terminal/credential-sync/pending',                [CredentialSyncController::class, 'pendingForTerminal']);
-Route::post('/terminal/credential-sync/{id}/upload',           [CredentialSyncController::class, 'upload']);
-Route::post('/terminal/credential-sync/{id}/confirm-import',   [CredentialSyncController::class, 'confirmImport']);
+Route::get('/terminal/credential-sync/sse', [CredentialSyncController::class, 'sseStream']);
+Route::get('/terminal/credential-sync/pending', [CredentialSyncController::class, 'pendingForTerminal']);
+Route::post('/terminal/credential-sync/{id}/upload', [CredentialSyncController::class, 'upload']);
+Route::post('/terminal/credential-sync/{id}/confirm-import', [CredentialSyncController::class, 'confirmImport']);
 
 // Real-Time Signaling Endpoints (non-cache)
-
 
 Route::post('/terminal/update-pin', function (Request $request) {
     $request->validate([
         'hardware_id' => 'required|string',
-        'terminal_pin' => 'nullable|string|max:4'
+        'terminal_pin' => 'nullable|string|max:4',
     ]);
-    $terminal = \App\Models\Terminal::where('hardware_id', $request->hardware_id)->first();
+    $terminal = Terminal::where('hardware_id', $request->hardware_id)->first();
     if ($terminal) {
         $permissions = $terminal->permissions;
-        $permissions['terminal_pin'] = $request->terminal_pin ? (string)$request->terminal_pin : null;
+        $permissions['terminal_pin'] = $request->terminal_pin ? (string) $request->terminal_pin : null;
         $terminal->permissions = $permissions;
         $terminal->save();
+
         return response()->json(['status' => 'success']);
     }
+
     return response()->json(['error' => 'Terminal not found'], 404);
 });
 
 // Ledger Reports
-Route::post('/terminal/reports', [\App\Http\Controllers\API\LedgerReportController::class, 'store']);
-Route::get('/terminal/reports', [\App\Http\Controllers\API\LedgerReportController::class, 'index']);
-Route::delete('/terminal/reports/{id}', [\App\Http\Controllers\API\LedgerReportController::class, 'destroy']);
+Route::post('/terminal/reports', [LedgerReportController::class, 'store']);
+Route::get('/terminal/reports', [LedgerReportController::class, 'index']);
+Route::delete('/terminal/reports/{id}', [LedgerReportController::class, 'destroy']);

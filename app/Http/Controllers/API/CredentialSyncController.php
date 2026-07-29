@@ -32,7 +32,7 @@ class CredentialSyncController extends Controller
             ->where('status', 'active')
             ->first();
 
-        if (!$source) {
+        if (! $source) {
             return response()->json(['error' => 'Source terminal not found or inactive.'], 404);
         }
 
@@ -41,7 +41,7 @@ class CredentialSyncController extends Controller
             ->where('status', 'active')
             ->first();
 
-        if (!$target) {
+        if (! $target) {
             return response()->json(['error' => 'Target terminal not found or inactive.'], 404);
         }
 
@@ -55,27 +55,27 @@ class CredentialSyncController extends Controller
             ->update(['status' => 'expired']);
 
         $sync = CredentialSyncRequest::create([
-            'tenant_id'           => $tenantId,
-            'source_terminal_id'  => $source->id,
-            'target_terminal_id'  => $target->id,
-            'status'              => 'pending_export',
-            'expires_at'          => now()->addMinutes(5),
+            'tenant_id' => $tenantId,
+            'source_terminal_id' => $source->id,
+            'target_terminal_id' => $target->id,
+            'status' => 'pending_export',
+            'expires_at' => now()->addMinutes(5),
         ]);
 
         AuditLog::create([
-            'tenant_id'  => $tenantId,
+            'tenant_id' => $tenantId,
             'event_type' => 'credential_sync_initiated',
-            'actor'      => $request->user()->name,
+            'actor' => $request->user()->name,
             'ip_address' => $request->ip(),
-            'metadata'   => [
-                'sync_id'              => $sync->id,
+            'metadata' => [
+                'sync_id' => $sync->id,
                 'source_terminal_name' => $source->terminal_name,
                 'target_terminal_name' => $target->terminal_name,
             ],
         ]);
 
         return response()->json([
-            'sync_id'    => $sync->id,
+            'sync_id' => $sync->id,
             'expires_at' => $sync->expires_at->toIso8601String(),
         ]);
     }
@@ -92,20 +92,20 @@ class CredentialSyncController extends Controller
             ->where('tenant_id', $tenantId)
             ->first();
 
-        if (!$sync) {
+        if (! $sync) {
             return response()->json(['error' => 'Sync request not found.'], 404);
         }
 
         // Auto-expire stale records
-        if ($sync->expires_at && $sync->expires_at->isPast() && !in_array($sync->status, ['completed', 'expired'])) {
+        if ($sync->expires_at && $sync->expires_at->isPast() && ! in_array($sync->status, ['completed', 'expired'])) {
             $sync->update(['status' => 'expired']);
         }
 
         return response()->json([
-            'status'               => $sync->status,
+            'status' => $sync->status,
             'source_terminal_name' => $sync->sourceTerminal?->terminal_name,
             'target_terminal_name' => $sync->targetTerminal?->terminal_name,
-            'expires_at'           => $sync->expires_at?->toIso8601String(),
+            'expires_at' => $sync->expires_at?->toIso8601String(),
         ]);
     }
 
@@ -127,7 +127,7 @@ class CredentialSyncController extends Controller
             ->active()
             ->first();
 
-        if (!$sync) {
+        if (! $sync) {
             return response()->json(['error' => 'Sync request not ready or expired.'], 404);
         }
 
@@ -136,7 +136,7 @@ class CredentialSyncController extends Controller
             ->where('status', 'active')
             ->first();
 
-        if (!$target) {
+        if (! $target) {
             return response()->json(['error' => 'Target terminal not found or inactive.'], 404);
         }
 
@@ -146,16 +146,16 @@ class CredentialSyncController extends Controller
 
         $sync->update([
             'target_terminal_id' => $target->id,
-            'status'             => 'pending_import',
+            'status' => 'pending_import',
         ]);
 
         AuditLog::create([
-            'tenant_id'  => $tenantId,
+            'tenant_id' => $tenantId,
             'event_type' => 'credential_sync_import_triggered',
-            'actor'      => $request->user()->name,
+            'actor' => $request->user()->name,
             'ip_address' => $request->ip(),
-            'metadata'   => [
-                'sync_id'              => $sync->id,
+            'metadata' => [
+                'sync_id' => $sync->id,
                 'source_terminal_name' => $sync->sourceTerminal?->terminal_name,
                 'target_terminal_name' => $target->terminal_name,
             ],
@@ -176,17 +176,17 @@ class CredentialSyncController extends Controller
             ->where('tenant_id', $tenantId)
             ->first();
 
-        if (!$sync) {
+        if (! $sync) {
             return response()->json(['error' => 'Not found.'], 404);
         }
 
         $sync->update([
-            'status'         => 'expired',
-            'passphrase'     => null,
+            'status' => 'expired',
+            'passphrase' => null,
             'encrypted_blob' => null,
-            'wrapped_dek'    => null,
-            'kdf_salt'       => null,
-            'gcm_iv'         => null,
+            'wrapped_dek' => null,
+            'kdf_salt' => null,
+            'gcm_iv' => null,
         ]);
 
         return response()->json(['status' => 'cancelled']);
@@ -210,15 +210,15 @@ class CredentialSyncController extends Controller
             ->where('status', 'active')
             ->first();
 
-        if (!$terminal) {
+        if (! $terminal) {
             return response()->json(['error' => 'Terminal unauthorized'], 403);
         }
 
         $headers = [
-            'Content-Type'                => 'text/event-stream',
-            'Cache-Control'               => 'no-cache',
-            'Connection'                  => 'keep-alive',
-            'X-Accel-Buffering'           => 'no',
+            'Content-Type' => 'text/event-stream',
+            'Cache-Control' => 'no-cache',
+            'Connection' => 'keep-alive',
+            'X-Accel-Buffering' => 'no',
             'Access-Control-Allow-Origin' => '*',
         ];
 
@@ -227,8 +227,8 @@ class CredentialSyncController extends Controller
                 ob_end_clean();
             }
 
-            $maxWait  = 30;  // seconds before sending not_ready
-            $elapsed  = 0;
+            $maxWait = 30;  // seconds before sending not_ready
+            $elapsed = 0;
             $interval = 2;   // poll interval in seconds
 
             while ($elapsed < $maxWait) {
@@ -240,21 +240,22 @@ class CredentialSyncController extends Controller
 
                 if ($sync) {
                     $payload = [
-                        'sync_id'        => $sync->id,
-                        'passphrase'     => $sync->passphrase,
+                        'sync_id' => $sync->id,
+                        'passphrase' => $sync->passphrase,
                         'encrypted_blob' => $sync->encrypted_blob,
-                        'wrapped_dek'    => $sync->wrapped_dek,
-                        'kdf_salt'       => $sync->kdf_salt,
-                        'gcm_iv'         => $sync->gcm_iv,
+                        'wrapped_dek' => $sync->wrapped_dek,
+                        'kdf_salt' => $sync->kdf_salt,
+                        'gcm_iv' => $sync->gcm_iv,
                     ];
-                    echo 'event: import_ready' . PHP_EOL;
-                    echo 'data: ' . json_encode($payload) . PHP_EOL . PHP_EOL;
+                    echo 'event: import_ready'.PHP_EOL;
+                    echo 'data: '.json_encode($payload).PHP_EOL.PHP_EOL;
                     flush();
+
                     return;
                 }
 
                 // Send a keep-alive comment to prevent timeout
-                echo ': ping' . PHP_EOL . PHP_EOL;
+                echo ': ping'.PHP_EOL.PHP_EOL;
                 flush();
 
                 sleep($interval);
@@ -262,8 +263,8 @@ class CredentialSyncController extends Controller
             }
 
             // Timed out — tell client to stop
-            echo 'event: not_ready' . PHP_EOL;
-            echo 'data: ' . json_encode(['message' => 'Sync data not ready. Please try again.']) . PHP_EOL . PHP_EOL;
+            echo 'event: not_ready'.PHP_EOL;
+            echo 'data: '.json_encode(['message' => 'Sync data not ready. Please try again.']).PHP_EOL.PHP_EOL;
             flush();
         }, 200, $headers);
     }
@@ -280,7 +281,7 @@ class CredentialSyncController extends Controller
             ->where('status', 'active')
             ->first();
 
-        if (!$terminal) {
+        if (! $terminal) {
             return response()->json(['error' => 'Terminal unauthorized'], 403);
         }
 
@@ -293,7 +294,7 @@ class CredentialSyncController extends Controller
         if ($exportSync) {
             return response()->json([
                 'sync_id' => $exportSync->id,
-                'action'  => 'export',
+                'action' => 'export',
             ]);
         }
 
@@ -306,13 +307,13 @@ class CredentialSyncController extends Controller
         if ($importSync) {
             return response()->json([
                 'sync_id' => $importSync->id,
-                'action'  => 'import',
+                'action' => 'import',
                 'payload' => [
-                    'passphrase'     => $importSync->passphrase,
+                    'passphrase' => $importSync->passphrase,
                     'encrypted_blob' => $importSync->encrypted_blob,
-                    'wrapped_dek'    => $importSync->wrapped_dek,
-                    'kdf_salt'       => $importSync->kdf_salt,
-                    'gcm_iv'         => $importSync->gcm_iv,
+                    'wrapped_dek' => $importSync->wrapped_dek,
+                    'kdf_salt' => $importSync->kdf_salt,
+                    'gcm_iv' => $importSync->gcm_iv,
                 ],
             ]);
         }
@@ -327,19 +328,19 @@ class CredentialSyncController extends Controller
     public function upload(Request $request, $id)
     {
         $request->validate([
-            'hardware_id'    => 'required|string',
-            'passphrase'     => 'required|string',
+            'hardware_id' => 'required|string',
+            'passphrase' => 'required|string',
             'encrypted_blob' => 'required|string',
-            'wrapped_dek'    => 'required|string',
-            'kdf_salt'       => 'required|string',
-            'gcm_iv'         => 'required|string',
+            'wrapped_dek' => 'required|string',
+            'kdf_salt' => 'required|string',
+            'gcm_iv' => 'required|string',
         ]);
 
         $terminal = Terminal::where('hardware_id', $request->hardware_id)
             ->where('status', 'active')
             ->first();
 
-        if (!$terminal) {
+        if (! $terminal) {
             return response()->json(['error' => 'Terminal unauthorized'], 403);
         }
 
@@ -349,17 +350,17 @@ class CredentialSyncController extends Controller
             ->active()
             ->first();
 
-        if (!$sync) {
+        if (! $sync) {
             return response()->json(['error' => 'Sync request not found or already processed.'], 404);
         }
 
         $sync->update([
-            'status'         => $sync->target_terminal_id ? 'pending_import' : 'ready',
-            'passphrase'     => $request->passphrase,
+            'status' => $sync->target_terminal_id ? 'pending_import' : 'ready',
+            'passphrase' => $request->passphrase,
             'encrypted_blob' => $request->encrypted_blob,
-            'wrapped_dek'    => $request->wrapped_dek,
-            'kdf_salt'       => $request->kdf_salt,
-            'gcm_iv'         => $request->gcm_iv,
+            'wrapped_dek' => $request->wrapped_dek,
+            'kdf_salt' => $request->kdf_salt,
+            'gcm_iv' => $request->gcm_iv,
         ]);
 
         return response()->json(['status' => $sync->target_terminal_id ? 'pending_import' : 'ready']);
@@ -378,7 +379,7 @@ class CredentialSyncController extends Controller
             ->where('status', 'active')
             ->first();
 
-        if (!$terminal) {
+        if (! $terminal) {
             return response()->json(['error' => 'Terminal unauthorized'], 403);
         }
 
@@ -387,7 +388,7 @@ class CredentialSyncController extends Controller
             ->where('status', 'pending_import')
             ->first();
 
-        if (!$sync) {
+        if (! $sync) {
             return response()->json(['error' => 'Sync request not found.'], 404);
         }
 
@@ -395,14 +396,14 @@ class CredentialSyncController extends Controller
         $sync->wipeAndComplete();
 
         AuditLog::create([
-            'tenant_id'  => $sync->tenant_id,
+            'tenant_id' => $sync->tenant_id,
             'event_type' => 'credential_sync_completed',
-            'actor'      => $terminal->terminal_name,
+            'actor' => $terminal->terminal_name,
             'ip_address' => $request->ip(),
-            'metadata'   => [
-                'sync_id'             => $sync->id,
-                'target_terminal_id'  => $terminal->id,
-                'target_terminal_name'=> $terminal->terminal_name,
+            'metadata' => [
+                'sync_id' => $sync->id,
+                'target_terminal_id' => $terminal->id,
+                'target_terminal_name' => $terminal->terminal_name,
             ],
         ]);
 

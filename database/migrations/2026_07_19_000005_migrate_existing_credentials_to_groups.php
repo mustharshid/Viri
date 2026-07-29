@@ -1,9 +1,8 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -21,7 +20,9 @@ return new class extends Migration
             foreach ($legacyMibs as $legacy) {
                 // Find bank account to get tenant_id
                 $account = DB::table('bank_accounts')->where('id', $legacy->bank_account_id)->first();
-                if (!$account) continue;
+                if (! $account) {
+                    continue;
+                }
 
                 // Create or find group
                 $groupId = DB::table('mib_credential_groups')->insertGetId([
@@ -59,7 +60,9 @@ return new class extends Migration
             $legacyBmls = DB::table('bml_oauth_tokens')->get();
             foreach ($legacyBmls as $legacy) {
                 $account = DB::table('bank_accounts')->where('id', $legacy->bank_account_id)->first();
-                if (!$account) continue;
+                if (! $account) {
+                    continue;
+                }
 
                 $groupId = DB::table('bml_credential_groups')->insertGetId([
                     'tenant_id' => $account->tenant_id,

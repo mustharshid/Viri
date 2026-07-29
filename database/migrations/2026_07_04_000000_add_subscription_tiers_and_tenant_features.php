@@ -2,8 +2,8 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -39,10 +39,10 @@ return new class extends Migration
                     'ledger_enabled' => false,
                     'ledger_show_balance' => false,
                     'ledger_show_debit' => false,
-                    'reports_enabled' => false
+                    'reports_enabled' => false,
                 ]),
                 'created_at' => now(),
-                'updated_at' => now()
+                'updated_at' => now(),
             ],
             [
                 'tier_key' => '499',
@@ -55,10 +55,10 @@ return new class extends Migration
                     'ledger_enabled' => false,
                     'ledger_show_balance' => false,
                     'ledger_show_debit' => false,
-                    'reports_enabled' => false
+                    'reports_enabled' => false,
                 ]),
                 'created_at' => now(),
-                'updated_at' => now()
+                'updated_at' => now(),
             ],
             [
                 'tier_key' => '999',
@@ -71,10 +71,10 @@ return new class extends Migration
                     'ledger_enabled' => true,
                     'ledger_show_balance' => true,
                     'ledger_show_debit' => true,
-                    'reports_enabled' => false
+                    'reports_enabled' => false,
                 ]),
                 'created_at' => now(),
-                'updated_at' => now()
+                'updated_at' => now(),
             ],
             [
                 'tier_key' => '1999',
@@ -87,11 +87,11 @@ return new class extends Migration
                     'ledger_enabled' => true,
                     'ledger_show_balance' => true,
                     'ledger_show_debit' => true,
-                    'reports_enabled' => true
+                    'reports_enabled' => true,
                 ]),
                 'created_at' => now(),
-                'updated_at' => now()
-            ]
+                'updated_at' => now(),
+            ],
         ]);
 
         // 4. Update existing tenants to populate default features
@@ -102,7 +102,7 @@ return new class extends Migration
                 DB::table('tenants')->where('id', $tenant->id)->update([
                     'features' => $plan->features,
                     'max_terminals' => $tenant->max_terminals ?? $plan->max_terminals,
-                    'lock_timeout' => $tenant->lock_timeout ?? $plan->lock_timeout
+                    'lock_timeout' => $tenant->lock_timeout ?? $plan->lock_timeout,
                 ]);
             }
         }

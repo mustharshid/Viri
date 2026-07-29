@@ -33,7 +33,7 @@ return new class extends Migration
                 'holder_received_at',
                 'bank_fetch_started_at',
                 'bank_fetch_completed_at',
-                'result_received_by_requester_at'
+                'result_received_by_requester_at',
             ]);
         });
     }

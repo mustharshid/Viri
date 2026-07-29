@@ -26,7 +26,7 @@ class SessionActivityLog extends Model
 
     protected $casts = [
         'event_detail' => 'array',
-        'created_at'   => 'datetime',
+        'created_at' => 'datetime',
     ];
 
     public function tenant()
@@ -49,30 +49,30 @@ class SessionActivityLog extends Model
      */
     public static function eventLabel(string $eventType): string
     {
-        return match($eventType) {
-            'session_login_started'      => 'Login Started',
-            'session_login_success'      => 'Login Successful',
-            'session_login_failed'       => 'Login Failed',
-            'session_claimed'            => 'Session Claimed',
-            'session_heartbeat_lost'     => 'Heartbeat Lost',
-            'session_released'           => 'Session Released',
-            'session_expired_claimed'    => 'Expired Session Reclaimed',
-            'session_reused'             => 'Session Reused (Cached)',
-            'session_created'            => 'Session Created',
-            'session_renewed'            => 'Session Renewed',
-            'session_logout'             => 'Logged Out',
-            'fetch_request_submitted'    => 'Fetch Requested',
-            'fetch_request_fulfilled'    => 'Fetch Fulfilled',
-            'fetch_request_failed'       => 'Fetch Failed',
-            'fetch_request_retried'      => 'Fetch Retried (Failover)',
-            'verification_search'        => 'Transfer Verified',
-            'verification_no_match'      => 'Transfer Not Found',
-            'ledger_sync'                => 'Ledger Synced',
-            'pwa_debug_logs'             => 'PWA Debug Logs',
-            'race_won'                   => 'Session Race Won',
-            'race_lost_delegating'       => 'Session Race Lost — Delegating',
-            'credential_cloned'          => 'Credentials Cloned',
-            default                      => $eventType,
+        return match ($eventType) {
+            'session_login_started' => 'Login Started',
+            'session_login_success' => 'Login Successful',
+            'session_login_failed' => 'Login Failed',
+            'session_claimed' => 'Session Claimed',
+            'session_heartbeat_lost' => 'Heartbeat Lost',
+            'session_released' => 'Session Released',
+            'session_expired_claimed' => 'Expired Session Reclaimed',
+            'session_reused' => 'Session Reused (Cached)',
+            'session_created' => 'Session Created',
+            'session_renewed' => 'Session Renewed',
+            'session_logout' => 'Logged Out',
+            'fetch_request_submitted' => 'Fetch Requested',
+            'fetch_request_fulfilled' => 'Fetch Fulfilled',
+            'fetch_request_failed' => 'Fetch Failed',
+            'fetch_request_retried' => 'Fetch Retried (Failover)',
+            'verification_search' => 'Transfer Verified',
+            'verification_no_match' => 'Transfer Not Found',
+            'ledger_sync' => 'Ledger Synced',
+            'pwa_debug_logs' => 'PWA Debug Logs',
+            'race_won' => 'Session Race Won',
+            'race_lost_delegating' => 'Session Race Lost — Delegating',
+            'credential_cloned' => 'Credentials Cloned',
+            default => $eventType,
         };
     }
 
@@ -82,7 +82,7 @@ class SessionActivityLog extends Model
      */
     public static function eventSeverity(string $eventType): string
     {
-        return match(true) {
+        return match (true) {
             in_array($eventType, [
                 'session_login_success', 'session_claimed', 'fetch_request_fulfilled',
                 'verification_search', 'race_won', 'session_released', 'ledger_sync',
@@ -114,6 +114,7 @@ class SessionActivityLog extends Model
         } elseif (is_string($arr)) {
             return static::maskBalanceInText($arr);
         }
+
         return $arr;
     }
 

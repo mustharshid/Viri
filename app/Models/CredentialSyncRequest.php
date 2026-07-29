@@ -2,8 +2,8 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 
 class CredentialSyncRequest extends Model
 {
@@ -66,12 +66,12 @@ class CredentialSyncRequest extends Model
     public function wipeAndComplete(): void
     {
         $this->update([
-            'status'         => 'completed',
-            'passphrase'     => null,
+            'status' => 'completed',
+            'passphrase' => null,
             'encrypted_blob' => null,
-            'wrapped_dek'    => null,
-            'kdf_salt'       => null,
-            'gcm_iv'         => null,
+            'wrapped_dek' => null,
+            'kdf_salt' => null,
+            'gcm_iv' => null,
         ]);
     }
 }

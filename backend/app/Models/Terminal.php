@@ -11,7 +11,7 @@ class Terminal extends Model
         'tenant_id',
         'terminal_name',
         'hardware_id',
-        'status'
+        'status',
     ];
 
     public function tenant(): BelongsTo

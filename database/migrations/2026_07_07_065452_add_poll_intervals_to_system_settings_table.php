@@ -1,8 +1,8 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
@@ -17,21 +17,21 @@ return new class extends Migration
                 'value' => '1',
                 'type' => 'integer',
                 'created_at' => now(),
-                'updated_at' => now()
+                'updated_at' => now(),
             ],
             [
                 'key' => 'poll_interval_requesting',
                 'value' => '1',
                 'type' => 'integer',
                 'created_at' => now(),
-                'updated_at' => now()
+                'updated_at' => now(),
             ],
             [
                 'key' => 'poll_interval_idle',
                 'value' => '15',
                 'type' => 'integer',
                 'created_at' => now(),
-                'updated_at' => now()
+                'updated_at' => now(),
             ],
         ]);
 

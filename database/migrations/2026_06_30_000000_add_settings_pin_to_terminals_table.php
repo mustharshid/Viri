@@ -8,7 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        if (!Schema::hasColumn('terminals', 'settings_pin')) {
+        if (! Schema::hasColumn('terminals', 'settings_pin')) {
             Schema::table('terminals', function (Blueprint $table) {
                 $table->string('settings_pin', 10)->nullable()->after('pairing_code_expires_at');
             });

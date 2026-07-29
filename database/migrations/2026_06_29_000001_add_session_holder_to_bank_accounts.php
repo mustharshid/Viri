@@ -14,9 +14,9 @@ return new class extends Migration
             $table->timestamp('session_last_heartbeat_at')->nullable()->after('session_claimed_at');
 
             $table->foreign('session_holder_terminal_id')
-                  ->references('id')
-                  ->on('terminals')
-                  ->nullOnDelete();
+                ->references('id')
+                ->on('terminals')
+                ->nullOnDelete();
         });
     }
 

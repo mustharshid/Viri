@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Shield, RefreshCw, Settings, AlertTriangle, Lock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, ChevronDown, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, KeyRound, Download, FileText, Check, Briefcase, Sparkles } from 'lucide-react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, Unlock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, ChevronDown, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, KeyRound, Download, FileText, Check, Briefcase, Sparkles, Tag, Printer, FileSpreadsheet, X } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import CryptoJS from 'crypto-js';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
@@ -338,6 +338,21 @@ const matchesSearchQuery = (tx: any, searchQuery: string): boolean => {
   return tokens.every(token => searchableText.includes(token));
 };
 
+const getTxKey = (t: any): string => `${t.date}-${t.amount}-${t.details}-${t.runningBalance || ''}`;
+
+const getStandardTxId = (tx: any): string => {
+  if (!tx) return '';
+  const ref = tx.reference ? String(tx.reference).trim() : '';
+  const isGenericRef = !ref || ref.toLowerCase().includes('transfer') || ref.toLowerCase().includes('ansfer') || ref.length <= 3;
+  if (!isGenericRef) return ref;
+  if (tx.hash && String(tx.hash).trim()) return String(tx.hash).trim();
+
+  const dateStr = String(tx.date || '').trim();
+  const amtStr = String(tx.amount || '').trim().replace(/,/g, '').replace('+', '');
+  const detailsStr = String(tx.details || '').trim();
+  return `${dateStr}_${amtStr}_${detailsStr}`;
+};
+
 const TransactionRow = React.memo(({
   tx,
   isNew,
@@ -345,8 +360,11 @@ const TransactionRow = React.memo(({
   isChecked,
   activeLedgerAcc,
   permissions,
-  handleCheckTransaction,
   rowIndex = 0,
+  claimedSale,
+  isJustClaimed,
+  onClaim,
+  onUnclaim,
 }: {
   tx: LedgerTransaction;
   isNew: boolean;
@@ -354,8 +372,11 @@ const TransactionRow = React.memo(({
   isChecked: boolean;
   activeLedgerAcc: BankAccount | undefined;
   permissions: any;
-  handleCheckTransaction: (accountId: string, hash: string) => void;
   rowIndex?: number;
+  claimedSale?: any;
+  isJustClaimed?: boolean;
+  onClaim?: (tx: any) => void;
+  onUnclaim?: (txId: string) => void;
 }) => {
   const detailsParts = (tx.details || '').split('\n');
   const description = (detailsParts[0] || '').trim();
@@ -433,22 +454,6 @@ const TransactionRow = React.memo(({
 
   return (
     <tr className={`transition-colors group ${rowBg} ${isNew ? 'animate-new-transaction' : ''}`}>
-      <td className="py-4 px-5 text-center align-top">
-        {tx.hash && (
-          <button 
-            onClick={() => !isChecked && activeLedgerAcc && handleCheckTransaction(activeLedgerAcc.id.toString(), tx.hash!)}
-            className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
-              isChecked 
-                ? 'bg-emerald-500 border-emerald-500 text-black' 
-                : 'border-zinc-700 text-transparent hover:border-emerald-500/50'
-            }`}
-            disabled={isChecked}
-            title={isChecked ? "Checked" : "Mark as checked"}
-          >
-            <Check size={14} strokeWidth={3} />
-          </button>
-        )}
-      </td>
       <td className="py-4 px-5 text-xs font-mono text-zinc-400 whitespace-nowrap align-top">
         {tx.date}
       </td>
@@ -517,6 +522,43 @@ const TransactionRow = React.memo(({
             Bal {formatAmount(tx.runningBalance)}
           </div>
         )}
+
+        {isCredit && permissions?.sales_claiming_enabled !== false && (
+          <div className="mt-2 flex justify-end">
+            {isJustClaimed ? (
+              <button
+                disabled
+                className="text-[10px] bg-emerald-500 text-black border border-emerald-400 font-bold px-2.5 py-1 rounded-md flex items-center gap-1 shadow-md animate-pulse"
+              >
+                <Check size={11} strokeWidth={3} /> CLAIMED
+              </button>
+            ) : claimedSale ? (
+              claimedSale.is_this_terminal !== false ? (
+                <button
+                  onClick={() => onUnclaim && onUnclaim(claimedSale.transaction_id)}
+                  className="text-[10px] bg-zinc-800 hover:bg-red-955/60 hover:border-red-500/40 border border-zinc-700 text-zinc-300 hover:text-red-400 font-bold px-2.5 py-1 rounded-md transition-all flex items-center gap-1"
+                  title={claimedSale.sale_reference ? `Claimed Ref: ${claimedSale.sale_reference} - Click to unclaim` : 'Click to unclaim (Requires PIN)'}
+                >
+                  UNCLAIM
+                </button>
+              ) : (
+                <span
+                  className="text-[10px] bg-zinc-900/90 text-zinc-400 border border-zinc-700/80 font-bold px-2.5 py-1 rounded-md flex items-center gap-1 cursor-not-allowed"
+                  title={`Claimed by ${claimedSale.terminal_name}`}
+                >
+                  <Lock size={10} /> CLAIMED ({claimedSale.terminal_name || 'Other Counter'})
+                </span>
+              )
+            ) : (
+              <button
+                onClick={() => onClaim && onClaim(tx)}
+                className="btn btn-success text-[11px] px-3 py-1 flex items-center gap-1 font-bold shadow-md cursor-pointer hover:scale-105 active:scale-95 transition-all"
+              >
+                <Tag size={11} /> CLAIM
+              </button>
+            )}
+          </div>
+        )}
       </td>
     </tr>
   );
@@ -571,6 +613,11 @@ const TransactionMobileCard = React.memo(({
   isChecked = false,
   bankName,
   rowIndex = 0,
+  claimedSale,
+  isJustClaimed,
+  onClaim,
+  onUnclaim,
+  permissions
 }: {
   tx: any;
   isNew?: boolean;
@@ -581,6 +628,10 @@ const TransactionMobileCard = React.memo(({
   permissions?: any;
   handleCheckTransaction?: (accountId: string, hash: string) => void;
   rowIndex?: number;
+  claimedSale?: any;
+  isJustClaimed?: boolean;
+  onClaim?: (tx: any) => void;
+  onUnclaim?: (txId: string) => void;
 }) => {
   const detailsParts = (tx.details || '').split('\n');
   const description = (detailsParts[0] || '').trim();
@@ -691,6 +742,44 @@ const TransactionMobileCard = React.memo(({
           />
         </div>
       </div>
+
+      {/* Row 4: Claim Button (Mobile Card View) */}
+      {creditStatus && permissions?.sales_claiming_enabled !== false && (
+        <div className="flex justify-end pt-2 border-t border-zinc-800/40">
+          {isJustClaimed ? (
+            <button
+              disabled
+              className="text-[11px] bg-emerald-500 text-black border border-emerald-400 font-bold px-3 py-1 rounded-lg flex items-center gap-1 shadow-md animate-pulse"
+            >
+              <Check size={12} strokeWidth={3} /> CLAIMED
+            </button>
+          ) : claimedSale ? (
+            claimedSale.is_this_terminal !== false ? (
+              <button
+                onClick={() => onUnclaim && onUnclaim(claimedSale.transaction_id)}
+                className="text-[11px] bg-zinc-800 hover:bg-red-955/60 hover:border-red-500/40 border border-zinc-700 text-zinc-300 hover:text-red-400 font-bold px-3 py-1 rounded-lg transition-all flex items-center gap-1"
+                title={claimedSale.sale_reference ? `Claimed Ref: ${claimedSale.sale_reference} - Click to unclaim` : 'Click to unclaim (Requires PIN)'}
+              >
+                UNCLAIM
+              </button>
+            ) : (
+              <span
+                className="text-[11px] bg-zinc-900/90 text-zinc-400 border border-zinc-700/80 font-bold px-3 py-1 rounded-lg flex items-center gap-1 cursor-not-allowed"
+                title={`Claimed by ${claimedSale.terminal_name}`}
+              >
+                <Lock size={11} /> CLAIMED ({claimedSale.terminal_name || 'Other Counter'})
+              </span>
+            )
+          ) : (
+            <button
+              onClick={() => onClaim && onClaim(tx)}
+              className="btn btn-success text-xs px-3.5 py-1.5 flex items-center gap-1 font-bold shadow-md cursor-pointer hover:scale-105 active:scale-95 transition-all"
+            >
+              <Tag size={12} /> CLAIM
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 });
@@ -712,7 +801,7 @@ function App() {
     bml_login_procedure: 'legacy',
     mib_login_procedure: 'legacy'
   });
-  const [settingsPin, setSettingsPin] = useState<string | null>(null);
+  const [hasSettingsPin, setHasSettingsPin] = useState(false);
   const [permissions, setPermissions] = useState<any>({
     verification_enabled: true,
     ledger_enabled: true,
@@ -1145,6 +1234,293 @@ function App() {
 
   const [checkedHashes, setCheckedHashes] = useState<Set<string>>(new Set());
 
+  // Claimed Deposit Sales & Counter Shift State
+  const [claimedSalesList, setClaimedSalesList] = useState<any[]>([]);
+  const [activeShift, setActiveShift] = useState<any | null>(null);
+  const [claimPopoverItem, setClaimPopoverItem] = useState<any | null>(null);
+  const [claimRefInput, setClaimRefInput] = useState('');
+  const [claimNotesInput, setClaimNotesInput] = useState('');
+  const [isSubmittingClaim, setIsSubmittingClaim] = useState(false);
+
+  const [unclaimModalTxId, setUnclaimModalTxId] = useState<string | null>(null);
+  const [unclaimPinInput, setUnclaimPinInput] = useState('');
+  const [unclaimError, setUnclaimError] = useState<string | null>(null);
+  const [isSubmittingUnclaim, setIsSubmittingUnclaim] = useState(false);
+
+  const getTodayDateString = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const [shiftReportDateFilter, setShiftReportDateFilter] = useState<string>(getTodayDateString());
+  const [isClosingShift, setIsClosingShift] = useState(false);
+  const [reportsSubTab, setReportsSubTab] = useState<'shift_sales' | 'snapshots'>('shift_sales');
+  const [shiftSessionToast, setShiftSessionToast] = useState<{ show: boolean; shiftNumber: number | string } | null>(null);
+
+  // Temporary 2-Second Claimed Feedback state
+  const [justClaimedTxIds, setJustClaimedTxIds] = useState<Set<string>>(new Set());
+
+  // Elegant Custom Modal Dialog State
+  const [customModalConfig, setCustomModalConfig] = useState<{
+    isOpen: boolean;
+    type?: 'info' | 'success' | 'warning' | 'error' | 'confirm';
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm?: () => void;
+  } | null>(null);
+
+  const showCustomAlert = (title: string, message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
+    setCustomModalConfig({ isOpen: true, type, title, message, confirmText: 'OK' });
+  };
+
+  const showCustomConfirm = (title: string, message: string, onConfirm: () => void, confirmText = 'Confirm', cancelText = 'Cancel') => {
+    setCustomModalConfig({ isOpen: true, type: 'confirm', title, message, onConfirm, confirmText, cancelText });
+  };
+
+  const [allClaimedMap, setAllClaimedMap] = useState<Record<string, any>>({});
+
+  const claimedSalesByTxId = useMemo(() => {
+    const map: Record<string, any> = { ...allClaimedMap };
+    claimedSalesList.forEach(cs => {
+      if (cs.transaction_id) {
+        map[cs.transaction_id] = {
+          ...map[cs.transaction_id],
+          ...cs,
+          is_this_terminal: true,
+        };
+      }
+    });
+    return map;
+  }, [claimedSalesList, allClaimedMap]);
+
+  const [archivedShifts, setArchivedShifts] = useState<any[]>([]);
+  const [shiftIdFilter, setShiftIdFilter] = useState<string>('');
+
+  const filteredShiftsForDate = useMemo(() => {
+    if (!shiftReportDateFilter) return archivedShifts;
+    return archivedShifts.filter(s => {
+      const openedDate = s.opened_at ? new Date(s.opened_at).toISOString().split('T')[0] : '';
+      const closedDate = s.closed_at ? new Date(s.closed_at).toISOString().split('T')[0] : '';
+      return openedDate === shiftReportDateFilter || closedDate === shiftReportDateFilter;
+    });
+  }, [archivedShifts, shiftReportDateFilter]);
+
+  const loadClaimedSalesAndShift = async (shiftId = shiftIdFilter, dateFilter = shiftReportDateFilter) => {
+    if (!hardwareId || !backendUrl) return;
+    try {
+      const params = new URLSearchParams({ hardware_id: hardwareId });
+      if (shiftId) params.append('shift_id', shiftId);
+      if (dateFilter) params.append('date', dateFilter);
+
+      const url = `${backendUrl}/terminal/claimed-sales?${params.toString()}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.claimed_sales) setClaimedSalesList(data.claimed_sales);
+        if (data.active_shift) setActiveShift(data.active_shift);
+        if (data.archived_shifts) setArchivedShifts(data.archived_shifts);
+        if (data.all_claimed_map) setAllClaimedMap(data.all_claimed_map);
+      }
+    } catch (err) {
+      console.error('Failed to load claimed sales', err);
+    }
+  };
+
+  useEffect(() => {
+    if (hardwareId && backendUrl) {
+      loadClaimedSalesAndShift();
+    }
+  }, [hardwareId, backendUrl]);
+
+  const handleClaimTx = async (tx: any, saleRef = '', notes = '') => {
+    if (!hardwareId || !backendUrl) return;
+
+    if (permissions.show_sale_reference_popover && !saleRef && !notes) {
+      setClaimPopoverItem(tx);
+      setClaimRefInput('');
+      setClaimNotesInput('');
+      return;
+    }
+
+    setIsSubmittingClaim(true);
+    try {
+      const txId = getStandardTxId(tx);
+      const rawAmt = parseFloat(String(tx.amount || '0').replace(/,/g, '').replace('+', ''));
+      const activeAcc = bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId || a.id.toString() === selectedAccount?.id.toString());
+
+      const combinedText = `${tx.reference || ''} ${tx.details || ''}`;
+      const refs = Array.from(new Set(combinedText.match(/(?:BLZ|BLAZ|FT)[A-Za-z0-9\\]+/gi) || []));
+      const blazRef = refs.find(r => /^(BLZ|BLAZ)/i.test(r)) || (activeAcc?.bank_name === 'BML' ? tx.reference : '');
+      const ftRef = refs.find(r => /^FT/i.test(r)) || (activeAcc?.bank_name === 'MIB' ? tx.reference : '');
+
+      let parsedDateStr = new Date().toISOString();
+      if (tx.date) {
+        const d = new Date(tx.date);
+        if (!isNaN(d.getTime())) {
+          parsedDateStr = d.toISOString();
+        } else {
+          const match = String(tx.date).match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s*,\s*(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+          if (match) {
+            const [, day, month, year, hh = '00', mm = '00', ss = '00'] = match;
+            const isoStr = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hh.padStart(2, '0')}:${mm.padStart(2, '0')}:${ss.padStart(2, '0')}`;
+            const d2 = new Date(isoStr);
+            if (!isNaN(d2.getTime())) parsedDateStr = d2.toISOString();
+          }
+        }
+      }
+
+      const res = await fetch(`${backendUrl}/terminal/claimed-sales/claim`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hardware_id: hardwareId,
+          transaction_id: txId,
+          bank_type: activeAcc?.bank_name || 'BML',
+          bank_account_id: activeAcc?.id,
+          account_number: activeAcc?.account_number || '',
+          blaz_number: blazRef || null,
+          reference_number: ftRef || null,
+          transaction_date: parsedDateStr,
+          amount: rawAmt,
+          currency: activeAcc?.currency || selectedAccountCurrency || 'MVR',
+          payer_name: tx.sender || tx.details || '',
+          description: tx.details || '',
+          sale_reference: saleRef || null,
+          notes: notes || null
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        showCustomAlert('Claim Error', data.error || 'Failed to claim transaction', 'error');
+      } else {
+        setClaimPopoverItem(null);
+        setJustClaimedTxIds(prev => new Set(prev).add(txId));
+
+        // Slide-in notice on first claim of a new shift
+        const isFirstClaimOfShift = claimedSalesList.length === 0;
+        if (isFirstClaimOfShift) {
+          setShiftSessionToast({ show: true, shiftNumber: activeShift?.shift_number || 1 });
+          setTimeout(() => {
+            setShiftSessionToast(prev => prev ? { ...prev, show: false } : null);
+          }, 4500);
+        }
+
+        setTimeout(() => {
+          setJustClaimedTxIds(prev => {
+            const next = new Set(prev);
+            next.delete(txId);
+            return next;
+          });
+        }, 2000);
+        await loadClaimedSalesAndShift();
+      }
+    } catch (err: any) {
+      showCustomAlert('Claim Failed', 'Error claiming sale: ' + err.message, 'error');
+    } finally {
+      setIsSubmittingClaim(false);
+    }
+  };
+
+  const executeUnclaimDirectly = async (txId: string, pin = '') => {
+    if (!hardwareId || !backendUrl || !txId) return;
+    setIsSubmittingUnclaim(true);
+    setUnclaimError(null);
+    try {
+      const res = await fetch(`${backendUrl}/terminal/claimed-sales/unclaim`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hardware_id: hardwareId,
+          transaction_id: txId,
+          settings_pin: pin
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const errorMsg = data.error || 'Failed to unclaim transaction';
+        if (unclaimModalTxId) {
+          setUnclaimError(errorMsg);
+        } else {
+          showCustomAlert('Unclaim Failed', errorMsg, 'error');
+        }
+      } else {
+        setUnclaimModalTxId(null);
+        setUnclaimPinInput('');
+        setUnclaimError(null);
+        await loadClaimedSalesAndShift();
+      }
+    } catch (err: any) {
+      if (unclaimModalTxId) {
+        setUnclaimError('Error: ' + err.message);
+      } else {
+        showCustomAlert('Unclaim Error', err.message, 'error');
+      }
+    } finally {
+      setIsSubmittingUnclaim(false);
+    }
+  };
+
+  const handleUnclaimClick = (txId: string) => {
+    if (hasSettingsPin) {
+      setUnclaimModalTxId(txId);
+      setUnclaimPinInput('');
+      setUnclaimError(null);
+    } else {
+      executeUnclaimDirectly(txId);
+    }
+  };
+
+  const handleUnclaimSubmit = async () => {
+    if (!unclaimModalTxId) return;
+    if (hasSettingsPin && !unclaimPinInput) {
+      setUnclaimError('Please enter Counter Settings PIN');
+      return;
+    }
+    await executeUnclaimDirectly(unclaimModalTxId, unclaimPinInput);
+  };
+
+  const handleCloseShiftSubmit = async () => {
+    if (!hardwareId || !backendUrl) return;
+
+    showCustomConfirm(
+      'Close & Seal Counter Shift?',
+      'Are you sure you want to Close & Seal this counter shift? An official shift report will be generated and archived for company auditing.',
+      async () => {
+        setIsClosingShift(true);
+        try {
+          const res = await fetch(`${backendUrl}/terminal/counter-shifts/close`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              hardware_id: hardwareId,
+              closed_by: terminalName || 'Cashier'
+            })
+          });
+          const data = await res.json();
+          if (res.ok) {
+            showCustomAlert('Shift Closed Successfully', `Shift #${data.closed_shift?.shift_number || ''} closed successfully! Next shift #${data.new_shift?.shift_number || ''} is now open.`, 'success');
+            await loadClaimedSalesAndShift();
+            await loadReports();
+          } else {
+            showCustomAlert('Shift Closure Failed', data.error || 'Failed to close shift', 'error');
+          }
+        } catch (err: any) {
+          showCustomAlert('Shift Closure Error', err.message, 'error');
+        } finally {
+          setIsClosingShift(false);
+        }
+      },
+      'Close & Seal Shift',
+      'Keep Open'
+    );
+  };
+
   const handleSaveReport = async () => {
     if (!hardwareId || !backendUrl) return;
 
@@ -1271,6 +1647,13 @@ function App() {
         const data = await response.json();
         if (data.reports) {
           const decrypted = data.reports.map((r: any) => {
+            if (r.report_type === 'shift_report') {
+              try {
+                return { ...r, payload: JSON.parse(r.encrypted_payload) };
+              } catch {
+                return { ...r, payload: null };
+              }
+            }
             try {
               const bytes = CryptoJS.AES.decrypt(r.encrypted_payload, reportsKey);
               const decStr = bytes.toString(CryptoJS.enc.Utf8);
@@ -1982,7 +2365,7 @@ function App() {
           localStorage.setItem('viri_extension_id', data.tenant.extension_id);
         }
         if (data.terminal_name) setTerminalName(data.terminal_name);
-        setSettingsPin(data.settings_pin || null);
+        setHasSettingsPin(data.has_settings_pin ?? false);
 
         // Sync local PIN with server-set/reset lock PIN
         if (data.terminal_pin !== undefined) {
@@ -2081,7 +2464,8 @@ function App() {
     if (!permissions.ledger_enabled && activeTab === 'ledger') {
       setActiveTab('verify');
     }
-    if (!permissions.reports_enabled && activeTab === 'reports') {
+    const isReportsAllowed = permissions.reports_enabled || permissions.sales_claiming_enabled !== false;
+    if (!isReportsAllowed && activeTab === 'reports') {
       setActiveTab('verify');
     }
     if (!permissions.statement_enabled && activeTab === 'statements') {
@@ -3618,6 +4002,20 @@ function App() {
             <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Statements</span>
           </button>
         )}
+        {permissions.sales_claiming_enabled !== false && (
+          <button
+            onClick={() => { setShowSettings(false); setActiveTab('reports'); setReportsSubTab('shift_sales'); }}
+            className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+              } ${activeTab === 'reports' && reportsSubTab === 'shift_sales' && !showSettings
+                ? 'bg-[var(--color-success)] text-black font-bold'
+                : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
+              }`}
+            title="Shift & Sales Report"
+          >
+            <FileSpreadsheet size={16} className="shrink-0" />
+            <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Shift & Sales Report</span>
+          </button>
+        )}
         <button
           onClick={() => { setShowSettings(false); setActiveTab('help'); }}
           className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
@@ -3701,10 +4099,9 @@ function App() {
             if (showSettings) {
               setShowSettings(false);
             } else {
-              if (settingsPin) {
+              if (hasSettingsPin) {
                 const check = prompt("Enter Cashier Counter Settings PIN to open settings:");
-                if (check !== settingsPin) {
-                  alert("Incorrect PIN");
+                if (!check || check.trim() === '') {
                   return;
                 }
               }
@@ -4053,22 +4450,28 @@ function App() {
 
                   {/* Sidebar Preferences */}
                   <div className="pt-4 border-t border-[var(--border-color)]">
-                    <label className="flex items-center gap-3 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={completelyCollapseSidebar}
-                        onChange={(e) => {
-                          const val = e.target.checked;
-                          setCompletelyCollapseSidebar(val);
-                          localStorage.setItem('viri_completely_collapse_sidebar', String(val));
-                        }}
-                        className="rounded bg-zinc-950 border-[var(--border-color)] text-emerald-500 focus:ring-emerald-500/20 w-4 h-4"
-                      />
+                    <div className="flex items-start gap-3">
+                      <label htmlFor="setting-collapse-sidebar" className="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5 select-none">
+                        <input
+                          type="checkbox"
+                          id="setting-collapse-sidebar"
+                          checked={completelyCollapseSidebar}
+                          onChange={(e) => {
+                            const val = e.target.checked;
+                            setCompletelyCollapseSidebar(val);
+                            localStorage.setItem('viri_completely_collapse_sidebar', String(val));
+                          }}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-zinc-700/70 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500"></div>
+                      </label>
                       <div>
-                        <span className="text-xs font-semibold text-white block">Completely Collapse Sidebar</span>
+                        <label htmlFor="setting-collapse-sidebar" className="text-xs font-semibold text-white block cursor-pointer select-none">
+                          Completely Collapse Sidebar
+                        </label>
                         <span className="text-[10px] text-[var(--text-secondary)]">Hide all sidebar icons when collapsed (accessible via left toggle).</span>
                       </div>
-                    </label>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -4767,154 +5170,26 @@ function App() {
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-[var(--border-color)] text-xs text-[var(--text-secondary)]">
-                                {lastTransactions.map((tx, idx) => {
-                                  const getTxKey = (t: typeof tx) => {
-                                    return `${t.date}-${t.amount}-${t.details}-${t.runningBalance || ''}`;
-                                  };
-                                  const txKey = getTxKey(tx);
-                                  const rowKey = txKey;
-                                  const isNew = newTransactionKeys.has(txKey);
+                                {lastTransactions.map((tx: LedgerTransaction, idx: number) => {
+                                  const txId = getStandardTxId(tx);
+                                  const isNew = newTransactionKeys.has(getTxKey(tx));
                                   const isCredit = typeof tx.amount === 'string' ? tx.amount.startsWith('+') : false;
-                                  const detailsParts = (tx.details || '').split('\n');
-                                  const description = (detailsParts[0] || '').trim();
-                                  let details = detailsParts.slice(1).join('\n').trim();
-
-                                  // Extract Sender Name (from JSON fields: tx.sender / benefName / narrative2 or details line)
-                                  let senderName = (tx as any).sender || (tx as any).benefName || (tx as any).narrative2 || '';
-                                  if (typeof senderName === 'string') {
-                                    senderName = senderName.trim().replace(/^\/+\s*/, '');
-                                    if (senderName.toLowerCase() === 'null' || senderName.toLowerCase() === 'undefined') senderName = '';
-                                  } else {
-                                    senderName = '';
-                                  }
-
-                                  if (!senderName && detailsParts.length > 1) {
-                                    const line1 = detailsParts[1].trim().replace(/^\/+\s*/, '');
-                                    if (line1 && !line1.startsWith('Ref:') && !line1.startsWith('ID:') && !line1.match(/^[A-Z0-9]{10,}$/)) {
-                                      senderName = line1;
-                                      details = detailsParts.slice(2).join('\n').trim();
-                                    }
-                                  }
-
-                                  if (senderName) {
-                                    details = details.replace(new RegExp(`^/??${senderName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*`, 'mi'), '').trim();
-                                    details = details.replace(new RegExp(`Sender:\\s*/??${senderName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*`, 'gi'), '').trim();
-                                  }
-
-                                  // Extract BML references and MIB transaction numbers for chip display
-                                  let refs: string[] = [];
-                                  if (selectedAccount?.bank_name === 'BML') {
-                                    const combinedText = `${tx.reference || ''} ${tx.details || ''}`;
-                                    refs = Array.from(new Set(combinedText.match(/(?:BLZ|BLAZ|FT)[A-Za-z0-9\\]+/gi) || []));
-                                    
-                                    const fallbackRef = tx.reference && tx.reference.trim().length > 4 && !tx.reference.toLowerCase().includes('ansfer') && !tx.reference.toLowerCase().includes('transfer') ? tx.reference : null;
-                                    if (refs.length === 0 && fallbackRef) refs.push(fallbackRef);
-
-                                    // Remove chips from the plain text details to avoid duplication
-                                    refs.forEach(ref => {
-                                      details = details.replace(new RegExp(`Ref:?\\s*${ref.replace(/\\/g, '\\\\')}`, 'gi'), '');
-                                      details = details.replace(new RegExp(ref.replace(/\\/g, '\\\\'), 'gi'), '');
-                                    });
-                                    details = details.replace(/^\s*[\r\n]/gm, '').trim(); // clean up empty lines
-                                  } else if (selectedAccount?.bank_name === 'MIB' && tx.reference) {
-                                    // MIB: use trxNumber from reference field as a copiable chip
-                                    refs = [tx.reference];
-                                    // Remove trxNumber from details text to avoid duplication
-                                    details = details.replace(tx.reference, '').replace(/^\s*[\r\n]+/, '').trim();
-                                  }
-
-                                  let blazRef = '';
-                                  let ftRef = '';
-                                  if (selectedAccount?.bank_name === 'BML') {
-                                    blazRef = refs.find(r => /^(BLZ|BLAZ)/i.test(r)) || '';
-                                    ftRef = refs.find(r => /^FT/i.test(r)) || '';
-                                    if (refs.length === 1 && !blazRef && !ftRef) {
-                                      const singleRef = refs[0];
-                                      if (/^FT/i.test(singleRef)) {
-                                        ftRef = singleRef;
-                                      } else {
-                                        blazRef = singleRef;
-                                      }
-                                    }
-                                  } else if (selectedAccount?.bank_name === 'MIB') {
-                                    blazRef = refs[0] || '';
-                                  }
-
-                                  const beneficiaryName = (senderName || description || 'UNKNOWN').toUpperCase();
-
-                                  const rowBg = idx % 2 === 0
-                                    ? 'bg-zinc-900/50 hover:bg-zinc-800/60'
-                                    : 'bg-zinc-950/60 hover:bg-zinc-800/60';
 
                                   return (
-                                    <tr key={rowKey} className={`transition-colors group ${rowBg} ${isNew ? 'animate-new-transaction' : ''}`}>
-                                      <td className="px-2.5 py-2 text-xs font-mono text-zinc-400 whitespace-nowrap align-top">
-                                        {tx.date}
-                                      </td>
-                                      <td className="px-2.5 py-2 text-xs font-semibold text-zinc-200 align-top">
-                                        <div className="flex flex-col">
-                                          <span>{description}</span>
-                                          {tx.narrative3 && (
-                                            <span className="text-[11px] font-medium text-zinc-400 mt-0.5">{tx.narrative3}</span>
-                                          )}
-                                        </div>
-                                      </td>
-                                      <td className="px-2.5 py-2 text-xs text-zinc-400 font-mono leading-relaxed align-top break-words max-w-xs">
-                                        <CopiableChip
-                                          val={beneficiaryName}
-                                          label="Beneficiary Name"
-                                          className="font-normal text-[17px] font-sans tracking-tight text-[var(--text-primary)] text-left justify-start block w-full truncate max-w-xs mb-1"
-                                        />
-                                        {(blazRef || ftRef || refs.length > 0) && (
-                                          <div className="flex flex-wrap gap-1.5 text-xs font-mono">
-                                            {blazRef && (
-                                              <CopiableChip
-                                                val={blazRef}
-                                                label="BLAZ/Reference"
-                                                className="text-xs text-[var(--text-secondary)] bg-zinc-900 border border-zinc-800"
-                                              />
-                                            )}
-                                            {ftRef && (
-                                              <CopiableChip
-                                                val={ftRef}
-                                                label="FT/Reference"
-                                                className="text-xs text-[var(--text-secondary)] bg-zinc-900 border border-zinc-800"
-                                              />
-                                            )}
-                                            {refs.filter(r => r !== blazRef && r !== ftRef).map((ref, i) => (
-                                              <CopiableChip
-                                                key={i}
-                                                val={ref}
-                                                label="Reference"
-                                                className="text-xs text-[var(--text-secondary)] bg-zinc-900 border border-zinc-800"
-                                              />
-                                            ))}
-                                          </div>
-                                        )}
-                                        {details && (
-                                          <div className="text-[11px] text-zinc-500 font-mono mt-1 line-clamp-2">
-                                            {details}
-                                          </div>
-                                        )}
-                                      </td>
-                                      <td className="px-2.5 py-2 text-right align-top whitespace-nowrap">
-                                        <CopiableChip
-                                          val={tx.amount}
-                                          displayVal={formatAmount(tx.amount)}
-                                          label="Amount"
-                                          className={`font-bold text-[17px] font-sans tracking-tight whitespace-nowrap text-right ${
-                                            isCredit 
-                                              ? 'text-emerald-400 bg-emerald-955/5 hover:bg-emerald-955/10' 
-                                              : 'text-red-400 bg-red-955/5 hover:bg-red-955/10'
-                                          }`}
-                                        />
-                                        {tx.runningBalance && (
-                                          <div className="text-[10px] font-mono text-zinc-500 leading-none mt-1.5">
-                                            Bal: {selectedAccountCurrency} {formatAmount(tx.runningBalance)}
-                                          </div>
-                                        )}
-                                      </td>
-                                    </tr>
+                                    <TransactionRow
+                                      key={txId + idx}
+                                      tx={tx}
+                                      isNew={isNew}
+                                      isCredit={isCredit}
+                                      isChecked={false}
+                                      activeLedgerAcc={selectedAccount}
+                                      permissions={permissions}
+                                      rowIndex={idx}
+                                      claimedSale={claimedSalesByTxId[txId]}
+                                      isJustClaimed={justClaimedTxIds.has(txId)}
+                                      onClaim={handleClaimTx}
+                                      onUnclaim={(txIdToUnclaim) => handleUnclaimClick(txIdToUnclaim)}
+                                    />
                                   );
                                 })}
                               </tbody>
@@ -4923,19 +5198,23 @@ function App() {
 
                           {/* Mobile Responsive Card List View */}
                           <div className="block md:hidden flex flex-col gap-3 card-list-wrapper p-2.5 rounded-2xl">
-                            {lastTransactions.map((tx) => {
-                              const txKey = `${tx.date}-${tx.amount}-${tx.details}-${tx.runningBalance || ''}`;
-                              const isNew = newTransactionKeys.has(txKey);
+                            {lastTransactions.map((tx, idx) => {
+                              const txId = getStandardTxId(tx);
+                              const isNew = newTransactionKeys.has(getTxKey(tx));
                               const isCredit = typeof tx.amount === 'string' ? tx.amount.startsWith('+') : false;
                               return (
                                 <TransactionMobileCard
-                                  key={txKey}
+                                  key={txId + idx}
                                   tx={tx}
                                   isNew={isNew}
                                   isCredit={isCredit}
                                   bankName={selectedAccount?.bank_name}
                                   currency={selectedAccountCurrency}
                                   permissions={permissions}
+                                  claimedSale={claimedSalesByTxId[txId]}
+                                  isJustClaimed={justClaimedTxIds.has(txId)}
+                                  onClaim={handleClaimTx}
+                                  onUnclaim={(txIdToUnclaim) => handleUnclaimClick(txIdToUnclaim)}
                                 />
                               );
                             })}
@@ -5498,7 +5777,6 @@ function App() {
                               <table className="w-full text-left border-collapse">
                                 <thead>
                                   <tr className="border-b border-zinc-800 text-[10px] text-zinc-500 uppercase tracking-wider font-bold">
-                                    <th className="py-4 px-5 font-semibold w-12 text-center">Status</th>
                                     <th className="py-4 px-5 font-semibold">Date & Time</th>
                                     <th className="py-4 px-5 font-semibold">Description</th>
                                     <th className="py-4 px-5 font-semibold">Details / Meta</th>
@@ -5507,8 +5785,8 @@ function App() {
                                 </thead>
                                 <tbody className="divide-y divide-zinc-900/60">
                                   {paginatedTransactions.map((tx: LedgerTransaction, idx: number) => {
-                                    const getTxKey = (t: typeof tx) => `${t.date}-${t.amount}-${t.details}-${t.runningBalance || ''}`;
                                     const txKey = getTxKey(tx);
+                                    const txId = getStandardTxId(tx);
                                     const isNew = newTransactionKeys.has(txKey);
                                     const isCredit = typeof tx.amount === 'string' ? tx.amount.startsWith('+') : false;
                                     const isChecked = tx.hash ? checkedHashes.has(tx.hash) : false;
@@ -5522,8 +5800,11 @@ function App() {
                                         isChecked={isChecked}
                                         activeLedgerAcc={activeLedgerAcc}
                                         permissions={permissions}
-                                        handleCheckTransaction={handleCheckTransaction}
                                         rowIndex={idx}
+                                        claimedSale={claimedSalesByTxId[txId]}
+                                        isJustClaimed={justClaimedTxIds.has(txId)}
+                                        onClaim={handleClaimTx}
+                                        onUnclaim={(txIdToUnclaim) => handleUnclaimClick(txIdToUnclaim)}
                                       />
                                     );
                                   })}
@@ -5534,8 +5815,8 @@ function App() {
                             {/* Mobile Responsive Card List View */}
                             <div className="block md:hidden flex flex-col gap-3 card-list-wrapper p-2.5 rounded-2xl">
                               {paginatedTransactions.map((tx: LedgerTransaction, idx: number) => {
-                                const getTxKey = (t: typeof tx) => `${t.date}-${t.amount}-${t.details}-${t.runningBalance || ''}`;
                                 const txKey = getTxKey(tx);
+                                const txId = getStandardTxId(tx);
                                 const isNew = newTransactionKeys.has(txKey);
                                 const isCredit = typeof tx.amount === 'string' ? tx.amount.startsWith('+') : false;
                                 const isChecked = tx.hash ? checkedHashes.has(tx.hash) : false;
@@ -5552,6 +5833,10 @@ function App() {
                                     permissions={permissions}
                                     handleCheckTransaction={handleCheckTransaction}
                                     rowIndex={idx}
+                                    claimedSale={claimedSalesByTxId[txId]}
+                                    isJustClaimed={justClaimedTxIds.has(txId)}
+                                    onClaim={handleClaimTx}
+                                    onUnclaim={(txIdToUnclaim) => handleUnclaimClick(txIdToUnclaim)}
                                   />
                                 );
                               })}
@@ -5673,107 +5958,530 @@ function App() {
             })()}
 
             {activeTab === 'reports' && (
-              <div className="flex-1 w-full max-w-7xl mx-auto flex gap-6 p-4 md:p-6 animate-fade-in h-full min-h-[500px]">
-                {/* Left Sidebar: List of Reports */}
-                <div className="w-80 flex flex-col gap-4 overflow-y-auto pr-2">
-                  <h2 className={`font-bold text-white tracking-tight flex items-center gap-2 transition-all duration-300 ${
-                    isCompletelyCollapsed ? 'text-base' : 'text-xl'
-                  }`}>
-                    <BarChart3 className="text-[var(--color-success)]" size={20} />
-                    Saved Reports
-                  </h2>
-                  {savedReports.length === 0 ? (
-                    <div className="text-sm text-zinc-500 italic p-4 bg-zinc-900/50 rounded-xl border border-zinc-800">No reports saved yet. Save a snapshot from the Ledger tab.</div>
-                  ) : (
-                    savedReports.map(report => (
-                      <div
-                        key={report.id}
-                        className={`w-full text-left p-4 rounded-xl border transition-all relative flex flex-col items-start justify-center cursor-pointer ${
-                          selectedReportId === report.id 
-                            ? 'bg-[var(--color-success)]/10 border-[var(--color-success)] shadow-[0_0_15px_rgba(16,185,129,0.15)] animate-scale-bump' 
-                            : 'bg-zinc-950/40 border-zinc-800 hover:border-zinc-700'
-                        }`}
-                        onClick={() => setSelectedReportId(report.id)}
-                      >
-                        <div className="flex justify-between items-start w-full">
-                          <div className="text-sm font-bold text-white mb-1">{report.bank} - {report.account_name}</div>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDeleteReport(report.id); }}
-                            className="text-zinc-500 hover:text-red-400 p-1 rounded-md hover:bg-red-400/10 transition-colors z-10"
-                            title="Delete this report"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                        <div className="text-[10px] text-zinc-400 font-mono tracking-wider mb-2">{new Date(report.date).toLocaleString()}</div>
-                        <div className="text-xs font-semibold text-[var(--color-success)]">Bal: {report.payload?.balanceAtSave || '-'} {report.payload?.currency}</div>
-                      </div>
-                    ))
-                  )}
+              <div className="flex-1 w-full max-w-7xl mx-auto flex flex-col gap-6 p-4 md:p-6 animate-fade-in h-full min-h-[500px]">
+                {/* Top Sub-Tab Switcher */}
+                <div className="flex items-center gap-2 border-b border-zinc-800 pb-3 print-hide">
+                  <button
+                    onClick={() => setReportsSubTab('shift_sales')}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                      reportsSubTab === 'shift_sales'
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-md'
+                        : 'bg-zinc-900/60 text-zinc-400 hover:text-white border border-zinc-800'
+                    }`}
+                  >
+                    <FileSpreadsheet size={15} /> End-of-Day Shift & Sales Claim Report
+                  </button>
+                  <button
+                    onClick={() => setReportsSubTab('snapshots')}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                      reportsSubTab === 'snapshots'
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-md'
+                        : 'bg-zinc-900/60 text-zinc-400 hover:text-white border border-zinc-800'
+                    }`}
+                  >
+                    <BarChart3 size={15} /> Saved Ledger Snapshots ({savedReports.length})
+                  </button>
                 </div>
-                
-                {/* Right Panel: Report Details */}
-                <div className="flex-1 flex flex-col bg-zinc-950/40 border border-zinc-800 rounded-2xl overflow-hidden relative">
-                  {selectedReportId ? (() => {
-                    const selectedReport = savedReports.find(r => r.id === selectedReportId);
-                    if (!selectedReport) return null;
-                    return (
-                      <div className="flex flex-col h-full animate-slide-up">
-                        <div className="p-6 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-sm z-20 sticky top-0">
-                          <h3 className="text-2xl font-bold text-white">Ledger Report Snapshot</h3>
-                          <div className="flex flex-wrap gap-x-6 gap-y-2 mt-4 text-xs font-mono">
-                            <div className="flex flex-col"><span className="text-zinc-500 uppercase">Bank</span><span className="text-zinc-200">{selectedReport.bank}</span></div>
-                            <div className="flex flex-col"><span className="text-zinc-500 uppercase">Account</span><span className="text-zinc-200">{selectedReport.account_name} ({selectedReport.account_number})</span></div>
-                            <div className="flex flex-col"><span className="text-zinc-500 uppercase">Date Generated</span><span className="text-zinc-200">{new Date(selectedReport.date).toLocaleString()}</span></div>
-                            <div className="flex flex-col"><span className="text-zinc-500 uppercase">Snapshot Balance</span><span className="text-[var(--color-success)] font-bold">{selectedReport.payload?.balanceAtSave} {selectedReport.payload?.currency}</span></div>
-                          </div>
+
+                {reportsSubTab === 'shift_sales' ? (
+                  <div id="sales-claim-report-container" className="flex-1 flex flex-col bg-zinc-950/60 border border-zinc-800 rounded-3xl p-6 sm:p-8 relative overflow-hidden shadow-2xl">
+                    {/* Print Styles */}
+                    <style>{`
+                      @media print {
+                        @page {
+                          size: A4 landscape;
+                          margin: 8mm;
+                        }
+                        html, body, main {
+                          width: 100% !important;
+                          height: auto !important;
+                          max-height: none !important;
+                          margin: 0 !important;
+                          padding: 0 !important;
+                          background: #ffffff !important;
+                          color: #000000 !important;
+                          overflow: visible !important;
+                        }
+                        html > body > div {
+                          overflow: visible !important;
+                        }
+                        main > div {
+                          flex: none !important;
+                          min-height: 0 !important;
+                          height: auto !important;
+                          max-height: none !important;
+                          overflow: visible !important;
+                        }
+                        body * {
+                          visibility: hidden !important;
+                        }
+                        #sales-claim-report-container, #sales-claim-report-container * {
+                          visibility: visible !important;
+                        }
+                        #sales-claim-report-container {
+                          display: block !important;
+                          flex: none !important;
+                          position: static !important;
+                          height: auto !important;
+                          min-height: 0 !important;
+                          max-height: none !important;
+                          width: 100% !important;
+                          max-width: 100% !important;
+                          box-sizing: border-box !important;
+                          background: #ffffff !important;
+                          color: #000000 !important;
+                          padding: 0 !important;
+                          margin: 0 !important;
+                          border: none !important;
+                          border-radius: 0 !important;
+                          box-shadow: none !important;
+                          overflow: visible !important;
+                        }
+                        .print-hide {
+                          display: none !important;
+                        }
+                        .print-title {
+                          color: #000000 !important;
+                          font-size: 14pt !important;
+                          font-weight: bold !important;
+                        }
+                        .print-subtitle {
+                          color: #334155 !important;
+                          font-size: 8.5pt !important;
+                        }
+                        .print-kpi-grid {
+                          display: flex !important;
+                          flex-direction: row !important;
+                          width: 100% !important;
+                          gap: 8px !important;
+                          margin: 8px 0 !important;
+                          box-sizing: border-box !important;
+                        }
+                        .print-kpi-box {
+                          flex: 1 1 0% !important;
+                          min-width: 0 !important;
+                          border: 1px solid #000000 !important;
+                          background: #f8fafc !important;
+                          color: #000000 !important;
+                          padding: 4px 8px !important;
+                          border-radius: 4px !important;
+                          box-sizing: border-box !important;
+                        }
+                        .print-kpi-title {
+                          font-size: 6.5pt !important;
+                          font-weight: bold !important;
+                          color: #475569 !important;
+                          text-transform: uppercase !important;
+                          white-space: nowrap !important;
+                          overflow: hidden !important;
+                          text-overflow: ellipsis !important;
+                        }
+                        .print-kpi-val {
+                          font-size: 9.5pt !important;
+                          font-weight: bold !important;
+                          color: #000000 !important;
+                          white-space: nowrap !important;
+                          overflow: hidden !important;
+                          text-overflow: ellipsis !important;
+                        }
+                        .print-table-wrapper {
+                          overflow: visible !important;
+                          height: auto !important;
+                          max-height: none !important;
+                          margin: 0 !important;
+                          padding: 0 !important;
+                          border: none !important;
+                          background: transparent !important;
+                          display: block !important;
+                        }
+                        .spreadsheet-table {
+                          width: 100% !important;
+                          max-width: 100% !important;
+                          table-layout: fixed !important;
+                          border-collapse: collapse !important;
+                          border: 1px solid #000000 !important;
+                          margin-top: 8px !important;
+                          margin-bottom: 0 !important;
+                          font-size: 7.5pt !important;
+                          box-sizing: border-box !important;
+                          page-break-inside: auto !important;
+                        }
+                        .spreadsheet-table thead {
+                          display: table-header-group !important;
+                        }
+                        .spreadsheet-table tr {
+                          page-break-inside: avoid !important;
+                          page-break-after: auto !important;
+                        }
+                        .spreadsheet-table th {
+                          background-color: #e2e8f0 !important;
+                          color: #000000 !important;
+                          font-weight: 700 !important;
+                          border: 1px solid #000000 !important;
+                          padding: 4px 6px !important;
+                          text-transform: uppercase !important;
+                          font-size: 7pt !important;
+                          text-align: left !important;
+                          box-sizing: border-box !important;
+                        }
+                        .spreadsheet-table th.col-date { width: 16% !important; }
+                        .spreadsheet-table th.col-acc { width: 18% !important; }
+                        .spreadsheet-table th.col-ref { width: 20% !important; }
+                        .spreadsheet-table th.col-desc { width: 26% !important; }
+                        .spreadsheet-table th.col-sale-ref { width: 10% !important; }
+                        .spreadsheet-table th.col-amt { width: 10% !important; text-align: right !important; }
+
+                        .spreadsheet-table td {
+                          border: 1px solid #000000 !important;
+                          padding: 3.5px 5px !important;
+                          color: #000000 !important;
+                          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+                          font-size: 7pt !important;
+                          vertical-align: top !important;
+                          word-break: break-all !important;
+                          box-sizing: border-box !important;
+                        }
+                        .spreadsheet-table tbody tr:last-child td {
+                          border-bottom: 1px solid #000000 !important;
+                        }
+                        .spreadsheet-table td.desc-col {
+                          white-space: normal !important;
+                          word-break: break-word !important;
+                          font-family: sans-serif !important;
+                          color: #000000 !important;
+                        }
+                        .spreadsheet-table td.amount-col {
+                          text-align: right !important;
+                          font-weight: 700 !important;
+                          color: #000000 !important;
+                          white-space: nowrap !important;
+                          display: table-cell !important;
+                          visibility: visible !important;
+                        }
+                      }
+                    `}</style>
+
+                    {/* Section Top Header */}
+                    <div className="flex justify-between items-start pb-4 border-b border-zinc-800 shrink-0">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center print-hide">
+                          <FileSpreadsheet size={22} />
                         </div>
-                        <div className="flex-1 overflow-y-auto p-0">
-                          <table className="w-full text-sm text-left">
-                            <thead className="text-[10px] text-zinc-500 bg-zinc-950 sticky top-0 uppercase tracking-wider z-10">
-                              <tr>
-                                <th className="px-6 py-3 font-semibold">Date</th>
-                                <th className="px-6 py-3 font-semibold">Description</th>
-                                <th className="px-6 py-3 font-semibold text-right">Amount</th>
-                                <th className="px-6 py-3 font-semibold text-right hidden sm:table-cell">Balance</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-zinc-800/50">
-                              {selectedReport.payload?.transactions?.length > 0 ? (
-                                selectedReport.payload.transactions.map((tx: any, idx: number) => {
-      const isCredit = (typeof tx.amount === 'string' ? tx.amount : '').startsWith('+');
-                                  const detailsParts = (tx.details || '').split('\n');
-                                  const description = (detailsParts[0] || '').trim();
-                                  return (
-                                    <tr key={idx} className="hover:bg-zinc-900/50 transition-colors group">
-                                      <td className="px-6 py-3 text-zinc-300 whitespace-nowrap text-xs">{tx.date}</td>
-                                      <td className="px-6 py-3 text-zinc-200 text-xs">{description}</td>
-                                      <td className={`px-6 py-3 text-right font-mono font-medium text-xs ${isCredit ? 'text-[var(--color-success)]' : 'text-red-400'}`}>
-                                        {tx.amount}
-                                      </td>
-                                      <td className="px-6 py-3 text-right text-zinc-400 font-mono text-xs hidden sm:table-cell">{tx.runningBalance || '-'}</td>
-                                    </tr>
-                                  );
-                                })
-                              ) : (
-                                <tr>
-                                  <td colSpan={4} className="px-6 py-8 text-center text-zinc-500 italic">No transactions found in this snapshot.</td>
-                                </tr>
-                              )}
-                            </tbody>
-                          </table>
+                        <div>
+                          <h2 className="text-xl font-bold text-white print-title flex items-center gap-2">
+                            End-of-Day Shift Closing & Sales Claim Report
+                          </h2>
+                          <p className="text-xs text-zinc-400 print-subtitle mt-0.5">
+                            Terminal: <strong className="text-zinc-200 print:text-black">{terminalName || 'Counter'}</strong> | Active Shift #{activeShift?.shift_number || 1}
+                          </p>
                         </div>
                       </div>
-                    );
-                  })() : (
-                    <div className="flex flex-col items-center justify-center h-full text-zinc-600 gap-4">
-                      <div className="w-16 h-16 rounded-full bg-zinc-900/50 border border-zinc-800 flex items-center justify-center">
-                        <BookOpen size={24} className="opacity-50" />
+
+                      <div className="flex items-center gap-2 print-hide">
+                        <button
+                          onClick={handleCloseShiftSubmit}
+                          disabled={isClosingShift}
+                          className="btn btn-success text-xs px-4 py-2 flex items-center gap-1.5 font-bold shadow-lg"
+                        >
+                          {isClosingShift ? <Loader2 size={14} className="animate-spin" /> : <Lock size={14} />}
+                          Close & Seal Counter Shift
+                        </button>
                       </div>
-                      <p>Select a report from the left to view details.</p>
                     </div>
-                  )}
-                </div>
+
+                    {/* Filter / Date selector bar */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 py-3 border-b border-zinc-800/60 shrink-0 print-hide">
+                      <div className="flex flex-wrap items-center gap-3 text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-zinc-400 font-medium">Shift Scope:</span>
+                          <select
+                            value={shiftIdFilter}
+                            onChange={e => {
+                              const sId = e.target.value;
+                              setShiftIdFilter(sId);
+                              loadClaimedSalesAndShift(sId, shiftReportDateFilter);
+                            }}
+                            className="bg-zinc-900 border border-zinc-800 text-white rounded-lg px-2.5 py-1 text-xs font-mono"
+                          >
+                            <option value="">Current Shift #{activeShift?.shift_number || 1} (Open)</option>
+                            {filteredShiftsForDate.filter(s => s.id !== activeShift?.id).map(s => (
+                              <option key={s.id} value={String(s.id)}>
+                                Shift #{s.shift_number} ({s.status === 'open' ? 'Active Open' : `Closed ${new Date(s.closed_at || s.updated_at).toLocaleDateString()}`})
+                              </option>
+                            ))}
+                            <option value="all">All Shifts (Full Archive)</option>
+                          </select>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-zinc-400 font-medium font-sans">Date:</span>
+                          <input
+                            type="date"
+                            value={shiftReportDateFilter}
+                            onChange={e => {
+                              const dVal = e.target.value;
+                              setShiftReportDateFilter(dVal);
+                              loadClaimedSalesAndShift(shiftIdFilter, dVal);
+                            }}
+                            className="bg-zinc-900 border border-zinc-800 text-white rounded-lg px-2.5 py-1 text-xs font-mono"
+                          />
+                          {shiftReportDateFilter && (
+                            <button onClick={() => { const today = getTodayDateString(); setShiftReportDateFilter(today); loadClaimedSalesAndShift(shiftIdFilter, today); }} className="text-xs text-zinc-400 hover:text-white underline">
+                              Reset Date
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => window.print()} className="btn btn-outline text-xs py-1.5 px-3 flex items-center gap-1.5 font-bold">
+                          <Printer size={13} /> Print Shift Report
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* KPI Cards */}
+                    {(() => {
+                      const matchesDateFilter = (item: any) => {
+                        if (!shiftReportDateFilter) return true;
+                        const rawDate = item.claimed_at || item.transaction_date;
+                        if (!rawDate) return false;
+                        const d = new Date(rawDate);
+                        if (isNaN(d.getTime())) return String(rawDate).startsWith(shiftReportDateFilter);
+                        const year = d.getFullYear();
+                        const month = String(d.getMonth() + 1).padStart(2, '0');
+                        const day = String(d.getDate()).padStart(2, '0');
+                        return `${year}-${month}-${day}` === shiftReportDateFilter;
+                      };
+
+                      const filteredClaimedSales = claimedSalesList.filter(matchesDateFilter);
+
+                      const getCurrencyOfSale = (item: any) => {
+                        if (item.currency) return String(item.currency).toUpperCase();
+                        if (item.bankAccount?.currency) return String(item.bankAccount.currency).toUpperCase();
+                        return 'MVR';
+                      };
+
+                      return (
+                        <>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4 shrink-0 print-kpi-grid">
+                            <div className="bg-zinc-900/60 border border-zinc-800 p-3 rounded-2xl print-kpi-box">
+                              <div className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider print-kpi-title">Claimed Sales Count</div>
+                              <div className="text-2xl font-bold font-mono text-white print-kpi-val mt-1">
+                                {filteredClaimedSales.length}
+                              </div>
+                            </div>
+                            <div className="bg-zinc-900/60 border border-zinc-800 p-3 rounded-2xl print-kpi-box">
+                              <div className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider print-kpi-title">Total Claimed (MVR)</div>
+                              <div className="text-2xl font-bold font-mono text-emerald-400 print-kpi-val mt-1">
+                                MVR {formatAmount(filteredClaimedSales.filter(s => getCurrencyOfSale(s) === 'MVR').reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0))}
+                              </div>
+                            </div>
+                            <div className="bg-zinc-900/60 border border-zinc-800 p-3 rounded-2xl print-kpi-box">
+                              <div className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider print-kpi-title">Total Claimed (USD)</div>
+                              <div className="text-2xl font-bold font-mono text-cyan-400 print-kpi-val mt-1">
+                                USD {formatAmount(filteredClaimedSales.filter(s => getCurrencyOfSale(s) === 'USD').reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0))}
+                              </div>
+                            </div>
+                            <div className="bg-zinc-900/60 border border-zinc-800 p-3 rounded-2xl print-kpi-box">
+                              <div className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider print-kpi-title">Shift Opened</div>
+                              <div className="text-xs font-mono text-zinc-300 print-kpi-val mt-1">
+                                {activeShift?.opened_at ? new Date(activeShift.opened_at).toLocaleString() : 'Just now'}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Claimed Sales Breakdown Table */}
+                          <div className="flex-1 overflow-y-auto border border-zinc-800 rounded-2xl bg-zinc-900/40 p-2 my-2 print:border-none print:p-0 print-table-wrapper">
+                            <table className="w-full text-left text-xs font-sans spreadsheet-table">
+                              <thead>
+                                <tr className="border-b border-zinc-800 text-[10px] text-zinc-500 uppercase tracking-wider font-bold print:text-black">
+                                  <th className="py-2.5 px-3 col-date">Date/Time</th>
+                                  <th className="py-2.5 px-3 col-acc">Account #</th>
+                                  <th className="py-2.5 px-3 col-ref">BLAZ / Ref #</th>
+                                  <th className="py-2.5 px-3 col-desc">Payer / Description</th>
+                                  <th className="py-2.5 px-3 col-sale-ref">Sale Reference</th>
+                                  <th className="py-2.5 px-3 text-right col-amt">Amount</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-zinc-800/40 font-mono text-[11px]">
+                                {filteredClaimedSales.length === 0 ? (
+                                  <tr>
+                                    <td colSpan={6} className="py-8 text-center text-zinc-500 italic font-sans print:text-black">
+                                      No claimed sales entries found for this report scope.
+                                    </td>
+                                  </tr>
+                                ) : (
+                                  filteredClaimedSales.map((item, idx) => (
+                                    <tr key={item.id || idx} className="hover:bg-zinc-800/40 transition-colors print:bg-white">
+                                      <td className="py-2.5 px-3 text-zinc-400 print:text-black">{new Date(item.claimed_at || item.transaction_date).toLocaleString()}</td>
+                                      <td className="py-2.5 px-3 font-bold text-zinc-300 font-mono print:text-black">{item.account_number || item.bank_account?.account_number || item.bankAccount?.account_number || item.bank_type}</td>
+                                      <td className="py-2.5 px-3 text-cyan-400 font-bold font-mono print:text-black">{item.blaz_number || item.reference_number || item.transaction_id || '-'}</td>
+                                      <td className="py-2.5 px-3 font-sans text-white whitespace-normal break-words max-w-xs desc-col print:text-black">{item.payer_name || item.description || '-'}</td>
+                                      <td className="py-2.5 px-3 text-emerald-400 font-bold print:text-black">{item.sale_reference || '-'}</td>
+                                      <td className="py-2.5 px-3 text-right font-bold text-emerald-400 amount-col print:text-black">{getCurrencyOfSale(item)} {formatAmount(item.amount)}</td>
+                                    </tr>
+                                  ))
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                ) : (
+                  /* Saved Ledger Snapshots (Old Sub-Tab View) */
+                  <div className="flex-1 flex gap-6 overflow-hidden">
+                    {/* Left Sidebar: List of Reports */}
+                    <div className="w-80 flex flex-col gap-4 overflow-y-auto pr-2">
+                      <h2 className={`font-bold text-white tracking-tight flex items-center gap-2 transition-all duration-300 ${
+                        isCompletelyCollapsed ? 'text-base' : 'text-xl'
+                      }`}>
+                        <BarChart3 className="text-[var(--color-success)]" size={20} />
+                        Saved Reports
+                      </h2>
+                      {savedReports.length === 0 ? (
+                        <div className="text-sm text-zinc-500 italic p-4 bg-zinc-900/50 rounded-xl border border-zinc-800">No reports saved yet. Save a snapshot from the Ledger tab.</div>
+                      ) : (
+                        savedReports.map(report => (
+                          <div
+                            key={report.id}
+                            className={`w-full text-left p-4 rounded-xl border transition-all relative flex flex-col items-start justify-center cursor-pointer ${
+                              selectedReportId === report.id 
+                                ? 'bg-[var(--color-success)]/10 border-[var(--color-success)] shadow-[0_0_15px_rgba(16,185,129,0.15)] animate-scale-bump' 
+                                : 'bg-zinc-950/40 border-zinc-800 hover:border-zinc-700'
+                            }`}
+                            onClick={() => setSelectedReportId(report.id)}
+                          >
+                            <div className="flex justify-between items-start w-full">
+                              <div className="text-sm font-bold text-white mb-1">{report.bank} - {report.account_name}</div>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDeleteReport(report.id); }}
+                                className="text-zinc-500 hover:text-red-400 p-1 rounded-md hover:bg-red-400/10 transition-colors z-10"
+                                title="Delete this report"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                            <div className="text-[10px] text-zinc-400 font-mono tracking-wider mb-2">{new Date(report.date).toLocaleString()}</div>
+                            {report.report_type === 'shift_report' ? (
+                              <div className="text-xs font-semibold space-y-0.5">
+                                <div className="text-emerald-400">MVR {formatAmount(report.payload?.total_claimed_mvr || 0)}</div>
+                                <div className="text-cyan-400">USD {formatAmount(report.payload?.total_claimed_usd || 0)}</div>
+                                <div className="text-zinc-500">{report.payload?.total_claimed_count || 0} claims</div>
+                              </div>
+                            ) : (
+                              <div className="text-xs font-semibold text-[var(--color-success)]">Bal: {report.payload?.balanceAtSave || '-'} {report.payload?.currency}</div>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    
+                    {/* Right Panel: Report Details */}
+                    <div className="flex-1 flex flex-col bg-zinc-950/40 border border-zinc-800 rounded-2xl overflow-hidden relative">
+                      {selectedReportId ? (() => {
+                        const selectedReport = savedReports.find(r => r.id === selectedReportId);
+                        if (!selectedReport) return null;
+                        return (
+                          <div className="flex flex-col h-full animate-slide-up">
+                            <div className="p-6 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-sm z-20 sticky top-0">
+                              <h3 className="text-2xl font-bold text-white">{selectedReport.report_type === 'shift_report' ? 'Shift Closing Report' : 'Ledger Report Snapshot'}</h3>
+                              <div className="flex flex-wrap gap-x-6 gap-y-2 mt-4 text-xs font-mono">
+                                <div className="flex flex-col"><span className="text-zinc-500 uppercase">Bank</span><span className="text-zinc-200">{selectedReport.bank}</span></div>
+                                <div className="flex flex-col"><span className="text-zinc-500 uppercase">Account</span><span className="text-zinc-200">{selectedReport.account_name} ({selectedReport.account_number})</span></div>
+                                <div className="flex flex-col"><span className="text-zinc-500 uppercase">Date Generated</span><span className="text-zinc-200">{new Date(selectedReport.date).toLocaleString()}</span></div>
+                                {selectedReport.report_type === 'shift_report' ? (
+                                  <>
+                                    <div className="flex flex-col"><span className="text-zinc-500 uppercase">Total MVR</span><span className="text-emerald-400 font-bold">MVR {formatAmount(selectedReport.payload?.total_claimed_mvr || 0)}</span></div>
+                                    <div className="flex flex-col"><span className="text-zinc-500 uppercase">Total USD</span><span className="text-cyan-400 font-bold">USD {formatAmount(selectedReport.payload?.total_claimed_usd || 0)}</span></div>
+                                    <div className="flex flex-col"><span className="text-zinc-500 uppercase">Claims</span><span className="text-zinc-200 font-bold">{selectedReport.payload?.total_claimed_count || 0}</span></div>
+                                  </>
+                                ) : (
+                                  <div className="flex flex-col"><span className="text-zinc-500 uppercase">Snapshot Balance</span><span className="text-[var(--color-success)] font-bold">{selectedReport.payload?.balanceAtSave} {selectedReport.payload?.currency}</span></div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-0">
+                              {selectedReport.report_type === 'shift_report' ? (
+                                <table className="w-full text-sm text-left">
+                                  <thead className="text-[10px] text-zinc-500 bg-zinc-950 sticky top-0 uppercase tracking-wider z-10">
+                                    <tr>
+                                      <th className="px-6 py-3 font-semibold">Date/Time</th>
+                                      <th className="px-6 py-3 font-semibold">Transaction ID</th>
+                                      <th className="px-6 py-3 font-semibold">Payer / Description</th>
+                                      <th className="px-6 py-3 font-semibold">Sale Ref</th>
+                                      <th className="px-6 py-3 font-semibold text-right">Amount</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-zinc-800/50">
+                                    {selectedReport.payload?.transactions?.length > 0 ? (
+                                      selectedReport.payload.transactions.map((tx: any, idx: number) => (
+                                        <tr key={idx} className="hover:bg-zinc-900/50 transition-colors group">
+                                          <td className="px-6 py-3 text-zinc-300 whitespace-nowrap text-xs">{tx.claimed_at ? new Date(tx.claimed_at).toLocaleString() : '-'}</td>
+                                          <td className="px-6 py-3 text-cyan-400 font-mono text-xs">{tx.transaction_id}</td>
+                                          <td className="px-6 py-3 text-zinc-200 text-xs">{tx.payer_name || tx.description || '-'}</td>
+                                          <td className="px-6 py-3 text-emerald-400 text-xs">{tx.sale_reference || '-'}</td>
+                                          <td className="px-6 py-3 text-right font-mono font-bold text-xs text-emerald-400">{tx.currency} {formatAmount(tx.amount)}</td>
+                                        </tr>
+                                      ))
+                                    ) : (
+                                      <tr>
+                                        <td colSpan={5} className="px-6 py-8 text-center text-zinc-500 italic">No claimed sales in this shift.</td>
+                                      </tr>
+                                    )}
+                                  </tbody>
+                                </table>
+                              ) : (
+                                <table className="w-full text-sm text-left">
+                                  <thead className="text-[10px] text-zinc-500 bg-zinc-950 sticky top-0 uppercase tracking-wider z-10">
+                                    <tr>
+                                      <th className="px-6 py-3 font-semibold">Date</th>
+                                      <th className="px-6 py-3 font-semibold">Description</th>
+                                      <th className="px-6 py-3 font-semibold text-right">Amount</th>
+                                      <th className="px-6 py-3 font-semibold text-right hidden sm:table-cell">Balance</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-zinc-800/50">
+                                    {selectedReport.payload?.transactions?.length > 0 ? (
+                                      selectedReport.payload.transactions.map((tx: any, idx: number) => {
+            const isCredit = (typeof tx.amount === 'string' ? tx.amount : '').startsWith('+');
+                                        const detailsParts = (tx.details || '').split('\n');
+                                        const description = (detailsParts[0] || '').trim();
+                                        return (
+                                          <tr key={idx} className="hover:bg-zinc-900/50 transition-colors group">
+                                            <td className="px-6 py-3 text-zinc-300 whitespace-nowrap text-xs">{tx.date}</td>
+                                            <td className="px-6 py-3 text-zinc-200 text-xs">{description}</td>
+                                            <td className={`px-6 py-3 text-right font-mono font-medium text-xs ${isCredit ? 'text-[var(--color-success)]' : 'text-red-400'}`}>
+                                              {tx.amount}
+                                            </td>
+                                            <td className="px-6 py-3 text-right text-zinc-400 font-mono text-xs hidden sm:table-cell">{tx.runningBalance || '-'}</td>
+                                          </tr>
+                                        );
+                                      })
+                                    ) : (
+                                      <tr>
+                                        <td colSpan={4} className="px-6 py-8 text-center text-zinc-500 italic">No transactions found in this snapshot.</td>
+                                      </tr>
+                                    )}
+                                  </tbody>
+                                </table>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })() : (
+                        <div className="flex flex-col items-center justify-center h-full text-zinc-600 gap-4">
+                          <div className="w-16 h-16 rounded-full bg-zinc-900/50 border border-zinc-800 flex items-center justify-center">
+                            <BookOpen size={24} className="opacity-50" />
+                          </div>
+                          <p>Select a report from the left to view details.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -6229,6 +6937,192 @@ function App() {
                 >
                   <Trash2 size={13} />
                   Wipe Credentials
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Sale Reference Popover Modal */}
+        {claimPopoverItem && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-zinc-900 border border-zinc-700 rounded-2xl w-full max-w-md shadow-2xl p-6 relative">
+              <button onClick={() => setClaimPopoverItem(null)} className="absolute top-4 right-4 text-zinc-400 hover:text-white">
+                <X size={18} />
+              </button>
+              <div className="flex items-center gap-2 mb-3">
+                <Tag className="text-emerald-400" size={20} />
+                <h3 className="text-lg font-bold text-white">Claim Deposit Sale</h3>
+              </div>
+              <p className="text-xs text-zinc-400 mb-4">
+                Link this deposit item ({selectedAccountCurrency} {formatAmount(claimPopoverItem.amount)}) to a sale reference.
+              </p>
+
+              <form onSubmit={(e) => { e.preventDefault(); handleClaimTx(claimPopoverItem, claimRefInput, claimNotesInput); }} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1">
+                    Sale # / Invoice # / POS Slip ID (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. INV-10948 or Slip #402"
+                    value={claimRefInput}
+                    onChange={e => setClaimRefInput(e.target.value)}
+                    className="input-field w-full text-xs"
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1">
+                    Notes (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Paid via BML Transfer"
+                    value={claimNotesInput}
+                    onChange={e => setClaimNotesInput(e.target.value)}
+                    className="input-field w-full text-xs"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button type="button" onClick={() => setClaimPopoverItem(null)} className="btn btn-outline text-xs px-3 py-1.5">
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={isSubmittingClaim} className="btn btn-success text-xs px-4 py-1.5 flex items-center gap-1 font-bold">
+                    {isSubmittingClaim ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                    Confirm Claim
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Unclaim Authorization PIN Modal */}
+        {unclaimModalTxId && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-zinc-900 border border-zinc-700 rounded-2xl w-full max-w-md shadow-2xl p-6 relative">
+              <button onClick={() => { setUnclaimModalTxId(null); setUnclaimPinInput(''); setUnclaimError(null); }} className="absolute top-4 right-4 text-zinc-400 hover:text-white">
+                <X size={18} />
+              </button>
+              <div className="flex items-center gap-2 mb-3">
+                <Lock className="text-amber-400" size={20} />
+                <h3 className="text-lg font-bold text-white">Unclaim Deposit Authorization</h3>
+              </div>
+              <p className="text-xs text-zinc-400 mb-4">
+                Enter the 6-digit Counter Settings PIN to authorize unclaiming this deposit item.
+              </p>
+
+              {unclaimError && (
+                <div className="p-3 bg-red-950/60 border border-red-500/30 rounded-xl text-red-400 text-xs mb-3">
+                  {unclaimError}
+                </div>
+              )}
+
+              <form onSubmit={(e) => { e.preventDefault(); handleUnclaimSubmit(); }} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1">
+                    Counter Settings PIN
+                  </label>
+                  <input
+                    type="password"
+                    maxLength={6}
+                    pattern="\d{0,6}"
+                    placeholder="6-digit PIN"
+                    value={unclaimPinInput}
+                    onChange={e => setUnclaimPinInput(e.target.value.replace(/\D/g, ''))}
+                    className="input-field w-full font-mono text-center tracking-widest text-sm"
+                    autoFocus
+                    required
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button type="button" onClick={() => { setUnclaimModalTxId(null); setUnclaimPinInput(''); setUnclaimError(null); }} className="btn btn-outline text-xs px-3 py-1.5">
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={isSubmittingUnclaim} className="btn border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white text-xs px-4 py-1.5 flex items-center gap-1 font-bold rounded-xl">
+                    {isSubmittingUnclaim ? <Loader2 size={13} className="animate-spin" /> : <Unlock size={13} />}
+                    Authorize Unclaim
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Bottom Slide-In Notice Toast for New Shift Session */}
+        <div className={`fixed bottom-6 right-6 z-[300] transition-all duration-500 transform ${
+          shiftSessionToast?.show ? 'translate-y-0 opacity-100 scale-100' : 'translate-y-16 opacity-0 scale-95 pointer-events-none'
+        }`}>
+          <div className="bg-zinc-900/95 border border-emerald-500/40 shadow-[0_10px_30px_rgba(0,0,0,0.8)] backdrop-blur-md rounded-2xl p-4 flex items-center gap-3.5 text-white max-w-md">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0 animate-bounce">
+              <Sparkles size={20} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                New Shift Session Started <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-mono">Shift #{shiftSessionToast?.shiftNumber}</span>
+              </div>
+              <p className="text-xs text-zinc-300 mt-0.5 font-medium leading-tight">
+                Initial deposit sale claimed. Counter Shift #{shiftSessionToast?.shiftNumber} session is now active.
+              </p>
+            </div>
+            <button
+              onClick={() => setShiftSessionToast(prev => prev ? { ...prev, show: false } : null)}
+              className="text-zinc-500 hover:text-white p-1 rounded-lg hover:bg-zinc-800 transition-colors"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Custom Elegant Dialogue Box Modal */}
+        {customModalConfig?.isOpen && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+            <div className="bg-zinc-900 border border-zinc-700/80 rounded-2xl w-full max-w-md shadow-2xl p-6 relative flex flex-col gap-4">
+              <div className="flex items-start gap-4">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                  customModalConfig.type === 'success' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                  customModalConfig.type === 'error' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                  customModalConfig.type === 'warning' || customModalConfig.type === 'confirm' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                  'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                }`}>
+                  {customModalConfig.type === 'success' && <Check size={20} />}
+                  {customModalConfig.type === 'error' && <XCircle size={20} />}
+                  {(customModalConfig.type === 'warning' || customModalConfig.type === 'confirm') && <AlertTriangle size={20} />}
+                  {(!customModalConfig.type || customModalConfig.type === 'info') && <Info size={20} />}
+                </div>
+
+                <div className="flex-1">
+                  <h3 className="text-base font-bold text-white tracking-tight">{customModalConfig.title}</h3>
+                  <p className="text-xs text-zinc-300 mt-1 leading-relaxed">{customModalConfig.message}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-800">
+                {customModalConfig.type === 'confirm' && (
+                  <button
+                    onClick={() => setCustomModalConfig(null)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 transition-all"
+                  >
+                    {customModalConfig.cancelText || 'Cancel'}
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    const cb = customModalConfig.onConfirm;
+                    setCustomModalConfig(null);
+                    if (cb) cb();
+                  }}
+                  className={`px-5 py-2 rounded-xl text-xs font-bold transition-all shadow-md ${
+                    customModalConfig.type === 'error' ? 'bg-red-600 hover:bg-red-500 text-white' :
+                    customModalConfig.type === 'confirm' ? 'bg-emerald-500 hover:bg-emerald-400 text-black' :
+                    'bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700'
+                  }`}
+                >
+                  {customModalConfig.confirmText || 'OK'}
                 </button>
               </div>
             </div>

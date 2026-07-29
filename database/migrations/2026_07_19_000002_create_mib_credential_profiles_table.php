@@ -23,7 +23,7 @@ return new class extends Migration
             $table->timestamps();
 
             $table->foreign('credential_group_id')
-                  ->references('id')->on('mib_credential_groups')->onDelete('cascade');
+                ->references('id')->on('mib_credential_groups')->onDelete('cascade');
             $table->unique(['credential_group_id', 'profile_id'], 'unique_mib_profile');
         });
     }

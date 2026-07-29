@@ -21,14 +21,14 @@ return new class extends Migration
             $table->unsignedBigInteger('last_successful_fetch_terminal_id')->nullable()->after('fetch_started_by_terminal_id');
 
             $table->foreign('fetch_started_by_terminal_id')
-                  ->references('id')
-                  ->on('terminals')
-                  ->nullOnDelete();
+                ->references('id')
+                ->on('terminals')
+                ->nullOnDelete();
 
             $table->foreign('last_successful_fetch_terminal_id')
-                  ->references('id')
-                  ->on('terminals')
-                  ->nullOnDelete();
+                ->references('id')
+                ->on('terminals')
+                ->nullOnDelete();
         });
     }
 
@@ -48,7 +48,7 @@ return new class extends Migration
                 'fetch_in_progress_until',
                 'fetch_started_at',
                 'fetch_started_by_terminal_id',
-                'last_successful_fetch_terminal_id'
+                'last_successful_fetch_terminal_id',
             ]);
         });
     }

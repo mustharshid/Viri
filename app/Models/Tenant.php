@@ -16,7 +16,7 @@ class Tenant extends Model
         'max_terminals',
         'max_bank_accounts',
         'features',
-        'custom_verifications_limit'
+        'custom_verifications_limit',
     ];
 
     protected $casts = [
@@ -56,5 +56,10 @@ class Tenant extends Model
     public function users(): HasMany
     {
         return $this->hasMany(User::class);
+    }
+
+    public function claimedSales(): HasMany
+    {
+        return $this->hasMany(ClaimedSale::class);
     }
 }

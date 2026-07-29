@@ -971,6 +971,10 @@ export default function AdminDashboard() {
                   <span className="text-zinc-700">•</span>
                   <span>Phone: <strong className="text-zinc-300 font-mono">{adminUser.phone_number || 'N/A'}</strong></span>
                   <span className="text-zinc-700">•</span>
+                  <span>Verifications Used: <strong className="text-emerald-400 font-mono">{company.verifications_used ?? company.claimed_sales_count ?? 0}</strong></span>
+                  <span className="text-zinc-700">•</span>
+                  <span>Last Activity: <strong className="text-zinc-300 font-mono">{company.last_activity_at ? new Date(company.last_activity_at).toLocaleString() : 'None'}</strong></span>
+                  <span className="text-zinc-700">•</span>
                   <button
                     onClick={() => handleResetUserPassword(adminUser.id, adminUser.email)}
                     className="text-[10px] text-yellow-500 hover:text-yellow-400 font-bold border border-yellow-500/30 px-2 py-0.5 rounded hover:bg-yellow-500/10 transition-all flex items-center gap-1"
@@ -1175,20 +1179,23 @@ export default function AdminDashboard() {
                 const currentFeatures = draft.features !== undefined ? draft.features : (company.features || {});
                 const isChecked = currentFeatures[f.key] ?? false;
                 return (
-                  <label key={f.key} className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer hover:text-white select-none">
-                    <input
-                      type="checkbox"
-                      className="rounded bg-black border-white/20 text-yellow-500 focus:ring-yellow-500"
-                      checked={isChecked}
-                      onChange={(e) => {
-                        const updatedFeatures = {
-                          ...currentFeatures,
-                          [f.key]: e.target.checked
-                        };
-                        handleDraftChange(company.id, 'features', updatedFeatures);
-                      }}
-                    />
-                    {f.label}
+                  <label key={f.key} className="flex items-center gap-2.5 text-xs text-zinc-300 cursor-pointer hover:text-white select-none">
+                    <div className="relative inline-flex items-center shrink-0">
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          const updatedFeatures = {
+                            ...currentFeatures,
+                            [f.key]: e.target.checked
+                          };
+                          handleDraftChange(company.id, 'features', updatedFeatures);
+                        }}
+                      />
+                      <div className="w-8 h-4 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500"></div>
+                    </div>
+                    <span>{f.label}</span>
                   </label>
                 );
               })}
@@ -1384,22 +1391,25 @@ export default function AdminDashboard() {
                 ].map(f => {
                   const isChecked = (planForm.features as any)[f.key] ?? false;
                   return (
-                    <label key={f.key} className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer hover:text-white select-none">
-                      <input
-                        type="checkbox"
-                        className="rounded bg-black border-zinc-700 text-yellow-500 focus:ring-yellow-500"
-                        checked={isChecked}
-                        onChange={(e) => {
-                          setPlanForm(prev => ({
-                            ...prev,
-                            features: {
-                              ...prev.features,
-                              [f.key]: e.target.checked
-                            }
-                          }));
-                        }}
-                      />
-                      {f.label}
+                    <label key={f.key} className="flex items-center gap-2.5 text-xs text-zinc-300 cursor-pointer hover:text-white select-none">
+                      <div className="relative inline-flex items-center shrink-0">
+                        <input
+                          type="checkbox"
+                          className="sr-only peer"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            setPlanForm(prev => ({
+                              ...prev,
+                              features: {
+                                ...prev.features,
+                                [f.key]: e.target.checked
+                              }
+                            }));
+                          }}
+                        />
+                        <div className="w-8 h-4 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500"></div>
+                      </div>
+                      <span>{f.label}</span>
                     </label>
                   );
                 })}
@@ -2618,6 +2628,13 @@ export default function AdminDashboard() {
                 <tr className="border-b border-white/10 text-zinc-400 uppercase tracking-wider font-semibold text-[10px]">
                   <th className="py-3 px-4">Company & Admin Details</th>
                   <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">
+                    <div className="flex items-center gap-1">
+                      <span>Verifications Used</span>
+                      <Tooltip text="A Verification is counted when a cashier verifies a bank transfer or claims a deposit sale on a terminal." />
+                    </div>
+                  </th>
+                  <th className="py-3 px-4">Last Activity</th>
                   <th className="py-3 px-4">Subscription Plan</th>
                   <th className="py-3 px-4">Plan Expiry Date</th>
                   <th className="py-3 px-4 text-right">Actions</th>
@@ -2626,7 +2643,7 @@ export default function AdminDashboard() {
               <tbody className="divide-y divide-white/10 text-zinc-300">
                 {sortedOverview.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-12 text-center text-zinc-500 italic">
+                    <td colSpan={7} className="py-12 text-center text-zinc-500 italic">
                       No registered companies found.
                     </td>
                   </tr>
@@ -2684,6 +2701,35 @@ export default function AdminDashboard() {
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-800 text-zinc-400 border border-zinc-700 text-xs font-semibold">
                               {company.status}
                             </span>
+                          )}
+                        </td>
+
+                        {/* Verifications Used */}
+                        <td className="py-3.5 px-4 whitespace-nowrap font-mono text-xs">
+                          <div className="flex items-center gap-1.5 text-zinc-200 font-bold" title="A Verification is counted when a cashier verifies a bank transfer or claims a deposit sale on a terminal.">
+                            <CheckCircle2 size={13} className="text-emerald-400" />
+                            <span>{company.verifications_used ?? company.claimed_sales_count ?? 0}</span>
+                            {company.custom_verifications_limit ? (
+                              <span className="text-zinc-500 text-[10px]">/ {company.custom_verifications_limit}</span>
+                            ) : (
+                              <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-sans font-normal">Unlimited</span>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Last Activity */}
+                        <td className="py-3.5 px-4 whitespace-nowrap font-mono text-xs">
+                          {company.last_activity_at ? (
+                            <div className="flex flex-col">
+                              <span className="text-zinc-200 font-medium">
+                                {new Date(company.last_activity_at).toLocaleDateString()}
+                              </span>
+                              <span className="text-[10px] text-zinc-400">
+                                {new Date(company.last_activity_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-zinc-500 italic">No activity yet</span>
                           )}
                         </td>
 

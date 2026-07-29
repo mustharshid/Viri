@@ -3,11 +3,16 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use App\Models\Terminal;
 use App\Models\BankAccount;
 use App\Models\BankAccountLock;
+use App\Models\BmlCredentialGroup;
+use App\Models\BmlOAuthToken;
+use App\Models\MibCredentialGroup;
+use App\Models\MibCredentialProfile;
+use App\Models\MibDeviceCredential;
 use App\Models\SessionActivityLog;
+use App\Models\Terminal;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class BankAccountLockController extends Controller
@@ -23,7 +28,7 @@ class BankAccountLockController extends Controller
             ->where('status', 'active')
             ->first();
 
-        if (!$terminal) {
+        if (! $terminal) {
             return ['error' => 'Terminal unauthorized or inactive', 'status' => 403];
         }
 
@@ -31,7 +36,7 @@ class BankAccountLockController extends Controller
             ->where('tenant_id', $terminal->tenant_id)
             ->first();
 
-        if (!$bankAccount) {
+        if (! $bankAccount) {
             return ['error' => 'Bank account not found or unauthorized', 'status' => 404];
         }
 
@@ -60,9 +65,10 @@ class BankAccountLockController extends Controller
                     // Extend the lock
                     $existingLock->expires_at = $now->addSeconds(20);
                     $existingLock->save();
+
                     return [
                         'status' => 'acquired',
-                        'message' => 'Lock extended successfully'
+                        'message' => 'Lock extended successfully',
                     ];
                 }
 
@@ -71,7 +77,7 @@ class BankAccountLockController extends Controller
                     'status' => 'busy',
                     'message' => 'Bank account is currently in use by another terminal',
                     'held_by' => $existingLock->hardware_id,
-                    'expires_in' => $existingLock->expires_at->diffInSeconds($now)
+                    'expires_in' => $existingLock->expires_at->diffInSeconds($now),
                 ];
             }
 
@@ -80,13 +86,13 @@ class BankAccountLockController extends Controller
                 ['bank_account_id' => $bankAccountId],
                 [
                     'hardware_id' => $hardwareId,
-                    'expires_at' => $now->addSeconds(20)
+                    'expires_at' => $now->addSeconds(20),
                 ]
             );
 
             return [
                 'status' => 'acquired',
-                'message' => 'Lock acquired successfully'
+                'message' => 'Lock acquired successfully',
             ];
         });
 
@@ -115,13 +121,14 @@ class BankAccountLockController extends Controller
             if ($existingLock && $existingLock->hardware_id === $hardwareId) {
                 $existingLock->expires_at = now()->addSeconds(20);
                 $existingLock->save();
+
                 return true;
             }
 
             return false;
         });
 
-        if (!$extended) {
+        if (! $extended) {
             return response()->json(['error' => 'Lock not found or held by another terminal'], 403);
         }
 
@@ -161,23 +168,23 @@ class BankAccountLockController extends Controller
         $shareLogs = $terminal->permissions['share_pwa_logs'] ?? true;
         if ($shareLogs) {
             $acctNum = preg_replace('/\s+/', '', $bankAccount->account_number);
-            $masked = strlen($acctNum) <= 4 ? str_repeat('*', strlen($acctNum)) : substr($acctNum, 0, 4) . str_repeat('*', max(0, strlen($acctNum) - 8)) . substr($acctNum, -4);
+            $masked = strlen($acctNum) <= 4 ? str_repeat('*', strlen($acctNum)) : substr($acctNum, 0, 4).str_repeat('*', max(0, strlen($acctNum) - 8)).substr($acctNum, -4);
             SessionActivityLog::create([
-                'tenant_id'             => $terminal->tenant_id,
-                'terminal_id'           => $terminal->id,
-                'terminal_name'         => $terminal->terminal_name,
-                'bank_account_id'       => $bankAccount->id,
-                'bank_name'             => $bankAccount->bank_name,
+                'tenant_id' => $terminal->tenant_id,
+                'terminal_id' => $terminal->id,
+                'terminal_name' => $terminal->terminal_name,
+                'bank_account_id' => $bankAccount->id,
+                'bank_name' => $bankAccount->bank_name,
                 'account_number_masked' => $masked,
-                'event_type'            => 'session_login_failed',
-                'event_summary'         => 'Bank login failed on terminal ' . $terminal->terminal_name,
-                'event_detail'          => [
+                'event_type' => 'session_login_failed',
+                'event_summary' => 'Bank login failed on terminal '.$terminal->terminal_name,
+                'event_detail' => [
                     'login_failures' => 0,
                     'pwa_logs' => $request->input('pwa_logs', []),
-                    'extension_version' => $request->input('extension_version')
+                    'extension_version' => $request->input('extension_version'),
                 ],
-                'ip_address'            => $request->ip(),
-                'created_at'            => now(),
+                'ip_address' => $request->ip(),
+                'created_at' => now(),
             ]);
         }
 
@@ -203,22 +210,22 @@ class BankAccountLockController extends Controller
         $shareLogs = $terminal->permissions['share_pwa_logs'] ?? true;
         if ($shareLogs) {
             $acctNum = preg_replace('/\s+/', '', $bankAccount->account_number);
-            $masked = strlen($acctNum) <= 4 ? str_repeat('*', strlen($acctNum)) : substr($acctNum, 0, 4) . str_repeat('*', max(0, strlen($acctNum) - 8)) . substr($acctNum, -4);
+            $masked = strlen($acctNum) <= 4 ? str_repeat('*', strlen($acctNum)) : substr($acctNum, 0, 4).str_repeat('*', max(0, strlen($acctNum) - 8)).substr($acctNum, -4);
             SessionActivityLog::create([
-                'tenant_id'             => $terminal->tenant_id,
-                'terminal_id'           => $terminal->id,
-                'terminal_name'         => $terminal->terminal_name,
-                'bank_account_id'       => $bankAccount->id,
-                'bank_name'             => $bankAccount->bank_name,
+                'tenant_id' => $terminal->tenant_id,
+                'terminal_id' => $terminal->id,
+                'terminal_name' => $terminal->terminal_name,
+                'bank_account_id' => $bankAccount->id,
+                'bank_name' => $bankAccount->bank_name,
                 'account_number_masked' => $masked,
-                'event_type'            => 'session_login_success',
-                'event_summary'         => 'Bank login succeeded on terminal ' . $terminal->terminal_name,
-                'event_detail'          => [
+                'event_type' => 'session_login_success',
+                'event_summary' => 'Bank login succeeded on terminal '.$terminal->terminal_name,
+                'event_detail' => [
                     'pwa_logs' => $request->input('pwa_logs', []),
-                    'extension_version' => $request->input('extension_version')
+                    'extension_version' => $request->input('extension_version'),
                 ],
-                'ip_address'            => $request->ip(),
-                'created_at'            => now(),
+                'ip_address' => $request->ip(),
+                'created_at' => now(),
             ]);
         }
 
@@ -240,9 +247,9 @@ class BankAccountLockController extends Controller
         if ($bmlGroupId) {
             $bankAccount->update(['bml_credential_group_id' => null]);
 
-            $stillReferenced = \App\Models\BankAccount::where('bml_credential_group_id', $bmlGroupId)->exists();
-            if (!$stillReferenced) {
-                \App\Models\BmlCredentialGroup::destroy($bmlGroupId);
+            $stillReferenced = BankAccount::where('bml_credential_group_id', $bmlGroupId)->exists();
+            if (! $stillReferenced) {
+                BmlCredentialGroup::destroy($bmlGroupId);
             }
         }
 
@@ -251,27 +258,27 @@ class BankAccountLockController extends Controller
         if ($mibProfileId) {
             $bankAccount->update(['mib_credential_profile_id' => null]);
 
-            $stillReferenced = \App\Models\BankAccount::where('mib_credential_profile_id', $mibProfileId)->exists();
-            if (!$stillReferenced) {
-                $profile = \App\Models\MibCredentialProfile::find($mibProfileId);
+            $stillReferenced = BankAccount::where('mib_credential_profile_id', $mibProfileId)->exists();
+            if (! $stillReferenced) {
+                $profile = MibCredentialProfile::find($mibProfileId);
                 if ($profile) {
                     $groupId = $profile->credential_group_id;
                     $profile->delete();
 
-                    $groupStillUsed = \App\Models\MibCredentialProfile::where('credential_group_id', $groupId)->exists();
-                    if (!$groupStillUsed) {
-                        \App\Models\MibCredentialGroup::destroy($groupId);
+                    $groupStillUsed = MibCredentialProfile::where('credential_group_id', $groupId)->exists();
+                    if (! $groupStillUsed) {
+                        MibCredentialGroup::destroy($groupId);
                     }
                 }
             }
         }
 
         // 3. Legacy fallbacks
-        \App\Models\BmlOAuthToken::where('bank_account_id', $bankAccount->id)
+        BmlOAuthToken::where('bank_account_id', $bankAccount->id)
             ->where('terminal_id', $terminal->id)
             ->delete();
 
-        \App\Models\MibDeviceCredential::where('bank_account_id', $bankAccount->id)
+        MibDeviceCredential::where('bank_account_id', $bankAccount->id)
             ->where('terminal_id', $terminal->id)
             ->delete();
 
@@ -289,7 +296,7 @@ class BankAccountLockController extends Controller
             ->where('status', 'active')
             ->first();
 
-        if (!$terminal) {
+        if (! $terminal) {
             return response()->json(['error' => 'Terminal unauthorized or inactive'], 403);
         }
 

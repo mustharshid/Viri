@@ -14,7 +14,7 @@ class AuditLog extends Model
         'event_type',
         'actor',
         'ip_address',
-        'metadata'
+        'metadata',
     ];
 
     protected $casts = [
