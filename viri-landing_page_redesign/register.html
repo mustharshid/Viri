@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Register, Viri Banking Aggregator</title>
+  <meta name="description" content="Create your Viri company account and start verifying bank transfers securely.">
+  <link rel="icon" type="image/png" href="img/favicon.png">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;500&display=swap" media="print" onload="this.media='all'">
+  <noscript>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  </noscript>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Particle Background -->
+  <canvas id="particle-canvas"></canvas>
+
+  <!-- Navigation -->
+  <nav class="nav" role="navigation" aria-label="Main navigation">
+    <a href="index.html" class="nav-logo" aria-label="Viri home">
+      <img src="img/logo_en.png" alt="Viri" width="160" height="40" decoding="async" fetchpriority="high" loading="eager">
+    </a>
+    <div class="nav-links">
+      <a href="faq.html" class="nav-link">FAQ</a>
+      <a href="login.html" class="nav-signin">Sign in</a>
+      <a href="register.html" class="btn-primary">Get started</a>
+    </div>
+  </nav>
+
+  <!-- Register Page -->
+  <main class="auth-page">
+    <div class="auth-card">
+      <a href="index.html" aria-label="Viri home">
+        <img src="img/logo_en.png" alt="Viri" class="auth-logo" width="160" height="40" decoding="async" loading="eager">
+      </a>
+
+      <div class="auth-header">
+        <h1>Create your company</h1>
+        <p>Start verifying bank transfers securely.</p>
+      </div>
+
+      <form class="auth-form" id="register-form" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="company-name">Company Name</label>
+          <input class="form-input" type="text" id="company-name" name="company_name" required autocomplete="organization">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="admin-name">Admin Name</label>
+          <input class="form-input" type="text" id="admin-name" name="admin_name" required autocomplete="name">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="admin-email">Admin Email</label>
+          <input class="form-input" type="email" id="admin-email" name="admin_email" required autocomplete="email">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="admin-phone">Admin Phone Number</label>
+          <input class="form-input" type="tel" id="admin-phone" name="admin_phone" required autocomplete="tel">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="password">Password</label>
+          <input class="form-input" type="password" id="password" name="password" required minlength="8" autocomplete="new-password">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="confirm-password">Confirm Password</label>
+          <input class="form-input" type="password" id="confirm-password" name="password_confirmation" required minlength="8" autocomplete="new-password">
+        </div>
+
+        <div class="form-checkbox-group">
+          <input class="form-checkbox" type="checkbox" id="agree-terms" name="agree_terms" required>
+          <label class="form-checkbox-label" for="agree-terms">
+            I agree to the <a href="#" class="modal-link" data-modal="terms-modal">Terms of Service</a> and <a href="#" class="modal-link" data-modal="privacy-modal">Privacy Policy</a>, and confirm I'm authorised to connect the accounts I'd like to link.
+          </label>
+        </div>
+
+        <div class="form-error" id="register-error" role="alert" hidden></div>
+
+        <button type="submit" class="form-btn" id="register-btn">Register Company</button>
+      </form>
+
+      <p class="form-footer">
+        Already have an account? <a href="login.html">Log in</a>
+      </p>
+    </div>
+  </main>
+
+  <!-- Terms of Service Modal -->
+  <div class="modal-overlay" id="terms-modal" hidden>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title">Terms of Service</h2>
+        <button class="modal-close" aria-label="Close modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-effective-date">Effective Date: 23rd July 2026</p>
+
+        <h3>1. Acceptance of Terms</h3>
+        <p>By accessing or using Viri, you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, you must not use the Service.</p>
+
+        <h3>2. User Eligibility</h3>
+        <p>To use Viri, you must be a registered business entity, or an individual authorised to act on behalf of a registered business entity, and have the authority to connect the relevant bank accounts to the Service.</p>
+
+        <h3>3. Service Description</h3>
+        <p>Viri is a business dashboard that aggregates data from connected bank accounts into a single view. The Service includes:</p>
+        <ul>
+          <li>A web based dashboard accessible as a Progressive Web App (PWA), usable on any device.</li>
+          <li>A Chrome Extension that acts as a secure bridge between your browser and your bank's website.</li>
+          <li>A Verification Panel, Unified Transaction Ledger, Reports Suite, and Statement Generator.</li>
+          <li>The ability to export data in PDF, Excel, or CSV format.</li>
+        </ul>
+
+        <h3>4. Affiliation Disclaimer</h3>
+        <p>Viri is an independent third party tool. It is not affiliated, endorsed, or partnered with Bank of Maldives (BML) or MIB Maldives (Maldives Islamic Bank) in any way. Viri's connection to these institutions is limited to reading data that you, as an authorised user, choose to make available through the Chrome Extension.</p>
+
+        <h3>5. Account Responsibilities</h3>
+        <ul>
+          <li>You are responsible for maintaining the confidentiality of your Viri login credentials.</li>
+          <li>You must ensure that the devices and browsers on which you install the Chrome Extension are kept secure and up to date.</li>
+          <li>You are responsible for all activity that occurs under your Viri account.</li>
+          <li>You must notify us promptly if you become aware of any unauthorised use of your account.</li>
+        </ul>
+
+        <h3>6. Data Handling Clarification</h3>
+        <ul>
+          <li>Read only session tokens are the default and preferred method used by the Chrome Extension to maintain your bank connection.</li>
+          <li>When session tokens are unavailable or expire, the Chrome Extension may obtain your bank credentials. These credentials are hashed and stored locally on your device only, and are never transmitted to or stored on Viri's servers.</li>
+          <li>All direct communication with your bank's systems happens between your browser, through the Chrome Extension, and your bank. Viri's servers are not part of that communication.</li>
+          <li>You are responsible for the security of your own device, including any locally stored, hashed credential data. Viri does not have access to these credentials and cannot retrieve them.</li>
+        </ul>
+
+        <h3>7. Connecting Your Bank Accounts</h3>
+        <p>This section explains what you are agreeing to when you connect a bank account to Viri. Please read it carefully.</p>
+        <ul>
+          <li><strong>Your bank's terms.</strong> Most banks, including BML and MIB, ask account holders not to share their login details with third party services. Connecting your account to Viri means providing your credentials or authorising a persistent session with a third party tool, which may not align with your bank's own terms. This is a matter between you and your bank. Connecting your account is entirely your choice, and you are responsible for understanding and accepting any consequences.</li>
+          <li><strong>Your responsibility.</strong> You confirm that you are choosing to connect your account voluntarily and with a full understanding of the point above, and that you accept responsibility for that choice, including how your bank may respond to it (for example, restricting or reviewing your account access). This does not apply to losses caused by Viri's own gross negligence or wilful misconduct, which are addressed in Section 10.</li>
+          <li><strong>Report and statement use.</strong> Statements and reports generated through Viri are for your internal, informational use. They are not official bank documents and should not be substituted for statements issued directly by your bank where an official document is required, such as for audits or tax filings.</li>
+          <li><strong>Service dependency.</strong> Because Viri relies on your bank's own website and systems to retrieve your data, occasional slowdowns, errors, or interruptions may occur if your bank changes or updates its systems. We will do our best to keep the Service running smoothly, but cannot guarantee uninterrupted access.</li>
+          <li><strong>Your authority to connect.</strong> By connecting an account, you confirm that you are authorised to do so on behalf of the business named on your Viri account, and that you have the legal capacity to enter into this agreement.</li>
+        </ul>
+
+        <h3>8. User Obligations and Prohibited Uses</h3>
+        <p>You agree not to:</p>
+        <ul>
+          <li>Misuse the Chrome Extension or dashboard in any way that could harm Viri, your bank, or other users.</li>
+          <li>Attempt to reverse engineer, decompile, or disassemble the Chrome Extension or any part of the Service.</li>
+          <li>Use the Service for any illegal activity, including fraud, money laundering, or unauthorised access to financial accounts.</li>
+          <li>Share your Viri account credentials with unauthorised individuals.</li>
+          <li>Interfere with or disrupt the integrity or performance of the Service.</li>
+        </ul>
+
+        <h3>9. Disclaimer of Warranties</h3>
+        <p>The Service is provided "as is" and "as available", without warranties of any kind, whether express or implied.</p>
+        <ul>
+          <li>We do not guarantee that the Service will be uninterrupted, error free, or secure against all possible threats.</li>
+          <li>Transaction data displayed on the dashboard originates from BML or MIB, not from Viri. We are not responsible for the accuracy, completeness, or timeliness of that underlying data. Bank websites and systems may change without notice, and connectivity may occasionally fail as a result.</li>
+          <li>Statements and reports generated through the Statement Generator and Reports Suite are provided for informational purposes only. They are not official bank documents and should not be treated as a substitute for statements issued directly by BML or MIB.</li>
+          <li>We do not warrant that the Chrome Extension will always function correctly following updates to bank websites or systems.</li>
+          <li>Because Viri is not affiliated with BML or MIB, we have no control over, and make no representations regarding, their systems, uptime, or data accuracy.</li>
+        </ul>
+
+        <h3>10. Limitation of Liability</h3>
+        <p>To the maximum extent permitted by the laws of the Republic of Maldives, Viri, its owners, employees, and affiliates shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the Service.</p>
+        <ul>
+          <li>You acknowledge that your use of the Service may violate your bank's terms of service, and you accept full responsibility for any consequences arising from that violation.</li>
+          <li>This includes, without limitation, loss of profits, loss of data, business interruption, or financial losses resulting from reliance on the dashboard, reports, or statements generated by Viri.</li>
+          <li>We are not liable for any actions taken by your bank, including but not limited to blocking access, freezing accounts, transaction errors, or system outages.</li>
+          <li>Our total liability to you for any claim arising from your use of the Service, if any, is limited to the total amount you paid us in the twelve (12) months preceding the claim.</li>
+          <li>Nothing in these Terms excludes or limits our liability for gross negligence, wilful misconduct, or any other liability that cannot be excluded or limited under the laws of the Republic of Maldives, including the Consumer Protection Act (Law No. 12/2020).</li>
+        </ul>
+
+        <h3>11. Indemnification</h3>
+        <p>You agree to indemnify and hold harmless Viri, its owners, employees, and affiliates from any claims, damages, losses, or expenses (including reasonable legal fees) arising from your misuse of the Service or your violation of these Terms.</p>
+
+        <h3>12. Termination</h3>
+        <p>We reserve the right to suspend or terminate your account, at our discretion, if you violate these Terms or engage in illegal activity through the Service. You may also terminate your account at any time by contacting us.</p>
+
+        <h3>13. Governing Law</h3>
+        <p>These Terms are governed by the laws of the Republic of Maldives. Any disputes arising from these Terms or your use of the Service shall be resolved in the courts of the Maldives.</p>
+
+        <h3>14. Changes to Terms</h3>
+        <p>We may update these Terms from time to time. Users will be notified of significant changes through the dashboard or by email. Continued use of the Service after changes take effect constitutes acceptance of the revised Terms.</p>
+
+        <h3>15. Acknowledgment</h3>
+        <p>By creating a Viri account and connecting a bank account, you confirm that you have read and understood Sections 6 and 7 above, in addition to the rest of these Terms and the Privacy Policy.</p>
+
+        <h3>16. Contact Us</h3>
+        <p>Questions about these Terms should be directed to [Insert Contact Email].</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Privacy Policy Modal -->
+  <div class="modal-overlay" id="privacy-modal" hidden>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title">Privacy Policy</h2>
+        <button class="modal-close" aria-label="Close modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-effective-date">Effective Date: 23rd July 2026</p>
+
+        <h3>1. Introduction</h3>
+        <p>This Privacy Policy explains how Viri ("Viri", "we", "us", or "the Company") collects, uses, stores, and protects information when you use the Viri dashboard, the Viri Chrome Extension, and related services (collectively, the "Service"). By using the Service, you agree to the practices described in this Policy.</p>
+
+        <h3>2. Affiliation Disclaimer</h3>
+        <p>Viri is not affiliated, endorsed, or partnered with Bank of Maldives (BML) or MIB Maldives (Maldives Islamic Bank) in any way. Viri is an independent third party tool built for business convenience. Any references to BML or MIB in this Policy or in the Service are for descriptive purposes only, to explain which institutions the Service is designed to work with.</p>
+
+        <h3>3. Information We Collect</h3>
+        <p>We collect the following categories of information:</p>
+        <ul>
+          <li><strong>Company registration details.</strong> Business name, address, and contact information provided when you create a Viri account.</li>
+          <li><strong>Bank account numbers and account names.</strong> Stored securely to identify and organise the accounts you choose to connect.</li>
+          <li><strong>Read only session tokens.</strong> Where available, these are stored to maintain a persistent login to your connected bank accounts and to display transaction data on your dashboard. Session tokens are read only and cannot be used to initiate transactions.</li>
+          <li><strong>Transaction history.</strong> Cached temporarily to populate your dashboard, ledger, and reports. This data is not permanently archived on our servers unless you choose to export it.</li>
+          <li><strong>Credentials, when obtained.</strong> In cases where session tokens are unavailable or have expired, the Chrome Extension may need to obtain your bank login credentials to re establish a connection. These credentials are hashed and stored locally on your own device only. They are never transmitted to, or stored on, Viri's servers.</li>
+          <li><strong>Basic usage data.</strong> Anonymised analytics, such as feature usage patterns and error logs, used to improve the Service.</li>
+        </ul>
+
+        <h3>4. What We Do Not Collect</h3>
+        <p>We want to be explicit about the limits of our data collection:</p>
+        <ul>
+          <li>We never store banking passwords or PINs on our servers, under any circumstances.</li>
+          <li>Any credentials obtained by the Chrome Extension are hashed and remain exclusively on your device. They are not accessible to Viri or transmitted over the network to us.</li>
+          <li>All direct communication with your bank's systems happens between your browser (through the Chrome Extension) and the bank itself. Viri's servers are not a party to this communication and do not intercept or relay your bank login session.</li>
+        </ul>
+
+        <h3>5. How We Use Your Information</h3>
+        <p>We use the information described above to:</p>
+        <ul>
+          <li>Display your unified account dashboard.</li>
+          <li>Generate reports and statements on demand, using the Statement Generator and Reports Suite.</li>
+          <li>Operate the Verification Panel and Unified Transaction Ledger.</li>
+          <li>Maintain, improve, and optimise the Service, including diagnosing technical issues.</li>
+          <li>Communicate with you about your account and material changes to the Service.</li>
+        </ul>
+
+        <h3>6. Data Sharing and Third Parties</h3>
+        <ul>
+          <li>We do not sell or rent your data to any third party.</li>
+          <li>We may share data if required to do so by Maldivian law, court order, or a competent regulatory authority.</li>
+          <li>We may use trusted third party hosting providers to store data on encrypted servers. These providers are contractually bound to protect your information and may only process it on our instructions.</li>
+          <li>We do not share your data with BML, MIB, or any other institution for their own marketing or business purposes.</li>
+        </ul>
+
+        <h3>7. Data Retention and Deletion</h3>
+        <ul>
+          <li>We retain company registration details and account information for as long as your account remains active, or as needed to comply with legal obligations.</li>
+          <li>Cached transaction data is retained only as needed to populate your dashboard and is not kept indefinitely unless you export it.</li>
+          <li>You may request deletion of your account and associated data at any time by contacting us. We will action deletion requests within a reasonable period, subject to any retention required by law.</li>
+        </ul>
+
+        <h3>8. Your Rights</h3>
+        <p>You have the right to:</p>
+        <ul>
+          <li>Access the personal and business data we hold about you.</li>
+          <li>Request correction of inaccurate or incomplete data.</li>
+          <li>Request deletion of your data, subject to Section 7.</li>
+          <li>Withdraw consent to data processing, which may limit or end your ability to use the Service.</li>
+        </ul>
+        <p>To exercise these rights, contact us using the details in Section 11.</p>
+
+        <h3>9. Security Measures</h3>
+        <ul>
+          <li>All data transmitted between your device and our servers is encrypted in transit using HTTPS.</li>
+          <li>Credentials obtained by the Chrome Extension are hashed and stored locally on your device only, never on our servers.</li>
+          <li>We do not store credentials, passwords, or PINs on our servers under any circumstances.</li>
+          <li>We apply reasonable administrative, technical, and physical safeguards to protect the information we do hold, though no system can be guaranteed completely secure.</li>
+        </ul>
+
+        <h3>10. Changes to This Policy</h3>
+        <p>We may update this Privacy Policy from time to time to reflect changes in our practices or for legal or operational reasons. We will notify users of significant changes through the dashboard or by email. Continued use of the Service after changes take effect constitutes acceptance of the revised Policy.</p>
+
+        <h3>11. Contact Us</h3>
+        <p>If you have questions about this Privacy Policy or wish to exercise your data rights, please contact us at [Insert Contact Email].</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/main.js"></script>
+  <script>
+    (function () {
+      const form = document.getElementById('register-form');
+      const btn = document.getElementById('register-btn');
+      const errorEl = document.getElementById('register-error');
+      const agreeCheckbox = document.getElementById('agree-terms');
+
+      // Modal functionality
+      const modalLinks = document.querySelectorAll('.modal-link');
+      const modals = document.querySelectorAll('.modal-overlay');
+
+      modalLinks.forEach(link => {
+        link.addEventListener('click', function(e) {
+          e.preventDefault();
+          const modalId = this.getAttribute('data-modal');
+          const modal = document.getElementById(modalId);
+          if (modal) {
+            modal.hidden = false;
+            document.body.style.overflow = 'hidden';
+          }
+        });
+      });
+
+      document.querySelectorAll('.modal-close').forEach(btn => {
+        btn.addEventListener('click', function() {
+          this.closest('.modal-overlay').hidden = true;
+          document.body.style.overflow = '';
+        });
+      });
+
+      modals.forEach(modal => {
+        modal.addEventListener('click', function(e) {
+          if (e.target === this) {
+            this.hidden = true;
+            document.body.style.overflow = '';
+          }
+        });
+      });
+
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+          modals.forEach(modal => {
+            if (!modal.hidden) {
+              modal.hidden = true;
+              document.body.style.overflow = '';
+            }
+          });
+        }
+      });
+
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        errorEl.hidden = true;
+
+        if (!agreeCheckbox.checked) {
+          errorEl.textContent = 'You must agree to the Terms of Service and Privacy Policy to continue.';
+          errorEl.hidden = false;
+          return;
+        }
+
+        const password = document.getElementById('password').value;
+        const confirm = document.getElementById('confirm-password').value;
+
+        if (password !== confirm) {
+          errorEl.textContent = 'Passwords do not match.';
+          errorEl.hidden = false;
+          return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Creating Account...';
+
+        // Simulate registration (no backend)
+        setTimeout(function () {
+          btn.disabled = false;
+          btn.textContent = 'Register Company';
+          alert('Registration successful! (Demo mode — no backend connected)');
+        }, 1500);
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -467,6 +467,10 @@ h6,
     @apply border border-[var(--border-color)] hover:border-[var(--color-success)] hover:bg-emerald-900/30 text-[var(--text-primary)] backdrop-blur-sm bg-transparent;
   }
 
+  .btn-primary {
+    @apply bg-emerald-500 hover:bg-emerald-400 text-black font-bold border-none shadow-[0_0_15px_rgba(16,185,129,0.3)] hover:shadow-[0_0_25px_rgba(16,185,129,0.5)];
+  }
+
   .glass-panel {
     @apply bg-[var(--bg-surface)] backdrop-blur-xl border border-[var(--border-color)] rounded-2xl shadow-2xl;
   }

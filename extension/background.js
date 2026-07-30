@@ -1417,9 +1417,8 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
 
     // Find match for search mode
     let match = null;
-    const targetAmtClean = targetAmount.replace(/,/g, '');
     for (const tx of formattedTxs) {
-      if (tx.amount.replace(/,/g, '') === targetAmtClean && !tx.amount.startsWith('-')) {
+      if (parseFloat(tx.amount.replace(/,/g, '')) === parseFloat(targetAmount) && !tx.amount.startsWith('-')) {
         match = tx;
         break;
       }
@@ -3069,7 +3068,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     let matchedTx = null;
 
     for (const tx of formattedTxs) {
-      if (!tx.minus && tx.amount === searchAmt) {
+      if (!tx.minus && parseFloat(tx.amount) === searchAmt) {
         matchedTx = tx;
         break;
       }
@@ -3089,14 +3088,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
       });
     } else {
       emitLog(port, `> [MIB-API] No match found for ${targetAmount}.`);
-      port.postMessage({ 
-        type: 'not_found', 
-        transactions: formattedTxs.slice(0, 3), 
-        login_success: true,
-        balance: accountBalance || '0.00',
-        reservedBalance: accountReservedBalance || '0.00',
-        availableBalance: accountAvailableBalance || '0.00'
-      });
+      throw new Error(`Verification Failed: No recent credit transaction found for ${targetAmount}.`);
     }
 
   } catch (error) {

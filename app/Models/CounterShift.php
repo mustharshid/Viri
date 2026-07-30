@@ -15,6 +15,7 @@ class CounterShift extends Model
         'tenant_id',
         'terminal_id',
         'shift_number',
+        'shift_date',
         'opened_at',
         'closed_at',
         'opened_by',
@@ -29,6 +30,7 @@ class CounterShift extends Model
     protected $casts = [
         'opened_at' => 'datetime',
         'closed_at' => 'datetime',
+        'shift_date' => 'date:Y-m-d',
         'total_claimed_amount_mvr' => 'float',
         'total_claimed_amount_usd' => 'float',
         'total_claimed_count' => 'integer',

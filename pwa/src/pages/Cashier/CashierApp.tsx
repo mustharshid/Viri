@@ -454,25 +454,25 @@ const TransactionRow = React.memo(({
 
   return (
     <tr className={`transition-colors group ${rowBg} ${isNew ? 'animate-new-transaction' : ''}`}>
-      <td className="py-4 px-5 text-xs font-mono text-zinc-400 whitespace-nowrap align-top">
+      <td className="py-3 px-3 text-xs font-mono text-zinc-400 whitespace-nowrap align-top min-w-[100px]">
         {tx.date}
       </td>
-      <td className="py-4 px-5 text-sm font-bold text-zinc-200 align-top">
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5">{getTransactionIcon(description)}</div>
-          <div className="flex flex-col">
-            <span>{description}</span>
+      <td className="py-3 px-3 text-sm font-bold text-zinc-200 align-top min-w-[120px] max-w-[180px]">
+        <div className="flex items-start gap-2">
+          <div className="mt-0.5 shrink-0">{getTransactionIcon(description)}</div>
+          <div className="flex flex-col min-w-0">
+            <span className="truncate">{description}</span>
             {tx.narrative3 && (
-              <span className="text-xs font-medium text-zinc-400 mt-1">{tx.narrative3}</span>
+              <span className="text-xs font-medium text-zinc-400 mt-1 truncate">{tx.narrative3}</span>
             )}
           </div>
         </div>
       </td>
-      <td className="py-4 px-5 text-xs text-zinc-400 font-mono leading-relaxed align-top break-all max-w-sm">
+      <td className="py-3 px-3 text-xs text-zinc-400 font-mono leading-relaxed align-top break-words min-w-[150px] max-w-[220px]">
         <CopiableChip
           val={beneficiaryName}
           label="Beneficiary Name"
-          className="font-normal text-[17px] font-sans tracking-tight text-[var(--text-primary)] text-left justify-start block w-full truncate max-w-xs mb-1"
+          className="font-normal text-[17px] font-sans tracking-tight text-[var(--text-primary)] text-left justify-start block w-full truncate max-w-[200px] mb-1"
         />
         {(blazRef || ftRef || refs.length > 0) && (
           <div className="flex flex-wrap gap-1.5 text-xs font-mono">
@@ -506,7 +506,7 @@ const TransactionRow = React.memo(({
           </div>
         )}
       </td>
-      <td className="py-4 px-5 text-right align-top whitespace-nowrap">
+      <td className="py-3 px-3 text-right align-top whitespace-nowrap min-w-[130px]">
         <CopiableChip
           val={tx.amount}
           displayVal={formatAmount(tx.amount)}
@@ -1024,7 +1024,7 @@ function App() {
   const [_terminalId, setTerminalId] = useState<number | null>(null);
   const [accountToClear, setAccountToClear] = useState<any | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const LATEST_EXTENSION_VERSION = "1.2.88";
+  const LATEST_EXTENSION_VERSION = "1.2.89";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -1640,6 +1640,8 @@ function App() {
           if (res.ok) {
             showCustomAlert('Shift Closed Successfully', `Shift #${data.closed_shift?.shift_number || ''} closed successfully! Next shift #${data.new_shift?.shift_number || ''} is now open.`, 'success');
             setClaimedSalesList([]);
+            setShiftIdFilter('');
+            setShiftReportDateFilter(getTodayDateString());
             await loadClaimedSalesAndShift();
             await loadReports();
           } else {
@@ -4899,6 +4901,92 @@ function App() {
                             </button>
                           </div>
 
+                          {/* Combined Active Account & Last Credit Card (Compact View Only - Below View History Button) */}
+                          <div className="block lg:hidden w-full glass-panel p-4 border border-zinc-800 bg-zinc-950/40 rounded-xl flex flex-col gap-3 relative overflow-hidden shadow-sm mt-3">
+                            {/* Header row: Active Account title on left, Last Credit on top right */}
+                            <div className="flex items-center justify-between gap-2 border-b border-zinc-800/60 pb-2">
+                              <h4 className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest flex items-center gap-1.5 z-10">
+                                <BookOpen size={12} className="text-zinc-400" /> Active Account
+                              </h4>
+
+                              {/* Last Credit Top Right Display */}
+                              {(() => {
+                                const lastCreditTx = lastTransactions.find(tx => typeof tx.amount === 'string' && tx.amount.startsWith('+'));
+                                const lastCreditAmount = activeStepIndex === 5 && result
+                                  ? formatAmount(result?.amount)
+                                  : (lastCreditTx ? formatAmount(lastCreditTx.amount).replace('+', '') : '00.00');
+                                const lastCreditDate = activeStepIndex === 5 && result
+                                  ? (result.transaction?.date || new Date(result.timestamp).toLocaleString())
+                                  : (lastCreditTx ? lastCreditTx.date : null);
+
+                                return (
+                                  <div className="text-right flex items-center gap-1.5 font-mono text-[11px] text-zinc-300 font-bold bg-emerald-955/20 border border-emerald-500/20 px-2 py-0.5 rounded-lg shrink-0">
+                                    <span className="text-[10px] text-zinc-400 font-sans uppercase font-bold">Last Credit:</span>
+                                    <span className="text-emerald-400 font-bold">{selectedAccountCurrency} {lastCreditAmount}</span>
+                                    {lastCreditDate && (
+                                      <span className="text-zinc-500 text-[10px] hidden sm:inline">| {lastCreditDate}</span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+
+                            {/* Active Account Details */}
+                            <div className="flex items-center gap-3 z-10 my-0.5">
+                              {selectedAccount ? (
+                                <>
+                                  <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800/80 p-1 flex items-center justify-center shrink-0">
+                                    <img src={selectedAccount.bank_name === 'BML' ? '/logo_bml.png' : '/logo_mib.png'} className="w-full h-full object-contain" alt="" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className={`text-[10px] uppercase font-bold tracking-wider ${selectedAccount.bank_name === 'BML' ? 'text-red-400' : 'text-emerald-400'}`}>
+                                        {selectedAccount.bank_name}
+                                      </span>
+                                      {selectedAccount.label && (
+                                        <span className="text-[10px] bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded font-bold">
+                                          {selectedAccount.label}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-[13px] font-bold text-white truncate mt-0.5">{selectedAccount.account_name}</div>
+                                    <div className="text-[11px] font-mono text-[var(--text-secondary)] mt-0.5">
+                                      {selectedAccount.account_number}
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="text-zinc-500 text-sm">No Account Selected</div>
+                              )}
+                            </div>
+
+                            {/* Balance Footer */}
+                            <div className="flex justify-between items-end z-10 pt-2 border-t border-zinc-800/60 mt-auto">
+                              <div className="flex flex-col">
+                                <span className="text-zinc-500 text-[10px] uppercase tracking-wider font-bold">Balance</span>
+                                {(() => {
+                                  const verifyCache = selectedAccount ? (ledgerCache[selectedAccount.id.toString()] || { balance: 'Not synced', reservedBalance: '0.00' } as any) : { balance: 'Not synced', reservedBalance: '0.00' } as any;
+                                  return permissions.ledger_show_balance && verifyCache.balance !== 'Not synced' && verifyCache.balance !== 'Not found' && (
+                                    <span className="text-zinc-500 text-[9px] font-sans uppercase mt-0.5">
+                                      Reserved: {selectedAccountCurrency} {formatAmount(verifyCache.reservedBalance || '0.00')}
+                                    </span>
+                                  );
+                                })()}
+                              </div>
+                              <div className="text-right">
+                                <span className="text-[10px] text-emerald-500/70 mr-1 font-bold">{selectedAccountCurrency}</span>
+                                <span className="text-sm font-bold font-mono text-emerald-400">
+                                  {(() => {
+                                    const verifyCache = selectedAccount ? (ledgerCache[selectedAccount.id.toString()] || { balance: 'Not synced' } as any) : { balance: 'Not synced' } as any;
+                                    return permissions.ledger_show_balance ? (
+                                      verifyCache.balance !== 'Not synced' && verifyCache.balance !== 'Not found' ? formatAmount(verifyCache.balance) : '0.00'
+                                    ) : '[hidden]';
+                                  })()}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
                           {!isCredentialsComplete && (
                             <p className="text-xs text-[var(--color-warning)] mt-1 text-center leading-relaxed">
                               {isSelectedApiManaged 
@@ -5004,8 +5092,8 @@ function App() {
 
                 {/* RIGHT COLUMN: Progress + Active Account + Logs + Recent Transactions */}
                 <div className="contents lg:flex lg:flex-col lg:gap-8 lg:col-span-8 animate-fade-in animate-duration-500">
-                  {/* Progress & Active Account sub-grid */}
-                  <div className="contents lg:grid lg:grid-cols-2 lg:gap-8 lg:items-start">
+                  {/* Progress & Active Account sub-grid (Normal / Large Screen View Only) */}
+                  <div className="hidden lg:grid lg:grid-cols-2 lg:gap-8 lg:items-start">
                     {/* Progress / Status Card */}
                     <div className="w-full glass-panel p-6 border border-zinc-800 bg-zinc-950/20 rounded-2xl flex flex-col justify-between min-h-[175px] shadow-sm animate-fade-in order-2 lg:order-none">
                       <div className="flex justify-between items-start gap-4">
@@ -5297,14 +5385,14 @@ function App() {
                       {lastTransactions && lastTransactions.length > 0 ? (
                         <>
                           {/* Desktop Table View */}
-                          <div className="hidden md:block overflow-x-hidden">
-                            <table className="w-full text-left text-xs border-collapse">
+                          <div className="hidden md:block overflow-x-auto scrollbar-thin">
+                            <table className="w-full text-left text-xs border-collapse min-w-[500px]">
                               <thead>
                                 <tr className="border-b border-zinc-800 bg-zinc-900/10 text-zinc-400 uppercase tracking-wider font-semibold text-[10px]">
-                                  <th className="px-2.5 py-2 font-medium">Date & Time <Tooltip text="The transaction posting date." helpSectionId="transaction-ledger" /></th>
-                                  <th className="px-2.5 py-2 font-medium">Description <Tooltip text="Primary transaction description/type." helpSectionId="transaction-ledger" /></th>
-                                  <th className="px-2.5 py-2 font-medium">Details <Tooltip text="Additional transaction info (refs, IDs, card details, sender info)." helpSectionId="transaction-ledger" /></th>
-                                  <th className="px-2.5 py-2 font-medium text-right">Amount / Balance <Tooltip text="Green indicates credits (+), red indicates debits (-)." helpSectionId="transaction-ledger" /></th>
+                                  <th className="px-3 py-2 font-medium min-w-[100px]">Date & Time <Tooltip text="The transaction posting date." helpSectionId="transaction-ledger" /></th>
+                                  <th className="px-3 py-2 font-medium min-w-[120px]">Description <Tooltip text="Primary transaction description/type." helpSectionId="transaction-ledger" /></th>
+                                  <th className="px-3 py-2 font-medium min-w-[150px]">Details <Tooltip text="Additional transaction info (refs, IDs, card details, sender info)." helpSectionId="transaction-ledger" /></th>
+                                  <th className="px-3 py-2 font-medium text-right min-w-[130px]">Amount / Balance <Tooltip text="Green indicates credits (+), red indicates debits (-)." helpSectionId="transaction-ledger" /></th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-[var(--border-color)] text-xs text-[var(--text-secondary)]">
@@ -6099,6 +6187,9 @@ function App() {
               <div className="flex-1 w-full max-w-7xl mx-auto flex flex-col gap-6 p-4 md:p-6 animate-fade-in h-full min-h-[500px]">
                 {/* Print Styles (applied to both Shift and Monthly reports) */}
                 <style>{`
+                  .spreadsheet-table td {
+                    vertical-align: top;
+                  }
                   @media print {
                     @page {
                       size: A4 landscape;
@@ -7265,7 +7356,7 @@ function App() {
               <form onSubmit={(e) => { e.preventDefault(); handleClaimTx(claimPopoverItem, claimRefInput, claimNotesInput); }} className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1">
-                    Sale # / Invoice # / POS Slip ID (Optional)
+                    Sale # / Invoice # / POS Slip ID (Required)
                   </label>
                   <input
                     type="text"
@@ -7273,6 +7364,7 @@ function App() {
                     value={claimRefInput}
                     onChange={e => setClaimRefInput(e.target.value)}
                     className="input-field w-full text-xs"
+                    required
                     autoFocus
                   />
                 </div>
@@ -7294,7 +7386,7 @@ function App() {
                   <button type="button" onClick={() => setClaimPopoverItem(null)} className="btn btn-outline text-xs px-3 py-1.5">
                     Cancel
                   </button>
-                  <button type="submit" disabled={isSubmittingClaim} className="btn btn-success text-xs px-4 py-1.5 flex items-center gap-1 font-bold">
+                  <button type="submit" disabled={isSubmittingClaim || !claimRefInput.trim()} className="btn btn-success text-xs px-4 py-1.5 flex items-center gap-1 font-bold">
                     {isSubmittingClaim ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
                     Confirm Claim
                   </button>

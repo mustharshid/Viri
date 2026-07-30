@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login, Viri Banking Aggregator</title>
+  <meta name="description" content="Log in to your Viri account and manage your unified banking dashboard.">
+  <link rel="icon" type="image/png" href="img/favicon.png">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;500&display=swap" media="print" onload="this.media='all'">
+  <noscript>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  </noscript>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Particle Background -->
+  <canvas id="particle-canvas"></canvas>
+
+  <!-- Navigation -->
+  <nav class="nav" role="navigation" aria-label="Main navigation">
+    <a href="index.html" class="nav-logo" aria-label="Viri home">
+      <img src="img/logo_en.png" alt="Viri" width="160" height="40" decoding="async" fetchpriority="high" loading="eager">
+    </a>
+    <div class="nav-links">
+      <a href="faq.html" class="nav-link">FAQ</a>
+      <a href="login.html" class="nav-signin">Sign in</a>
+      <a href="register.html" class="btn-primary">Get started</a>
+    </div>
+  </nav>
+
+  <!-- Login Page -->
+  <main class="auth-page">
+    <div class="auth-card">
+      <a href="index.html" aria-label="Viri home">
+        <img src="img/logo_en.png" alt="Viri" class="auth-logo" width="160" height="40" decoding="async" loading="eager">
+      </a>
+
+      <div class="auth-header">
+        <h1>Welcome back</h1>
+        <p>Log in to manage your Viri account.</p>
+      </div>
+
+      <form class="auth-form" id="login-form" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="email">Email</label>
+          <input class="form-input" type="email" id="email" name="email" required autocomplete="email">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="password">Password</label>
+          <input class="form-input" type="password" id="password" name="password" required autocomplete="current-password">
+        </div>
+
+        <div class="form-error" id="login-error" role="alert" hidden></div>
+
+        <button type="submit" class="form-btn" id="login-btn">Log in</button>
+      </form>
+
+      <p class="form-footer">
+        Don't have an account? <a href="register.html">Register your company</a>
+      </p>
+    </div>
+  </main>
+
+  <!-- Scripts -->
+  <script src="js/main.js"></script>
+  <script>
+    (function () {
+      const form = document.getElementById('login-form');
+      const btn = document.getElementById('login-btn');
+      const errorEl = document.getElementById('login-error');
+
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        errorEl.hidden = true;
+
+        btn.disabled = true;
+        btn.textContent = 'Logging in...';
+
+        // Simulate login (no backend)
+        setTimeout(function () {
+          btn.disabled = false;
+          btn.textContent = 'Log in';
+          alert('Login successful! (Demo mode — no backend connected)');
+        }, 1500);
+      });
+    })();
+  </script>
+</body>
+</html>

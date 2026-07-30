@@ -67,7 +67,7 @@ const DeleteConfirmModal = ({ isOpen, onClose, onConfirm, title, message, itemNa
 };
 
 export default function CompanyDashboard() {
-  const LATEST_EXTENSION_VERSION = "1.2.88";
+  const LATEST_EXTENSION_VERSION = "1.2.89";
   const [theme, toggleTheme] = useTheme();
   const [user, setUser] = useState<any>(null);
   const [terminals, setTerminals] = useState<any[]>([]);
@@ -901,7 +901,7 @@ export default function CompanyDashboard() {
       />
       
       {/* ── Sidebar Navigation ── */}
-      <aside className="w-56 lg:w-64 border-r border-zinc-800/60 bg-zinc-950/40 backdrop-blur-xl p-4 lg:p-6 hidden md:flex flex-col justify-between h-screen sticky top-0 shrink-0">
+      <aside className="w-56 lg:w-64 border-r border-[var(--border-color)] bg-[var(--bg-surface)] backdrop-blur-xl p-4 lg:p-6 hidden md:flex flex-col justify-between h-screen sticky top-0 shrink-0">
         <div>
           <div className="mb-6 flex items-center justify-start">
             <img 

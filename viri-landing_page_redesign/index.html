@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Viri, Maldives' First Enterprise Banking Aggregator</title>
+  <meta name="description" content="Connect BML and MIB accounts into one unified dashboard. Instant verification, transaction ledger, reports, and on-demand statements.">
+  <link rel="icon" type="image/png" href="img/favicon.png">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;500&display=swap" media="print" onload="this.media='all'">
+  <noscript>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  </noscript>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Particle Background -->
+  <canvas id="particle-canvas"></canvas>
+
+  <!-- Navigation -->
+  <nav class="nav" role="navigation" aria-label="Main navigation">
+    <a href="index.html" class="nav-logo" aria-label="Viri home">
+      <img src="img/logo_en.png" alt="Viri" width="160" height="40" decoding="async" fetchpriority="high" loading="eager">
+    </a>
+    <div class="nav-links">
+      <a href="faq.html" class="nav-link">FAQ</a>
+      <a href="login.html" class="nav-signin">Sign in</a>
+      <a href="register.html" class="btn-primary">Get started</a>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <section class="hero" id="hero">
+    <img src="img/logo_dv_en.png" alt="Viri" class="hero-logo reveal" width="180" height="48" decoding="async" fetchpriority="high" loading="eager">
+
+    <h1 class="display-xl hero-title reveal reveal-delay-1">
+      One dashboard.<br>All your accounts. Full visibility.
+    </h1>
+
+    <p class="body-md hero-subtitle reveal reveal-delay-2">
+      Connect accounts from both banks. Unified ledger, instant verification,
+      on-demand statements. Built for Maldivian businesses.
+    </p>
+
+    <div class="hero-actions reveal reveal-delay-3">
+      <a href="register.html" class="btn-primary hero-btn">
+        Try Pro for free
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+      </a>
+    </div>
+
+    <!-- 3D Depth-of-Field Carousel -->
+    <section class="carousel-section reveal reveal-delay-4" data-carousel>
+      <div class="carousel-external-title">
+        <div class="carousel-external-heading morph-heading" data-carousel-heading>
+          <span class="morph-text morph-text-1">Verification Panel</span>
+          <span class="morph-text morph-text-2">Verification Panel</span>
+        </div>
+        <div class="carousel-external-subheading morph-subheading" data-carousel-subheading>
+          <span class="morph-subtext morph-subtext-1">Search by target amount to find and verify specific payments across all connected accounts.</span>
+          <span class="morph-subtext morph-subtext-2">Search by target amount to find and verify specific payments across all connected accounts.</span>
+        </div>
+      </div>
+
+      <div class="carousel-viewport">
+        <div class="carousel-track">
+          <!-- Panel 0: Verification Panel -->
+          <div class="carousel-card active" data-panel="0">
+            <div class="terminal-header">
+              <span class="terminal-dot red"></span>
+              <span class="terminal-dot yellow"></span>
+              <span class="terminal-dot green"></span>
+              <span class="terminal-title">viri — verification panel</span>
+            </div>
+            <div class="terminal-body">
+              <div class="verify-grid">
+                <div class="verify-form">
+                  <div class="verify-input-group">
+                    <label>Target Amount (MVR)</label>
+                    <input type="text" class="verify-input" value="25,000.00" readonly>
+                  </div>
+                  <div class="panel-section">
+                    <div class="panel-section-title">Receiving Account</div>
+                    <div class="verify-accounts">
+                      <div class="verify-account">
+                        <div class="verify-account-icon mib">M</div>
+                        <div class="verify-account-info">
+                          <div class="verify-account-name">Aisha Mohamed</div>
+                          <div class="verify-account-num">90101101137792000</div>
+                        </div>
+                        <span class="verify-account-badge usd">USD</span>
+                      </div>
+                      <div class="verify-account selected">
+                        <div class="verify-account-icon bml">4</div>
+                        <div class="verify-account-info">
+                          <div class="verify-account-name">Aisha Mohamed</div>
+                          <div class="verify-account-num">7701111524001</div>
+                        </div>
+                        <span class="verify-account-badge mvr">MVR</span>
+                      </div>
+                      <div class="verify-account">
+                        <div class="verify-account-icon bml">4</div>
+                        <div class="verify-account-info">
+                          <div class="verify-account-name">Aisha Mohamed</div>
+                          <div class="verify-account-num">770000076915</div>
+                        </div>
+                        <span class="verify-account-badge saving">SAVING</span>
+                      </div>
+                    </div>
+                  </div>
+                  <button class="verify-btn verify-btn-primary">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/></svg>
+                    Verify Transfer
+                  </button>
+                  <button class="verify-btn verify-btn-outline">View History</button>
+                </div>
+                <div class="verify-results">
+                  <div class="verify-last-credit">
+                    <div class="verify-last-credit-header">
+                      <span class="verify-last-credit-amount">MVR 25,000.00</span>
+                    </div>
+                    <div class="verify-last-credit-meta">Date: Jul 16, 09:08</div>
+                    <div class="verify-last-credit-meta">Transfer Credit — OCEANVIEW RESORTS...</div>
+                  </div>
+                  <div class="panel-section">
+                    <div class="panel-section-title">Recent Transactions — BML 7701111524001</div>
+                    <div class="verify-tx-table">
+                      <div class="verify-tx-header">
+                        <span>Date & Time</span>
+                        <span>Description</span>
+                        <span style="text-align:right">Amount</span>
+                      </div>
+                      <div class="verify-tx-row">
+                        <span class="verify-tx-date">Jul 16, 09:08</span>
+                        <span class="verify-tx-desc">Transfer Credit — OCEANVIEW RESORTS PVT LTD</span>
+                        <span class="verify-tx-amount credit">+25,000.00</span>
+                      </div>
+                      <div class="verify-tx-row">
+                        <span class="verify-tx-date">Jul 16, 09:02</span>
+                        <span class="verify-tx-desc">Transfer Credit — AHMED RASHID</span>
+                        <span class="verify-tx-amount credit">+1,500.00</span>
+                      </div>
+                      <div class="verify-tx-row">
+                        <span class="verify-tx-date">Jul 16, 08:45</span>
+                        <span class="verify-tx-desc">Transfer Debit — AHMED RASHID</span>
+                        <span class="verify-tx-amount debit">-350.00</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Panel 1: Transaction Ledger -->
+          <div class="carousel-card next" data-panel="1">
+            <div class="terminal-header">
+              <span class="terminal-dot red"></span>
+              <span class="terminal-dot yellow"></span>
+              <span class="terminal-dot green"></span>
+              <span class="terminal-title">viri — transaction ledger</span>
+            </div>
+            <div class="terminal-body">
+              <div class="ledger-header">
+                <div class="ledger-title">Daily Entries <span>(15)</span></div>
+                <div class="ledger-filters">
+                  <button class="ledger-filter-pill active">All</button>
+                  <button class="ledger-filter-pill">Inwards</button>
+                  <button class="ledger-filter-pill">Outwards</button>
+                  <div class="ledger-search">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/></svg>
+                    Search...
+                  </div>
+                </div>
+              </div>
+              <div class="ledger-sync-bar">
+                <span class="ledger-sync-label">Sync Progress</span>
+                <div class="ledger-sync-track"><div class="ledger-sync-fill"></div></div>
+                <span class="ledger-sync-status">100% Success</span>
+                <span>Since last sync: 2m 14s ago</span>
+              </div>
+              <div class="ledger-table">
+                <div class="ledger-table-header">
+                  <span></span>
+                  <span>Date & Time</span>
+                  <span>Description</span>
+                  <span>Details / Meta</span>
+                  <span style="text-align:right">Amount (MVR)</span>
+                </div>
+                <div class="ledger-table-row">
+                  <div class="ledger-status-icon credit">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m5 12 7-7 7 7"/></svg>
+                  </div>
+                  <span class="ledger-date">Jul 16, 09:08</span>
+                  <span class="ledger-desc">Transfer Credit — OCEANVIEW RESORTS</span>
+                  <span class="ledger-details">Ref: 380 — ID: 1-147931648-380-55170</span>
+                  <span class="ledger-amount credit">+25,000.00</span>
+                </div>
+                <div class="ledger-table-row">
+                  <div class="ledger-status-icon debit">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m19 12-7 7-7-7"/></svg>
+                  </div>
+                  <span class="ledger-date">Jul 15, 16:42</span>
+                  <span class="ledger-desc">IB Acc to Acc</span>
+                  <span class="ledger-details">Ref: 85234102 — ID: 1-147222895-85234102-1</span>
+                  <span class="ledger-amount debit">-5,000.00</span>
+                </div>
+                <div class="ledger-table-row">
+                  <div class="ledger-status-icon credit">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m5 12 7-7 7 7"/></svg>
+                  </div>
+                  <span class="ledger-date">Jul 15, 11:30</span>
+                  <span class="ledger-desc">Cash Deposit ATM</span>
+                  <span class="ledger-details">Ref: 78871720 — ID: 1-744820714-78871720-1</span>
+                  <span class="ledger-amount credit">+12,500.00</span>
+                </div>
+                <div class="ledger-table-row">
+                  <div class="ledger-status-icon debit">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m19 12-7 7-7-7"/></svg>
+                  </div>
+                  <span class="ledger-date">Jul 14, 14:15</span>
+                  <span class="ledger-desc">Favara Transfer Web</span>
+                  <span class="ledger-details">Ref: 78125890 — ID: 1-741093425-78125890-1</span>
+                  <span class="ledger-amount debit">-1,200.00</span>
+                </div>
+                <div class="ledger-table-row">
+                  <div class="ledger-status-icon credit">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m5 12 7-7 7 7"/></svg>
+                  </div>
+                  <span class="ledger-date">Jul 13, 09:20</span>
+                  <span class="ledger-desc">Client Payment — ISLAND CORP</span>
+                  <span class="ledger-details">Ref: 381 — ID: 1-147931648-381-55171</span>
+                  <span class="ledger-amount credit">+87,500.00</span>
+                </div>
+                <div class="ledger-table-row">
+                  <div class="ledger-status-icon debit">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m19 12-7 7-7-7"/></svg>
+                  </div>
+                  <span class="ledger-date">Jul 12, 17:05</span>
+                  <span class="ledger-desc">Payroll Batch — July 2026</span>
+                  <span class="ledger-details">Ref: 85234115 — ID: 1-147222895-85234115-1</span>
+                  <span class="ledger-amount debit">-342,800.00</span>
+                </div>
+              </div>
+              <div class="ledger-footer">
+                <span>Show 25 rows</span>
+                <div style="display:flex;gap:6px">
+                  <button class="ledger-footer-btn accent">Save Report</button>
+                  <button class="ledger-footer-btn">Force Sync</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Panel 2: Reports Suite -->
+          <div class="carousel-card far-next" data-panel="2">
+            <div class="terminal-header">
+              <span class="terminal-dot red"></span>
+              <span class="terminal-dot yellow"></span>
+              <span class="terminal-dot green"></span>
+              <span class="terminal-title">viri — reports suite</span>
+            </div>
+            <div class="terminal-body">
+              <div class="reports-grid">
+                <div class="reports-sidebar">
+                  <div class="reports-sidebar-title">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                    Reports
+                  </div>
+                  <div class="reports-nav-item active">Cash Flow Summary</div>
+                  <div class="reports-nav-item">Period Comparison</div>
+                  <div class="reports-nav-item">Activity by Account</div>
+                  <div class="reports-nav-item">Trend Analysis</div>
+                  <div class="reports-nav-item">Transaction Volume</div>
+                </div>
+                <div class="reports-content">
+                  <div class="reports-content-header">
+                    <span class="reports-content-title">Cash Flow Summary</span>
+                    <span class="reports-date-range">Jul 1 — Jul 16, 2026</span>
+                  </div>
+                  <div class="reports-stats">
+                    <div class="reports-stat">
+                      <div class="reports-stat-label">Total Inflow</div>
+                      <div class="reports-stat-value inflow">MVR 425,300.00</div>
+                    </div>
+                    <div class="reports-stat">
+                      <div class="reports-stat-label">Total Outflow</div>
+                      <div class="reports-stat-value outflow">MVR 349,200.00</div>
+                    </div>
+                  </div>
+                  <div class="reports-net">
+                    <div class="reports-net-label">Net Cash Flow</div>
+                    <div class="reports-net-value">MVR 76,100.00</div>
+                  </div>
+                  <div class="reports-chart">
+                    <div class="reports-bar positive" style="height:45%"></div>
+                    <div class="reports-bar negative" style="height:30%"></div>
+                    <div class="reports-bar positive" style="height:70%"></div>
+                    <div class="reports-bar positive" style="height:55%"></div>
+                    <div class="reports-bar negative" style="height:40%"></div>
+                    <div class="reports-bar positive" style="height:85%"></div>
+                    <div class="reports-bar positive" style="height:65%"></div>
+                    <div class="reports-bar negative" style="height:35%"></div>
+                    <div class="reports-bar positive" style="height:90%"></div>
+                    <div class="reports-bar positive" style="height:75%"></div>
+                    <div class="reports-bar negative" style="height:50%"></div>
+                    <div class="reports-bar positive" style="height:60%"></div>
+                    <div class="reports-bar positive" style="height:80%"></div>
+                    <div class="reports-bar negative" style="height:25%"></div>
+                    <div class="reports-bar positive" style="height:95%"></div>
+                    <div class="reports-bar positive" style="height:70%"></div>
+                  </div>
+                  <div class="reports-export">
+                    <button class="reports-export-btn">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+                      PDF Summary
+                    </button>
+                    <button class="reports-export-btn">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+                      Excel / CSV
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Panel 3: Statement Generator -->
+          <div class="carousel-card prev" data-panel="3">
+            <div class="terminal-header">
+              <span class="terminal-dot red"></span>
+              <span class="terminal-dot yellow"></span>
+              <span class="terminal-dot green"></span>
+              <span class="terminal-title">viri — statement generator</span>
+            </div>
+            <div class="terminal-body">
+              <div class="statement-form">
+                <div class="statement-form-header">
+                  <div class="statement-form-icon">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+                  </div>
+                  <div>
+                    <div class="statement-form-title">Generate Statement</div>
+                    <div class="statement-form-subtitle">Select account and date range to generate a PDF statement.</div>
+                  </div>
+                </div>
+                <div class="statement-fields">
+                  <div class="statement-field">
+                    <label>Bank Account</label>
+                    <select class="statement-select">
+                      <option>BML ••4821 — Aisha Mohamed</option>
+                      <option>MIB ••2000 — Aisha Mohamed</option>
+                      <option>BML ••6915 — Savings</option>
+                    </select>
+                  </div>
+                  <div class="statement-field">
+                    <label>From Date</label>
+                    <input type="text" class="statement-date" value="01-07-2026" readonly>
+                  </div>
+                  <div class="statement-field">
+                    <label>To Date</label>
+                    <input type="text" class="statement-date" value="16-07-2026" readonly>
+                  </div>
+                  <button class="statement-generate-btn">Generate</button>
+                </div>
+              </div>
+              <div class="panel-section">
+                <div class="panel-section-title">Recent Statements</div>
+                <div class="statement-history">
+                  <div class="statement-history-header">
+                    <span>Account</span>
+                    <span>Date Range</span>
+                    <span>Size</span>
+                    <span>Type</span>
+                    <span></span>
+                  </div>
+                  <div class="statement-history-row">
+                    <span>BML ••4821</span>
+                    <span>Jul 1 — 15, 2026</span>
+                    <span>2.4 MB</span>
+                    <span>PDF</span>
+                    <span class="statement-download-badge">Download</span>
+                  </div>
+                  <div class="statement-history-row">
+                    <span>MIB ••2000</span>
+                    <span>Jul 1 — 15, 2026</span>
+                    <span>1.8 MB</span>
+                    <span>PDF</span>
+                    <span class="statement-download-badge">Download</span>
+                  </div>
+                  <div class="statement-history-row">
+                    <span>BML ••4821</span>
+                    <span>Jun 1 — 30, 2026</span>
+                    <span>3.1 MB</span>
+                    <span>PDF</span>
+                    <span class="statement-download-badge">Download</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- External Controls -->
+      <div class="carousel-external-controls">
+        <button class="carousel-arrow" data-carousel-prev aria-label="Previous panel">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+        <div class="carousel-dots">
+          <button class="carousel-dot active" data-carousel-dot="0" aria-label="Verification Panel"></button>
+          <button class="carousel-dot" data-carousel-dot="1" aria-label="Transaction Ledger"></button>
+          <button class="carousel-dot" data-carousel-dot="2" aria-label="Reports Suite"></button>
+          <button class="carousel-dot" data-carousel-dot="3" aria-label="Statement Generator"></button>
+        </div>
+        <button class="carousel-arrow" data-carousel-next aria-label="Next panel">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+        </button>
+      </div>
+    </section>
+  </section>
+
+  <!-- Tool Suite Section -->
+  <section class="tools-section" id="tools">
+    <div class="container">
+      <div class="tools-header reveal">
+        <p class="label">The Viri Tool Suite</p>
+        <h2 class="display-lg">Complete financial operations toolkit</h2>
+        <p class="body-md">Not just a viewer, a complete toolkit for managing your finances across every connected bank.</p>
+      </div>
+
+      <div class="tools-grid" data-stagger>
+        <!-- Card 1: Verification Panel (Featured) -->
+        <div class="tool-card featured">
+          <div>
+            <div class="tool-card-header">
+              <div class="tool-card-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/><path d="m9 12 2 2 4-4"/></svg>
+              </div>
+              <h3 class="tool-card-title">Verification Panel</h3>
+            </div>
+            <ul class="tool-card-list">
+              <li>Search for transactions by target amount, to find exact matches instantly</li>
+              <li>Preview the 3 most recent relevant transactions at a glance</li>
+              <li>General-purpose quick look-up for daily verification tasks</li>
+            </ul>
+          </div>
+          <div class="tool-card-preview">
+            <div class="mini-search">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/></svg>
+              <span>128,500</span>
+            </div>
+            <div class="mini-result">
+              <span class="mini-result-text">Azure Resorts — Invoice #1042</span>
+              <span class="mini-result-amount">+ 128,500</span>
+            </div>
+            <div class="mini-result">
+              <span class="mini-result-text">Azure Resorts — Invoice #1038</span>
+              <span class="mini-result-amount">+ 128,500</span>
+            </div>
+            <div class="mini-result">
+              <span class="mini-result-text">Azure Resorts — Invoice #1021</span>
+              <span class="mini-result-amount">+ 128,500</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2: Transaction Ledger -->
+        <div class="tool-card card-ledger">
+          <div class="tool-card-header">
+            <div class="tool-card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+            </div>
+            <h3 class="tool-card-title">Unified Transaction Ledger</h3>
+          </div>
+          
+          <!-- Section 1: Single Account Ledger -->
+          <div class="tool-card-section">
+            <h4 class="tool-card-section-title">Unified Account Ledger</h4>
+            <ul class="tool-card-list">
+              <li>Filter and view transactions of any single linked account dynamically</li>
+              <li>Isolate entries for individual account reconciliations</li>
+            </ul>
+            <div class="tool-card-preview">
+              <div class="mini-ledger-row">
+                <span class="mini-ledger-label">BML ••4821 — Supplier Payment</span>
+                <span class="mini-ledger-value debit">- 45,200</span>
+              </div>
+              <div class="mini-ledger-row">
+                <span class="mini-ledger-label">BML ••4821 — Payroll</span>
+                <span class="mini-ledger-value debit">- 387,000</span>
+              </div>
+              <div class="mini-ledger-row">
+                <span class="mini-ledger-label">BML ••4821 — Cash Deposit ATM</span>
+                <span class="mini-ledger-value credit">+ 12,500</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 3: Reports Suite -->
+        <div class="tool-card card-reports">
+          <div class="tool-card-header">
+            <div class="tool-card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+            </div>
+            <h3 class="tool-card-title">Reports Suite</h3>
+          </div>
+          <ul class="tool-card-list">
+            <li>Cash flow summary, overall inflow vs. outflow for any period</li>
+            <li>Period comparison, this month against last, or year-over-year</li>
+            <li>Trend analysis and transaction volume reports</li>
+            <li>Export as PDF Summary or raw Excel/CSV</li>
+          </ul>
+          <div class="tool-card-preview">
+            <div class="mini-chart">
+              <div class="mini-bar" style="height: 40%"></div>
+              <div class="mini-bar" style="height: 65%"></div>
+              <div class="mini-bar" style="height: 55%"></div>
+              <div class="mini-bar" style="height: 80%"></div>
+              <div class="mini-bar" style="height: 70%"></div>
+              <div class="mini-bar" style="height: 90%"></div>
+              <div class="mini-bar" style="height: 75%"></div>
+              <div class="mini-bar" style="height: 60%"></div>
+              <div class="mini-bar" style="height: 85%"></div>
+              <div class="mini-bar" style="height: 95%"></div>
+              <div class="mini-bar" style="height: 70%"></div>
+              <div class="mini-bar" style="height: 50%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 4: Statement Generator -->
+        <div class="tool-card card-statement">
+          <div class="tool-card-header">
+            <div class="tool-card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+            </div>
+            <h3 class="tool-card-title">Statement Generator</h3>
+          </div>
+          <ul class="tool-card-list">
+            <li>Generate statements for any date range</li>
+            <li>Available for all connected accounts</li>
+            <li>Download instantly as PDF, ready for audits or submissions</li>
+          </ul>
+          <div class="tool-card-preview">
+            <div class="mini-statement">
+              <div class="mini-statement-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+              </div>
+              <div class="mini-statement-info">
+                <div class="mini-statement-title">BML Statement — Nov 2025</div>
+                <div class="mini-statement-meta">Account ••4821 • PDF • 2.4 MB</div>
+              </div>
+              <span class="mini-statement-badge">Download</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 5: Terminal Permissions -->
+        <div class="tool-card card-permissions">
+          <div class="tool-card-header">
+            <div class="tool-card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg>
+            </div>
+            <h3 class="tool-card-title">Terminal Permissions</h3>
+          </div>
+          <ul class="tool-card-list">
+            <li>Set per-terminal access controls and security PINs</li>
+            <li>Toggle cashier capabilities — ledger, reports, statements</li>
+            <li>Control data visibility and diagnostic log sharing</li>
+          </ul>
+          <div class="tool-card-preview permissions-preview">
+            <div class="perm-preview-header">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg>
+              <span class="perm-preview-title">Configure Counter Permissions</span>
+              <span class="perm-preview-sub">Configure device credentials, permissions, and security PINs for this POS terminal</span>
+            </div>
+            <div class="perm-preview-cols">
+              <div class="perm-preview-col">
+                <div class="perm-preview-col-head">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  <span class="perm-preview-col-title">Counter Access & Security</span>
+                </div>
+                <span class="perm-preview-col-sub">Device credentials & security PINs</span>
+                <div class="perm-mini-field">
+                  <span class="perm-mini-label">Counter Name</span>
+                  <div class="perm-mini-input">aa</div>
+                </div>
+                <div class="perm-mini-field">
+                  <span class="perm-mini-label">Settings Pin</span>
+                  <div class="perm-mini-input dim">e.g. 123456</div>
+                  <span class="perm-mini-help">6-digit PIN for access to counter settings menu.</span>
+                </div>
+              </div>
+              <div class="perm-preview-col">
+                <div class="perm-preview-col-head">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg>
+                  <span class="perm-preview-col-title">Counter Capabilities</span>
+                </div>
+                <span class="perm-preview-col-sub">Primary cashier tools & modules</span>
+                <div class="perm-mini-check">
+                  <div class="perm-mini-box checked"></div>
+                  <div class="perm-mini-check-text">
+                    <span class="perm-mini-check-title">Verification Panel <span class="perm-mini-badge">Required</span></span>
+                    <span class="perm-mini-check-desc">Allows cashier to verify incoming MVR bank transfer receipts.</span>
+                  </div>
+                </div>
+                <div class="perm-mini-check">
+                  <div class="perm-mini-box checked"></div>
+                  <div class="perm-mini-check-text">
+                    <span class="perm-mini-check-title">Transaction Ledger</span>
+                    <span class="perm-mini-check-desc">Allows cashier to view account transaction statement history.</span>
+                  </div>
+                </div>
+                <div class="perm-mini-check">
+                  <div class="perm-mini-box checked"></div>
+                  <div class="perm-mini-check-text">
+                    <span class="perm-mini-check-title">View Analytics & Reports</span>
+                    <span class="perm-mini-check-desc">Grants access to reporting charts and analytics panels.</span>
+                  </div>
+                </div>
+                <div class="perm-mini-check">
+                  <div class="perm-mini-box checked"></div>
+                  <div class="perm-mini-check-text">
+                    <span class="perm-mini-check-title">Bank Statements Generator</span>
+                    <span class="perm-mini-check-desc">Allows cashier to generate and export bank account statements.</span>
+                  </div>
+                </div>
+              </div>
+              <div class="perm-preview-col">
+                <div class="perm-preview-col-head">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <span class="perm-preview-col-title">Advanced Data Controls</span>
+                </div>
+                <span class="perm-preview-col-sub">Ledger details & diagnostic logging</span>
+                <div class="perm-mini-check">
+                  <div class="perm-mini-box checked"></div>
+                  <div class="perm-mini-check-text">
+                    <span class="perm-mini-check-title">Show Account Balance</span>
+                    <span class="perm-mini-check-desc">Display live bank account balances on the cashier terminal.</span>
+                  </div>
+                </div>
+                <div class="perm-mini-check">
+                  <div class="perm-mini-box checked"></div>
+                  <div class="perm-mini-check-text">
+                    <span class="perm-mini-check-title">Share Diagnostic Logs</span>
+                    <span class="perm-mini-check-desc">Automatically send anonymized execution logs for superadmin troubleshooting.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="perm-preview-footer">
+              <span class="perm-mini-btn">Cancel</span>
+              <span class="perm-mini-btn save">Save Changes</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section class="how-section" id="how">
+    <div class="container">
+      <div class="how-header reveal">
+        <p class="label">How it works</p>
+        <h2 class="display-lg">Three steps to full visibility</h2>
+      </div>
+
+      <div class="how-steps">
+        <div class="how-step reveal">
+          <div class="how-step-number">01</div>
+          <h3 class="how-step-title">Onboard</h3>
+          <p class="how-step-desc">Create your company account and log into the admin dashboard. You'll be guided through a brief onboarding tour. Authenticate once; your session persists.</p>
+        </div>
+        <div class="how-step reveal reveal-delay-1">
+          <div class="how-step-number">02</div>
+          <h3 class="how-step-title">Connect</h3>
+          <p class="how-step-desc">Add your BML or MIB accounts via our secure Chrome extension. Authenticate once; your session persists even if you restart your browser.</p>
+        </div>
+        <div class="how-step reveal reveal-delay-2">
+          <div class="how-step-number">03</div>
+          <h3 class="how-step-title">Analyse & Export</h3>
+          <p class="how-step-desc">Use the unified ledger, verification panel, and comprehensive reports suite. Generate statements, export to Excel/CSV, all from one dashboard.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Security Section -->
+  <section class="security-section" id="security">
+    <div class="container">
+      <div class="security-icon reveal">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>
+      </div>
+      <h2 class="display-lg security-title reveal reveal-delay-1">Security First</h2>
+      <p class="body-md security-desc reveal reveal-delay-2">
+        Your banking credentials never touch Viri's servers. We use direct, encrypted
+        communication channels between your browser and your bank. Viri only stores
+        read-only session tokens; we never store your passwords.
+      </p>
+    </div>
+  </section>
+
+  <!-- Who It's For -->
+  <section class="audience-section" id="audience">
+    <div class="container">
+      <div class="audience-header reveal">
+        <p class="label">Who is Viri for</p>
+        <h2 class="display-lg">Built for how you work</h2>
+      </div>
+
+      <div class="audience-grid" data-stagger>
+        <div class="audience-card">
+          <div class="audience-card-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+          </div>
+          <h3 class="audience-card-title">Retail Chains</h3>
+          <p class="audience-card-desc">Manage bank accounts across multiple store locations from one dashboard. Track payments, verify deposits, and generate daily reports without logging into each bank separately.</p>
+        </div>
+
+        <div class="audience-card">
+          <div class="audience-card-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+          </div>
+          <h3 class="audience-card-title">Growing Businesses</h3>
+          <p class="audience-card-desc">Keep a close eye on cash flow across personal and business accounts. Download monthly transaction reports for accounting. No more manual data entry.</p>
+        </div>
+
+        <div class="audience-card">
+          <div class="audience-card-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+          </div>
+          <h3 class="audience-card-title">Finance & Operations Teams</h3>
+          <p class="audience-card-desc">Give your team read-only access to bank data without sharing passwords. Generate reports on demand. Focus on numbers, not logins.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing Section -->
+  <section class="pricing-section" id="pricing">
+    <div class="container">
+      <div class="pricing-header reveal">
+        <p class="label">Pricing</p>
+        <h2 class="display-lg">Simple, transparent plans</h2>
+        <p class="body-md">Start with what you need. Scale as you grow.</p>
+      </div>
+
+      <div class="pricing-grid" data-stagger>
+        <!-- Starter -->
+        <div class="pricing-card reveal">
+          <div class="pricing-card-head">
+            <h3 class="pricing-plan-name">Starter</h3>
+            <p class="pricing-plan-desc">For small stores and sole traders getting started.</p>
+          </div>
+          <div class="pricing-amount">
+            <span class="pricing-currency">MVR</span>
+            <span class="pricing-value">499</span>
+            <span class="pricing-period">/mo</span>
+          </div>
+          <ul class="pricing-features">
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              Verification Panel – Search transactions by amount, preview 3 most recent matches.
+            </li>
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              Unified Dashboard View – See balances and basic transaction lists.
+            </li>
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              2 Bank Accounts Total
+            </li>
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              1 Terminal connection.
+            </li>
+          </ul>
+          <a href="register.html" class="pricing-btn pricing-btn-outline">Get Started Now</a>
+        </div>
+
+        <!-- Pro (Featured) -->
+        <div class="pricing-card featured reveal">
+          <div class="pricing-card-head">
+            <h3 class="pricing-plan-name">Pro <span class="pricing-plan-badge">Most Popular</span> <span class="pricing-trial-pill">Free Trial Available</span></h3>
+            <p class="pricing-plan-desc">For growing businesses that need full financial control.</p>
+          </div>
+          <div class="pricing-amount">
+            <span class="pricing-currency">MVR</span>
+            <span class="pricing-value">989</span>
+            <span class="pricing-period">/mo</span>
+          </div>
+          <ul class="pricing-features">
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              Full Tool Suite Access – Verification Panel + Unified Ledger + Reports Suite + Statement Generator.
+            </li>
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              Advanced Reports – Cash Flow, Period Comparison, Activity by Account, Trend Analysis, Transaction Volume.
+            </li>
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              On-Demand Statement Generation. Export to PDF, Excel &amp; CSV.
+            </li>
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              4 Bank Accounts (modular – add more slots as you grow).
+            </li>
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              3 Terminals (modular – add more as you scale).
+            </li>
+          </ul>
+          <a href="register.html" class="pricing-btn pricing-btn-primary">Try Pro for Free</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <img src="img/logo_en.png" alt="Viri" width="100" height="28" decoding="async" loading="lazy">
+          <span class="footer-tagline">Pioneering unified banking in the Maldives</span>
+        </div>
+        <div class="footer-links">
+          <a href="faq.html">FAQ</a>
+          <a href="login.html">Sign in</a>
+          <a href="register.html">Get started</a>
+          <a href="#">Security</a>
+        </div>
+      </div>
+      <p class="footer-copy">Built for Maldivian businesses. By Maldivian builders.</p>
+    </div>
+  </footer>
+
+  <!-- SVG Filter for Morphing Text -->
+  <svg id="filters" style="display: none;">
+    <defs>
+      <filter id="threshold">
+        <feColorMatrix in="SourceGraphic"
+          type="matrix"
+          values="1 0 0 0 0
+                  0 1 0 0 0
+                  0 0 1 0 0
+                  0 0 0 255 -140" />
+      </filter>
+    </defs>
+  </svg>
+
+  <!-- Scripts -->
+  <script src="js/main.js"></script>
+</body>
+</html>

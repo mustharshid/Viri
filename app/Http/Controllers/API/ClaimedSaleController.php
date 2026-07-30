@@ -40,14 +40,17 @@ class ClaimedSaleController extends Controller
                 return $shift;
             }
 
-            $lastShiftNum = CounterShift::where('terminal_id', $terminal->id)
+            $today = now()->toDateString();
+            $lastShiftNumToday = CounterShift::where('terminal_id', $terminal->id)
+                ->whereDate('opened_at', $today)
                 ->lockForUpdate()
                 ->max('shift_number') ?? 0;
 
             return CounterShift::create([
                 'tenant_id' => $terminal->tenant_id,
                 'terminal_id' => $terminal->id,
-                'shift_number' => $lastShiftNum + 1,
+                'shift_number' => $lastShiftNumToday + 1,
+                'shift_date' => $today,
                 'opened_at' => now(),
                 'opened_by' => $terminal->terminal_name,
                 'status' => 'open',
@@ -59,7 +62,7 @@ class ClaimedSaleController extends Controller
     {
         $request->validate([
             'hardware_id' => 'required|string',
-            'shift_id' => 'nullable|integer',
+            'shift_id' => 'nullable|string',
             'date' => 'nullable|string',
             'from_date' => 'nullable|string',
             'to_date' => 'nullable|string',
@@ -100,9 +103,7 @@ class ClaimedSaleController extends Controller
             $query->where('shift_id', $request->shift_id);
         }
 
-        $hasExplicitFilter = $request->filled('date')
-            || ($request->filled('from_date') && $request->filled('to_date'))
-            || ($request->filled('shift_id') && $request->shift_id !== 'all');
+        $hasExplicitFilter = $request->filled('shift_id');
 
         if (! $hasExplicitFilter && $activeShift) {
             $query->where('shift_id', $activeShift->id);
@@ -286,14 +287,17 @@ class ClaimedSaleController extends Controller
         }
 
         $shift = DB::transaction(function () use ($terminal, $request) {
-            $lastShiftNum = CounterShift::where('terminal_id', $terminal->id)
+            $today = now()->toDateString();
+            $lastShiftNumToday = CounterShift::where('terminal_id', $terminal->id)
+                ->whereDate('opened_at', $today)
                 ->lockForUpdate()
                 ->max('shift_number') ?? 0;
 
             return CounterShift::create([
                 'tenant_id' => $terminal->tenant_id,
                 'terminal_id' => $terminal->id,
-                'shift_number' => $lastShiftNum + 1,
+                'shift_number' => $lastShiftNumToday + 1,
+                'shift_date' => $today,
                 'opened_at' => now(),
                 'opened_by' => $request->opened_by ?? $terminal->terminal_name,
                 'notes' => $request->notes,
@@ -376,14 +380,17 @@ class ClaimedSaleController extends Controller
                 ]),
             ]);
 
-            $lastShiftNum = CounterShift::where('terminal_id', $terminal->id)
+            $today = now()->toDateString();
+            $lastShiftNumToday = CounterShift::where('terminal_id', $terminal->id)
+                ->whereDate('opened_at', $today)
                 ->lockForUpdate()
                 ->max('shift_number') ?? 0;
 
             $nextShift = CounterShift::create([
                 'tenant_id' => $terminal->tenant_id,
                 'terminal_id' => $terminal->id,
-                'shift_number' => $lastShiftNum + 1,
+                'shift_number' => $lastShiftNumToday + 1,
+                'shift_date' => $today,
                 'opened_at' => now(),
                 'opened_by' => $terminal->terminal_name,
                 'status' => 'open',

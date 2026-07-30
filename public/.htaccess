@@ -21,6 +21,7 @@
 
     # 2. Transparently route PWA assets to the /viri/ subfolder
     RewriteRule ^assets/(.*)$ viri/assets/$1 [L]
+    RewriteRule ^img/(.*)$ viri/img/$1 [L]
     RewriteRule ^vite\.svg$ viri/vite.svg [L]
     RewriteRule ^favicon\.ico$ viri/favicon.ico [L]
 
