@@ -53,6 +53,7 @@ class Terminal extends Model
             'show_vbtl' => false,
             'sales_claiming_enabled' => true,
             'show_sale_reference_popover' => false,
+            'shift_claim_report_enabled' => true,
         ];
 
         if (! $value) {

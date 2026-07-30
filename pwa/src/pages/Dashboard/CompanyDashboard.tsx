@@ -258,7 +258,8 @@ export default function CompanyDashboard() {
     show_vbtl: false,
     share_pwa_logs: true,
     sales_claiming_enabled: true,
-    show_sale_reference_popover: false
+    show_sale_reference_popover: false,
+    shift_claim_report_enabled: true
   });
   const [accountName, setAccountName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
@@ -615,7 +616,8 @@ export default function CompanyDashboard() {
         show_vbtl: false,
         share_pwa_logs: true,
         sales_claiming_enabled: true,
-        show_sale_reference_popover: false
+        show_sale_reference_popover: false,
+        shift_claim_report_enabled: true
       });
       setIsTerminalModalOpen(true);
     }
@@ -649,7 +651,8 @@ export default function CompanyDashboard() {
       show_vbtl: term.permissions?.show_vbtl ?? false,
       share_pwa_logs: term.permissions?.share_pwa_logs ?? true,
       sales_claiming_enabled: term.permissions?.sales_claiming_enabled ?? true,
-      show_sale_reference_popover: term.permissions?.show_sale_reference_popover ?? false
+      show_sale_reference_popover: term.permissions?.show_sale_reference_popover ?? false,
+      shift_claim_report_enabled: term.permissions?.shift_claim_report_enabled ?? true
     });
     setIsTerminalModalOpen(true);
   };
@@ -3190,6 +3193,26 @@ export default function CompanyDashboard() {
                           Verification Panel <span className="text-[9px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded font-mono font-bold">REQUIRED</span>
                         </label>
                         <p className="text-[10px] text-[var(--text-secondary)] mt-1 leading-relaxed">Allows cashier to verify incoming MVR bank transfer receipts.</p>
+                      </div>
+                    </div>
+
+                    {/* Shift & Claim Report */}
+                    <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-emerald-500/40 transition-colors">
+                      <label htmlFor="perm-shift-claim-report" className="relative inline-flex items-center cursor-not-allowed shrink-0 mt-0.5 select-none">
+                        <input 
+                          type="checkbox" 
+                          id="perm-shift-claim-report"
+                          checked={permissionsForm.shift_claim_report_enabled} 
+                          disabled 
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-zinc-700/70 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500 peer-disabled:opacity-40"></div>
+                      </label>
+                      <div>
+                        <label htmlFor="perm-shift-claim-report" className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5 cursor-not-allowed">
+                          Shift & Claim Report <span className="text-[9px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded font-mono font-bold">REQUIRED</span>
+                        </label>
+                        <p className="text-[10px] text-[var(--text-secondary)] mt-1 leading-relaxed">Allows cashier to view and generate end-of-day shift closure and claim reports.</p>
                       </div>
                     </div>
 

@@ -156,6 +156,7 @@ Route::post('/terminal/claimed-sales/claim', [ClaimedSaleController::class, 'cla
 Route::post('/terminal/claimed-sales/unclaim', [ClaimedSaleController::class, 'unclaim']);
 Route::post('/terminal/counter-shifts/open', [ClaimedSaleController::class, 'openShift']);
 Route::post('/terminal/counter-shifts/close', [ClaimedSaleController::class, 'closeShift']);
+Route::get('/terminal/claimed-sales/monthly-report', [ClaimedSaleController::class, 'monthlyReport']);
 Route::get('/terminal/counter-shifts/reports', [ClaimedSaleController::class, 'shiftReports']);
 
 Route::post('/verify-terminal', function (Request $request) {
@@ -338,6 +339,9 @@ Route::post('/verify-terminal', function (Request $request) {
             'statement_enabled' => (bool) (($tenantFeatures['statement_enabled'] ?? ! $isFreeOr499) && ($terminalPermissions['statement_enabled'] ?? false)),
             'share_pwa_logs' => (bool) ($terminalPermissions['share_pwa_logs'] ?? true),
             'show_vbtl' => (bool) ($terminalPermissions['show_vbtl'] ?? false),
+            'sales_claiming_enabled' => (bool) ($terminalPermissions['sales_claiming_enabled'] ?? true),
+            'show_sale_reference_popover' => (bool) ($terminalPermissions['show_sale_reference_popover'] ?? false),
+            'shift_claim_report_enabled' => true,
             'recent_tx_limit' => (function () use ($tenantFeatures) {
                 $hasFeature = (bool) ($tenantFeatures['custom_recent_tx_limit'] ?? false);
                 if (! $hasFeature) {

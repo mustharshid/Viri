@@ -606,6 +606,77 @@ const CopiableChip = React.memo(({
   );
 });
 
+// ============================================================
+// ReportDetailsCell — rich Payer/Description for report tables
+// Emulates TransactionRow's Details column but uses the
+// pre-extracted fields from ClaimedSale records.
+// ============================================================
+const ReportDetailsCell = React.memo(({
+  item,
+  compact = false,
+  showRefChips = false,
+}: {
+  item: {
+    payer_name?: string | null;
+    description?: string | null;
+    blaz_number?: string | null;
+    reference_number?: string | null;
+  };
+  compact?: boolean;
+  showRefChips?: boolean;
+}) => {
+  const detailsParts = (item.description || '').split('\n');
+  const primaryDesc = (detailsParts[0] || '').trim();
+  const detailText = detailsParts.slice(1).join('\n').trim();
+
+  const beneficiaryName = (item.payer_name || primaryDesc || 'UNKNOWN').toUpperCase();
+
+  const blazRef = item.blaz_number || null;
+  const ftRef = item.reference_number || null;
+  const hasAnyChip = !!(blazRef || ftRef);
+
+  const nameClass = compact
+    ? 'font-normal text-[11px] font-sans tracking-tight leading-tight text-zinc-200'
+    : 'font-bold text-sm font-sans tracking-tight leading-tight text-zinc-200';
+
+  const detailClass = compact
+    ? 'text-[10px] text-zinc-500 font-mono leading-relaxed mt-0.5'
+    : 'text-[11px] text-zinc-500 font-mono leading-relaxed mt-0.5';
+
+  return (
+    <div className="whitespace-normal break-words max-w-xs desc-col print:text-black">
+      <div className={`${nameClass} mb-0.5 print:text-black`}>
+        {beneficiaryName}
+      </div>
+
+      {showRefChips && hasAnyChip && (
+        <div className="flex flex-wrap gap-1.5 text-xs font-mono mb-0.5">
+          {blazRef && (
+            <CopiableChip
+              val={blazRef}
+              label="BLAZ/Reference"
+              className="text-xs text-[var(--text-secondary)] print:text-black bg-zinc-900/40 print:bg-transparent border border-zinc-800 print:border-zinc-400"
+            />
+          )}
+          {ftRef && (
+            <CopiableChip
+              val={ftRef}
+              label="FT/Reference"
+              className="text-xs text-[var(--text-secondary)] print:text-black bg-zinc-900/40 print:bg-transparent border border-zinc-800 print:border-zinc-400"
+            />
+          )}
+        </div>
+      )}
+
+      {detailText && (
+        <div className={`${detailClass} print:text-black`}>
+          {detailText}
+        </div>
+      )}
+    </div>
+  );
+});
+
 const TransactionMobileCard = React.memo(({
   tx,
   isNew,
@@ -810,7 +881,10 @@ function App() {
     reports_enabled: false,
     statement_enabled: false,
     show_vbtl: false,
-    recent_tx_limit: 3
+    recent_tx_limit: 3,
+    sales_claiming_enabled: true,
+    show_sale_reference_popover: false,
+    shift_claim_report_enabled: true
   });
   const [shouldUploadLogs, setShouldUploadLogs] = useState(true);
   const [creditsExhausted, setCreditsExhausted] = useState(false);
@@ -1257,8 +1331,15 @@ function App() {
 
   const [shiftReportDateFilter, setShiftReportDateFilter] = useState<string>(getTodayDateString());
   const [isClosingShift, setIsClosingShift] = useState(false);
-  const [reportsSubTab, setReportsSubTab] = useState<'shift_sales' | 'snapshots'>('shift_sales');
+  const [isReportLoading, setIsReportLoading] = useState(false);
+  const [reportsSubTab, setReportsSubTab] = useState<'shift_sales' | 'monthly_report' | 'snapshots'>('shift_sales');
   const [shiftSessionToast, setShiftSessionToast] = useState<{ show: boolean; shiftNumber: number | string } | null>(null);
+
+  const [monthlyReportYear, setMonthlyReportYear] = useState<number>(new Date().getFullYear());
+  const [monthlyReportMonth, setMonthlyReportMonth] = useState<number>(new Date().getMonth() + 1);
+  const [monthlyReportData, setMonthlyReportData] = useState<any>(null);
+  const [monthlyReportLoading, setMonthlyReportLoading] = useState(false);
+  const [monthlyReportError, setMonthlyReportError] = useState<string | null>(null);
 
   // Temporary 2-Second Claimed Feedback state
   const [justClaimedTxIds, setJustClaimedTxIds] = useState<Set<string>>(new Set());
@@ -1301,6 +1382,24 @@ function App() {
   const [archivedShifts, setArchivedShifts] = useState<any[]>([]);
   const [shiftIdFilter, setShiftIdFilter] = useState<string>('');
 
+  const getCurrencyOfSale = (item: any): string => {
+    if (item.currency) return String(item.currency).toUpperCase();
+    if (item.bankAccount?.currency) return String(item.bankAccount.currency).toUpperCase();
+    return 'MVR';
+  };
+
+  const formatDate = (dateStr: string): string => {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hours = String(d.getHours()).padStart(2, '0');
+    const mins = String(d.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${mins}`;
+  };
+
   const filteredShiftsForDate = useMemo(() => {
     if (!shiftReportDateFilter) return archivedShifts;
     return archivedShifts.filter(s => {
@@ -1312,6 +1411,7 @@ function App() {
 
   const loadClaimedSalesAndShift = async (shiftId = shiftIdFilter, dateFilter = shiftReportDateFilter) => {
     if (!hardwareId || !backendUrl) return;
+    setIsReportLoading(true);
     try {
       const params = new URLSearchParams({ hardware_id: hardwareId });
       if (shiftId) params.append('shift_id', shiftId);
@@ -1328,6 +1428,34 @@ function App() {
       }
     } catch (err) {
       console.error('Failed to load claimed sales', err);
+    } finally {
+      setIsReportLoading(false);
+    }
+  };
+
+  const loadMonthlyReport = async () => {
+    if (!hardwareId || !backendUrl) return;
+    setMonthlyReportLoading(true);
+    setMonthlyReportError(null);
+    try {
+      const params = new URLSearchParams({
+        hardware_id: hardwareId,
+        year: String(monthlyReportYear),
+        month: String(monthlyReportMonth),
+      });
+      const res = await fetch(`${backendUrl}/terminal/claimed-sales/monthly-report?${params}`);
+      if (res.ok) {
+        const data = await res.json();
+        setMonthlyReportData(data);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setMonthlyReportError(errData.error || `HTTP ${res.status}`);
+      }
+    } catch (err) {
+      setMonthlyReportError('Failed to load monthly report');
+      console.error('Failed to load monthly report', err);
+    } finally {
+      setMonthlyReportLoading(false);
     }
   };
 
@@ -1336,6 +1464,12 @@ function App() {
       loadClaimedSalesAndShift();
     }
   }, [hardwareId, backendUrl]);
+
+  useEffect(() => {
+    if (hardwareId && backendUrl && reportsSubTab === 'monthly_report') {
+      loadMonthlyReport();
+    }
+  }, [hardwareId, backendUrl, reportsSubTab, monthlyReportYear, monthlyReportMonth]);
 
   const handleClaimTx = async (tx: any, saleRef = '', notes = '') => {
     if (!hardwareId || !backendUrl) return;
@@ -1505,6 +1639,7 @@ function App() {
           const data = await res.json();
           if (res.ok) {
             showCustomAlert('Shift Closed Successfully', `Shift #${data.closed_shift?.shift_number || ''} closed successfully! Next shift #${data.new_shift?.shift_number || ''} is now open.`, 'success');
+            setClaimedSalesList([]);
             await loadClaimedSalesAndShift();
             await loadReports();
           } else {
@@ -2391,7 +2526,10 @@ function App() {
             reports_enabled: data.permissions.reports_enabled ?? false,
             statement_enabled: data.permissions.statement_enabled ?? false,
             show_vbtl: data.permissions.show_vbtl ?? false,
-            recent_tx_limit: data.permissions.recent_tx_limit ?? 3
+            recent_tx_limit: data.permissions.recent_tx_limit ?? 3,
+            sales_claiming_enabled: data.permissions.sales_claiming_enabled ?? true,
+            show_sale_reference_popover: data.permissions.show_sale_reference_popover ?? false,
+            shift_claim_report_enabled: data.permissions.shift_claim_report_enabled ?? true
           });
         }
         if (data.credits_exhausted !== undefined) {
@@ -2464,7 +2602,7 @@ function App() {
     if (!permissions.ledger_enabled && activeTab === 'ledger') {
       setActiveTab('verify');
     }
-    const isReportsAllowed = permissions.reports_enabled || permissions.sales_claiming_enabled !== false;
+    const isReportsAllowed = permissions.reports_enabled || permissions.shift_claim_report_enabled !== false;
     if (!isReportsAllowed && activeTab === 'reports') {
       setActiveTab('verify');
     }
@@ -4002,7 +4140,7 @@ function App() {
             <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Statements</span>
           </button>
         )}
-        {permissions.sales_claiming_enabled !== false && (
+        {permissions.shift_claim_report_enabled !== false && (
           <button
             onClick={() => { setShowSettings(false); setActiveTab('reports'); setReportsSubTab('shift_sales'); }}
             className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
@@ -4010,10 +4148,10 @@ function App() {
                 ? 'bg-[var(--color-success)] text-black font-bold'
                 : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
               }`}
-            title="Shift & Sales Report"
+            title="Shift & Claim Report"
           >
             <FileSpreadsheet size={16} className="shrink-0" />
-            <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Shift & Sales Report</span>
+            <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Shift & Claim Report</span>
           </button>
         )}
         <button
@@ -5959,6 +6097,200 @@ function App() {
 
             {activeTab === 'reports' && (
               <div className="flex-1 w-full max-w-7xl mx-auto flex flex-col gap-6 p-4 md:p-6 animate-fade-in h-full min-h-[500px]">
+                {/* Print Styles (applied to both Shift and Monthly reports) */}
+                <style>{`
+                  @media print {
+                    @page {
+                      size: A4 landscape;
+                      margin: 8mm;
+                    }
+                    html, body, main {
+                      width: 100% !important;
+                      height: auto !important;
+                      max-height: none !important;
+                      margin: 0 !important;
+                      padding: 0 !important;
+                      background: #ffffff !important;
+                      color: #000000 !important;
+                      overflow: visible !important;
+                      align-self: flex-start !important;
+                    }
+                    html > body > div {
+                      overflow: visible !important;
+                    }
+                    html > body > div > div {
+                      overflow: visible !important;
+                      min-height: 0 !important;
+                      height: auto !important;
+                    }
+                    main > div {
+                      display: block !important;
+                      flex: none !important;
+                      min-height: 0 !important;
+                      height: auto !important;
+                      max-height: none !important;
+                      overflow: visible !important;
+                    }
+                    body * {
+                      visibility: hidden !important;
+                    }
+                    #sales-claim-report-container, #sales-claim-report-container *,
+                    #monthly-claim-report-container, #monthly-claim-report-container *,
+                    #snapshot-detail-panel, #snapshot-detail-panel * {
+                      visibility: visible !important;
+                      overflow: visible !important;
+                    }
+                    #sales-claim-report-container,
+                    #monthly-claim-report-container,
+                    #snapshot-detail-panel {
+                      display: block !important;
+                      flex: none !important;
+                      position: static !important;
+                      height: auto !important;
+                      min-height: 0 !important;
+                      max-height: none !important;
+                      width: auto !important;
+                      max-width: 210mm !important;
+                      margin: 0 auto !important;
+                      box-sizing: border-box !important;
+                      background: #ffffff !important;
+                      color: #000000 !important;
+                      padding: 0 !important;
+                      border: none !important;
+                      border-radius: 0 !important;
+                      box-shadow: none !important;
+                      overflow: visible !important;
+                    }
+                    .print-hide {
+                      display: none !important;
+                    }
+                    .print-title {
+                      color: #000000 !important;
+                      font-size: 14pt !important;
+                      font-weight: bold !important;
+                    }
+                    .print-subtitle {
+                      color: #000000 !important;
+                      font-size: 8.5pt !important;
+                    }
+                    .print-kpi-grid {
+                      display: flex !important;
+                      flex-direction: row !important;
+                      width: 100% !important;
+                      gap: 8px !important;
+                      margin: 8px 0 !important;
+                      box-sizing: border-box !important;
+                    }
+                    .print-kpi-box {
+                      flex: 1 1 0% !important;
+                      min-width: 0 !important;
+                      border: 1px solid #000000 !important;
+                      background: #f8fafc !important;
+                      color: #000000 !important;
+                      padding: 4px 8px !important;
+                      border-radius: 4px !important;
+                      box-sizing: border-box !important;
+                    }
+                    .print-kpi-title {
+                      font-size: 6.5pt !important;
+                      font-weight: bold !important;
+                      color: #000000 !important;
+                      text-transform: uppercase !important;
+                      white-space: nowrap !important;
+                      overflow: hidden !important;
+                      text-overflow: ellipsis !important;
+                    }
+                    .print-kpi-val {
+                      font-size: 9.5pt !important;
+                      font-weight: bold !important;
+                      color: #000000 !important;
+                      white-space: nowrap !important;
+                      overflow: hidden !important;
+                      text-overflow: ellipsis !important;
+                    }
+                    .print-table-wrapper {
+                      overflow: visible !important;
+                      height: auto !important;
+                      max-height: none !important;
+                      margin: 0 !important;
+                      padding: 0 !important;
+                      border: none !important;
+                      background: transparent !important;
+                      display: block !important;
+                    }
+                    .spreadsheet-table {
+                      width: 100% !important;
+                      max-width: 100% !important;
+                      table-layout: fixed !important;
+                      border-collapse: collapse !important;
+                      border: 1px solid #000000 !important;
+                      margin-top: 8px !important;
+                      margin-bottom: 0 !important;
+                      font-size: 7.5pt !important;
+                      font-family: Arial, Helvetica, sans-serif !important;
+                      box-sizing: border-box !important;
+                      page-break-inside: auto !important;
+                    }
+                    .spreadsheet-table thead {
+                      display: table-header-group !important;
+                    }
+                    .spreadsheet-table tr {
+                      page-break-inside: avoid !important;
+                      page-break-after: auto !important;
+                    }
+                    .spreadsheet-table th {
+                      background-color: #e2e8f0 !important;
+                      color: #000000 !important;
+                      font-weight: 700 !important;
+                      border: 1px solid #000000 !important;
+                      padding: 4px 6px !important;
+                      text-transform: uppercase !important;
+                      font-size: 7pt !important;
+                      text-align: left !important;
+                      font-family: inherit !important;
+                      box-sizing: border-box !important;
+                    }
+                    .spreadsheet-table th.col-date { width: 16% !important; }
+                    .spreadsheet-table th.col-acc { width: 18% !important; }
+                    .spreadsheet-table th.col-ref { width: 20% !important; }
+                    .spreadsheet-table th.col-desc { width: 26% !important; }
+                    .spreadsheet-table th.col-sale-ref { width: 10% !important; }
+                    .spreadsheet-table th.col-amt { width: 10% !important; text-align: right !important; }
+
+                    .spreadsheet-table td {
+                      border: 1px solid #000000 !important;
+                      padding: 3.5px 5px !important;
+                      color: #000000 !important;
+                      font-family: inherit !important;
+                      font-size: 7pt !important;
+                      vertical-align: top !important;
+                      word-break: break-all !important;
+                      box-sizing: border-box !important;
+                    }
+                    .spreadsheet-table tbody tr:last-child td {
+                      border-bottom: 1px solid #000000 !important;
+                    }
+                    .spreadsheet-table tbody tr:last-child {
+                      page-break-inside: auto !important;
+                    }
+                    .spreadsheet-table td.desc-col {
+                      white-space: normal !important;
+                      word-break: break-word !important;
+                      font-family: inherit !important;
+                      color: #000000 !important;
+                    }
+                    .spreadsheet-table td.amount-col {
+                      text-align: right !important;
+                      font-weight: 700 !important;
+                      color: #000000 !important;
+                      white-space: normal !important;
+                      word-break: break-word !important;
+                      display: table-cell !important;
+                      visibility: visible !important;
+                    }
+                  }
+                `}</style>
+
                 {/* Top Sub-Tab Switcher */}
                 <div className="flex items-center gap-2 border-b border-zinc-800 pb-3 print-hide">
                   <button
@@ -5969,7 +6301,17 @@ function App() {
                         : 'bg-zinc-900/60 text-zinc-400 hover:text-white border border-zinc-800'
                     }`}
                   >
-                    <FileSpreadsheet size={15} /> End-of-Day Shift & Sales Claim Report
+                    <FileSpreadsheet size={15} /> End-of-Day Shift & Claim Report
+                  </button>
+                  <button
+                    onClick={() => setReportsSubTab('monthly_report')}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                      reportsSubTab === 'monthly_report'
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-md'
+                        : 'bg-zinc-900/60 text-zinc-400 hover:text-white border border-zinc-800'
+                    }`}
+                  >
+                    <BarChart3 size={15} /> Monthly Claim Report
                   </button>
                   <button
                     onClick={() => setReportsSubTab('snapshots')}
@@ -5979,187 +6321,12 @@ function App() {
                         : 'bg-zinc-900/60 text-zinc-400 hover:text-white border border-zinc-800'
                     }`}
                   >
-                    <BarChart3 size={15} /> Saved Ledger Snapshots ({savedReports.length})
+                    <BarChart3 size={15} /> Saved Claimed Reports ({savedReports.length})
                   </button>
                 </div>
 
                 {reportsSubTab === 'shift_sales' ? (
                   <div id="sales-claim-report-container" className="flex-1 flex flex-col bg-zinc-950/60 border border-zinc-800 rounded-3xl p-6 sm:p-8 relative overflow-hidden shadow-2xl">
-                    {/* Print Styles */}
-                    <style>{`
-                      @media print {
-                        @page {
-                          size: A4 landscape;
-                          margin: 8mm;
-                        }
-                        html, body, main {
-                          width: 100% !important;
-                          height: auto !important;
-                          max-height: none !important;
-                          margin: 0 !important;
-                          padding: 0 !important;
-                          background: #ffffff !important;
-                          color: #000000 !important;
-                          overflow: visible !important;
-                        }
-                        html > body > div {
-                          overflow: visible !important;
-                        }
-                        main > div {
-                          flex: none !important;
-                          min-height: 0 !important;
-                          height: auto !important;
-                          max-height: none !important;
-                          overflow: visible !important;
-                        }
-                        body * {
-                          visibility: hidden !important;
-                        }
-                        #sales-claim-report-container, #sales-claim-report-container * {
-                          visibility: visible !important;
-                        }
-                        #sales-claim-report-container {
-                          display: block !important;
-                          flex: none !important;
-                          position: static !important;
-                          height: auto !important;
-                          min-height: 0 !important;
-                          max-height: none !important;
-                          width: 100% !important;
-                          max-width: 100% !important;
-                          box-sizing: border-box !important;
-                          background: #ffffff !important;
-                          color: #000000 !important;
-                          padding: 0 !important;
-                          margin: 0 !important;
-                          border: none !important;
-                          border-radius: 0 !important;
-                          box-shadow: none !important;
-                          overflow: visible !important;
-                        }
-                        .print-hide {
-                          display: none !important;
-                        }
-                        .print-title {
-                          color: #000000 !important;
-                          font-size: 14pt !important;
-                          font-weight: bold !important;
-                        }
-                        .print-subtitle {
-                          color: #334155 !important;
-                          font-size: 8.5pt !important;
-                        }
-                        .print-kpi-grid {
-                          display: flex !important;
-                          flex-direction: row !important;
-                          width: 100% !important;
-                          gap: 8px !important;
-                          margin: 8px 0 !important;
-                          box-sizing: border-box !important;
-                        }
-                        .print-kpi-box {
-                          flex: 1 1 0% !important;
-                          min-width: 0 !important;
-                          border: 1px solid #000000 !important;
-                          background: #f8fafc !important;
-                          color: #000000 !important;
-                          padding: 4px 8px !important;
-                          border-radius: 4px !important;
-                          box-sizing: border-box !important;
-                        }
-                        .print-kpi-title {
-                          font-size: 6.5pt !important;
-                          font-weight: bold !important;
-                          color: #475569 !important;
-                          text-transform: uppercase !important;
-                          white-space: nowrap !important;
-                          overflow: hidden !important;
-                          text-overflow: ellipsis !important;
-                        }
-                        .print-kpi-val {
-                          font-size: 9.5pt !important;
-                          font-weight: bold !important;
-                          color: #000000 !important;
-                          white-space: nowrap !important;
-                          overflow: hidden !important;
-                          text-overflow: ellipsis !important;
-                        }
-                        .print-table-wrapper {
-                          overflow: visible !important;
-                          height: auto !important;
-                          max-height: none !important;
-                          margin: 0 !important;
-                          padding: 0 !important;
-                          border: none !important;
-                          background: transparent !important;
-                          display: block !important;
-                        }
-                        .spreadsheet-table {
-                          width: 100% !important;
-                          max-width: 100% !important;
-                          table-layout: fixed !important;
-                          border-collapse: collapse !important;
-                          border: 1px solid #000000 !important;
-                          margin-top: 8px !important;
-                          margin-bottom: 0 !important;
-                          font-size: 7.5pt !important;
-                          box-sizing: border-box !important;
-                          page-break-inside: auto !important;
-                        }
-                        .spreadsheet-table thead {
-                          display: table-header-group !important;
-                        }
-                        .spreadsheet-table tr {
-                          page-break-inside: avoid !important;
-                          page-break-after: auto !important;
-                        }
-                        .spreadsheet-table th {
-                          background-color: #e2e8f0 !important;
-                          color: #000000 !important;
-                          font-weight: 700 !important;
-                          border: 1px solid #000000 !important;
-                          padding: 4px 6px !important;
-                          text-transform: uppercase !important;
-                          font-size: 7pt !important;
-                          text-align: left !important;
-                          box-sizing: border-box !important;
-                        }
-                        .spreadsheet-table th.col-date { width: 16% !important; }
-                        .spreadsheet-table th.col-acc { width: 18% !important; }
-                        .spreadsheet-table th.col-ref { width: 20% !important; }
-                        .spreadsheet-table th.col-desc { width: 26% !important; }
-                        .spreadsheet-table th.col-sale-ref { width: 10% !important; }
-                        .spreadsheet-table th.col-amt { width: 10% !important; text-align: right !important; }
-
-                        .spreadsheet-table td {
-                          border: 1px solid #000000 !important;
-                          padding: 3.5px 5px !important;
-                          color: #000000 !important;
-                          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
-                          font-size: 7pt !important;
-                          vertical-align: top !important;
-                          word-break: break-all !important;
-                          box-sizing: border-box !important;
-                        }
-                        .spreadsheet-table tbody tr:last-child td {
-                          border-bottom: 1px solid #000000 !important;
-                        }
-                        .spreadsheet-table td.desc-col {
-                          white-space: normal !important;
-                          word-break: break-word !important;
-                          font-family: sans-serif !important;
-                          color: #000000 !important;
-                        }
-                        .spreadsheet-table td.amount-col {
-                          text-align: right !important;
-                          font-weight: 700 !important;
-                          color: #000000 !important;
-                          white-space: nowrap !important;
-                          display: table-cell !important;
-                          visibility: visible !important;
-                        }
-                      }
-                    `}</style>
 
                     {/* Section Top Header */}
                     <div className="flex justify-between items-start pb-4 border-b border-zinc-800 shrink-0">
@@ -6169,7 +6336,7 @@ function App() {
                         </div>
                         <div>
                           <h2 className="text-xl font-bold text-white print-title flex items-center gap-2">
-                            End-of-Day Shift Closing & Sales Claim Report
+                            End-of-Day Shift Closing & Claim Report
                           </h2>
                           <p className="text-xs text-zinc-400 print-subtitle mt-0.5">
                             Terminal: <strong className="text-zinc-200 print:text-black">{terminalName || 'Counter'}</strong> | Active Shift #{activeShift?.shift_number || 1}
@@ -6197,9 +6364,7 @@ function App() {
                           <select
                             value={shiftIdFilter}
                             onChange={e => {
-                              const sId = e.target.value;
-                              setShiftIdFilter(sId);
-                              loadClaimedSalesAndShift(sId, shiftReportDateFilter);
+                              setShiftIdFilter(e.target.value);
                             }}
                             className="bg-zinc-900 border border-zinc-800 text-white rounded-lg px-2.5 py-1 text-xs font-mono"
                           >
@@ -6219,23 +6384,29 @@ function App() {
                             type="date"
                             value={shiftReportDateFilter}
                             onChange={e => {
-                              const dVal = e.target.value;
-                              setShiftReportDateFilter(dVal);
-                              loadClaimedSalesAndShift(shiftIdFilter, dVal);
+                              setShiftReportDateFilter(e.target.value);
                             }}
                             className="bg-zinc-900 border border-zinc-800 text-white rounded-lg px-2.5 py-1 text-xs font-mono"
                           />
                           {shiftReportDateFilter && (
-                            <button onClick={() => { const today = getTodayDateString(); setShiftReportDateFilter(today); loadClaimedSalesAndShift(shiftIdFilter, today); }} className="text-xs text-zinc-400 hover:text-white underline">
+                            <button onClick={() => { const today = getTodayDateString(); setShiftReportDateFilter(today); }} className="text-xs text-zinc-400 hover:text-white underline">
                               Reset Date
                             </button>
                           )}
+                          <button
+                            onClick={() => loadClaimedSalesAndShift(shiftIdFilter, shiftReportDateFilter)}
+                            disabled={isReportLoading}
+                            className="btn btn-primary text-xs py-1.5 px-3 flex items-center gap-1.5 font-bold"
+                          >
+                            {isReportLoading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                            Update
+                          </button>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-2">
                         <button onClick={() => window.print()} className="btn btn-outline text-xs py-1.5 px-3 flex items-center gap-1.5 font-bold">
-                          <Printer size={13} /> Print Shift Report
+                          <Printer size={13} /> Print
                         </button>
                       </div>
                     </div>
@@ -6256,12 +6427,6 @@ function App() {
 
                       const filteredClaimedSales = claimedSalesList.filter(matchesDateFilter);
 
-                      const getCurrencyOfSale = (item: any) => {
-                        if (item.currency) return String(item.currency).toUpperCase();
-                        if (item.bankAccount?.currency) return String(item.bankAccount.currency).toUpperCase();
-                        return 'MVR';
-                      };
-
                       return (
                         <>
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4 shrink-0 print-kpi-grid">
@@ -6273,13 +6438,13 @@ function App() {
                             </div>
                             <div className="bg-zinc-900/60 border border-zinc-800 p-3 rounded-2xl print-kpi-box">
                               <div className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider print-kpi-title">Total Claimed (MVR)</div>
-                              <div className="text-2xl font-bold font-mono text-emerald-400 print-kpi-val mt-1">
+                              <div className="text-2xl font-bold font-mono text-white print-kpi-val mt-1">
                                 MVR {formatAmount(filteredClaimedSales.filter(s => getCurrencyOfSale(s) === 'MVR').reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0))}
                               </div>
                             </div>
                             <div className="bg-zinc-900/60 border border-zinc-800 p-3 rounded-2xl print-kpi-box">
                               <div className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider print-kpi-title">Total Claimed (USD)</div>
-                              <div className="text-2xl font-bold font-mono text-cyan-400 print-kpi-val mt-1">
+                              <div className="text-2xl font-bold font-mono text-white print-kpi-val mt-1">
                                 USD {formatAmount(filteredClaimedSales.filter(s => getCurrencyOfSale(s) === 'USD').reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0))}
                               </div>
                             </div>
@@ -6304,7 +6469,7 @@ function App() {
                                   <th className="py-2.5 px-3 text-right col-amt">Amount</th>
                                 </tr>
                               </thead>
-                              <tbody className="divide-y divide-zinc-800/40 font-mono text-[11px]">
+                              <tbody className="divide-y divide-zinc-800/40 text-[11px]">
                                 {filteredClaimedSales.length === 0 ? (
                                   <tr>
                                     <td colSpan={6} className="py-8 text-center text-zinc-500 italic font-sans print:text-black">
@@ -6315,79 +6480,216 @@ function App() {
                                   filteredClaimedSales.map((item, idx) => (
                                     <tr key={item.id || idx} className="hover:bg-zinc-800/40 transition-colors print:bg-white">
                                       <td className="py-2.5 px-3 text-zinc-400 print:text-black">{new Date(item.claimed_at || item.transaction_date).toLocaleString()}</td>
-                                      <td className="py-2.5 px-3 font-bold text-zinc-300 font-mono print:text-black">{item.account_number || item.bank_account?.account_number || item.bankAccount?.account_number || item.bank_type}</td>
-                                      <td className="py-2.5 px-3 text-cyan-400 font-bold font-mono print:text-black">{item.blaz_number || item.reference_number || item.transaction_id || '-'}</td>
-                                      <td className="py-2.5 px-3 font-sans text-white whitespace-normal break-words max-w-xs desc-col print:text-black">{item.payer_name || item.description || '-'}</td>
-                                      <td className="py-2.5 px-3 text-emerald-400 font-bold print:text-black">{item.sale_reference || '-'}</td>
-                                      <td className="py-2.5 px-3 text-right font-bold text-emerald-400 amount-col print:text-black">{getCurrencyOfSale(item)} {formatAmount(item.amount)}</td>
-                                    </tr>
-                                  ))
-                                )}
-                              </tbody>
+                                      <td className="py-2.5 px-3 font-bold text-zinc-300 print:text-black">{item.account_number || item.bank_account?.account_number || item.bankAccount?.account_number || item.bank_type}</td>
+                                      <td className="py-2.5 px-3 font-bold text-zinc-300 print:text-black">{item.blaz_number || item.reference_number || item.transaction_id || '-'}</td>
+                                      <td className="py-2.5 px-3 desc-col print:text-black">
+                                          <ReportDetailsCell item={item} compact />
+                                        </td>
+                                        <td className="py-2.5 px-3 font-bold text-zinc-300 print:text-black">{item.sale_reference || '-'}</td>
+                                        <td className="py-2.5 px-3 text-right font-bold text-zinc-200 amount-col print:text-black">{getCurrencyOfSale(item)} {formatAmount(item.amount)}</td>
+                                      </tr>
+                                    ))
+                                  )}
+                                </tbody>
                             </table>
                           </div>
                         </>
                       );
                     })()}
                   </div>
-                ) : (
-                  /* Saved Ledger Snapshots (Old Sub-Tab View) */
-                  <div className="flex-1 flex gap-6 overflow-hidden">
-                    {/* Left Sidebar: List of Reports */}
-                    <div className="w-80 flex flex-col gap-4 overflow-y-auto pr-2">
-                      <h2 className={`font-bold text-white tracking-tight flex items-center gap-2 transition-all duration-300 ${
-                        isCompletelyCollapsed ? 'text-base' : 'text-xl'
-                      }`}>
-                        <BarChart3 className="text-[var(--color-success)]" size={20} />
-                        Saved Reports
-                      </h2>
-                      {savedReports.length === 0 ? (
-                        <div className="text-sm text-zinc-500 italic p-4 bg-zinc-900/50 rounded-xl border border-zinc-800">No reports saved yet. Save a snapshot from the Ledger tab.</div>
-                      ) : (
-                        savedReports.map(report => (
-                          <div
-                            key={report.id}
-                            className={`w-full text-left p-4 rounded-xl border transition-all relative flex flex-col items-start justify-center cursor-pointer ${
-                              selectedReportId === report.id 
-                                ? 'bg-[var(--color-success)]/10 border-[var(--color-success)] shadow-[0_0_15px_rgba(16,185,129,0.15)] animate-scale-bump' 
-                                : 'bg-zinc-950/40 border-zinc-800 hover:border-zinc-700'
-                            }`}
-                            onClick={() => setSelectedReportId(report.id)}
-                          >
-                            <div className="flex justify-between items-start w-full">
-                              <div className="text-sm font-bold text-white mb-1">{report.bank} - {report.account_name}</div>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleDeleteReport(report.id); }}
-                                className="text-zinc-500 hover:text-red-400 p-1 rounded-md hover:bg-red-400/10 transition-colors z-10"
-                                title="Delete this report"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                            <div className="text-[10px] text-zinc-400 font-mono tracking-wider mb-2">{new Date(report.date).toLocaleString()}</div>
-                            {report.report_type === 'shift_report' ? (
-                              <div className="text-xs font-semibold space-y-0.5">
-                                <div className="text-emerald-400">MVR {formatAmount(report.payload?.total_claimed_mvr || 0)}</div>
-                                <div className="text-cyan-400">USD {formatAmount(report.payload?.total_claimed_usd || 0)}</div>
-                                <div className="text-zinc-500">{report.payload?.total_claimed_count || 0} claims</div>
-                              </div>
-                            ) : (
-                              <div className="text-xs font-semibold text-[var(--color-success)]">Bal: {report.payload?.balanceAtSave || '-'} {report.payload?.currency}</div>
-                            )}
+                ) : reportsSubTab === 'monthly_report' ? (
+                  <div id="monthly-claim-report-container" className="flex-1 flex flex-col bg-zinc-950/60 border border-zinc-800 rounded-3xl p-6 sm:p-8 relative overflow-hidden shadow-2xl">
+                    <div className="flex justify-between items-start pb-4 border-b border-zinc-800 shrink-0">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center print-hide">
+                          <BarChart3 size={22} />
+                        </div>
+                        <div>
+                          <h2 className="text-xl font-bold text-white print-title flex items-center gap-2">
+                            Monthly Claim Report
+                          </h2>
+                          <p className="text-xs text-zinc-400 print-subtitle mt-0.5">
+                            Terminal: <strong className="text-zinc-200 print:text-black">{terminalName || 'Counter'}</strong>
+                            {' | '}{new Date(monthlyReportYear, monthlyReportMonth - 1).toLocaleString('default', { month: 'long' })} {monthlyReportYear}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 print-hide">
+                        <select
+                          value={monthlyReportMonth}
+                          onChange={e => setMonthlyReportMonth(Number(e.target.value))}
+                          className="bg-zinc-900 border border-zinc-800 text-white rounded-lg px-2.5 py-1 text-xs font-mono"
+                        >
+                          {Array.from({length: 12}, (_, i) => (
+                            <option key={i + 1} value={i + 1}>
+                              {new Date(2000, i).toLocaleString('default', {month: 'long'})}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={monthlyReportYear}
+                          onChange={e => setMonthlyReportYear(Number(e.target.value))}
+                          className="bg-zinc-900 border border-zinc-800 text-white rounded-lg px-2.5 py-1 text-xs font-mono"
+                        >
+                          {Array.from({length: 10}, (_, i) => (
+                            <option key={i} value={new Date().getFullYear() - 5 + i}>
+                              {new Date().getFullYear() - 5 + i}
+                            </option>
+                          ))}
+                        </select>
+                        <button onClick={() => window.print()} className="btn btn-outline text-xs py-1.5 px-3 flex items-center gap-1.5 font-bold">
+                          <Printer size={13} /> Print
+                        </button>
+                      </div>
+                    </div>
+
+                    {monthlyReportLoading ? (
+                      <div className="flex-1 flex items-center justify-center my-8">
+                        <Loader2 size={24} className="animate-spin text-zinc-400" />
+                        <span className="ml-2 text-zinc-400 text-sm">Loading monthly report...</span>
+                      </div>
+                    ) : monthlyReportError ? (
+                      <div className="flex-1 flex items-center justify-center my-8 text-red-400 text-sm">
+                        <AlertTriangle size={20} className="mr-2" />
+                        {monthlyReportError}
+                      </div>
+                    ) : monthlyReportData ? (
+                      <>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4 shrink-0 print-kpi-grid">
+                          <div className="bg-zinc-900/60 border border-zinc-800 p-3 rounded-2xl print-kpi-box">
+                            <div className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider print-kpi-title">Claimed Sales Count</div>
+                            <div className="text-2xl font-bold font-mono text-white print-kpi-val mt-1">{monthlyReportData.totals?.total_count || 0}</div>
                           </div>
-                        ))
+                          <div className="bg-zinc-900/60 border border-zinc-800 p-3 rounded-2xl print-kpi-box">
+                            <div className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider print-kpi-title">Total Claimed (MVR)</div>
+                            <div className="text-2xl font-bold font-mono text-white print-kpi-val mt-1">
+                              MVR {formatAmount(monthlyReportData.totals?.total_mvr || 0)}
+                            </div>
+                          </div>
+                          <div className="bg-zinc-900/60 border border-zinc-800 p-3 rounded-2xl print-kpi-box">
+                            <div className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider print-kpi-title">Total Claimed (USD)</div>
+                            <div className="text-2xl font-bold font-mono text-white print-kpi-val mt-1">
+                              USD {formatAmount(monthlyReportData.totals?.total_usd || 0)}
+                            </div>
+                          </div>
+                          <div className="bg-zinc-900/60 border border-zinc-800 p-3 rounded-2xl print-kpi-box">
+                            <div className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider print-kpi-title">Report Period</div>
+                            <div className="text-xs font-mono text-zinc-300 print-kpi-val mt-1">
+                              {new Date(monthlyReportYear, monthlyReportMonth - 1).toLocaleString('default', { month: 'long' })} {monthlyReportYear}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto border border-zinc-800 rounded-2xl bg-zinc-900/40 p-2 my-2 print:border-none print:p-0 print-table-wrapper">
+                          <table className="w-full text-left text-xs font-sans spreadsheet-table">
+                            <thead>
+                              <tr className="border-b border-zinc-800 text-[10px] text-zinc-500 uppercase tracking-wider font-bold print:text-black">
+                                <th className="py-2.5 px-3 col-date">Date/Time</th>
+                                <th className="py-2.5 px-3 col-acc">Account #</th>
+                                <th className="py-2.5 px-3 col-ref">BLAZ / Ref #</th>
+                                <th className="py-2.5 px-3 col-desc">Payer / Description</th>
+                                <th className="py-2.5 px-3 col-sale-ref">Sale Reference</th>
+                                <th className="py-2.5 px-3 text-right col-amt">Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-zinc-800/40 text-[11px]">
+                              {monthlyReportData.claimed_sales?.length > 0 ? (
+                                monthlyReportData.claimed_sales.map((item: any, idx: number) => (
+                                  <tr key={item.id || idx} className="hover:bg-zinc-800/40 transition-colors print:bg-white">
+                                    <td className="py-2.5 px-3 text-zinc-400 print:text-black">{formatDate(item.claimed_at || item.transaction_date)}</td>
+                                    <td className="py-2.5 px-3 font-bold text-zinc-300 print:text-black">{item.account_number || item.bank_account?.account_number || item.bankAccount?.account_number || item.bank_type}</td>
+                                    <td className="py-2.5 px-3 font-bold text-zinc-300 print:text-black">{item.blaz_number || item.reference_number || item.transaction_id || '-'}</td>
+                                      <td className="py-2.5 px-3 desc-col print:text-black">
+                                        <ReportDetailsCell item={item} compact />
+                                      </td>
+                                      <td className="py-2.5 px-3 font-bold text-zinc-300 print:text-black">{item.sale_reference || '-'}</td>
+                                      <td className="py-2.5 px-3 text-right font-bold text-zinc-200 amount-col print:text-black">{getCurrencyOfSale(item)} {formatAmount(item.amount)}</td>
+                                    </tr>
+                                  ))
+                                ) : (
+                                <tr>
+                                  <td colSpan={6} className="py-8 text-center text-zinc-500 italic font-sans print:text-black">No claimed sales for this month.</td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex-1 flex items-center justify-center my-8 text-zinc-500 text-sm">
+                        Select a month to view the report.
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* Saved Claimed Reports */
+                  <div className="flex-1 flex flex-col lg:flex-row gap-6 overflow-hidden">
+                    {/* Report Cards: carousel on mobile, vertical list on desktop */}
+                    <div className="w-full lg:w-80 shrink-0">
+                      <div className="flex items-center justify-between mb-3">
+                        <h2 className={`font-bold text-white tracking-tight flex items-center gap-2 transition-all duration-300 ${
+                          isCompletelyCollapsed ? 'text-base' : 'text-xl'
+                        }`}>
+                          <BarChart3 className="text-[var(--color-success)]" size={20} />
+                          Saved Claimed Reports
+                        </h2>
+                      </div>
+                      {savedReports.length === 0 ? (
+                        <div className="text-sm text-zinc-500 italic p-4 bg-zinc-900/50 rounded-xl border border-zinc-800">No claimed reports saved yet. Save from the Ledger tab.</div>
+                      ) : (
+                        <div className="flex lg:flex-col gap-3 overflow-x-auto lg:overflow-y-auto pb-2 lg:pb-0 snap-x snap-mandatory scrollbar-thin">
+                          {savedReports.slice(0, 50).map(report => (
+                            <div
+                              key={report.id}
+                              className={`snap-start shrink-0 w-72 lg:w-full p-4 rounded-xl border transition-all relative flex flex-col items-start justify-center cursor-pointer ${
+                                selectedReportId === report.id 
+                                  ? 'bg-[var(--color-success)]/10 border-[var(--color-success)] shadow-[0_0_15px_rgba(16,185,129,0.15)] animate-scale-bump' 
+                                  : 'bg-zinc-950/40 border-zinc-800 hover:border-zinc-700'
+                              }`}
+                              onClick={() => setSelectedReportId(report.id)}
+                            >
+                              <div className="flex justify-between items-start w-full">
+                                <div className="text-sm font-bold text-white mb-1">{report.bank} - {report.account_name}</div>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleDeleteReport(report.id); }}
+                                  className="text-zinc-500 hover:text-red-400 p-1 rounded-md hover:bg-red-400/10 transition-colors z-10 print-hide"
+                                  title="Delete this report"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                              <div className="text-[10px] text-zinc-400 tracking-wider mb-2">{new Date(report.date).toLocaleString()}</div>
+                              {report.report_type === 'shift_report' ? (
+                                <div className="text-xs font-semibold space-y-0.5">
+                                  <div className="text-zinc-200">MVR {formatAmount(report.payload?.total_claimed_mvr || 0)}</div>
+                                  <div className="text-zinc-300">USD {formatAmount(report.payload?.total_claimed_usd || 0)}</div>
+                                  <div className="text-zinc-500">{report.payload?.total_claimed_count || 0} claims</div>
+                                </div>
+                              ) : (
+                                <div className="text-xs font-semibold text-zinc-200">
+                                  Bal: {report.payload?.balanceAtSave || '-'} {report.payload?.currency}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
                     
                     {/* Right Panel: Report Details */}
-                    <div className="flex-1 flex flex-col bg-zinc-950/40 border border-zinc-800 rounded-2xl overflow-hidden relative">
+                    <div id={reportsSubTab === 'snapshots' && selectedReportId ? 'snapshot-detail-panel' : undefined} className="flex-1 flex flex-col bg-zinc-950/40 border border-zinc-800 rounded-2xl overflow-hidden relative">
                       {selectedReportId ? (() => {
                         const selectedReport = savedReports.find(r => r.id === selectedReportId);
                         if (!selectedReport) return null;
                         return (
                           <div className="flex flex-col h-full animate-slide-up">
                             <div className="p-6 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-sm z-20 sticky top-0">
-                              <h3 className="text-2xl font-bold text-white">{selectedReport.report_type === 'shift_report' ? 'Shift Closing Report' : 'Ledger Report Snapshot'}</h3>
+                              <div className="flex items-center justify-between">
+                                <h3 className="text-2xl font-bold text-white">{selectedReport.report_type === 'shift_report' ? 'Shift Closing Report' : 'Ledger Report'}</h3>
+                                <button onClick={() => window.print()} className="btn btn-outline text-xs py-1.5 px-3 flex items-center gap-1.5 font-bold print-hide">
+                                  <Printer size={13} /> Print
+                                </button>
+                              </div>
                               <div className="flex flex-wrap gap-x-6 gap-y-2 mt-4 text-xs font-mono">
                                 <div className="flex flex-col"><span className="text-zinc-500 uppercase">Bank</span><span className="text-zinc-200">{selectedReport.bank}</span></div>
                                 <div className="flex flex-col"><span className="text-zinc-500 uppercase">Account</span><span className="text-zinc-200">{selectedReport.account_name} ({selectedReport.account_number})</span></div>
@@ -6420,10 +6722,12 @@ function App() {
                                       selectedReport.payload.transactions.map((tx: any, idx: number) => (
                                         <tr key={idx} className="hover:bg-zinc-900/50 transition-colors group">
                                           <td className="px-6 py-3 text-zinc-300 whitespace-nowrap text-xs">{tx.claimed_at ? new Date(tx.claimed_at).toLocaleString() : '-'}</td>
-                                          <td className="px-6 py-3 text-cyan-400 font-mono text-xs">{tx.transaction_id}</td>
-                                          <td className="px-6 py-3 text-zinc-200 text-xs">{tx.payer_name || tx.description || '-'}</td>
-                                          <td className="px-6 py-3 text-emerald-400 text-xs">{tx.sale_reference || '-'}</td>
-                                          <td className="px-6 py-3 text-right font-mono font-bold text-xs text-emerald-400">{tx.currency} {formatAmount(tx.amount)}</td>
+                                          <td className="px-6 py-3 text-zinc-300 font-mono text-xs">{tx.transaction_id}</td>
+                                          <td className="px-6 py-3 text-xs">
+                                            <ReportDetailsCell item={tx} />
+                                          </td>
+                                          <td className="px-6 py-3 text-zinc-300 text-xs">{tx.sale_reference || '-'}</td>
+                                          <td className="px-6 py-3 text-right font-mono font-bold text-xs text-zinc-200">{tx.currency} {formatAmount(tx.amount)}</td>
                                         </tr>
                                       ))
                                     ) : (

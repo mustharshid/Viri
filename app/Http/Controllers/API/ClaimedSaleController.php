@@ -85,21 +85,27 @@ class ClaimedSaleController extends Controller
             ->where('status', 'claimed')
             ->with(['terminal:id,terminal_name', 'shift:id,shift_number', 'bankAccount:id,account_name,account_number,currency']);
 
-        if ($request->filled('shift_id')) {
-            if ($request->shift_id !== 'all') {
-                $query->where('shift_id', $request->shift_id);
-            }
-        } elseif ($request->filled('date')) {
+        if ($request->filled('date')) {
             $query->whereDate('claimed_at', $request->date);
-        } elseif ($request->filled('from_date') && $request->filled('to_date')) {
+        }
+
+        if ($request->filled('from_date') && $request->filled('to_date')) {
             $query->whereBetween('claimed_at', [
                 Carbon::parse($request->from_date)->startOfDay(),
                 Carbon::parse($request->to_date)->endOfDay(),
             ]);
-        } else {
-            if ($activeShift) {
-                $query->where('shift_id', $activeShift->id);
-            }
+        }
+
+        if ($request->filled('shift_id') && $request->shift_id !== 'all') {
+            $query->where('shift_id', $request->shift_id);
+        }
+
+        $hasExplicitFilter = $request->filled('date')
+            || ($request->filled('from_date') && $request->filled('to_date'))
+            || ($request->filled('shift_id') && $request->shift_id !== 'all');
+
+        if (! $hasExplicitFilter && $activeShift) {
+            $query->where('shift_id', $activeShift->id);
         }
 
         $claimedSales = $query->orderBy('claimed_at', 'desc')->get();
@@ -396,6 +402,50 @@ class ClaimedSaleController extends Controller
         }
 
         return response()->json($result);
+    }
+
+    public function monthlyReport(Request $request): JsonResponse
+    {
+        $request->validate([
+            'hardware_id' => 'required|string',
+            'year' => 'required|integer|min:2000|max:2099',
+            'month' => 'required|integer|min:1|max:12',
+        ]);
+
+        $terminal = $this->resolveTerminal($request);
+
+        if (! $terminal) {
+            return response()->json(['error' => 'Terminal unauthorized'], 403);
+        }
+
+        $startDate = Carbon::create($request->integer('year'), $request->integer('month'), 1)->startOfDay();
+        $endDate = (clone $startDate)->endOfMonth()->endOfDay();
+
+        $aggregation = ClaimedSale::where('tenant_id', $terminal->tenant_id)
+            ->where('status', 'claimed')
+            ->whereBetween('claimed_at', [$startDate, $endDate])
+            ->selectRaw('currency, COUNT(*) as count, SUM(amount) as total')
+            ->groupBy('currency')
+            ->pluck('total', 'currency');
+
+        $claimedSales = ClaimedSale::where('tenant_id', $terminal->tenant_id)
+            ->where('status', 'claimed')
+            ->whereBetween('claimed_at', [$startDate, $endDate])
+            ->with(['bankAccount:id,account_name,account_number,currency'])
+            ->orderBy('claimed_at')
+            ->get();
+
+        return response()->json([
+            'year' => $request->integer('year'),
+            'month' => $request->integer('month'),
+            'terminal_name' => $terminal->terminal_name,
+            'totals' => [
+                'total_count' => $claimedSales->count(),
+                'total_mvr' => (float) ($aggregation['MVR'] ?? 0),
+                'total_usd' => (float) ($aggregation['USD'] ?? 0),
+            ],
+            'claimed_sales' => $claimedSales,
+        ]);
     }
 
     public function shiftReports(Request $request): JsonResponse
