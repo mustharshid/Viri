@@ -454,13 +454,13 @@ const TransactionRow = React.memo(({
 
   return (
     <tr className={`transition-colors group ${rowBg} ${isNew ? 'animate-new-transaction' : ''}`}>
-      <td className="py-3 px-3 text-xs font-mono text-zinc-400 whitespace-nowrap align-top min-w-[100px]">
+      <td className="py-3 px-2 text-xs font-mono text-zinc-400 align-top min-w-0 truncate">
         {tx.date}
       </td>
-      <td className="py-3 px-3 text-sm font-bold text-zinc-200 align-top min-w-[120px] max-w-[180px]">
-        <div className="flex items-start gap-2">
+      <td className="py-3 px-2 text-sm font-bold text-zinc-200 align-top min-w-0">
+        <div className="flex items-start gap-1.5 min-w-0">
           <div className="mt-0.5 shrink-0">{getTransactionIcon(description)}</div>
-          <div className="flex flex-col min-w-0">
+          <div className="flex flex-col min-w-0 truncate">
             <span className="truncate">{description}</span>
             {tx.narrative3 && (
               <span className="text-xs font-medium text-zinc-400 mt-1 truncate">{tx.narrative3}</span>
@@ -468,26 +468,26 @@ const TransactionRow = React.memo(({
           </div>
         </div>
       </td>
-      <td className="py-3 px-3 text-xs text-zinc-400 font-mono leading-relaxed align-top break-words min-w-[150px] max-w-[220px]">
+      <td className="py-3 px-2 text-xs text-zinc-400 font-mono leading-relaxed align-top min-w-0 overflow-hidden">
         <CopiableChip
           val={beneficiaryName}
           label="Beneficiary Name"
-          className="font-normal text-[17px] font-sans tracking-tight text-[var(--text-primary)] text-left justify-start block w-full truncate max-w-[200px] mb-1"
+          className="font-normal text-[14px] sm:text-[16px] font-sans tracking-tight text-[var(--text-primary)] text-left justify-start block w-full truncate mb-1"
         />
         {(blazRef || ftRef || refs.length > 0) && (
-          <div className="flex flex-wrap gap-1.5 text-xs font-mono">
+          <div className="flex flex-wrap gap-1 text-xs font-mono min-w-0">
             {blazRef && (
               <CopiableChip
                 val={blazRef}
                 label="BLAZ/Reference"
-                className="text-xs text-[var(--text-secondary)] bg-zinc-900 border border-zinc-800"
+                className="text-xs text-[var(--text-secondary)] bg-zinc-900 border border-zinc-800 truncate max-w-full"
               />
             )}
             {ftRef && (
               <CopiableChip
                 val={ftRef}
                 label="FT/Reference"
-                className="text-xs text-[var(--text-secondary)] bg-zinc-900 border border-zinc-800"
+                className="text-xs text-[var(--text-secondary)] bg-zinc-900 border border-zinc-800 truncate max-w-full"
               />
             )}
             {refs.filter(r => r !== blazRef && r !== ftRef).map((ref, i) => (
@@ -495,18 +495,18 @@ const TransactionRow = React.memo(({
                 key={i}
                 val={ref}
                 label="Reference"
-                className="text-xs text-[var(--text-secondary)] bg-zinc-900 border border-zinc-800"
+                className="text-xs text-[var(--text-secondary)] bg-zinc-900 border border-zinc-800 truncate max-w-full"
               />
             ))}
           </div>
         )}
         {details && (
-          <div className="text-[11px] text-zinc-500 font-mono mt-1 line-clamp-2">
+          <div className="text-[11px] text-zinc-500 font-mono mt-1 line-clamp-1 truncate">
             {details}
           </div>
         )}
       </td>
-      <td className="py-3 px-3 text-right align-top whitespace-nowrap min-w-[130px]">
+      <td className="py-3 px-2 text-right align-top min-w-0 overflow-hidden">
         <CopiableChip
           val={tx.amount}
           displayVal={formatAmount(tx.amount)}
@@ -723,7 +723,7 @@ const TransactionMobileCard = React.memo(({
     }
   }
 
-  // Final beneficiary name in ALL CAPS
+  // Final beneficiary name in ALL CAPS (Always at top)
   const beneficiaryName = (senderName || description || 'UNKNOWN').toUpperCase();
 
   let refs: string[] = [];
@@ -753,10 +753,24 @@ const TransactionMobileCard = React.memo(({
     blazRef = refs[0] || '';
   }
 
-  // Split date and time
-  const dateParts = (tx.date || '').split(' ');
-  const displayDate = dateParts[0] || '';
-  const displayTime = dateParts[1] || '';
+  // Parse date and time cleanly to prevent multi-line wrapping
+  const parseDateAndTime = (rawDate: string) => {
+    if (!rawDate) return { displayDate: '', displayTime: '' };
+    const clean = String(rawDate).replace(/[\r\n]+/g, ' ').trim();
+    const timeMatch = clean.match(/\b(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)\b/i);
+    if (timeMatch) {
+      const displayTime = timeMatch[1];
+      const displayDate = clean.replace(timeMatch[0], '').replace(/,\s*$/, '').trim();
+      return { displayDate, displayTime };
+    }
+    const parts = clean.split(/\s+/);
+    if (parts.length > 1) {
+      return { displayDate: parts[0], displayTime: parts.slice(1).join(' ') };
+    }
+    return { displayDate: clean, displayTime: '' };
+  };
+
+  const { displayDate, displayTime } = parseDateAndTime(tx.date);
 
   const creditStatus = typeof isCredit === 'boolean' ? isCredit : (typeof tx.amount === 'string' && tx.amount.startsWith('+'));
   
@@ -767,8 +781,8 @@ const TransactionMobileCard = React.memo(({
       : 'bg-zinc-900/35 border-zinc-800/30';
 
   return (
-    <div className={`p-4 rounded-xl border flex flex-col gap-4 transition-all ${cardBg} ${isNew ? 'animate-new-transaction' : ''}`}>
-      {/* Row 1: Beneficiary Name (Left) & Total Amount (Right) */}
+    <div className={`p-4 rounded-xl border flex flex-col gap-3 transition-all ${cardBg} ${isNew ? 'animate-new-transaction' : ''}`}>
+      {/* Row 1: Beneficiary Name (Top Left) & Total Amount (Top Right) */}
       <div className="flex justify-between items-start gap-3">
         <CopiableChip
           val={beneficiaryName}
@@ -779,7 +793,7 @@ const TransactionMobileCard = React.memo(({
           val={tx.amount}
           displayVal={formatAmount(tx.amount)}
           label="Amount"
-          className={`font-bold text-[17px] font-sans tracking-tight whitespace-nowrap text-center ${
+          className={`font-bold text-[17px] font-sans tracking-tight whitespace-nowrap text-right shrink-0 ${
             creditStatus 
               ? 'text-emerald-400 bg-emerald-955/5 hover:bg-emerald-955/10' 
               : 'text-red-400 bg-red-955/5 hover:bg-red-955/10'
@@ -787,30 +801,38 @@ const TransactionMobileCard = React.memo(({
         />
       </div>
 
-      {/* Rows 2 & 3: BLAZ Ref/Time & Date/FT Ref */}
-      <div className="flex flex-col gap-0.5">
+      {/* Rows 2 & 3: Ref/Time & Date/FT Ref */}
+      <div className="flex flex-col gap-1 text-xs font-mono">
         {/* Row 2: BLAZ Ref (Left) & Time (Right) */}
-        <div className="flex justify-between items-center text-xs font-mono">
-          <CopiableChip
-            val={blazRef}
-            label="BLAZ/Reference"
-            className="text-xs text-[var(--text-secondary)]"
-          />
-          <span className="text-[var(--text-secondary)] py-0.5 px-2">
+        <div className="flex justify-between items-center gap-2">
+          {blazRef ? (
+            <CopiableChip
+              val={blazRef}
+              label="BLAZ/Reference"
+              className="text-xs text-[var(--text-secondary)] truncate min-w-0"
+            />
+          ) : (
+            <span className="text-[var(--text-secondary)] opacity-40 px-2 py-0.5">-</span>
+          )}
+          <span className="text-[var(--text-secondary)] whitespace-nowrap shrink-0 text-right px-2 py-0.5">
             {displayTime || <span className="opacity-25">-</span>}
           </span>
         </div>
 
         {/* Row 3: Date (Left) & FT Ref (Right) */}
-        <div className="flex justify-between items-center text-xs font-mono">
-          <span className="text-[var(--text-secondary)] py-0.5 px-2">
+        <div className="flex justify-between items-center gap-2">
+          <span className="text-[var(--text-secondary)] whitespace-nowrap shrink-0 text-left px-2 py-0.5">
             {displayDate || <span className="opacity-25">-</span>}
           </span>
-          <CopiableChip
-            val={ftRef}
-            label="FT/Reference"
-            className="text-xs text-[var(--text-secondary)]"
-          />
+          {ftRef ? (
+            <CopiableChip
+              val={ftRef}
+              label="FT/Reference"
+              className="text-xs text-[var(--text-secondary)] truncate min-w-0 text-right justify-end"
+            />
+          ) : (
+            <span className="text-[var(--text-secondary)] opacity-40 text-right px-2 py-0.5">-</span>
+          )}
         </div>
       </div>
 
@@ -5385,14 +5407,14 @@ function App() {
                       {lastTransactions && lastTransactions.length > 0 ? (
                         <>
                           {/* Desktop Table View */}
-                          <div className="hidden md:block overflow-x-auto scrollbar-thin">
-                            <table className="w-full text-left text-xs border-collapse min-w-[500px]">
+                          <div className="hidden md:block w-full overflow-hidden">
+                            <table className="w-full text-left text-xs border-collapse table-fixed">
                               <thead>
                                 <tr className="border-b border-zinc-800 bg-zinc-900/10 text-zinc-400 uppercase tracking-wider font-semibold text-[10px]">
-                                  <th className="px-3 py-2 font-medium min-w-[100px]">Date & Time <Tooltip text="The transaction posting date." helpSectionId="transaction-ledger" /></th>
-                                  <th className="px-3 py-2 font-medium min-w-[120px]">Description <Tooltip text="Primary transaction description/type." helpSectionId="transaction-ledger" /></th>
-                                  <th className="px-3 py-2 font-medium min-w-[150px]">Details <Tooltip text="Additional transaction info (refs, IDs, card details, sender info)." helpSectionId="transaction-ledger" /></th>
-                                  <th className="px-3 py-2 font-medium text-right min-w-[130px]">Amount / Balance <Tooltip text="Green indicates credits (+), red indicates debits (-)." helpSectionId="transaction-ledger" /></th>
+                                  <th className="px-2 py-2 font-medium w-[22%] truncate">Date & Time <Tooltip text="The transaction posting date." helpSectionId="transaction-ledger" /></th>
+                                  <th className="px-2 py-2 font-medium w-[28%] truncate">Description <Tooltip text="Primary transaction description/type." helpSectionId="transaction-ledger" /></th>
+                                  <th className="px-2 py-2 font-medium w-[26%] truncate">Details <Tooltip text="Additional transaction info (refs, IDs, card details, sender info)." helpSectionId="transaction-ledger" /></th>
+                                  <th className="px-2 py-2 font-medium text-right w-[24%] truncate">Amount / Balance <Tooltip text="Green indicates credits (+), red indicates debits (-)." helpSectionId="transaction-ledger" /></th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-[var(--border-color)] text-xs text-[var(--text-secondary)]">
