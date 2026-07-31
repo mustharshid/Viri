@@ -249,41 +249,38 @@ export default function LandingPage() {
       elSub2.style.filter = 'blur(4px)';
     }
 
-    const duration = 800;
+    const duration = 600;
     const startTime = performance.now();
 
     function update(time: number) {
       const elapsed = time - startTime;
-      let fraction = Math.min(elapsed / duration, 1);
-      if (fraction <= 0) fraction = 0.0001;
+      const progress = Math.min(elapsed / duration, 1);
 
-      const blurVal2 = Math.min(8 / fraction - 8, 8);
-      const opacityVal2 = Math.pow(fraction, 0.2);
-      elText2!.style.filter = `blur(${blurVal2}px)`;
-      elText2!.style.opacity = `${opacityVal2}`;
+      // Smooth exponential ease-out
+      const ease = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
 
-      const invertedFraction = 1 - fraction;
-      const safeInvertedFraction = Math.max(invertedFraction, 0.0001);
-      const blurVal1 = Math.min(8 / safeInvertedFraction - 8, 8);
-      const opacityVal1 = Math.pow(safeInvertedFraction, 0.2);
-      elText1!.style.filter = `blur(${blurVal1}px)`;
-      elText1!.style.opacity = `${opacityVal1}`;
+      const blurValOut = ease * 6;
+      const opacityOut = Math.max(0, 1 - ease);
 
-      const blurValSub2 = Math.min(4 / fraction - 4, 4);
-      const opacityValSub2 = Math.pow(fraction, 0.2);
-      if (elSub2) {
-        elSub2.style.filter = `blur(${blurValSub2}px)`;
-        elSub2.style.opacity = `${opacityValSub2}`;
-      }
+      const blurValIn = (1 - ease) * 6;
+      const opacityIn = Math.min(1, ease);
 
-      const blurValSub1 = Math.min(4 / safeInvertedFraction - 4, 4);
-      const opacityValSub1 = Math.pow(safeInvertedFraction, 0.2);
+      elText1!.style.opacity = `${opacityOut}`;
+      elText1!.style.filter = `blur(${blurValOut}px)`;
+
+      elText2!.style.opacity = `${opacityIn}`;
+      elText2!.style.filter = `blur(${blurValIn}px)`;
+
       if (elSub1) {
-        elSub1.style.filter = `blur(${blurValSub1}px)`;
-        elSub1.style.opacity = `${opacityValSub1}`;
+        elSub1.style.opacity = `${opacityOut}`;
+        elSub1.style.filter = `blur(${blurValOut * 0.5}px)`;
+      }
+      if (elSub2) {
+        elSub2.style.opacity = `${opacityIn}`;
+        elSub2.style.filter = `blur(${blurValIn * 0.5}px)`;
       }
 
-      if (fraction < 1) {
+      if (progress < 1) {
         morphAnimIdRef.current = requestAnimationFrame(update);
       } else {
         elText2!.style.filter = 'none';
@@ -336,8 +333,8 @@ export default function LandingPage() {
       {/* Particle Canvas */}
       <canvas id="particle-canvas" ref={canvasRef}></canvas>
 
-      {/* SVG Threshold Filter for Gooey Morphing Text */}
-      <svg id="filters" style={{ display: 'none' }}>
+      {/* SVG Threshold Filter for Gooey Morphing Text (accessible across mobile WebKit & desktop) */}
+      <svg id="filters" style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden', pointerEvents: 'none', opacity: 0 }} aria-hidden="true">
         <defs>
           <filter id="threshold">
             <feColorMatrix
@@ -366,7 +363,7 @@ export default function LandingPage() {
 
       {/* Hero Section */}
       <section className="hero" id="hero">
-        <img src="/img/logo_dv_en.png" alt="Viri" className="hero-logo" width="180" height="48" decoding="async" fetchPriority="high" />
+        <img src="/img/logo_dv_en.png" alt="Viri" className="hero-logo" width="200" height="auto" decoding="async" fetchPriority="high" />
 
         <h1 className="display-xl hero-title">
           One dashboard.<br />All your accounts. Full visibility.
@@ -378,7 +375,7 @@ export default function LandingPage() {
         </p>
 
         <div className="hero-actions">
-          <Link to="/register" className="btn-primary hero-btn">
+          <Link to="/register" className="btn-primary hero-btn" style={{ color: '#041d13' }}>
             Try Pro for free
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M5 12h14" />
@@ -1019,17 +1016,25 @@ export default function LandingPage() {
               </div>
               <div className="pricing-amount">
                 <span className="pricing-currency">MVR</span>
-                <span className="pricing-value">499</span>
+                <span className="pricing-value">349.00</span>
                 <span className="pricing-period">/mo</span>
               </div>
               <ul className="pricing-features">
                 <li>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-                  Verification Panel – Search transactions by amount, preview 3 most recent matches.
+                  Verification Panel – Search transactions by amount, or preview most recent credits.
                 </li>
                 <li>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-                  Unified Dashboard View – See balances and basic transaction lists.
+                  See balances and basic transaction lists.
+                </li>
+                <li>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                  Per terminal customisation of account balance and debit transaction view.
+                </li>
+                <li>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                  Shift &amp; transaction claim function and reports.
                 </li>
                 <li>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
@@ -1051,17 +1056,17 @@ export default function LandingPage() {
               </div>
               <div className="pricing-amount">
                 <span className="pricing-currency">MVR</span>
-                <span className="pricing-value">989</span>
+                <span className="pricing-value">899.00</span>
                 <span className="pricing-period">/mo</span>
               </div>
               <ul className="pricing-features">
                 <li>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-                  Full Tool Suite Access – Verification Panel + Unified Ledger + Reports Suite + Statement Generator.
+                  Pro plan includes: everything in starter plan
                 </li>
                 <li>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-                  Advanced Reports – Cash Flow, Period Comparison, Activity by Account, Trend Analysis, Transaction Volume.
+                  Full Tool Suite Access – Verification Panel + Unified Ledger + Reports Suite + Statement Generator.
                 </li>
                 <li>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
@@ -1069,14 +1074,14 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-                  4 Bank Accounts (modular – add more slots as you grow).
+                  4 Bank Accounts (modular – 100.00 per additional bank account).
                 </li>
                 <li>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-                  3 Terminals (modular – add more as you scale).
+                  3 Terminals (modular – 200.00 per additional terminal).
                 </li>
               </ul>
-              <Link to="/register" className="pricing-btn pricing-btn-primary">Try Pro for Free</Link>
+              <Link to="/register" className="pricing-btn pricing-btn-primary" style={{ color: '#041d13' }}>Try Pro for Free</Link>
             </div>
           </div>
         </div>

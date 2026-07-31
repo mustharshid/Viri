@@ -68,6 +68,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/credentials/bml/unlinked-accounts', [SuperadminController::class, 'getUnlinkedBmlAccounts']);
         Route::post('/credentials/mib/{id}/test', [SuperadminController::class, 'testMibCredentials']);
         Route::post('/credentials/mib/{id}/renew', [SuperadminController::class, 'renewMibKeys']);
+        Route::post('/credentials/bml/inject', [SuperadminController::class, 'injectBmlCredentials'])->middleware('throttle:10,1');
+        Route::post('/credentials/mib/inject', [SuperadminController::class, 'injectMibCredentials'])->middleware('throttle:10,1');
+        Route::get('/tenants/{id}/bank-accounts', [SuperadminController::class, 'listTenantBankAccounts']);
     });
 
     // Company Routes

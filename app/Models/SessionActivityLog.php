@@ -72,6 +72,7 @@ class SessionActivityLog extends Model
             'race_won' => 'Session Race Won',
             'race_lost_delegating' => 'Session Race Lost — Delegating',
             'credential_cloned' => 'Credentials Cloned',
+            'credential_injected' => 'Credentials Injected',
             default => $eventType,
         };
     }

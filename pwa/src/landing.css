@@ -7,6 +7,10 @@
 
 /* --- Design Tokens --- */
 .viri-landing-root {
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
+  position: relative;
   /* Backgrounds */
   --bg-primary: #08090d;
   --bg-surface: #0f1117;
@@ -239,31 +243,39 @@
 }
 
 /* --- Buttons --- */
-.btn-primary {
+.btn-primary,
+.btn-primary:link,
+.btn-primary:visited,
+.btn-primary:hover,
+.btn-primary:active {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 28px;
+  padding: 14px 32px;
   font-family: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--bg-primary);
-  background: var(--accent);
+  font-size: 15px;
+  font-weight: 700;
+  color: #041d13 !important;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
   border: none;
   border-radius: var(--radius-pill);
   cursor: pointer;
+  box-shadow: 0 0 24px rgba(16, 185, 129, 0.4), 0 4px 16px rgba(16, 185, 129, 0.25);
   transition: transform var(--duration-fast) var(--ease-out),
               box-shadow var(--duration-normal) var(--ease-out),
               background var(--duration-fast) var(--ease-out);
 }
 
 .btn-primary:hover {
-  background: var(--accent-dim);
-  box-shadow: 0 0 30px var(--accent-glow-strong);
+  color: #041d13 !important;
+  background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+  box-shadow: 0 0 40px rgba(16, 185, 129, 0.6), 0 6px 20px rgba(16, 185, 129, 0.35);
+  transform: translateY(-1px);
 }
 
 .btn-primary:active {
-  transform: scale(0.98);
+  color: #041d13 !important;
+  transform: translateY(0) scale(0.98);
 }
 
 .btn-ghost {
@@ -306,8 +318,8 @@
 }
 
 .hero-logo {
-  height: 48px;
-  width: auto;
+  width: 200px;
+  height: auto;
   object-fit: contain;
   margin-bottom: 32px;
   opacity: 0.9;
@@ -343,6 +355,7 @@
   padding: 0 24px;
   position: relative;
   z-index: var(--z-content);
+  overflow: hidden;
 }
 
 /* Dot-grid background */
@@ -377,17 +390,26 @@
 .morph-heading {
   position: relative;
   width: 100%;
-  height: 1.1em;
-  filter: url(#threshold) blur(0.6px);
+  min-height: 48px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  filter: url(#threshold) blur(0.4px);
+  -webkit-filter: url(#threshold) blur(0.4px);
 }
 
 .morph-text {
   position: absolute;
   left: 0;
   right: 0;
-  top: 0;
-  white-space: nowrap;
+  top: 50%;
+  transform: translateY(-50%);
+  text-align: center;
+  white-space: normal;
+  word-break: break-word;
   user-select: none;
+  width: 100%;
+  will-change: opacity, filter;
 }
 
 .morph-text-1 {
@@ -409,16 +431,25 @@
 .morph-subheading {
   position: relative;
   width: 100%;
-  min-height: 36px; /* Holds 2 lines of 12px text nicely without shifting */
+  min-height: 40px;
   margin-top: 8px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .morph-subtext {
   position: absolute;
   left: 0;
   right: 0;
-  top: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  text-align: center;
+  white-space: normal;
+  word-break: break-word;
   user-select: none;
+  width: 100%;
+  will-change: opacity, filter;
 }
 
 .morph-subtext-1 {
@@ -2437,15 +2468,22 @@
   background: rgba(255, 255, 255, 0.04);
 }
 
-.pricing-btn-primary {
+.pricing-btn-primary,
+.pricing-btn-primary:link,
+.pricing-btn-primary:visited,
+.pricing-btn-primary:hover,
+.pricing-btn-primary:active {
   border: none;
-  background: var(--accent);
-  color: var(--bg-primary);
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: #041d13 !important;
+  font-weight: 700;
+  box-shadow: 0 0 24px rgba(16, 185, 129, 0.4), 0 4px 16px rgba(16, 185, 129, 0.25);
 }
 
 .pricing-btn-primary:hover {
-  background: var(--accent-dim);
-  box-shadow: 0 0 24px var(--accent-glow);
+  color: #041d13 !important;
+  background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+  box-shadow: 0 0 40px rgba(16, 185, 129, 0.6), 0 6px 20px rgba(16, 185, 129, 0.35);
 }
 
 /* --- Footer --- */
@@ -2823,10 +2861,6 @@
   .carousel-external-heading {
     font-size: clamp(20px, 3vw, 30px);
     letter-spacing: -0.025em;
-  }
-
-  .morph-heading {
-    filter: none !important; /* Disable SVG threshold blur filter on small viewports to increase clarity */
   }
 
   .verify-grid {

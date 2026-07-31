@@ -7,6 +7,7 @@ use App\Models\BankAccount;
 use App\Models\BankAccountLock;
 use App\Models\BmlCredentialGroup;
 use App\Models\MibCredentialGroup;
+use App\Models\MibCredentialProfile;
 use App\Models\PaymentReceipt;
 use App\Models\SessionActivityLog;
 use App\Models\SessionFetchRequest;
@@ -642,7 +643,9 @@ class SuperadminController extends Controller
 
             return [
                 'id' => $g->id,
+                'tenant_id' => $g->tenant_id,
                 'tenant_name' => $g->tenant?->name,
+                'terminal_id' => $g->terminal_id,
                 'terminal_name' => $g->terminal?->terminal_name,
                 'bml_username' => $g->bml_username,
                 'profile_type' => $g->profile_type,
@@ -669,7 +672,9 @@ class SuperadminController extends Controller
         $mibGroups = MibCredentialGroup::with(['terminal', 'profiles.bankAccounts', 'tenant'])->get()->map(function ($g) {
             return [
                 'id' => $g->id,
+                'tenant_id' => $g->tenant_id,
                 'tenant_name' => $g->tenant?->name,
+                'terminal_id' => $g->terminal_id,
                 'terminal_name' => $g->terminal?->terminal_name,
                 'mib_username' => $g->mib_username,
                 'app_id' => $g->app_id,
@@ -1126,5 +1131,328 @@ class SuperadminController extends Controller
                 'bank_name' => $target->bank_name,
             ],
         ]);
+    }
+
+    // =========================================================================
+    // MANUAL CREDENTIAL INJECTION (for superadmin debugging)
+    // =========================================================================
+
+    public function injectBmlCredentials(Request $request)
+    {
+        $validated = $request->validate([
+            'tenant_id' => 'required|integer',
+            'bank_account_id' => 'required|integer',
+            'terminal_id' => 'nullable|integer',
+            'bml_username' => 'nullable|string',
+            'profile_type' => 'required|in:personal,business',
+            'access_token' => 'required|string',
+            'refresh_token' => 'required|string',
+            'device_id' => 'required|string',
+            'expires_in' => 'nullable|integer|min:1',
+        ]);
+
+        $result = DB::transaction(function () use ($validated) {
+            $account = BankAccount::where('id', $validated['bank_account_id'])
+                ->where('tenant_id', $validated['tenant_id'])
+                ->lockForUpdate()
+                ->first();
+
+            if (! $account) {
+                return ['error' => 'Bank account not found for this tenant', 'status' => 404];
+            }
+
+            if (strtolower($account->bank_name) !== 'bml') {
+                return ['error' => 'Target account is not a BML account', 'status' => 422];
+            }
+
+            if ($account->bml_credential_group_id !== null) {
+                return [
+                    'error' => 'Target bank account is already linked to BML credential group #'.$account->bml_credential_group_id.'. Unlink it first or choose a different account.',
+                    'existing_group_id' => $account->bml_credential_group_id,
+                    'status' => 422,
+                ];
+            }
+
+            $terminal = null;
+            if (! empty($validated['terminal_id'])) {
+                $terminal = Terminal::where('id', $validated['terminal_id'])
+                    ->where('tenant_id', $validated['tenant_id'])
+                    ->first();
+                if (! $terminal) {
+                    return ['error' => 'Terminal not found for this tenant', 'status' => 404];
+                }
+            }
+
+            $expiresIn = $validated['expires_in'] ?? null;
+            $expiresAt = $expiresIn ? Carbon::now()->addSeconds($expiresIn) : null;
+
+            $bmlUsername = ($validated['bml_username'] ?? '') ?: null;
+
+            $tokenFields = [
+                'terminal_id' => $terminal?->id,
+                'access_token' => trim($validated['access_token']),
+                'refresh_token' => trim($validated['refresh_token']),
+                'device_id' => trim($validated['device_id']),
+                'expires_in' => $expiresIn,
+                'expires_at' => $expiresAt,
+                'token_type' => 'Bearer',
+                'last_grant' => 'superadmin_inject',
+                'obtained_at' => Carbon::now(),
+            ];
+
+            if ($bmlUsername !== null) {
+                $existing = BmlCredentialGroup::where('tenant_id', $validated['tenant_id'])
+                    ->where('bml_username', $bmlUsername)
+                    ->where('profile_type', $validated['profile_type'])
+                    ->first();
+
+                if ($existing) {
+                    $existing->update($tokenFields);
+                    $group = $existing;
+                    $groupExisted = true;
+                } else {
+                    $group = BmlCredentialGroup::create(array_merge($tokenFields, [
+                        'tenant_id' => $validated['tenant_id'],
+                        'bml_username' => $bmlUsername,
+                        'profile_type' => $validated['profile_type'],
+                    ]));
+                    $groupExisted = false;
+                }
+            } else {
+                // Null username: search for orphaned group with same tenant+profile_type
+                $orphan = BmlCredentialGroup::where('tenant_id', $validated['tenant_id'])
+                    ->whereNull('bml_username')
+                    ->where('profile_type', $validated['profile_type'])
+                    ->whereDoesntHave('bankAccounts')
+                    ->orderBy('id', 'asc')
+                    ->first();
+
+                if ($orphan) {
+                    $orphan->update($tokenFields);
+                    $group = $orphan;
+                    $groupExisted = true;
+                } else {
+                    $group = BmlCredentialGroup::create(array_merge($tokenFields, [
+                        'tenant_id' => $validated['tenant_id'],
+                        'bml_username' => null,
+                        'profile_type' => $validated['profile_type'],
+                    ]));
+                    $groupExisted = false;
+                }
+            }
+
+            $account->update(['bml_credential_group_id' => $group->id]);
+
+            SessionActivityLog::create([
+                'tenant_id' => $validated['tenant_id'],
+                'terminal_id' => $group->terminal_id,
+                'bank_account_id' => $account->id,
+                'bank_name' => $account->bank_name,
+                'account_number_masked' => substr($account->account_number, -4),
+                'event_type' => 'credential_injected',
+                'event_summary' => "BML credentials manually injected for account #{$account->id} ({$account->account_number}) — group #{$group->id}",
+                'event_detail' => [
+                    'group_type' => 'bml',
+                    'group_id' => $group->id,
+                    'group_existed_before' => $groupExisted,
+                    'account_id' => $account->id,
+                    'account_number' => $account->account_number,
+                    'performed_by' => auth()->id(),
+                ],
+                'created_at' => now(),
+            ]);
+
+            Log::info('BML credentials manually injected', [
+                'group_id' => $group->id,
+                'account_id' => $account->id,
+                'account_number' => $account->account_number,
+                'admin_user_id' => auth()->id(),
+            ]);
+
+            return [
+                'success' => true,
+                'group_id' => $group->id,
+                'group_existed_before' => $groupExisted,
+                'expires_warning' => $expiresAt === null ? 'No expiry set — token may appear valid even after actual expiry.' : null,
+                'account' => [
+                    'id' => $account->id,
+                    'account_number' => $account->account_number,
+                    'account_name' => $account->account_name,
+                ],
+            ];
+        });
+
+        if (isset($result['status']) && $result['status'] >= 400) {
+            $status = $result['status'];
+            unset($result['status']);
+
+            return response()->json($result, $status);
+        }
+
+        return response()->json($result);
+    }
+
+    public function injectMibCredentials(Request $request)
+    {
+        $validated = $request->validate([
+            'tenant_id' => 'required|integer',
+            'bank_account_id' => 'required|integer',
+            'terminal_id' => 'nullable|integer',
+            'mib_username' => 'required|string',
+            'key1' => 'required|string',
+            'key2' => 'required|string',
+            'app_id' => 'required|string|max:64',
+            'profile_id' => 'nullable|string',
+            'profile_type' => 'nullable|string|max:4',
+            'profile_name' => 'nullable|string',
+        ]);
+
+        $result = DB::transaction(function () use ($validated) {
+            $account = BankAccount::where('id', $validated['bank_account_id'])
+                ->where('tenant_id', $validated['tenant_id'])
+                ->lockForUpdate()
+                ->first();
+
+            if (! $account) {
+                return ['error' => 'Bank account not found for this tenant', 'status' => 404];
+            }
+
+            if (strtolower($account->bank_name) !== 'mib') {
+                return ['error' => 'Target account is not an MIB account', 'status' => 422];
+            }
+
+            if ($account->mib_credential_profile_id !== null) {
+                return [
+                    'error' => 'Target bank account is already linked to MIB credential profile #'.$account->mib_credential_profile_id.'. Unlink it first or choose a different account.',
+                    'existing_profile_id' => $account->mib_credential_profile_id,
+                    'status' => 422,
+                ];
+            }
+
+            $terminal = null;
+            if (! empty($validated['terminal_id'])) {
+                $terminal = Terminal::where('id', $validated['terminal_id'])
+                    ->where('tenant_id', $validated['tenant_id'])
+                    ->first();
+                if (! $terminal) {
+                    return ['error' => 'Terminal not found for this tenant', 'status' => 404];
+                }
+            }
+
+            $existing = MibCredentialGroup::where('tenant_id', $validated['tenant_id'])
+                ->where('mib_username', $validated['mib_username'])
+                ->first();
+
+            $groupFields = [
+                'terminal_id' => $terminal?->id,
+                'key1' => trim($validated['key1']),
+                'key2' => trim($validated['key2']),
+                'app_id' => trim($validated['app_id']),
+                'obtained_at' => Carbon::now(),
+            ];
+
+            if ($existing) {
+                $existing->update($groupFields);
+                $group = $existing;
+                $groupExisted = true;
+            } else {
+                $group = MibCredentialGroup::create(array_merge($groupFields, [
+                    'tenant_id' => $validated['tenant_id'],
+                    'mib_username' => $validated['mib_username'],
+                ]));
+                $groupExisted = false;
+            }
+
+            $profileId = $validated['profile_id'] ?? 'default_profile';
+            $profileType = $validated['profile_type'] ?? '0';
+            $profileName = $validated['profile_name'] ?? '';
+
+            $profile = MibCredentialProfile::updateOrCreate(
+                [
+                    'credential_group_id' => $group->id,
+                    'profile_id' => $profileId,
+                ],
+                [
+                    'profile_type' => $profileType,
+                    'profile_name' => $profileName,
+                ]
+            );
+
+            $account->update(['mib_credential_profile_id' => $profile->id]);
+
+            SessionActivityLog::create([
+                'tenant_id' => $validated['tenant_id'],
+                'terminal_id' => $group->terminal_id,
+                'bank_account_id' => $account->id,
+                'bank_name' => $account->bank_name,
+                'account_number_masked' => substr($account->account_number, -4),
+                'event_type' => 'credential_injected',
+                'event_summary' => "MIB credentials manually injected for account #{$account->id} ({$account->account_number}) — group #{$group->id}",
+                'event_detail' => [
+                    'group_type' => 'mib',
+                    'group_id' => $group->id,
+                    'profile_id' => $profile->id,
+                    'group_existed_before' => $groupExisted,
+                    'account_id' => $account->id,
+                    'account_number' => $account->account_number,
+                    'performed_by' => auth()->id(),
+                ],
+                'created_at' => now(),
+            ]);
+
+            Log::info('MIB credentials manually injected', [
+                'group_id' => $group->id,
+                'profile_id' => $profile->id,
+                'account_id' => $account->id,
+                'account_number' => $account->account_number,
+                'admin_user_id' => auth()->id(),
+            ]);
+
+            return [
+                'success' => true,
+                'group_id' => $group->id,
+                'profile_id' => $profile->id,
+                'group_existed_before' => $groupExisted,
+                'account' => [
+                    'id' => $account->id,
+                    'account_number' => $account->account_number,
+                    'account_name' => $account->account_name,
+                ],
+            ];
+        });
+
+        if (isset($result['status']) && $result['status'] >= 400) {
+            $status = $result['status'];
+            unset($result['status']);
+
+            return response()->json($result, $status);
+        }
+
+        return response()->json($result);
+    }
+
+    public function listTenantBankAccounts(Request $request, $id)
+    {
+        $tenant = Tenant::find($id);
+        if (! $tenant) {
+            return response()->json(['error' => 'Tenant not found'], 404);
+        }
+
+        $query = BankAccount::where('tenant_id', $id);
+
+        if ($request->has('bank_name')) {
+            $query->where('bank_name', $request->bank_name);
+        }
+
+        $accounts = $query->get()->map(fn ($a) => [
+            'id' => $a->id,
+            'account_number' => $a->account_number,
+            'account_name' => $a->account_name,
+            'bank_name' => $a->bank_name,
+            'bml_linked_group_id' => $a->bml_credential_group_id,
+            'mib_linked_profile_id' => $a->mib_credential_profile_id,
+        ]);
+
+        return response()->json($accounts);
     }
 }

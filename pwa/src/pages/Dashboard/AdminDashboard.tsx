@@ -77,6 +77,18 @@ export default function AdminDashboard() {
     isOpen: false, sourceGroup: null, unlinkedAccounts: [], selectedAccountId: null, loading: false, loadingAccounts: false, result: null, error: null,
   });
 
+  // Inject credential modal
+  const [injectModal, setInjectModal] = useState<{
+    isOpen: boolean; type: 'bml' | 'mib'; tenants: any[]; selectedTenantId: number | null;
+    accounts: any[]; selectedAccountId: number | null; loadingAccounts: boolean;
+    fields: Record<string, string>; submitting: boolean; result: any | null; error: string | null;
+    loadingTenants: boolean;
+  }>({
+    isOpen: false, type: 'bml', tenants: [], selectedTenantId: null,
+    accounts: [], selectedAccountId: null, loadingAccounts: false,
+    fields: {}, submitting: false, result: null, error: null, loadingTenants: false,
+  });
+
   const openCloneModal = async (group: any) => {
     setCloneModal({isOpen: true, sourceGroup: group, unlinkedAccounts: [], selectedAccountId: null, loading: false, loadingAccounts: true, result: null, error: null});
     try {
@@ -115,6 +127,94 @@ export default function AdminDashboard() {
 
   const closeCloneModal = () => {
     setCloneModal(prev => ({ ...prev, isOpen: false }));
+  };
+
+  const openInjectModal = async (type: 'bml' | 'mib') => {
+    setInjectModal({
+      isOpen: true, type, tenants: [], selectedTenantId: null,
+      accounts: [], selectedAccountId: null, loadingAccounts: false,
+      fields: {}, submitting: false, result: null, error: null, loadingTenants: true,
+    });
+    try {
+      const token = localStorage.getItem('viri_token');
+      const res = await fetch('/api/admin/companies?per_page=200', {
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+      });
+      const data = await res.json();
+      const tenantList = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
+      setInjectModal(prev => ({ ...prev, tenants: tenantList, loadingTenants: false }));
+    } catch {
+      setInjectModal(prev => ({ ...prev, error: 'Failed to load tenants', loadingTenants: false }));
+    }
+  };
+
+  const loadInjectAccounts = async (tenantId: number, type: 'bml' | 'mib') => {
+    setInjectModal(prev => ({ ...prev, loadingAccounts: true, accounts: [], selectedAccountId: null, error: null }));
+    try {
+      const token = localStorage.getItem('viri_token');
+      const bankName = type === 'bml' ? 'BML' : 'MIB';
+      const res = await fetch(`/api/admin/tenants/${tenantId}/bank-accounts?bank_name=${bankName}`, {
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setInjectModal(prev => ({ ...prev, accounts: Array.isArray(data) ? data : [], loadingAccounts: false }));
+      } else {
+        setInjectModal(prev => ({ ...prev, error: data.error || 'Failed to load accounts', loadingAccounts: false }));
+      }
+    } catch (err: any) {
+      setInjectModal(prev => ({ ...prev, error: err.message || 'Failed to load accounts', loadingAccounts: false }));
+    }
+  };
+
+  const executeInject = async () => {
+    const { type, selectedAccountId, fields } = injectModal;
+    if (!selectedAccountId) return;
+    setInjectModal(prev => ({ ...prev, submitting: true, result: null, error: null }));
+    try {
+      const token = localStorage.getItem('viri_token');
+      const body: any = {};
+      if (type === 'bml') {
+        body.tenant_id = injectModal.selectedTenantId;
+        body.bank_account_id = selectedAccountId;
+        body.terminal_id = fields.terminal_id ? Number(fields.terminal_id) : null;
+        body.bml_username = fields.bml_username || null;
+        body.profile_type = fields.profile_type || 'personal';
+        body.access_token = fields.access_token || '';
+        body.refresh_token = fields.refresh_token || '';
+        body.device_id = fields.device_id || '';
+        if (fields.expires_in) body.expires_in = Number(fields.expires_in);
+      } else {
+        body.tenant_id = injectModal.selectedTenantId;
+        body.bank_account_id = selectedAccountId;
+        body.terminal_id = fields.terminal_id ? Number(fields.terminal_id) : null;
+        body.mib_username = fields.mib_username || '';
+        body.key1 = fields.key1 || '';
+        body.key2 = fields.key2 || '';
+        body.app_id = fields.app_id || '';
+        body.profile_id = fields.profile_id || 'default_profile';
+        body.profile_type = fields.profile_type || '0';
+        body.profile_name = fields.profile_name || '';
+      }
+      const res = await fetch(`/api/admin/credentials/${type}/inject`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setInjectModal(prev => ({ ...prev, error: data.error || 'Injection failed', submitting: false }));
+      } else {
+        setInjectModal(prev => ({ ...prev, result: data, submitting: false }));
+      }
+    } catch (err: any) {
+      setInjectModal(prev => ({ ...prev, error: err.message || 'Network error', submitting: false }));
+    }
+  };
+
+  const closeInjectModal = () => {
+    if (injectModal.result) fetchCredentials();
+    setInjectModal(prev => ({ ...prev, isOpen: false }));
   };
 
   const toggleReveal = (key: string) => {
@@ -3234,10 +3334,16 @@ export default function AdminDashboard() {
                     View all stored bank credentials across the platform and test their validity against bank APIs.
                   </p>
                 </div>
-                <button onClick={fetchCredentials} className="btn btn-outline text-sm" disabled={credsLoading}>
-                  <RefreshCw size={14} className={`mr-1 ${credsLoading ? 'animate-spin' : ''}`} />
-                  Refresh
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => openInjectModal('bml')} className="btn btn-outline text-sm border-amber-700/40 text-amber-400 hover:bg-amber-900/30">
+                    <Plus size={14} className="mr-1" />
+                    Inject Credentials
+                  </button>
+                  <button onClick={fetchCredentials} className="btn btn-outline text-sm" disabled={credsLoading}>
+                    <RefreshCw size={14} className={`mr-1 ${credsLoading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </button>
+                </div>
               </div>
 
               {/* BML Credential Groups */}
@@ -4142,6 +4248,213 @@ export default function AdminDashboard() {
                     onClick={executeClone}
                   >
                     {cloneModal.loading ? 'Cloning...' : 'Clone'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {injectModal.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl p-6 w-full max-w-lg flex flex-col gap-4 animate-scale-in relative max-h-[90vh] overflow-y-auto">
+            <button onClick={closeInjectModal} className="absolute top-3 right-3 text-zinc-500 hover:text-zinc-300"><X size={18} /></button>
+            <h3 className="text-lg font-bold text-white">Inject Credentials</h3>
+
+            {injectModal.result ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-emerald-400">
+                  <CheckCircle2 size={18} />
+                  <span className="font-semibold">Credentials Injected Successfully</span>
+                </div>
+                <div className="bg-black/40 border border-zinc-800 rounded p-3 text-sm space-y-1">
+                  <p><span className="text-zinc-400">Type:</span> <span className="text-white">{injectModal.type.toUpperCase()}</span></p>
+                  <p><span className="text-zinc-400">Group:</span> <span className="text-white">#{injectModal.result.group_id}</span></p>
+                  {injectModal.result.profile_id && <p><span className="text-zinc-400">Profile:</span> <span className="text-white">#{injectModal.result.profile_id}</span></p>}
+                  <p><span className="text-zinc-400">Account:</span> <span className="text-white">{injectModal.result.account.account_name} ({injectModal.result.account.account_number})</span></p>
+                  {injectModal.result.group_existed_before && <p className="text-yellow-400 text-xs mt-1">Updated existing credential group.</p>}
+                  {injectModal.result.expires_warning && <p className="text-amber-400 text-xs mt-1">{injectModal.result.expires_warning}</p>}
+                </div>
+                <button className="btn btn-primary w-full" onClick={closeInjectModal}>
+                  Close &amp; Refresh List
+                </button>
+              </div>
+            ) : (
+              <>
+                {injectModal.loadingTenants ? (
+                  <p className="text-sm text-zinc-500 italic">Loading tenants...</p>
+                ) : (
+                  <>
+                    {/* Tenant selector */}
+                    <div>
+                      <label className="text-xs text-zinc-400 mb-1 block">Tenant</label>
+                      <select
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white"
+                        value={injectModal.selectedTenantId ?? ''}
+                        onChange={e => {
+                          const id = Number(e.target.value);
+                          setInjectModal(prev => ({ ...prev, selectedTenantId: id }));
+                          loadInjectAccounts(id, injectModal.type);
+                        }}
+                      >
+                        <option value="" disabled>Select a tenant...</option>
+                        {injectModal.tenants.map((t: any) => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Credential type */}
+                    <div>
+                      <label className="text-xs text-zinc-400 mb-1 block">Credential Type</label>
+                      <div className="flex gap-3">
+                        <label className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer text-sm transition-colors ${injectModal.type === 'bml' ? 'border-blue-500/50 bg-blue-900/20 text-blue-300' : 'border-zinc-700 bg-zinc-800 text-zinc-400'}`}>
+                          <input type="radio" name="injectType" value="bml" checked={injectModal.type === 'bml'} onChange={() => {
+                            setInjectModal(prev => ({ ...prev, type: 'bml', accounts: [], selectedAccountId: null, fields: {}, error: null }));
+                          }} className="sr-only" />
+                          BML
+                        </label>
+                        <label className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer text-sm transition-colors ${injectModal.type === 'mib' ? 'border-emerald-500/50 bg-emerald-900/20 text-emerald-300' : 'border-zinc-700 bg-zinc-800 text-zinc-400'}`}>
+                          <input type="radio" name="injectType" value="mib" checked={injectModal.type === 'mib'} onChange={() => {
+                            setInjectModal(prev => ({ ...prev, type: 'mib', accounts: [], selectedAccountId: null, fields: {}, error: null }));
+                          }} className="sr-only" />
+                          MIB
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Bank account selector */}
+                    {injectModal.selectedTenantId && (
+                      <div>
+                        <label className="text-xs text-zinc-400 mb-1 block">Bank Account</label>
+                        {injectModal.loadingAccounts ? (
+                          <p className="text-sm text-zinc-500 italic">Loading accounts...</p>
+                        ) : (
+                          <select
+                            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white"
+                            value={injectModal.selectedAccountId ?? ''}
+                            onChange={e => setInjectModal(prev => ({ ...prev, selectedAccountId: Number(e.target.value) }))}
+                          >
+                            <option value="" disabled>Select a bank account...</option>
+                            {injectModal.accounts.map((acc: any) => (
+                              <option key={acc.id} value={acc.id}>
+                                {acc.account_name} ({acc.account_number})
+                                {(acc.bml_linked_group_id || acc.mib_linked_profile_id) ? ' — ALREADY LINKED' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Terminal selector */}
+                    {injectModal.selectedTenantId && (
+                      <div>
+                        <label className="text-xs text-zinc-400 mb-1 block">Terminal (optional)</label>
+                        <select
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white"
+                          value={injectModal.fields.terminal_id || ''}
+                          onChange={e => setInjectModal(prev => ({ ...prev, fields: { ...prev.fields, terminal_id: e.target.value } }))}
+                        >
+                          <option value="">None (leave unassigned)</option>
+                          {(() => {
+                            const tenant = injectModal.tenants.find((t: any) => t.id === injectModal.selectedTenantId);
+                            return tenant?.terminals?.map((term: any) => (
+                              <option key={term.id} value={term.id}>{term.terminal_name}</option>
+                            ));
+                          })()}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Form fields */}
+                    {injectModal.selectedAccountId && injectModal.selectedTenantId && !injectModal.loadingAccounts && (
+                      <div className="space-y-3 border-t border-zinc-800 pt-3">
+                        {injectModal.type === 'bml' ? (
+                          <>
+                            <div>
+                              <label className="text-xs text-zinc-400 mb-1 block">BML Username (optional)</label>
+                              <input type="text" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white font-mono" placeholder="johndoe" value={injectModal.fields.bml_username || ''} onChange={e => setInjectModal(prev => ({ ...prev, fields: { ...prev.fields, bml_username: e.target.value } }))} />
+                            </div>
+                            <div>
+                              <label className="text-xs text-zinc-400 mb-1 block">Profile Type</label>
+                              <div className="flex gap-3">
+                                <label className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border cursor-pointer text-sm ${(injectModal.fields.profile_type || 'personal') === 'personal' ? 'border-zinc-500 bg-zinc-700 text-white' : 'border-zinc-700 bg-zinc-800 text-zinc-400'}`}>
+                                  <input type="radio" name="injectProfile" value="personal" checked={(injectModal.fields.profile_type || 'personal') === 'personal'} onChange={e => setInjectModal(prev => ({ ...prev, fields: { ...prev.fields, profile_type: e.target.value } }))} className="sr-only" /> Personal
+                                </label>
+                                <label className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border cursor-pointer text-sm ${injectModal.fields.profile_type === 'business' ? 'border-zinc-500 bg-zinc-700 text-white' : 'border-zinc-700 bg-zinc-800 text-zinc-400'}`}>
+                                  <input type="radio" name="injectProfile" value="business" checked={injectModal.fields.profile_type === 'business'} onChange={e => setInjectModal(prev => ({ ...prev, fields: { ...prev.fields, profile_type: e.target.value } }))} className="sr-only" /> Business
+                                </label>
+                              </div>
+                            </div>
+                            <div>
+                              <label className="text-xs text-zinc-400 mb-1 block">Access Token <span className="text-zinc-600 ml-1">({(injectModal.fields.access_token || '').length} chars)</span></label>
+                              <textarea className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white font-mono h-24 resize-y" placeholder="Paste access_token here..." value={injectModal.fields.access_token || ''} onChange={e => setInjectModal(prev => ({ ...prev, fields: { ...prev.fields, access_token: e.target.value } }))} autoComplete="off" spellCheck="false" />
+                            </div>
+                            <div>
+                              <label className="text-xs text-zinc-400 mb-1 block">Refresh Token <span className="text-zinc-600 ml-1">({(injectModal.fields.refresh_token || '').length} chars)</span></label>
+                              <textarea className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white font-mono h-24 resize-y" placeholder="Paste refresh_token here..." value={injectModal.fields.refresh_token || ''} onChange={e => setInjectModal(prev => ({ ...prev, fields: { ...prev.fields, refresh_token: e.target.value } }))} autoComplete="off" spellCheck="false" />
+                            </div>
+                            <div>
+                              <label className="text-xs text-zinc-400 mb-1 block">Device ID</label>
+                              <input type="text" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white font-mono" placeholder="e.g. abc123def456" value={injectModal.fields.device_id || ''} onChange={e => setInjectModal(prev => ({ ...prev, fields: { ...prev.fields, device_id: e.target.value } }))} />
+                            </div>
+                            <div>
+                              <label className="text-xs text-zinc-400 mb-1 block">Expires In (seconds, optional)</label>
+                              <input type="number" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white font-mono" placeholder="3600" value={injectModal.fields.expires_in || ''} onChange={e => setInjectModal(prev => ({ ...prev, fields: { ...prev.fields, expires_in: e.target.value } }))} />
+                              <p className="text-[10px] text-zinc-600 mt-0.5">Leave blank for unknown expiry.</p>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div>
+                              <label className="text-xs text-zinc-400 mb-1 block">MIB Username</label>
+                              <input type="text" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white font-mono" placeholder="johndoe" value={injectModal.fields.mib_username || ''} onChange={e => setInjectModal(prev => ({ ...prev, fields: { ...prev.fields, mib_username: e.target.value } }))} />
+                            </div>
+                            <div>
+                              <label className="text-xs text-zinc-400 mb-1 block">Key1 <span className="text-zinc-600 ml-1">({(injectModal.fields.key1 || '').length} chars)</span></label>
+                              <textarea className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white font-mono h-24 resize-y" placeholder="Paste key1 here..." value={injectModal.fields.key1 || ''} onChange={e => setInjectModal(prev => ({ ...prev, fields: { ...prev.fields, key1: e.target.value } }))} autoComplete="off" spellCheck="false" />
+                            </div>
+                            <div>
+                              <label className="text-xs text-zinc-400 mb-1 block">Key2 <span className="text-zinc-600 ml-1">({(injectModal.fields.key2 || '').length} chars)</span></label>
+                              <textarea className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white font-mono h-24 resize-y" placeholder="Paste key2 here..." value={injectModal.fields.key2 || ''} onChange={e => setInjectModal(prev => ({ ...prev, fields: { ...prev.fields, key2: e.target.value } }))} autoComplete="off" spellCheck="false" />
+                            </div>
+                            <div>
+                              <label className="text-xs text-zinc-400 mb-1 block">App ID</label>
+                              <input type="text" maxLength={64} className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white font-mono" placeholder="e.g. APP123" value={injectModal.fields.app_id || ''} onChange={e => setInjectModal(prev => ({ ...prev, fields: { ...prev.fields, app_id: e.target.value } }))} />
+                            </div>
+                            <div>
+                              <label className="text-xs text-zinc-400 mb-1 block">Profile ID</label>
+                              <input type="text" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white font-mono" placeholder="default_profile" value={injectModal.fields.profile_id || ''} onChange={e => setInjectModal(prev => ({ ...prev, fields: { ...prev.fields, profile_id: e.target.value } }))} />
+                            </div>
+                            <div>
+                              <label className="text-xs text-zinc-400 mb-1 block">Profile Type</label>
+                              <input type="text" maxLength={4} className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white font-mono" placeholder="0" value={injectModal.fields.profile_type || ''} onChange={e => setInjectModal(prev => ({ ...prev, fields: { ...prev.fields, profile_type: e.target.value } }))} />
+                            </div>
+                            <div>
+                              <label className="text-xs text-zinc-400 mb-1 block">Profile Name</label>
+                              <input type="text" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white font-mono" placeholder="Default" value={injectModal.fields.profile_name || ''} onChange={e => setInjectModal(prev => ({ ...prev, fields: { ...prev.fields, profile_name: e.target.value } }))} />
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {injectModal.error && (
+                  <p className="text-sm text-red-400">{injectModal.error}</p>
+                )}
+
+                <div className="flex justify-end gap-3 mt-2">
+                  <button className="btn btn-outline border-zinc-700 text-zinc-400" onClick={closeInjectModal}>Cancel</button>
+                  <button
+                    className="btn btn-primary"
+                    disabled={!injectModal.selectedAccountId || !injectModal.selectedTenantId || injectModal.submitting || injectModal.loadingAccounts || injectModal.loadingTenants}
+                    onClick={executeInject}
+                  >
+                    {injectModal.submitting ? 'Injecting...' : 'Inject'}
                   </button>
                 </div>
               </>

@@ -2729,30 +2729,33 @@ export default function CompanyDashboard() {
               {/* Starter Plan */}
               <div className="glass-panel p-8 border-t-4 border-t-emerald-500 relative flex flex-col shadow-2xl shadow-emerald-900/10">
                 <h3 className="text-xl font-bold text-emerald-400">Starter</h3>
-                <div className="text-3xl font-bold my-4">MVR 499 <span className="text-base font-normal text-[var(--text-secondary)]">/mo</span></div>
-                <ul className="space-y-3 mb-8 flex-1">
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-emerald-500" /> 300 verifications / month</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-emerald-500" /> 1 Cashier Terminal</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-emerald-500" /> 2 Bank Accounts</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-emerald-500" /> Standard Support</li>
+                <div className="text-3xl font-bold my-4">MVR 349.00 <span className="text-base font-normal text-[var(--text-secondary)]">/mo</span></div>
+                <ul className="space-y-3 mb-8 flex-1 text-sm text-zinc-300">
+                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> Verification Panel – Search transactions by amount, or preview most recent credits.</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> See balances and basic transaction lists.</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> Per terminal customisation of account balance and debit transaction view.</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> Shift &amp; transaction claim function and reports.</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> 2 Bank Accounts Total</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> 1 Terminal connection.</li>
                 </ul>
-                <button disabled={user?.tenant?.subscription_tier === '499'} className="btn btn-success w-full disabled:opacity-50 disabled:bg-emerald-900">
-                  {user?.tenant?.subscription_tier === '499' ? 'Current Plan' : 'Upgrade'}
+                <button disabled={user?.tenant?.subscription_tier === '499' || user?.tenant?.subscription_tier === '349'} className="btn btn-success w-full disabled:opacity-50 disabled:bg-emerald-900">
+                  {user?.tenant?.subscription_tier === '499' || user?.tenant?.subscription_tier === '349' ? 'Current Plan' : 'Upgrade'}
                 </button>
               </div>
 
-              {/* Growth Plan */}
+              {/* Pro Plan */}
               <div className="glass-panel p-8 border-t-4 border-t-purple-500 flex flex-col">
-                <h3 className="text-xl font-bold text-purple-400">Growth</h3>
-                <div className="text-3xl font-bold my-4">MVR 999 <span className="text-base font-normal text-[var(--text-secondary)]">/mo</span></div>
-                <ul className="space-y-3 mb-8 flex-1">
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-purple-500" /> Unlimited verifications</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-purple-500" /> 1 Cashier Terminal, additional CT at 499/-</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-purple-500" /> 4 Bank Accounts</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-purple-500" /> Priority Support</li>
+                <h3 className="text-xl font-bold text-purple-400">Pro</h3>
+                <div className="text-3xl font-bold my-4">MVR 899.00 <span className="text-base font-normal text-[var(--text-secondary)]">/mo</span></div>
+                <ul className="space-y-3 mb-8 flex-1 text-sm text-zinc-300">
+                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-purple-500 shrink-0 mt-0.5" /> Pro plan includes: everything in starter plan</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-purple-500 shrink-0 mt-0.5" /> Full Tool Suite Access – Verification Panel + Unified Ledger + Reports Suite + Statement Generator.</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-purple-500 shrink-0 mt-0.5" /> On-Demand Statement Generation. Export to PDF, Excel &amp; CSV.</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-purple-500 shrink-0 mt-0.5" /> 4 Bank Accounts (modular – 100.00 per additional bank account).</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-purple-500 shrink-0 mt-0.5" /> 3 Terminals (modular – 200.00 per additional terminal).</li>
                 </ul>
-                <button disabled={user?.tenant?.subscription_tier === '999'} className="btn bg-purple-600 hover:bg-purple-500 text-white w-full disabled:opacity-50">
-                  {user?.tenant?.subscription_tier === '999' ? 'Current Plan' : 'Upgrade'}
+                <button disabled={user?.tenant?.subscription_tier === '999' || user?.tenant?.subscription_tier === '899'} className="btn bg-purple-600 hover:bg-purple-500 text-white w-full disabled:opacity-50">
+                  {user?.tenant?.subscription_tier === '999' || user?.tenant?.subscription_tier === '899' ? 'Current Plan' : 'Upgrade'}
                 </button>
               </div>
 
