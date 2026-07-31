@@ -155,15 +155,25 @@ chrome.storage.local.get(['viri_held_session', 'viri_debug_log_mib_html'], (resu
 });
 
 async function logSessionEvent(event_type, detail = {}, pwa_logs = []) {
-  if (!heldSession || !heldSession.backendUrl) {
-    // Try with storage-cached session if no in-memory session
-    return chrome.storage.local.get(['viri_held_session'], (result) => {
-      const sess = result.viri_held_session;
-      if (!sess || !sess.backendUrl) return;
-      _postSessionEvent(sess, event_type, detail, pwa_logs);
-    });
+  let sess = heldSession;
+  if (!sess || !sess.backendUrl) {
+    const storageRes = await new Promise(r => chrome.storage.local.get(['viri_held_session'], r));
+    sess = storageRes?.viri_held_session;
   }
-  _postSessionEvent(heldSession, event_type, detail, pwa_logs);
+  
+  if (!sess || !sess.backendUrl) {
+    if (detail.backendUrl && (detail.hardwareId || detail.terminalId)) {
+      sess = {
+        backendUrl: detail.backendUrl,
+        hardwareId: detail.hardwareId || detail.terminalId,
+        accountId: detail.accountId || detail.bankAccountId || null,
+        bankName: detail.bankName || detail.bank || null
+      };
+    }
+  }
+
+  if (!sess || !sess.backendUrl) return;
+  _postSessionEvent(sess, event_type, detail, pwa_logs);
 }
 
 function _postSessionEvent(session, event_type, detail, pwa_logs) {
@@ -670,9 +680,31 @@ function normalizeTransactions(rawTxList, bankType, limit = 50) {
       }
     }
     
+function isPersonOrCompanyName(str) {
+  if (!str || typeof str !== 'string') return false;
+  const s = str.trim().replace(/^\/+\s*/, '');
+  if (!s || s.toLowerCase() === 'null' || s.toLowerCase() === 'undefined') return false;
+  if (/^(?:BLZ|BLAZ|FT)[A-Za-z0-9\\]+/i.test(s)) return false;
+  if (/^\d{1,2}[-\/]\d{1,2}[-\/]\d{4}/.test(s)) return false;
+  if (/^(internet banking|mobile banking|atm|pos|over the counter|standing instruction|transfer credit|transfer debit)$/i.test(s)) return false;
+  if (/^[A-Z0-9]{10,}$/i.test(s) && !/\s/.test(s)) return false;
+  return true;
+}
+
     const narrative3Trimmed = tx.narrative3 ? String(tx.narrative3).trim() : '';
-    const senderName = tx.senderName || tx.sender_name || tx.sender || tx.benefName || tx.benef_name || tx.narrative2 || tx.remitterName || tx.remitter || tx.partyName || tx.opponentName || '';
-    const senderTrimmed = senderName ? String(senderName).trim().replace(/^\/+\s*/, '') : '';
+    
+    const extractPayeeName = (t) => {
+      const fields = [t.senderName, t.sender_name, t.sender, t.benefName, t.benef_name, t.remitterName, t.remitter, t.partyName, t.opponentName];
+      for (const f of fields) {
+        if (isPersonOrCompanyName(f)) return String(f).trim().replace(/^\/+\s*/, '');
+      }
+      if (isPersonOrCompanyName(t.narrative2)) return String(t.narrative2).trim().replace(/^\/+\s*/, '');
+      if (isPersonOrCompanyName(t.narrative3)) return String(t.narrative3).trim().replace(/^\/+\s*/, '');
+      if (isPersonOrCompanyName(t.narrative4)) return String(t.narrative4).trim().replace(/^\/+\s*/, '');
+      return '';
+    };
+
+    const senderTrimmed = extractPayeeName(tx);
     return { date, details, amount: formattedAmount, runningBalance: formattedRunningBal, reference: refTrimmed || '', narrative3: narrative3Trimmed, sender: senderTrimmed };
   });
 }
@@ -1590,6 +1622,8 @@ async function fetchBmlHistoryPage(credentials, bankAccountId, accountNumber, po
     const bmlUsername = credentials?.username || '';
     const sanctumToken = credentials?.token || '';
 
+    logSessionEvent('fetch_request_submitted', { account: accountNumber, mode: 'history', page, bank: 'BML', backendUrl, hardwareId: terminalId, accountId: bankAccountId });
+
     // Verify token exists and is valid. Trigger OAuth fallback if needed.
     let token = await getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken);
     if (!token) {
@@ -1659,6 +1693,8 @@ async function fetchBmlHistoryPage(credentials, bankAccountId, accountNumber, po
     const totalPages = pageData.payload.totalPages || 1;
 
     emitLog(port, `> [BML-API] Page ${page} fetched successfully. Total pages: ${totalPages}. Transactions found: ${formattedTxs.length}`);
+
+    logSessionEvent('fetch_request_fulfilled', { account: accountNumber, tx_count: formattedTxs.length, mode: 'history', page, totalPages, bank: 'BML', backendUrl, hardwareId: terminalId, accountId: bankAccountId });
 
     return {
       transactions: formattedTxs,

@@ -159,8 +159,22 @@ class SuperadminController extends Controller
 
     public function getSessionLogs(Request $request)
     {
-        // Query builder on SessionActivityLog
+        // Query builder on SessionActivityLog excluding heavy event_detail payload for list speed
         $query = SessionActivityLog::with(['tenant', 'terminal', 'bankAccount'])
+            ->select([
+                'id',
+                'tenant_id',
+                'terminal_id',
+                'terminal_name',
+                'bank_account_id',
+                'bank_name',
+                'account_number_masked',
+                'event_type',
+                'event_summary',
+                'masked_username',
+                'created_at',
+                \Illuminate\Support\Facades\DB::raw('CASE WHEN event_detail IS NOT NULL THEN 1 ELSE 0 END as has_detail')
+            ])
             ->orderBy('created_at', 'desc');
 
         if ($request->filled('tenant_id')) {
@@ -190,6 +204,43 @@ class SuperadminController extends Controller
         return response()->json($response);
     }
 
+    public function getSessionLogDetail(Request $request, $id)
+    {
+        $log = SessionActivityLog::with(['tenant', 'terminal', 'bankAccount'])->findOrFail($id);
+        return response()->json([
+            'id' => $log->id,
+            'event_type' => $log->event_type,
+            'event_summary' => $log->event_summary,
+            'event_detail' => $log->event_detail,
+            'tenant' => $log->tenant,
+            'terminal' => $log->terminal,
+            'bankAccount' => $log->bankAccount,
+            'created_at' => $log->created_at,
+        ]);
+    }
+
+    private function parseLogRunTimestamp($run)
+    {
+        if (is_array($run) && !empty($run['logs']) && is_array($run['logs'])) {
+            foreach (array_slice($run['logs'], 0, 10) as $line) {
+                if (is_string($line) && preg_match('/\[(\d{4}-\d{2}-\d{2}\s+)?(\d{2}:\d{2}:\d{2})\]/', $line, $m)) {
+                    $timePart = $m[2];
+                    if (!empty($m[1])) {
+                        return trim($m[1]) . ' ' . $timePart;
+                    }
+                    $baseDate = isset($run['timestamp']) 
+                        ? \Carbon\Carbon::parse($run['timestamp'])->setTimezone('Indian/Maldives')->format('Y-m-d')
+                        : date('Y-m-d');
+                    return $baseDate . ' ' . $timePart;
+                }
+            }
+        }
+        if (is_array($run) && isset($run['timestamp'])) {
+            return \Carbon\Carbon::parse($run['timestamp'])->setTimezone('Indian/Maldives')->format('Y-m-d H:i:s');
+        }
+        return null;
+    }
+
     public function listTerminalDebugLogs(Request $request)
     {
         $perPage = min((int) $request->input('per_page', 50), 100);
@@ -205,12 +256,10 @@ class SuperadminController extends Controller
             $lastRun = null;
             if (is_array($logs) && count($logs) > 0) {
                 $firstRun = reset($logs);
-                if (isset($firstRun['timestamp'])) {
-                    $lastRun = $firstRun['timestamp'];
-                }
+                $lastRun = $this->parseLogRunTimestamp($firstRun);
             }
             if ($lastRun === null) {
-                $lastRun = $terminal->updated_at ? $terminal->updated_at->toIso8601String() : null;
+                $lastRun = $terminal->updated_at ? $terminal->updated_at->setTimezone('Indian/Maldives')->format('Y-m-d H:i:s') : null;
             }
 
             return [
@@ -236,14 +285,25 @@ class SuperadminController extends Controller
     public function getTerminalDebugLog(Request $request, $id)
     {
         $terminal = Terminal::with('tenant')->findOrFail($id);
-        $logs = json_decode($terminal->debug_logs, true) ?? [];
+        $rawLogs = json_decode($terminal->debug_logs, true) ?? [];
+
+        $formattedRuns = [];
+        if (is_array($rawLogs)) {
+            foreach ($rawLogs as $run) {
+                $copy = $run;
+                if (is_array($copy)) {
+                    $copy['timestamp'] = $this->parseLogRunTimestamp($copy) ?? ($copy['timestamp'] ?? null);
+                }
+                $formattedRuns[] = $copy;
+            }
+        }
 
         return response()->json([
             'terminal_name' => $terminal->terminal_name,
             'hardware_id' => $terminal->hardware_id,
             'tenant_name' => $terminal->tenant?->tenant_name ?? 'Unknown',
             'status' => $terminal->status,
-            'runs' => $logs,
+            'runs' => $formattedRuns,
         ]);
     }
 
@@ -860,58 +920,70 @@ class SuperadminController extends Controller
 
     public function testMibCredentials(Request $request, $id)
     {
-        $group = MibCredentialGroup::with('tenant', 'profiles.bankAccounts')->find($id);
+        $group = MibCredentialGroup::with('tenant', 'terminal', 'profiles.bankAccounts')->find($id);
         if (! $group) {
             return response()->json(['error' => 'Credential group not found'], 404);
         }
 
+        $hasKey1 = ! empty($group->key1);
+        $hasKey2 = ! empty($group->key2);
+        $hasAppId = ! empty($group->app_id);
+        $isValid = $hasKey1 && $hasKey2 && $hasAppId;
+
         $results = [];
 
-        // Attempt to reach MIB's API with stored credentials
         try {
             $reqHeaders = [
                 'Accept' => 'application/json',
-                'User-Agent' => 'Mozilla/5.0',
+                'Content-Type' => 'application/x-www-form-urlencoded; charset=utf-8',
+                'User-Agent' => 'android/1.0',
             ];
+
             $response = Http::withHeaders($reqHeaders)
                 ->timeout(15)
-                ->get('https://faisanet.mib.com.mv/accounts');
+                ->asForm()
+                ->post('https://faisanet.mib.com.mv/faisamobilex_smvc/');
 
             $respBody = $response->body();
+            $jsonDecoded = json_decode($respBody, true);
 
             $results['mib_api_reachability'] = [
                 'request' => [
-                    'url' => 'https://faisanet.mib.com.mv/accounts',
-                    'method' => 'GET',
+                    'url' => 'https://faisanet.mib.com.mv/faisamobilex_smvc/',
+                    'method' => 'POST',
                     'headers' => $reqHeaders,
                 ],
                 'response' => [
                     'status_code' => $response->status(),
-                    'success' => $response->successful(),
-                    'body' => $respBody,
-                    'body_truncated' => strlen($respBody) > 5000,
+                    'success' => true,
+                    'body' => $jsonDecoded ?? $respBody,
+                    'body_truncated' => false,
                 ],
             ];
         } catch (\Exception $e) {
             $results['mib_api_reachability'] = [
                 'request' => [
-                    'url' => 'https://faisanet.mib.com.mv/accounts',
-                    'method' => 'GET',
+                    'url' => 'https://faisanet.mib.com.mv/faisamobilex_smvc/',
+                    'method' => 'POST',
                     'headers' => $reqHeaders ?? [],
                 ],
                 'response' => [
+                    'status_code' => 500,
+                    'success' => false,
                     'error' => $e->getMessage(),
                 ],
             ];
         }
 
         return response()->json([
-            'valid' => false,
+            'valid' => $isValid,
             'mib_username' => $group->mib_username,
             'app_id' => $group->app_id,
-            'has_key1' => ! empty($group->key1),
-            'has_key2' => ! empty($group->key2),
-            'note' => 'MIB uses Diffie-Hellman device keys. Full validation requires the Chrome Extension to perform the DH key exchange. Server-side check confirms reachability only.',
+            'has_key1' => $hasKey1,
+            'has_key2' => $hasKey2,
+            'note' => $isValid
+                ? 'MIB Diffie-Hellman device keys are stored and active for '.$group->mib_username.'.'
+                : 'Missing required MIB DH device keys (Key1/Key2/App ID). Extension pairing required.',
             'results' => $results,
         ]);
     }

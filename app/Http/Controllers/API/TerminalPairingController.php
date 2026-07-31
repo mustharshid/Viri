@@ -94,9 +94,24 @@ class TerminalPairingController extends Controller
             }
         }
 
+        $logTime = null;
+        if (is_array($request->logs)) {
+            foreach (array_slice($request->logs, 0, 10) as $line) {
+                if (is_string($line) && preg_match('/\[(\d{4}-\d{2}-\d{2}\s+)?(\d{2}:\d{2}:\d{2})\]/', $line, $m)) {
+                    $timePart = $m[2];
+                    $datePart = !empty($m[1]) ? trim($m[1]) : now()->setTimezone('Indian/Maldives')->format('Y-m-d');
+                    $logTime = $datePart . ' ' . $timePart;
+                    break;
+                }
+            }
+        }
+        if (! $logTime) {
+            $logTime = now()->setTimezone('Indian/Maldives')->format('Y-m-d H:i:s');
+        }
+
         // Add the new run at the beginning
         array_unshift($runs, [
-            'timestamp' => now()->toIso8601String(),
+            'timestamp' => $logTime,
             'logs' => $request->logs,
         ]);
 

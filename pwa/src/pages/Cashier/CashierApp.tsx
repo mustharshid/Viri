@@ -290,6 +290,29 @@ const matchesDateFilter = (txDateRaw: string | undefined | null, filterDateStr: 
   return false;
 };
 
+const isPersonOrCompanyName = (str: any): boolean => {
+  if (!str || typeof str !== 'string') return false;
+  const s = str.trim().replace(/^\/+\s*/, '');
+  if (!s || s.toLowerCase() === 'null' || s.toLowerCase() === 'undefined') return false;
+  if (/^(?:BLZ|BLAZ|FT)[A-Za-z0-9\\]+/i.test(s)) return false;
+  if (/^\d{1,2}[-\/]\d{1,2}[-\/]\d{4}/.test(s)) return false;
+  if (/^(internet banking|mobile banking|atm|pos|over the counter|standing instruction|transfer credit|transfer debit)$/i.test(s)) return false;
+  if (/^[A-Z0-9]{10,}$/i.test(s) && !/\s/.test(s)) return false;
+  return true;
+};
+
+const extractPayeeNameFromTx = (tx: any): string => {
+  if (!tx) return '';
+  const fields = [tx.sender, tx.senderName, tx.sender_name, tx.benefName, tx.benef_name, tx.remitterName];
+  for (const f of fields) {
+    if (isPersonOrCompanyName(f)) return String(f).trim().replace(/^\/+\s*/, '');
+  }
+  if (isPersonOrCompanyName(tx.narrative2)) return String(tx.narrative2).trim().replace(/^\/+\s*/, '');
+  if (isPersonOrCompanyName(tx.narrative3)) return String(tx.narrative3).trim().replace(/^\/+\s*/, '');
+  if (isPersonOrCompanyName(tx.narrative4)) return String(tx.narrative4).trim().replace(/^\/+\s*/, '');
+  return '';
+};
+
 const matchesSearchQuery = (tx: any, searchQuery: string): boolean => {
   const trimmed = searchQuery.trim().toLowerCase();
   if (!trimmed) return true;
@@ -299,13 +322,7 @@ const matchesSearchQuery = (tx: any, searchQuery: string): boolean => {
 
   const detailsParts = (tx?.details || '').split('\n');
   const description = (detailsParts[0] || '').trim();
-  let senderName = tx?.sender || tx?.benefName || tx?.narrative2 || '';
-  if (typeof senderName === 'string') {
-    senderName = senderName.trim().replace(/^\/+\s*/, '');
-    if (senderName.toLowerCase() === 'null' || senderName.toLowerCase() === 'undefined') senderName = '';
-  } else {
-    senderName = '';
-  }
+  let senderName = extractPayeeNameFromTx(tx);
   if (!senderName && detailsParts.length > 1) {
     const line1 = detailsParts[1].trim().replace(/^\/+\s*/, '');
     if (line1 && !line1.startsWith('Ref:') && !line1.startsWith('ID:') && !line1.match(/^[A-Z0-9]{10,}$/)) {
@@ -382,14 +399,8 @@ const TransactionRow = React.memo(({
   const description = (detailsParts[0] || '').trim();
   let details = detailsParts.slice(1).join('\n').trim();
 
-  // Extract Sender Name (from JSON fields: tx.sender / benefName / narrative2 or details line)
-  let senderName = tx.sender || (tx as any).benefName || (tx as any).narrative2 || '';
-  if (typeof senderName === 'string') {
-    senderName = senderName.trim().replace(/^\/+\s*/, '');
-    if (senderName.toLowerCase() === 'null' || senderName.toLowerCase() === 'undefined') senderName = '';
-  } else {
-    senderName = '';
-  }
+  // Extract Sender Name (from JSON fields via extractPayeeNameFromTx or details line)
+  let senderName = extractPayeeNameFromTx(tx);
 
   if (!senderName && detailsParts.length > 1) {
     const line1 = detailsParts[1].trim().replace(/^\/+\s*/, '');
@@ -479,14 +490,14 @@ const TransactionRow = React.memo(({
             {blazRef && (
               <CopiableChip
                 val={blazRef}
-                label="BLAZ/Reference"
+                label={activeLedgerAcc?.bank_name === 'MIB' ? "Reference" : "BLAZ/Reference"}
                 className="text-xs text-[var(--text-secondary)] bg-zinc-900 border border-zinc-800 truncate max-w-full"
               />
             )}
             {ftRef && (
               <CopiableChip
                 val={ftRef}
-                label="FT/Reference"
+                label={activeLedgerAcc?.bank_name === 'MIB' ? "Reference" : "FT/Reference"}
                 className="text-xs text-[var(--text-secondary)] bg-zinc-900 border border-zinc-800 truncate max-w-full"
               />
             )}
@@ -707,14 +718,8 @@ const TransactionMobileCard = React.memo(({
   const detailsParts = (tx.details || '').split('\n');
   const description = (detailsParts[0] || '').trim();
 
-  // Extract Sender Name (from JSON fields: tx.sender / benefName / narrative2 or details line)
-  let senderName = tx.sender || (tx as any).benefName || (tx as any).narrative2 || '';
-  if (typeof senderName === 'string') {
-    senderName = senderName.trim().replace(/^\/+\s*/, '');
-    if (senderName.toLowerCase() === 'null' || senderName.toLowerCase() === 'undefined') senderName = '';
-  } else {
-    senderName = '';
-  }
+  // Extract Sender Name (from JSON fields via extractPayeeNameFromTx or details line)
+  let senderName = extractPayeeNameFromTx(tx);
 
   if (!senderName && detailsParts.length > 1) {
     const line1 = detailsParts[1].trim().replace(/^\/+\s*/, '');
@@ -808,7 +813,7 @@ const TransactionMobileCard = React.memo(({
           {blazRef ? (
             <CopiableChip
               val={blazRef}
-              label="BLAZ/Reference"
+              label={bankName === 'MIB' ? "Reference" : "BLAZ/Reference"}
               className="text-xs text-[var(--text-secondary)] truncate min-w-0"
             />
           ) : (
@@ -1046,7 +1051,7 @@ function App() {
   const [_terminalId, setTerminalId] = useState<number | null>(null);
   const [accountToClear, setAccountToClear] = useState<any | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const LATEST_EXTENSION_VERSION = "1.2.89";
+  const LATEST_EXTENSION_VERSION = "1.2.92";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -3134,6 +3139,31 @@ function App() {
     logsRef.current = [];
     setLogs([]); // Clear previous logs
 
+    const logSessionActivity = (eventType: string, summary: string, detail: any = {}) => {
+      const bUrl = backendUrl || localStorage.getItem('viri_backend_url') || '';
+      const hId = hardwareId || localStorage.getItem('viri_hardware_id') || '';
+      if (!hId || !bUrl) return;
+      const accIdNum = parseInt(selectedAccountId, 10);
+      fetch(`${bUrl}/terminal/session/log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hardware_id: hId,
+          event_type: eventType,
+          bank_account_id: isNaN(accIdNum) ? null : accIdNum,
+          event_summary: summary,
+          event_detail: detail,
+          extension_version: extensionVersion || LATEST_EXTENSION_VERSION
+        })
+      }).catch(e => console.error("Failed to log session activity:", e));
+    };
+
+    if (mode === 'history') {
+      logSessionActivity('fetch_request_submitted', `History fetch initiated for ${selectedBankName} account ${selectedAccount?.account_number || ''}`);
+    } else if (mode === 'search') {
+      logSessionActivity('fetch_request_submitted', `Verification search initiated for ${amount || '0.00'} MVR on ${selectedBankName} account ${selectedAccount?.account_number || ''}`);
+    }
+
     isVerifyingRef.current = true;
     setProgress({
       stage: 'init',
@@ -3315,6 +3345,14 @@ function App() {
           if (mode === 'search' && response.data) {
             setAmount(''); // clear input on success
           }
+
+          const txCount = Array.isArray(response.transactions) ? response.transactions.length : 0;
+          if (mode === 'history') {
+            logSessionActivity('fetch_request_fulfilled', `History fetched successfully: ${txCount} transactions retrieved for account ${selectedAccount?.account_number || ''}`, { tx_count: txCount, balance: response.balance });
+          } else if (mode === 'search') {
+            logSessionActivity('fetch_request_fulfilled', `Transfer verification completed for ${amount || '0.00'} MVR on ${selectedBankName} account ${selectedAccount?.account_number || ''}`, { amount, match: response.data, tx_count: txCount });
+          }
+
           // Register session holder to extension
           if (sessionStatus === 'claiming') {
             port.postMessage({
@@ -3464,6 +3502,26 @@ function App() {
   };
 
   const syncLedgerLocally = async (targetAccountId: string, selectedAccount: any, selectedBankName: string, pageNum: number = 1) => {
+    const logSessionActivity = (eventType: string, summary: string, detail: any = {}) => {
+      const bUrl = backendUrl || localStorage.getItem('viri_backend_url') || '';
+      const hId = hardwareId || localStorage.getItem('viri_hardware_id') || '';
+      if (!hId || !bUrl) return;
+      const accIdNum = parseInt(targetAccountId, 10);
+      fetch(`${bUrl}/terminal/session/log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hardware_id: hId,
+          event_type: eventType,
+          bank_account_id: isNaN(accIdNum) ? null : accIdNum,
+          event_summary: summary,
+          event_detail: detail,
+          extension_version: extensionVersion || LATEST_EXTENSION_VERSION
+        })
+      }).catch(e => console.error("Failed to log session activity:", e));
+    };
+
+    logSessionActivity('fetch_request_submitted', `Ledger history sync initiated for ${selectedBankName} account ${selectedAccount?.account_number || ''}`);
 
     addLog("> [System] Validating cashier counter license...");
     if (subscriptionExpired) {
@@ -3600,6 +3658,8 @@ function App() {
             }
           }));
 
+          logSessionActivity('fetch_request_fulfilled', `Ledger history synced successfully: ${newTxs.length} transactions fetched for account ${selectedAccount?.account_number || ''}`, { tx_count: newTxs.length, balance: response.balance });
+
           if (sessionStatus === 'claiming') {
             port.postMessage({
               action: 'CLAIM_SESSION',
@@ -3677,6 +3737,7 @@ function App() {
             }
           }));
 
+          logSessionActivity('fetch_request_fulfilled', `Ledger history page ${response.page} synced successfully: ${newTxs.length} transactions fetched`, { page: response.page, totalPages: response.totalPages, tx_count: newTxs.length, balance: response.balance });
 
         }, 1500);
       } else if (response.type === 'history_page_error') {
@@ -6022,13 +6083,13 @@ function App() {
                           <div className="flex flex-col">
                             {/* Desktop Table View */}
                             <div className="hidden md:block overflow-x-auto scrollbar-thin">
-                              <table className="w-full text-left border-collapse">
+                              <table className="w-full text-left border-collapse table-fixed">
                                 <thead>
                                   <tr className="border-b border-zinc-800 text-[10px] text-zinc-500 uppercase tracking-wider font-bold">
-                                    <th className="py-4 px-5 font-semibold">Date & Time</th>
-                                    <th className="py-4 px-5 font-semibold">Description</th>
-                                    <th className="py-4 px-5 font-semibold">Details / Meta</th>
-                                    <th className="py-4 px-5 font-semibold text-right">Amount ({ledgerCurrency})</th>
+                                    <th className="py-4 px-3 font-semibold w-[22%] truncate">Date & Time</th>
+                                    <th className="py-4 px-3 font-semibold w-[26%] truncate">Description</th>
+                                    <th className="py-4 px-3 font-semibold w-[30%] truncate">Details / Meta</th>
+                                    <th className="py-4 px-3 font-semibold text-right w-[22%] truncate">Amount ({ledgerCurrency})</th>
                                   </tr>
                                 </thead>
                                 <tbody className="divide-y divide-zinc-900/60">

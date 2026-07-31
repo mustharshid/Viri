@@ -57,6 +57,8 @@ export default function AdminDashboard() {
   const [logsTotalPages, setLogsTotalPages] = useState(1);
   const [logRefreshCountdown, setLogRefreshCountdown] = useState<number | null>(null);
   const [logRefreshInterval, setLogRefreshInterval] = useState<number>(15);
+  const [logDetailsMap, setLogDetailsMap] = useState<Record<number, any>>({});
+  const [loadingDetailId, setLoadingDetailId] = useState<number | null>(null);
 
   // Debug state
   const [debugData, setDebugData] = useState<{ mib_keys: any[]; bml_tokens: any[]; total_mib_keys: number; total_bml_tokens: number } | null>(null);
@@ -140,6 +142,9 @@ export default function AdminDashboard() {
         setTerminalDebugLogs(data.terminals || []);
       } else {
         setTerminalDebugError(`Failed to load (${res.status})`);
+      }
+      if (selectedDebugTerminal) {
+        await fetchTerminalDebugLogDetail(selectedDebugTerminal);
       }
     } catch (err) {
       console.error(err);
@@ -445,6 +450,31 @@ export default function AdminDashboard() {
       console.error(err);
     } finally {
       setLogsLoading(false);
+    }
+  };
+
+  const handleToggleDetail = async (logId: number) => {
+    if (expandedLogId === logId) {
+      setExpandedLogId(null);
+      return;
+    }
+    setExpandedLogId(logId);
+    if (!logDetailsMap[logId]) {
+      setLoadingDetailId(logId);
+      try {
+        const token = localStorage.getItem('viri_token');
+        const res = await fetch(`/api/admin/session-logs/${logId}`, {
+          headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setLogDetailsMap(prev => ({ ...prev, [logId]: data.event_detail || {} }));
+        }
+      } catch (err) {
+        console.error('Failed to fetch log detail:', err);
+      } finally {
+        setLoadingDetailId(null);
+      }
     }
   };
 
@@ -2177,6 +2207,34 @@ export default function AdminDashboard() {
     );
   };
 
+  const renderJsonHighlighted = (data: any) => {
+    if (!data || (typeof data === 'object' && Object.keys(data).length === 0)) {
+      return <div className="text-zinc-500 italic text-xs py-2">No metadata available</div>;
+    }
+    const jsonStr = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    const tokens = jsonStr.split(/("(?:\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"\s*:|"(?:\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"|\b(?:true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g);
+
+    return (
+      <pre className="text-xs font-mono bg-zinc-950/90 p-4 rounded-xl border border-zinc-800/80 overflow-x-auto max-w-full scrollbar-thin leading-relaxed shadow-inner">
+        {tokens.map((token, i) => {
+          if (!token) return null;
+          if (/^".*":$/.test(token)) {
+            return <span key={i} className="text-cyan-400 font-semibold">{token}</span>;
+          } else if (/^"/.test(token)) {
+            return <span key={i} className="text-emerald-300">{token}</span>;
+          } else if (/^(true|false)$/.test(token)) {
+            return <span key={i} className="text-amber-400 font-bold">{token}</span>;
+          } else if (token === 'null') {
+            return <span key={i} className="text-rose-400 font-bold">{token}</span>;
+          } else if (/^-?\d+(?:\.\d+)?$/.test(token)) {
+            return <span key={i} className="text-purple-400 font-medium">{token}</span>;
+          }
+          return <span key={i} className="text-zinc-400">{token}</span>;
+        })}
+      </pre>
+    );
+  };
+
   const renderSessionLogsTab = () => {
     return (
       <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl text-left animate-fade-in">
@@ -2186,16 +2244,17 @@ export default function AdminDashboard() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => {
-                  handleRefresh();
+                  fetchSessionLogs(true);
                   const intervalStr = systemSettings.find(s => s.key === 'session_log_poll_interval')?.value || '15';
                   const iv = parseInt(intervalStr, 10);
                   setLogRefreshInterval(iv);
                   setLogRefreshCountdown(iv);
                 }}
-                className="btn border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-300 py-1 px-2.5 text-xs flex items-center gap-1.5 h-auto min-h-0 font-medium rounded-lg"
+                disabled={logsLoading}
+                className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 py-1.5 px-3 text-xs flex items-center gap-1.5 font-semibold rounded-lg transition-all shadow-[0_0_12px_rgba(16,185,129,0.15)] h-auto min-h-0 disabled:opacity-50"
                 title="Refresh logs data"
               >
-                <RefreshCw size={11} /> Refresh Logs
+                <RefreshCw size={12} className={logsLoading ? 'animate-spin' : ''} /> Refresh Logs
               </button>
               {logRefreshCountdown !== null && (
                 <div className="flex items-center gap-2 bg-black/40 px-2.5 py-1.5 rounded-lg border border-zinc-800/50" title={`Auto-refreshes in ${logRefreshCountdown}s`}>
@@ -2285,18 +2344,22 @@ export default function AdminDashboard() {
                       badgeClass = "bg-orange-950/40 text-orange-400 border border-orange-500/20";
                     }
                     const isExpanded = expandedLogId === log.id;
+                    const hasDetail = Boolean(log.has_detail || log.event_detail);
+                    const currentDetail = logDetailsMap[log.id] || log.event_detail;
+                    const isLoadingDetail = loadingDetailId === log.id;
+
                     return (
                       <Fragment key={log.id}>
                         <tr 
-                          className={`transition-colors border-b border-zinc-900/50 ${log.event_detail ? 'cursor-pointer hover:bg-zinc-800/25' : 'hover:bg-zinc-900/20'} ${isExpanded ? 'bg-zinc-850/40 border-b-0' : ''}`}
-                          onClick={() => log.event_detail && setExpandedLogId(isExpanded ? null : log.id)}
+                          className={`transition-colors border-b border-zinc-900/50 ${hasDetail ? 'cursor-pointer hover:bg-zinc-800/25' : 'hover:bg-zinc-900/20'} ${isExpanded ? 'bg-zinc-850/40 border-b-0' : ''}`}
+                          onClick={() => hasDetail && handleToggleDetail(log.id)}
                         >
                           <td className="py-3 pr-4 font-mono text-zinc-400">{dateStr}</td>
                           <td className="py-3 pr-4 font-medium text-white">
                             {log.terminal_name || "System"} 
-                            {log.event_detail?.extension_version && (
+                            {currentDetail?.extension_version && (
                               <span className="text-[9px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-mono font-bold ml-1.5 align-middle">
-                                v{log.event_detail.extension_version}
+                                v{currentDetail.extension_version}
                               </span>
                             )}
                             <span className="text-[10px] text-zinc-500 block">{log.tenant?.name}</span>
@@ -2313,42 +2376,43 @@ export default function AdminDashboard() {
                           <td className="py-3 pr-4 text-zinc-300 font-medium">
                             <div className="flex items-center justify-between gap-4">
                               <span>{log.event_summary}</span>
-                              {log.event_detail && (
+                              {hasDetail && (
                                 <span className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 rounded font-semibold whitespace-nowrap">
-                                  {isExpanded ? 'Hide Details' : 'View Details'}
+                                  {isLoadingDetail ? 'Loading...' : isExpanded ? 'Hide Details' : 'View Details'}
                                 </span>
                               )}
                             </div>
                           </td>
                         </tr>
-                        {isExpanded && log.event_detail && (
+                        {isExpanded && (
                           <tr className="bg-zinc-950/20 border-b border-zinc-900">
                             <td colSpan={5} className="p-4">
-                              {log.event_detail.pwa_logs && log.event_detail.pwa_logs.length > 0 ? (
+                              {isLoadingDetail ? (
+                                <div className="text-xs text-zinc-400 font-mono py-4 animate-pulse text-center">Loading log details...</div>
+                              ) : currentDetail && currentDetail.pwa_logs && currentDetail.pwa_logs.length > 0 ? (
                                 <div className="flex flex-col gap-4">
-                                  {Object.keys(log.event_detail).filter(k => k !== 'pwa_logs').length > 0 && (
+                                  {Object.keys(currentDetail).filter(k => k !== 'pwa_logs').length > 0 && (
                                     <div>
-                                      <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1 px-1">Event Details</div>
-                                      <pre className="text-[10px] font-mono text-zinc-400 bg-zinc-950/80 p-3 rounded-lg border border-zinc-800/80 overflow-x-auto max-w-full scrollbar-thin">
-                                        {JSON.stringify(Object.fromEntries(Object.entries(log.event_detail).filter(([k]) => k !== 'pwa_logs')), null, 2)}
-                                      </pre>
+                                      <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1.5 px-1">Event Details</div>
+                                      {renderJsonHighlighted(Object.fromEntries(Object.entries(currentDetail).filter(([k]) => k !== 'pwa_logs')))}
                                     </div>
                                   )}
                                   <div>
-                                    <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1 px-1">Terminal Session Logs</div>
+                                    <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1.5 px-1">Terminal Session Logs</div>
                                     <div className="bg-[#0D0D0D] rounded-lg p-3.5 border border-zinc-800/80 font-mono text-[11px] text-[#4AF626] overflow-y-auto scrollbar-thin max-h-96 shadow-inner">
-                                      {Array.isArray(log.event_detail.pwa_logs) 
-                                        ? log.event_detail.pwa_logs.map((line: string, i: number) => (
+                                      {Array.isArray(currentDetail.pwa_logs) 
+                                        ? currentDetail.pwa_logs.map((line: string, i: number) => (
                                             <div key={i} className="whitespace-pre leading-relaxed">{line}</div>
                                           ))
-                                        : <div className="whitespace-pre leading-relaxed">{JSON.stringify(log.event_detail.pwa_logs, null, 2)}</div>}
+                                        : <div className="whitespace-pre leading-relaxed">{JSON.stringify(currentDetail.pwa_logs, null, 2)}</div>}
                                     </div>
                                   </div>
                                 </div>
                               ) : (
-                                <pre className="text-[10px] font-mono text-zinc-400 bg-zinc-950/80 p-3 rounded-lg border border-zinc-800/80 overflow-x-auto max-w-full scrollbar-thin">
-                                  {JSON.stringify(log.event_detail, null, 2)}
-                                </pre>
+                                <div>
+                                  <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1.5 px-1">Event Details</div>
+                                  {renderJsonHighlighted(currentDetail || {})}
+                                </div>
                               )}
                             </td>
                           </tr>
@@ -2386,6 +2450,34 @@ export default function AdminDashboard() {
     );
   };
 
+  const renderDebugLogLine = (line: string, i: number) => {
+    if (!line) return null;
+    const isError = line.includes('error') || line.includes('ERROR') || line.includes('Failed') || line.includes('FAILED');
+
+    const jsonStartIdx = line.search(/[{\[]/);
+    if (jsonStartIdx !== -1) {
+      const prefix = line.substring(0, jsonStartIdx).trim();
+      const potentialJson = line.substring(jsonStartIdx).trim();
+      try {
+        const parsed = JSON.parse(potentialJson);
+        return (
+          <div key={i} className="my-2 bg-zinc-950/90 p-3 rounded-lg border border-zinc-800/80">
+            {prefix && <div className={`text-xs font-mono mb-1.5 font-bold ${isError ? 'text-red-400' : 'text-zinc-400'}`}>{prefix}</div>}
+            {renderJsonHighlighted(parsed)}
+          </div>
+        );
+      } catch (e) {
+        // Fallback to standard line
+      }
+    }
+
+    return (
+      <div key={i} className={`whitespace-pre-wrap break-all ${isError ? 'text-red-400 font-semibold' : 'text-emerald-400'}`}>
+        {line}
+      </div>
+    );
+  };
+
   const renderTerminalDebugLogsTab = () => {
     return (
       <div className="space-y-6">
@@ -2394,9 +2486,14 @@ export default function AdminDashboard() {
             <h2 className="text-2xl font-bold">Terminal Debug Logs</h2>
             <p className="text-xs text-zinc-500 mt-1">View PWA/extension debug logs uploaded by active terminals.</p>
           </div>
-          <button onClick={fetchTerminalDebugLogs} className="btn btn-outline text-sm" disabled={terminalDebugLogsLoading}>
-            <RefreshCw size={14} className={`mr-1 ${terminalDebugLogsLoading ? 'animate-spin' : ''}`} />
-            Refresh
+          <button
+            onClick={fetchTerminalDebugLogs}
+            disabled={terminalDebugLogsLoading}
+            className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 py-1.5 px-3.5 text-xs flex items-center gap-1.5 font-semibold rounded-lg transition-all shadow-[0_0_12px_rgba(16,185,129,0.15)] disabled:opacity-50"
+            title="Refresh debug logs"
+          >
+            <RefreshCw size={12} className={terminalDebugLogsLoading ? 'animate-spin' : ''} />
+            Refresh Debug Logs
           </button>
         </div>
 
@@ -2433,7 +2530,7 @@ export default function AdminDashboard() {
                         className={`text-xs px-3 py-1 rounded-md font-mono transition-all ${idx === selectedDebugRunIdx ? 'bg-yellow-500 text-black font-bold' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}
                       >
                         Run #{idx + 1}
-                        <span className="block text-[9px] text-zinc-500">{run.timestamp?.substring(0, 19) || 'unknown'}</span>
+                        <span className="block text-[9px] text-zinc-500">{run.timestamp?.replace('T', ' ')?.substring(0, 19) || 'unknown'}</span>
                       </button>
                     ))}
                   </div>
@@ -2444,14 +2541,12 @@ export default function AdminDashboard() {
                     <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
                     <div className="w-3 h-3 rounded-full bg-green-500"></div>
                     <span className="text-xs text-zinc-400 ml-2 font-mono">
-                      {selectedDebugTerminalLogs.runs[selectedDebugRunIdx]?.timestamp || 'Unknown timestamp'}
+                      {selectedDebugTerminalLogs.runs[selectedDebugRunIdx]?.timestamp?.replace('T', ' ')?.substring(0, 19) || 'Unknown timestamp'}
                     </span>
                   </div>
-                  <div className="p-4 font-mono text-xs text-green-400 h-96 overflow-y-auto flex flex-col gap-0.5 scrollbar-thin">
+                  <div className="p-4 font-mono text-xs text-green-400 h-96 overflow-y-auto flex flex-col gap-1 scrollbar-thin">
                     {(selectedDebugTerminalLogs.runs[selectedDebugRunIdx]?.logs || []).map((line: string, i: number) => (
-                      <div key={i} className={line.includes('error') || line.includes('ERROR') || line.includes('Failed') ? 'text-red-400' : ''}>
-                        {line}
-                      </div>
+                      renderDebugLogLine(line, i)
                     ))}
                   </div>
                 </div>
@@ -2488,7 +2583,7 @@ export default function AdminDashboard() {
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${t.status === 'active' ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-500/30' : 'bg-zinc-800 text-zinc-400'}`}>{t.status}</span>
                     </td>
                     <td className="py-3 pr-4 text-zinc-300 font-mono">{t.log_runs}</td>
-                    <td className="py-3 pr-4 text-zinc-500 text-[10px]">{t.last_run_at?.substring(0, 19) || '—'}</td>
+                    <td className="py-3 pr-4 text-zinc-500 text-[10px] font-mono">{t.last_run_at?.replace('T', ' ')?.substring(0, 19) || '—'}</td>
                     <td className="py-3">
                       <button onClick={() => fetchTerminalDebugLogDetail(t.id)} className="text-yellow-500 hover:text-yellow-400 text-xs font-bold">View</button>
                     </td>
@@ -3592,12 +3687,16 @@ export default function AdminDashboard() {
                                             <div className="text-red-400 mt-1">Error: {testResult.results.mib_api_reachability.response.error}</div>
                                           )}
                                           {testResult.results.mib_api_reachability.response.body && (
-                                            <div className="mt-1 max-h-60 overflow-y-auto">
-                                              <pre className="text-green-400/80 whitespace-pre-wrap break-all leading-relaxed">
-                                                {testResult.results.mib_api_reachability.response.body_truncated
-                                                  ? testResult.results.mib_api_reachability.response.body.substring(0, 5000) + '\n... (truncated)'
-                                                  : testResult.results.mib_api_reachability.response.body}
-                                              </pre>
+                                            <div className="mt-2">
+                                              {typeof testResult.results.mib_api_reachability.response.body === 'object'
+                                                ? renderJsonHighlighted(testResult.results.mib_api_reachability.response.body)
+                                                : renderJsonHighlighted(
+                                                    (() => {
+                                                      try { return JSON.parse(testResult.results.mib_api_reachability.response.body); }
+                                                      catch (e) { return { raw_body: testResult.results.mib_api_reachability.response.body }; }
+                                                    })()
+                                                  )
+                                              }
                                             </div>
                                           )}
                                         </div>
