@@ -387,9 +387,9 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         }
         try {
           if (payload.bank === 'MIB') {
-            await runMibApiFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode, sessionMode, payload.hardwareId, payload.backendUrl);
+            await runMibApiFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode, sessionMode, payload.hardwareId, payload.backendUrl, payload.accountId);
           } else {
-            await runBmlApiFlow(payload.credentials, targetAcc, payload.accountName, port, payload.amount, payload.bmlProfileType || '0', mode, sessionMode, payload.bmlAuthState, payload.hardwareId, payload.backendUrl);
+            await runBmlApiFlow(payload.credentials, targetAcc, payload.accountName, port, payload.amount, payload.bmlProfileType || '0', mode, sessionMode, payload.bmlAuthState, payload.hardwareId, payload.backendUrl, payload.accountId);
           }
         } catch (error) {
           try { port.postMessage({ type: 'error', error: error.message }); } catch(e) {}
@@ -401,11 +401,11 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         const targetAcc = req.bank_account_id || (heldSession ? heldSession.accountId : '');
         try {
           if (payload.bankName === 'MIB') {
-            await runMibApiFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', req.mib_profile_type || '0', req.request_type, 'fetch_only', req.hardware_id || payload.hardwareId, req.backend_url || payload.backendUrl);
+            await runMibApiFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', req.mib_profile_type || '0', req.request_type, 'fetch_only', req.hardware_id || payload.hardwareId, req.backend_url || payload.backendUrl, req.bank_account_id);
           } else {
             const bmlAuthState = heldSession ? heldSession.bmlAuthState : req.bml_auth_state;
             const bmlProfileType = payload.bmlProfileType || req.bml_profile_type || (heldSession ? heldSession.bmlProfileType : '0') || '0';
-            await runBmlApiFlow(payload.credentials, targetAcc, req.account_name, port, req.target_amount || '1.00', bmlProfileType, req.request_type, 'fetch_only', bmlAuthState, req.hardware_id || payload.hardwareId, req.backend_url || payload.backendUrl);
+            await runBmlApiFlow(payload.credentials, targetAcc, req.account_name, port, req.target_amount || '1.00', bmlProfileType, req.request_type, 'fetch_only', bmlAuthState, req.hardware_id || payload.hardwareId, req.backend_url || payload.backendUrl, req.bank_account_id);
           }
         } catch (error) {
           port.postMessage({ type: 'error', error: error.message });
@@ -1296,7 +1296,7 @@ async function getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bml
 // -------------------------------------------------------------
 // BML API Background Flow (Browser OTP + Persistent Session)
 // -------------------------------------------------------------
-async function runBmlApiFlow(credentials, targetAccount, accountName, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', bmlAuthState = null, payloadHardwareId = '', payloadBackendUrl = '') {
+async function runBmlApiFlow(credentials, targetAccount, accountName, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', bmlAuthState = null, payloadHardwareId = '', payloadBackendUrl = '', payloadAccountId = '') {
   emitLog(port, `> [BML-API] Starting API auth flow (sessionMode: ${sessionMode}, profileType: ${profileType})...`);
   logSessionEvent('session_login_started', { account: targetAccount, mode: mode, bank: 'BML', session_mode: sessionMode });
   let last3Txs = [];
@@ -1306,7 +1306,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
   try {
     const backendUrl = heldSession ? heldSession.backendUrl : (payloadBackendUrl || credentials.backendUrl || '');
     const terminalId = heldSession ? heldSession.hardwareId : (payloadHardwareId || credentials.terminalId || '');
-    const bankAccountId = heldSession ? heldSession.accountId : (credentials.bankAccountId || '');
+    const bankAccountId = heldSession ? heldSession.accountId : (payloadAccountId || credentials.bankAccountId || '');
     const bmlUsername = credentials.username || '';
     const sanctumToken = credentials.token || ''; // Assuming the PWA passes sanctum token in credentials if needed
 
@@ -1371,12 +1371,26 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
       throw new Error("Invalid dashboard response format.");
     }
     
-    let accountObj = null;
-    if (Array.isArray(dashData.payload.dashboard)) {
+    // Safely match target account: exact match, internal ID match, or CASA fallback matching for masked account numbers
+    const cleanNum = String(targetAccount || '').trim();
+    const cleanDbId = String(bankAccountId || '').trim();
+
+    let accountObj = Array.isArray(dashData.payload.dashboard)
+      ? dashData.payload.dashboard.find(a => 
+          a.account === cleanNum || 
+          a.id === cleanNum || 
+          a.id === cleanDbId ||
+          (a.account && a.account.replace(/[^0-9]/g, '') === cleanNum.replace(/[^0-9]/g, ''))
+        )
+      : null;
+
+    if (!accountObj && cleanNum.length >= 4 && Array.isArray(dashData.payload.dashboard)) {
       accountObj = dashData.payload.dashboard.find(a => 
-        a.account && a.account.replace(/[^0-9]/g, '') === targetAccount.replace(/[^0-9]/g, '')
+        (a.category === 'currentAndSavingAccounts' || a.account_type === 'CASA') &&
+        a.account && a.account.replace(/X/g, '').endsWith(cleanNum.slice(-4))
       );
     }
+
     if (!accountObj) {
       throw new Error(`Account ${targetAccount} not found on this BML profile.`);
     }
@@ -2803,7 +2817,7 @@ async function selectMibProfile(profileId, profileType) {
   return { success: true };
 }
 
-async function runMibApiFlow(credentials, targetAccount, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', hardwareId = '', backendUrl = '') {
+async function runMibApiFlow(credentials, targetAccount, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', hardwareId = '', backendUrl = '', payloadAccountId = '') {
   emitLog(port, `> [MIB-API] Starting API ledger flow (mode: ${mode})...`);
   logSessionEvent('session_login_started', { account: targetAccount, mode: mode, session_mode: sessionMode });
   let last3Txs = [];
