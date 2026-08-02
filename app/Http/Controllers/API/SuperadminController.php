@@ -1202,7 +1202,8 @@ class SuperadminController extends Controller
             $expiresIn = $validated['expires_in'] ?? null;
             $expiresAt = $expiresIn ? Carbon::now()->addSeconds($expiresIn) : null;
 
-            $bmlUsername = ($validated['bml_username'] ?? '') ?: null;
+            $bmlUsernameRaw = $validated['bml_username'] ?? null;
+            $bmlUsername = ($bmlUsernameRaw !== null && trim($bmlUsernameRaw) !== '') ? trim($bmlUsernameRaw) : null;
 
             $tokenFields = [
                 'terminal_id' => $terminal?->id,
@@ -1330,7 +1331,9 @@ class SuperadminController extends Controller
             'profile_name' => 'nullable|string',
         ]);
 
-        $result = DB::transaction(function () use ($validated) {
+        $mibUsername = trim($validated['mib_username']);
+
+        $result = DB::transaction(function () use ($validated, $mibUsername) {
             $account = BankAccount::where('id', $validated['bank_account_id'])
                 ->where('tenant_id', $validated['tenant_id'])
                 ->lockForUpdate()
@@ -1363,7 +1366,7 @@ class SuperadminController extends Controller
             }
 
             $existing = MibCredentialGroup::where('tenant_id', $validated['tenant_id'])
-                ->where('mib_username', $validated['mib_username'])
+                ->where('mib_username', $mibUsername)
                 ->first();
 
             $groupFields = [
@@ -1382,7 +1385,7 @@ class SuperadminController extends Controller
                 } else {
                     $group = MibCredentialGroup::create(array_merge($groupFields, [
                         'tenant_id' => $validated['tenant_id'],
-                        'mib_username' => $validated['mib_username'],
+                        'mib_username' => $mibUsername,
                     ]));
                     $groupExisted = false;
                 }
