@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2, Server, Database, Code, Zap, Activity, Sun, Moon, Briefcase, Sparkles, Clock, AlertTriangle, Search, Key, ArrowLeft } from 'lucide-react';
+import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2, Server, Database, Code, Zap, Activity, Sun, Moon, Briefcase, Sparkles, Clock, AlertTriangle, Search, Key, ArrowLeft, ChevronDown } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 
 const Tooltip = ({ text }: { text: string }) => (
@@ -3020,48 +3020,95 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)] p-6">
+    <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)] p-3 sm:p-6">
       <div className="max-w-6xl mx-auto">
-        <header className="flex justify-between items-center mb-8">
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-3xl font-bold flex items-center gap-3">
-              <img src="/logo_en.png" alt="Viri Logo" className="h-10 md:h-12 object-contain" />
-              <span className="text-[var(--text-secondary)] text-lg font-normal border-l border-zinc-700 pl-3">Superadmin Portal</span>
+            <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3">
+              <img src="/logo_en.png" alt="Viri Logo" className="h-9 md:h-12 object-contain" />
+              <span className="text-[var(--text-secondary)] text-sm md:text-lg font-normal border-l border-zinc-700 pl-3">Superadmin Portal</span>
             </h1>
-            <p className="text-[var(--text-secondary)]">Manage tenant subscriptions and approvals</p>
+            <p className="text-xs md:text-sm text-[var(--text-secondary)]">Manage tenant subscriptions and approvals</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
             <button
               onClick={toggleTheme}
               title={`Current Theme: ${theme.toUpperCase()}. Click to rotate.`}
-              className="btn btn-outline flex items-center gap-2 capitalize"
+              className="btn btn-outline py-2 px-3 text-xs md:text-sm flex items-center gap-2 capitalize"
             >
-              {theme === 'dark' && <Moon size={16} className="text-indigo-400" />}
-              {theme === 'light' && <Sun size={16} className="text-amber-400" />}
-              {theme === 'corporate' && <Briefcase size={16} className="text-blue-400" />}
-              {theme === 'cute' && <Sparkles size={16} className="text-pink-400" />}
-              <span>{theme}</span>
+              {theme === 'dark' && <Moon size={15} className="text-indigo-400" />}
+              {theme === 'light' && <Sun size={15} className="text-amber-400" />}
+              {theme === 'corporate' && <Briefcase size={15} className="text-blue-400" />}
+              {theme === 'cute' && <Sparkles size={15} className="text-pink-400" />}
+              <span className="hidden sm:inline">{theme}</span>
             </button>
-            <button onClick={handleRefresh} className="btn btn-outline flex items-center gap-2">
-              <RefreshCw size={16} /> Refresh
+            <button onClick={handleRefresh} className="btn btn-outline py-2 px-3 text-xs md:text-sm flex items-center gap-2">
+              <RefreshCw size={15} /> <span className="hidden sm:inline">Refresh</span>
             </button>
-            <button onClick={handleLogout} className="btn btn-outline flex items-center gap-2">
-              <LogOut size={16} /> Logout
+            <button onClick={handleLogout} className="btn btn-outline py-2 px-3 text-xs md:text-sm flex items-center gap-2">
+              <LogOut size={15} /> <span className="hidden sm:inline">Logout</span>
             </button>
           </div>
         </header>
 
-        {/* Navigation Tabs */}
-        <div className="flex border-b border-zinc-800 mb-6 flex-wrap gap-2">
+        {/* Responsive Mobile View Selector (Visible on small screens < md) */}
+        <div className="md:hidden mb-4">
+          <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
+            Portal View Section
+          </label>
+          <div className="relative">
+            <select
+              value={activeTab}
+              onChange={(e) => {
+                const val = e.target.value as any;
+                setActiveTab(val);
+                if (val === 'credentials') fetchCredentials();
+              }}
+              className="w-full bg-zinc-900 border border-zinc-700 text-white font-bold text-sm px-4 py-3 rounded-xl appearance-none focus:outline-none focus:border-yellow-500 shadow-lg pr-10"
+            >
+              <option value="overview">
+                ⚡ Overview & Expiries {companies.filter(c => c.status === 'pending').length > 0 ? `(${companies.filter(c => c.status === 'pending').length} PENDING)` : ''}
+              </option>
+              <option value="companies">
+                🏢 Registered Companies ({companies.filter(c => c.status !== 'archived').length})
+              </option>
+              <option value="archived">
+                📦 Archived Companies ({companies.filter(c => c.status === 'archived').length})
+              </option>
+              <option value="tiers">
+                💳 Subscription Tiers ({subscriptionPlans.length})
+              </option>
+              <option value="logs">
+                📋 Session Activity Log
+              </option>
+              <option value="terminalDebug">
+                📡 Terminal Debug Logs
+              </option>
+              <option value="settings">
+                ⚙️ App Configuration
+              </option>
+              <option value="payments">
+                💰 Payment Receipts {pendingPaymentsCount > 0 ? `(${pendingPaymentsCount} PENDING)` : ''}
+              </option>
+              <option value="credentials">
+                🔑 Credentials Inspector
+              </option>
+            </select>
+            <ChevronDown size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-yellow-500 pointer-events-none" />
+          </div>
+        </div>
+
+        {/* Navigation Tabs (Swipeable Horizontal Pill Bar on Mobile, Full Tab Bar on Desktop) */}
+        <div className="flex border-b border-zinc-800 mb-6 overflow-x-auto whitespace-nowrap scrollbar-none gap-1.5 pb-2">
           <button
             onClick={() => setActiveTab('overview')}
-            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 relative ${
+            className={`px-3.5 py-2 text-xs md:text-sm font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 relative ${
               activeTab === 'overview'
-                ? 'border-yellow-500 text-yellow-500'
-                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                ? 'border-yellow-500 text-yellow-500 bg-yellow-500/10 rounded-t-xl'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50 rounded-t-xl'
             }`}
           >
-            <Activity size={16} className="shrink-0" />
+            <Activity size={15} className="shrink-0" />
             <span>Overview & Expiries</span>
             {companies.filter(c => c.status === 'pending').length > 0 && (
               <span className="px-1.5 py-0.5 text-[9px] font-bold bg-amber-500 text-black rounded-full leading-none shrink-0 animate-pulse">
@@ -3071,95 +3118,95 @@ export default function AdminDashboard() {
           </button>
           <button
             onClick={() => setActiveTab('companies')}
-            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-2 text-xs md:text-sm font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${
               activeTab === 'companies'
-                ? 'border-yellow-500 text-yellow-500'
-                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                ? 'border-yellow-500 text-yellow-500 bg-yellow-500/10 rounded-t-xl'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50 rounded-t-xl'
             }`}
           >
-            <Building2 size={16} className="shrink-0" />
+            <Building2 size={15} className="shrink-0" />
             <span>Registered Companies ({companies.filter(c => c.status !== 'archived').length})</span>
           </button>
           <button
             onClick={() => setActiveTab('archived')}
-            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-2 text-xs md:text-sm font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${
               activeTab === 'archived'
-                ? 'border-yellow-500 text-yellow-500'
-                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                ? 'border-yellow-500 text-yellow-500 bg-yellow-500/10 rounded-t-xl'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50 rounded-t-xl'
             }`}
           >
-            <Archive size={16} className="shrink-0" />
-            <span>Archived Companies ({companies.filter(c => c.status === 'archived').length})</span>
+            <Archive size={15} className="shrink-0" />
+            <span>Archived ({companies.filter(c => c.status === 'archived').length})</span>
           </button>
           <button
             onClick={() => setActiveTab('tiers')}
-            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-2 text-xs md:text-sm font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${
               activeTab === 'tiers'
-                ? 'border-yellow-500 text-yellow-500'
-                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                ? 'border-yellow-500 text-yellow-500 bg-yellow-500/10 rounded-t-xl'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50 rounded-t-xl'
             }`}
           >
-            <Layers size={16} className="shrink-0" />
-            <span>Subscription Tiers ({subscriptionPlans.length})</span>
+            <Layers size={15} className="shrink-0" />
+            <span>Tiers ({subscriptionPlans.length})</span>
           </button>
           <button
             onClick={() => setActiveTab('logs')}
-            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-2 text-xs md:text-sm font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${
               activeTab === 'logs'
-                ? 'border-yellow-500 text-yellow-500'
-                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                ? 'border-yellow-500 text-yellow-500 bg-yellow-500/10 rounded-t-xl'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50 rounded-t-xl'
             }`}
           >
-            <ClipboardList size={16} className="shrink-0" />
-            <span>Session Activity Log</span>
+            <ClipboardList size={15} className="shrink-0" />
+            <span>Session Logs</span>
           </button>
           <button
             onClick={() => setActiveTab('terminalDebug')}
-            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-2 text-xs md:text-sm font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${
               activeTab === 'terminalDebug'
-                ? 'border-yellow-500 text-yellow-500'
-                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                ? 'border-yellow-500 text-yellow-500 bg-yellow-500/10 rounded-t-xl'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50 rounded-t-xl'
             }`}
           >
-            <Activity size={16} className="shrink-0" />
-            <span>Terminal Debug Logs</span>
+            <Activity size={15} className="shrink-0" />
+            <span>Debug Logs</span>
           </button>
           <button
             onClick={() => setActiveTab('settings')}
-            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-2 text-xs md:text-sm font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${
               activeTab === 'settings'
-                ? 'border-yellow-500 text-yellow-500'
-                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                ? 'border-yellow-500 text-yellow-500 bg-yellow-500/10 rounded-t-xl'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50 rounded-t-xl'
             }`}
           >
-            <Settings size={16} className="shrink-0" />
-            <span>App Configuration</span>
+            <Settings size={15} className="shrink-0" />
+            <span>App Config</span>
           </button>
           <button
             onClick={() => setActiveTab('payments')}
-            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 relative ${
+            className={`px-3.5 py-2 text-xs md:text-sm font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 relative ${
               activeTab === 'payments'
-                ? 'border-yellow-500 text-yellow-500'
-                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                ? 'border-yellow-500 text-yellow-500 bg-yellow-500/10 rounded-t-xl'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50 rounded-t-xl'
             }`}
           >
-            <CreditCard size={16} className="shrink-0" />
-            <span>Payment Receipts</span>
+            <CreditCard size={15} className="shrink-0" />
+            <span>Payments</span>
             {pendingPaymentsCount > 0 && (
-              <span className="absolute -top-1.5 -right-1 px-1.5 py-0.5 text-[9px] font-bold bg-red-600 text-white rounded-full leading-none shrink-0 border border-black animate-pulse">
+              <span className="px-1.5 py-0.5 text-[9px] font-bold bg-red-600 text-white rounded-full leading-none shrink-0 animate-pulse">
                 {pendingPaymentsCount}
               </span>
             )}
           </button>
           <button
             onClick={() => { setActiveTab('credentials'); fetchCredentials(); }}
-            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-2 text-xs md:text-sm font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${
               activeTab === 'credentials'
-                ? 'border-yellow-500 text-yellow-500'
-                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                ? 'border-yellow-500 text-yellow-500 bg-yellow-500/10 rounded-t-xl'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50 rounded-t-xl'
             }`}
           >
-            <Key size={16} className="shrink-0" />
+            <Key size={15} className="shrink-0" />
             <span>Credentials</span>
           </button>
         </div>
