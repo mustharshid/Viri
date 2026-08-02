@@ -1415,27 +1415,58 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     
     let pendingData = null;
     try {
-      // Also fetch pending if available (not strictly in API doc, but good practice)
+      // Fetch pending history with a 3-second timeout signal to avoid 10s stalling
       emitLog(port, `> [BML-API] Fetching pending history from: ${BASE_URL}/api/mobile/history/pending/${accountInternalId}`);
-      const pendingRes = await authFetch(`${BASE_URL}/api/mobile/history/pending/${accountInternalId}`);
-      if (pendingRes.status === 200) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const pendingRes = await authFetch(`${BASE_URL}/api/mobile/history/pending/${accountInternalId}`, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (pendingRes && pendingRes.status === 200) {
         pendingData = await pendingRes.json();
       }
     } catch(e) {}
 
-    const historyData = await historyRes.json();
-    logApiDebug(port, historyData, 'BML-HISTORY');
-    if (!historyData.payload || !historyData.payload.history) {
-      throw new Error("Invalid history payload from BML API.");
+    let historyData = null;
+    if (historyRes && historyRes.status === 200) {
+      try {
+        historyData = await historyRes.json();
+        logApiDebug(port, historyData, 'BML-HISTORY');
+      } catch(e) {}
+    } else if (historyRes) {
+      emitLog(port, `> [BML-API] /history/today returned HTTP status ${historyRes.status}`);
     }
-    
+
+    let historyTxs = [];
+    if (historyData && historyData.payload && Array.isArray(historyData.payload.history)) {
+      historyTxs = historyData.payload.history;
+    } else if (historyData && historyData.payload && Array.isArray(historyData.payload)) {
+      historyTxs = historyData.payload;
+    }
+
+    // Graceful fallback to page 1 history if today's history payload is empty or failed
+    if (historyTxs.length === 0) {
+      emitLog(port, `> [BML-API] No transactions found in /history/today. Attempting fallback to /history/1...`);
+      try {
+        const page1Res = await authFetch(`${BASE_URL}/api/mobile/account/${accountInternalId}/history/1`);
+        if (page1Res && page1Res.status === 200) {
+          const page1Data = await page1Res.json();
+          logApiDebug(port, page1Data, 'BML-HISTORY-PAGE1');
+          if (page1Data && page1Data.payload && Array.isArray(page1Data.payload.history)) {
+            historyTxs = page1Data.payload.history;
+          } else if (page1Data && page1Data.payload && Array.isArray(page1Data.payload)) {
+            historyTxs = page1Data.payload;
+          }
+        }
+      } catch(e) {
+        emitLog(port, `> [BML-API] Fallback /history/1 failed: ${e.message}`);
+      }
+    }
+
     let allTxs = [];
     if (pendingData && pendingData.payload && Array.isArray(pendingData.payload.history)) {
       allTxs = allTxs.concat(pendingData.payload.history);
     }
-    if (Array.isArray(historyData.payload.history)) {
-      allTxs = allTxs.concat(historyData.payload.history);
-    }
+    allTxs = allTxs.concat(historyTxs);
 
     // Format txs using the robust legacy normalizer
     const formattedTxs = normalizeTransactions(allTxs, 'BML', null);
@@ -2997,7 +3028,24 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
       emitLog(port, `> [MIB-API] Final resolved balance: ${accountBalance}`);
     }
 
-    const detailsUrl = `https://${wvDomain}//accountDetails?trxh=1&dashurl=1&accountNo=${targetAccount}`;
+    const detailsUrl = `https://${wvDomain}/accountDetails?trxh=1&dashurl=1&accountNo=${targetAccount}`;
+
+    // Pre-warm account-specific WebView shell to initialize session index
+    try {
+      emitLog(port, `> [MIB-API] Pre-initializing WebView account shell for ${targetAccount}...`);
+      await fetch(detailsUrl, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'User-Agent': 'android/1.0',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        }
+      });
+      emitLog(port, `> [MIB-API] WebView account shell initialized.`);
+    } catch (e) {
+      emitLog(port, `> [MIB-API] Account shell pre-init warning: ${e.message}`);
+    }
+
     emitLog(port, `> [MIB-API] Fetching transactions from ${wvDomain}/ajaxAccounts/trxHistory...`);
     logSessionEvent('fetch_request_submitted', { account: targetAccount, mode: mode });
     const trxRes = await fetch(`https://${wvDomain}/ajaxAccounts/trxHistory`, {

@@ -1051,7 +1051,7 @@ function App() {
   const [_terminalId, setTerminalId] = useState<number | null>(null);
   const [accountToClear, setAccountToClear] = useState<any | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const LATEST_EXTENSION_VERSION = "1.2.93";
+  const LATEST_EXTENSION_VERSION = "1.2.95";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -3285,9 +3285,15 @@ function App() {
           setLoading(false);
           setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
           setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
-          // response.data may be null for non-search modes
-          if (response.data) {
-            setResult(response.data);
+          const matchObj = response.match || response.data;
+          if (matchObj) {
+            setResult({
+              status: 'success',
+              reference: matchObj.reference || matchObj.details || '',
+              amount: matchObj.amount ? String(matchObj.amount).replace(/[^0-9.]/g, '') : (amount || '0.00'),
+              timestamp: matchObj.date || new Date().toLocaleString(),
+              transaction: matchObj
+            });
           }
 
           const acc1 = bankAccounts.find(a => a.id.toString() === selectedAccountId);
@@ -3523,24 +3529,62 @@ function App() {
 
     logSessionActivity('fetch_request_submitted', `Ledger history sync initiated for ${selectedBankName} account ${selectedAccount?.account_number || ''}`);
 
-    addLog("> [System] Validating cashier counter license...");
-    if (subscriptionExpired) {
-      setErrorAndLog("Subscription Expired - contact your admin!", targetAccountId);
-      addLog("> [System] License validation FAILED: Subscription Expired.");
-      setLoading(false);
-      isVerifyingRef.current = false;
-      setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
-      return;
+    addLog("> [System] Validating cashier counter license & recording verification...");
+    if (hardwareId && backendUrl) {
+      try {
+        const verifyRes = await fetch(`${backendUrl}/verify-terminal`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hardware_id: hardwareId, action: 'verify' })
+        });
+
+        if (!verifyRes.ok) {
+          const errData = await verifyRes.json().catch(() => ({}));
+          setErrorAndLog(`License check failed: ${errData.error || verifyRes.statusText} (${verifyRes.status})`, targetAccountId);
+          setLoading(false);
+          isVerifyingRef.current = false;
+          setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+          return;
+        }
+
+        const verifyData = await verifyRes.json().catch(() => ({}));
+        if (verifyData.subscription_expired) {
+          setSubscriptionExpired(true);
+          setErrorAndLog("Subscription Expired - contact your admin!", targetAccountId);
+          addLog("> [System] License validation FAILED: Subscription Expired.");
+          setLoading(false);
+          isVerifyingRef.current = false;
+          setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+          return;
+        }
+        if (verifyData.credits_exhausted) {
+          setCreditsExhausted(true);
+          setErrorAndLog("Verification credits exhausted - contact your admin!", targetAccountId);
+          addLog("> [System] License validation FAILED: Credits Exhausted.");
+          setLoading(false);
+          isVerifyingRef.current = false;
+          setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+          return;
+        }
+        addLog("> [System] License valid & verification count recorded.");
+      } catch (err: any) {
+        addLog(`> [System] Server license check warning: ${err.message}. Proceeding with cached status.`);
+        if (subscriptionExpired) {
+          setErrorAndLog("Subscription Expired - contact your admin!", targetAccountId);
+          setLoading(false);
+          isVerifyingRef.current = false;
+          setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+          return;
+        }
+        if (creditsExhausted) {
+          setErrorAndLog("Verification credits exhausted - contact your admin!", targetAccountId);
+          setLoading(false);
+          isVerifyingRef.current = false;
+          setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+          return;
+        }
+      }
     }
-    if (creditsExhausted) {
-      setErrorAndLog("Verification credits exhausted - contact your admin!", targetAccountId);
-      addLog("> [System] License validation FAILED: Credits Exhausted.");
-      setLoading(false);
-      isVerifyingRef.current = false;
-      setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
-      return;
-    }
-    addLog("> [System] License valid (cached).");
 
     if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
       setErrorAndLog("Browser extension API not detected.", targetAccountId);
@@ -5004,7 +5048,9 @@ function App() {
 
                                 return (
                                   <div className="text-right flex items-center gap-1.5 font-mono text-[11px] text-zinc-300 font-bold bg-emerald-955/20 border border-emerald-500/20 px-2 py-0.5 rounded-lg shrink-0">
-                                    <span className="text-[10px] text-zinc-400 font-sans uppercase font-bold">Last Credit:</span>
+                                    <span className="text-[10px] text-zinc-400 font-sans uppercase font-bold">
+                                      {activeStepIndex === 5 ? 'Search Success:' : 'Last Credit:'}
+                                    </span>
                                     <span className="text-emerald-400 font-bold">{selectedAccountCurrency} {lastCreditAmount}</span>
                                     {lastCreditDate && (
                                       <span className="text-zinc-500 text-[10px] hidden sm:inline">| {lastCreditDate}</span>
@@ -5184,7 +5230,7 @@ function App() {
                           <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
                             {activeStepIndex === 5 ? (
                               <>
-                                <span>Last Credit: {selectedAccountCurrency} {formatAmount(result?.amount)}</span>
+                                <span>Search Success: {selectedAccountCurrency} {formatAmount(result?.amount)}</span>
                                 <Tooltip text="The payment has been confirmed as received on your bank account." helpSectionId="transfer-verification" />
                                 <span className="px-2 py-0.5 bg-emerald-955/50 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold tracking-wider rounded uppercase">
                                   Success

@@ -24,6 +24,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Database\QueryException;
 
 class SuperadminController extends Controller
 {
@@ -41,7 +42,7 @@ class SuperadminController extends Controller
                 ->first();
 
             $tenant->last_activity_at = $lastLog ? $lastLog->created_at->toIso8601String() : ($tenant->updated_at ? $tenant->updated_at->toIso8601String() : null);
-            $tenant->verifications_used = $tenant->claimed_sales_count ?? $tenant->verifications_count ?? 0;
+            $tenant->verifications_used = $tenant->verifications_count ?? 0;
 
             return $tenant;
         });
@@ -696,11 +697,26 @@ class SuperadminController extends Controller
             ];
         });
 
+        $unlinkedMibAccounts = BankAccount::where('bank_name', 'MIB')
+            ->whereNull('mib_credential_profile_id')
+            ->with('tenant')
+            ->get()
+            ->map(fn ($a) => [
+                'id' => $a->id,
+                'tenant_id' => $a->tenant_id,
+                'tenant_name' => $a->tenant?->name,
+                'account_number' => $a->account_number,
+                'account_name' => $a->account_name,
+                'mib_profile_type' => $a->mib_profile_type ?? '0',
+            ]);
+
         return response()->json([
             'bml_groups' => $bmlGroups,
             'mib_groups' => $mibGroups,
+            'unlinked_mib_accounts' => $unlinkedMibAccounts,
             'total_bml' => $bmlGroups->count(),
             'total_mib' => $mibGroups->count(),
+            'total_unlinked_mib' => $unlinkedMibAccounts->count(),
         ]);
     }
 
@@ -1200,45 +1216,52 @@ class SuperadminController extends Controller
                 'obtained_at' => Carbon::now(),
             ];
 
-            if ($bmlUsername !== null) {
-                $existing = BmlCredentialGroup::where('tenant_id', $validated['tenant_id'])
-                    ->where('bml_username', $bmlUsername)
-                    ->where('profile_type', $validated['profile_type'])
-                    ->first();
+            try {
+                if ($bmlUsername !== null) {
+                    $existing = BmlCredentialGroup::where('tenant_id', $validated['tenant_id'])
+                        ->where('bml_username', $bmlUsername)
+                        ->where('profile_type', $validated['profile_type'])
+                        ->first();
 
-                if ($existing) {
-                    $existing->update($tokenFields);
-                    $group = $existing;
-                    $groupExisted = true;
+                    if ($existing) {
+                        $existing->update($tokenFields);
+                        $group = $existing;
+                        $groupExisted = true;
+                    } else {
+                        $group = BmlCredentialGroup::create(array_merge($tokenFields, [
+                            'tenant_id' => $validated['tenant_id'],
+                            'bml_username' => $bmlUsername,
+                            'profile_type' => $validated['profile_type'],
+                        ]));
+                        $groupExisted = false;
+                    }
                 } else {
-                    $group = BmlCredentialGroup::create(array_merge($tokenFields, [
-                        'tenant_id' => $validated['tenant_id'],
-                        'bml_username' => $bmlUsername,
-                        'profile_type' => $validated['profile_type'],
-                    ]));
-                    $groupExisted = false;
-                }
-            } else {
-                // Null username: search for orphaned group with same tenant+profile_type
-                $orphan = BmlCredentialGroup::where('tenant_id', $validated['tenant_id'])
-                    ->whereNull('bml_username')
-                    ->where('profile_type', $validated['profile_type'])
-                    ->whereDoesntHave('bankAccounts')
-                    ->orderBy('id', 'asc')
-                    ->first();
+                    // Null username: search for orphaned group with same tenant+profile_type
+                    $orphan = BmlCredentialGroup::where('tenant_id', $validated['tenant_id'])
+                        ->whereNull('bml_username')
+                        ->where('profile_type', $validated['profile_type'])
+                        ->whereDoesntHave('bankAccounts')
+                        ->orderBy('id', 'asc')
+                        ->first();
 
-                if ($orphan) {
-                    $orphan->update($tokenFields);
-                    $group = $orphan;
-                    $groupExisted = true;
-                } else {
-                    $group = BmlCredentialGroup::create(array_merge($tokenFields, [
-                        'tenant_id' => $validated['tenant_id'],
-                        'bml_username' => null,
-                        'profile_type' => $validated['profile_type'],
-                    ]));
-                    $groupExisted = false;
+                    if ($orphan) {
+                        $orphan->update($tokenFields);
+                        $group = $orphan;
+                        $groupExisted = true;
+                    } else {
+                        $group = BmlCredentialGroup::create(array_merge($tokenFields, [
+                            'tenant_id' => $validated['tenant_id'],
+                            'bml_username' => null,
+                            'profile_type' => $validated['profile_type'],
+                        ]));
+                        $groupExisted = false;
+                    }
                 }
+            } catch (QueryException $e) {
+                if ((int) $e->getCode() === 23000) {
+                    return ['error' => 'A BML credential group with these details already exists for this tenant.', 'status' => 422];
+                }
+                throw $e;
             }
 
             $account->update(['bml_credential_group_id' => $group->id]);
@@ -1351,32 +1374,39 @@ class SuperadminController extends Controller
                 'obtained_at' => Carbon::now(),
             ];
 
-            if ($existing) {
-                $existing->update($groupFields);
-                $group = $existing;
-                $groupExisted = true;
-            } else {
-                $group = MibCredentialGroup::create(array_merge($groupFields, [
-                    'tenant_id' => $validated['tenant_id'],
-                    'mib_username' => $validated['mib_username'],
-                ]));
-                $groupExisted = false;
+            try {
+                if ($existing) {
+                    $existing->update($groupFields);
+                    $group = $existing;
+                    $groupExisted = true;
+                } else {
+                    $group = MibCredentialGroup::create(array_merge($groupFields, [
+                        'tenant_id' => $validated['tenant_id'],
+                        'mib_username' => $validated['mib_username'],
+                    ]));
+                    $groupExisted = false;
+                }
+
+                $profileId = $validated['profile_id'] ?? 'default_profile';
+                $profileType = $validated['profile_type'] ?? '0';
+                $profileName = $validated['profile_name'] ?? '';
+
+                $profile = MibCredentialProfile::updateOrCreate(
+                    [
+                        'credential_group_id' => $group->id,
+                        'profile_id' => $profileId,
+                    ],
+                    [
+                        'profile_type' => $profileType,
+                        'profile_name' => $profileName,
+                    ]
+                );
+            } catch (QueryException $e) {
+                if ((int) $e->getCode() === 23000) {
+                    return ['error' => 'An MIB credential group with these details already exists for this tenant.', 'status' => 422];
+                }
+                throw $e;
             }
-
-            $profileId = $validated['profile_id'] ?? 'default_profile';
-            $profileType = $validated['profile_type'] ?? '0';
-            $profileName = $validated['profile_name'] ?? '';
-
-            $profile = MibCredentialProfile::updateOrCreate(
-                [
-                    'credential_group_id' => $group->id,
-                    'profile_id' => $profileId,
-                ],
-                [
-                    'profile_type' => $profileType,
-                    'profile_name' => $profileName,
-                ]
-            );
 
             $account->update(['mib_credential_profile_id' => $profile->id]);
 
@@ -1441,7 +1471,7 @@ class SuperadminController extends Controller
         $query = BankAccount::where('tenant_id', $id);
 
         if ($request->has('bank_name')) {
-            $query->where('bank_name', $request->bank_name);
+            $query->whereRaw('LOWER(bank_name) = ?', [strtolower($request->bank_name)]);
         }
 
         $accounts = $query->get()->map(fn ($a) => [

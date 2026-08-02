@@ -158,12 +158,21 @@ export default function AdminDashboard() {
       });
       const data = await res.json();
       if (res.ok) {
-        setInjectModal(prev => ({ ...prev, accounts: Array.isArray(data) ? data : [], loadingAccounts: false }));
+        setInjectModal(prev => {
+          if (prev.type !== type) return prev;
+          return { ...prev, accounts: Array.isArray(data) ? data : [], loadingAccounts: false };
+        });
       } else {
-        setInjectModal(prev => ({ ...prev, error: data.error || 'Failed to load accounts', loadingAccounts: false }));
+        setInjectModal(prev => {
+          if (prev.type !== type) return prev;
+          return { ...prev, error: data.error || 'Failed to load accounts', loadingAccounts: false };
+        });
       }
     } catch (err: any) {
-      setInjectModal(prev => ({ ...prev, error: err.message || 'Failed to load accounts', loadingAccounts: false }));
+      setInjectModal(prev => {
+        if (prev.type !== type) return prev;
+        return { ...prev, error: err.message || 'Failed to load accounts', loadingAccounts: false };
+      });
     }
   };
 
@@ -203,7 +212,12 @@ export default function AdminDashboard() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setInjectModal(prev => ({ ...prev, error: data.error || 'Injection failed', submitting: false }));
+        let errorMsg = data.error;
+        if (!errorMsg && data.errors) {
+          errorMsg = Object.values(data.errors).flat().join('. ');
+        }
+        if (!errorMsg) errorMsg = data.message || 'Injection failed';
+        setInjectModal(prev => ({ ...prev, error: errorMsg, submitting: false }));
       } else {
         setInjectModal(prev => ({ ...prev, result: data, submitting: false }));
       }
@@ -1101,7 +1115,7 @@ export default function AdminDashboard() {
                   <span className="text-zinc-700">•</span>
                   <span>Phone: <strong className="text-zinc-300 font-mono">{adminUser.phone_number || 'N/A'}</strong></span>
                   <span className="text-zinc-700">•</span>
-                  <span>Verifications Used: <strong className="text-emerald-400 font-mono">{company.verifications_used ?? company.claimed_sales_count ?? 0}</strong></span>
+                  <span>Verifications Used: <strong className="text-emerald-400 font-mono">{company.verifications_count ?? company.verifications_used ?? 0}</strong></span>
                   <span className="text-zinc-700">•</span>
                   <span>Last Activity: <strong className="text-zinc-300 font-mono">{company.last_activity_at ? new Date(company.last_activity_at).toLocaleString() : 'None'}</strong></span>
                   <span className="text-zinc-700">•</span>
@@ -2903,7 +2917,7 @@ export default function AdminDashboard() {
                         <td className="py-3.5 px-4 whitespace-nowrap font-mono text-xs">
                           <div className="flex items-center gap-1.5 text-zinc-200 font-bold" title="A Verification is counted when a cashier verifies a bank transfer or claims a deposit sale on a terminal.">
                             <CheckCircle2 size={13} className="text-emerald-400" />
-                            <span>{company.verifications_used ?? company.claimed_sales_count ?? 0}</span>
+                            <span>{company.verifications_count ?? company.verifications_used ?? 0}</span>
                             {company.custom_verifications_limit ? (
                               <span className="text-zinc-500 text-[10px]">/ {company.custom_verifications_limit}</span>
                             ) : (
@@ -4311,13 +4325,19 @@ export default function AdminDashboard() {
                       <div className="flex gap-3">
                         <label className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer text-sm transition-colors ${injectModal.type === 'bml' ? 'border-blue-500/50 bg-blue-900/20 text-blue-300' : 'border-zinc-700 bg-zinc-800 text-zinc-400'}`}>
                           <input type="radio" name="injectType" value="bml" checked={injectModal.type === 'bml'} onChange={() => {
-                            setInjectModal(prev => ({ ...prev, type: 'bml', accounts: [], selectedAccountId: null, fields: {}, error: null }));
+                            setInjectModal(prev => ({ ...prev, type: 'bml', selectedAccountId: null, fields: {}, error: null }));
+                            if (injectModal.selectedTenantId) {
+                              loadInjectAccounts(injectModal.selectedTenantId, 'bml');
+                            }
                           }} className="sr-only" />
                           BML
                         </label>
                         <label className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer text-sm transition-colors ${injectModal.type === 'mib' ? 'border-emerald-500/50 bg-emerald-900/20 text-emerald-300' : 'border-zinc-700 bg-zinc-800 text-zinc-400'}`}>
                           <input type="radio" name="injectType" value="mib" checked={injectModal.type === 'mib'} onChange={() => {
-                            setInjectModal(prev => ({ ...prev, type: 'mib', accounts: [], selectedAccountId: null, fields: {}, error: null }));
+                            setInjectModal(prev => ({ ...prev, type: 'mib', selectedAccountId: null, fields: {}, error: null }));
+                            if (injectModal.selectedTenantId) {
+                              loadInjectAccounts(injectModal.selectedTenantId, 'mib');
+                            }
                           }} className="sr-only" />
                           MIB
                         </label>

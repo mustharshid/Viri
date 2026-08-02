@@ -66,13 +66,27 @@ class MibKeysController extends Controller
             ]
         );
 
-        // 3. Link requesting bank account to this profile
+        // 3. Link requesting bank account and unlinked sibling accounts to this profile
         $account = BankAccount::where('id', $validated['bank_account_id'])
             ->where('tenant_id', $terminal->tenant_id)
             ->first();
 
         if ($account) {
             $account->update(['mib_credential_profile_id' => $profile->id]);
+
+            // Auto-link any unlinked sibling MIB accounts under the same tenant
+            BankAccount::where('tenant_id', $terminal->tenant_id)
+                ->where('bank_name', 'MIB')
+                ->whereNull('mib_credential_profile_id')
+                ->where(function ($q) use ($account, $profileType) {
+                    if ($account->login_credentials_hash) {
+                        $q->where('login_credentials_hash', $account->login_credentials_hash);
+                    } else {
+                        $q->where('mib_profile_type', $profileType)
+                          ->orWhereNull('mib_profile_type');
+                    }
+                })
+                ->update(['mib_credential_profile_id' => $profile->id]);
         }
 
         return response()->json(['success' => true, 'group_id' => $group->id, 'profile_id' => $profile->id]);
@@ -116,11 +130,24 @@ class MibKeysController extends Controller
             }
         }
 
-        // Fallback 1: any group for this tenant (for legacy accounts not yet linked)
+        // Fallback 1: any group for this tenant (for legacy or unlinked accounts)
         if (! $group) {
             $group = MibCredentialGroup::where('tenant_id', $terminal->tenant_id)->first();
-            if ($group && $account) {
-                $profile = $account->mibCredentialProfile;
+        }
+
+        // Auto-heal: If group exists for tenant but account profile is not linked, link it now
+        if ($group && $account && ! $profile) {
+            $targetType = $account->mib_profile_type ?? '0';
+            $profile = MibCredentialProfile::where('credential_group_id', $group->id)
+                ->where('profile_type', $targetType)
+                ->first();
+
+            if (! $profile) {
+                $profile = MibCredentialProfile::where('credential_group_id', $group->id)->first();
+            }
+
+            if ($profile) {
+                $account->update(['mib_credential_profile_id' => $profile->id]);
             }
         }
 

@@ -249,38 +249,41 @@ export default function LandingPage() {
       elSub2.style.filter = 'blur(4px)';
     }
 
-    const duration = 600;
+    const duration = 800;
     const startTime = performance.now();
 
     function update(time: number) {
       const elapsed = time - startTime;
-      const progress = Math.min(elapsed / duration, 1);
+      let fraction = Math.min(elapsed / duration, 1);
+      if (fraction <= 0) fraction = 0.0001;
 
-      // Smooth exponential ease-out
-      const ease = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+      const blurVal2 = Math.min(8 / fraction - 8, 8);
+      const opacityVal2 = Math.pow(fraction, 0.2);
+      elText2!.style.filter = `blur(${blurVal2}px)`;
+      elText2!.style.opacity = `${opacityVal2}`;
 
-      const blurValOut = ease * 6;
-      const opacityOut = Math.max(0, 1 - ease);
+      const invertedFraction = 1 - fraction;
+      const safeInvertedFraction = Math.max(invertedFraction, 0.0001);
+      const blurVal1 = Math.min(8 / safeInvertedFraction - 8, 8);
+      const opacityVal1 = Math.pow(safeInvertedFraction, 0.2);
+      elText1!.style.filter = `blur(${blurVal1}px)`;
+      elText1!.style.opacity = `${opacityVal1}`;
 
-      const blurValIn = (1 - ease) * 6;
-      const opacityIn = Math.min(1, ease);
-
-      elText1!.style.opacity = `${opacityOut}`;
-      elText1!.style.filter = `blur(${blurValOut}px)`;
-
-      elText2!.style.opacity = `${opacityIn}`;
-      elText2!.style.filter = `blur(${blurValIn}px)`;
-
-      if (elSub1) {
-        elSub1.style.opacity = `${opacityOut}`;
-        elSub1.style.filter = `blur(${blurValOut * 0.5}px)`;
-      }
+      const blurValSub2 = Math.min(4 / fraction - 4, 4);
+      const opacityValSub2 = Math.pow(fraction, 0.2);
       if (elSub2) {
-        elSub2.style.opacity = `${opacityIn}`;
-        elSub2.style.filter = `blur(${blurValIn * 0.5}px)`;
+        elSub2.style.filter = `blur(${blurValSub2}px)`;
+        elSub2.style.opacity = `${opacityValSub2}`;
       }
 
-      if (progress < 1) {
+      const blurValSub1 = Math.min(4 / safeInvertedFraction - 4, 4);
+      const opacityValSub1 = Math.pow(safeInvertedFraction, 0.2);
+      if (elSub1) {
+        elSub1.style.filter = `blur(${blurValSub1}px)`;
+        elSub1.style.opacity = `${opacityValSub1}`;
+      }
+
+      if (fraction < 1) {
         morphAnimIdRef.current = requestAnimationFrame(update);
       } else {
         elText2!.style.filter = 'none';
@@ -333,8 +336,8 @@ export default function LandingPage() {
       {/* Particle Canvas */}
       <canvas id="particle-canvas" ref={canvasRef}></canvas>
 
-      {/* SVG Threshold Filter for Gooey Morphing Text (accessible across mobile WebKit & desktop) */}
-      <svg id="filters" style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden', pointerEvents: 'none', opacity: 0 }} aria-hidden="true">
+      {/* SVG Threshold Filter for Gooey Morphing Text */}
+      <svg id="filters" style={{ display: 'none' }}>
         <defs>
           <filter id="threshold">
             <feColorMatrix

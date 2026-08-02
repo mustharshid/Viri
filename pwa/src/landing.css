@@ -390,26 +390,17 @@
 .morph-heading {
   position: relative;
   width: 100%;
-  min-height: 48px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  filter: url(#threshold) blur(0.4px);
-  -webkit-filter: url(#threshold) blur(0.4px);
+  height: 1.1em;
+  filter: url(#threshold) blur(0.6px);
 }
 
 .morph-text {
   position: absolute;
   left: 0;
   right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  text-align: center;
-  white-space: normal;
-  word-break: break-word;
+  top: 0;
+  white-space: nowrap;
   user-select: none;
-  width: 100%;
-  will-change: opacity, filter;
 }
 
 .morph-text-1 {
@@ -431,25 +422,16 @@
 .morph-subheading {
   position: relative;
   width: 100%;
-  min-height: 40px;
+  min-height: 36px; /* Holds 2 lines of 12px text nicely without shifting */
   margin-top: 8px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
 }
 
 .morph-subtext {
   position: absolute;
   left: 0;
   right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  text-align: center;
-  white-space: normal;
-  word-break: break-word;
+  top: 0;
   user-select: none;
-  width: 100%;
-  will-change: opacity, filter;
 }
 
 .morph-subtext-1 {
@@ -2784,32 +2766,34 @@
 
   .carousel-section {
     padding: 0 12px;
-    overflow: hidden; /* Failsafe: block background dot-grid overflow! */
+    overflow: hidden;
   }
 
   .carousel-viewport {
     overflow: hidden;
-    padding: 16px 0 24px;
+    padding: 12px 0 20px;
   }
 
   .carousel-track {
-    height: 580px !important; /* Fixed static height to prevent page collapse jerk */
+    height: 500px !important;
     position: relative;
   }
 
   .carousel-card {
-    position: absolute !important; /* Keep cards absolute to maintain constant parent track height */
+    position: absolute !important;
     top: 0 !important;
     left: 0 !important;
     right: 0 !important;
     margin: 0 auto !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
     width: 100% !important;
-    max-width: 100% !important;
+    max-width: calc(100vw - 24px) !important;
+    box-sizing: border-box !important;
     filter: none !important;
     box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4) !important;
     display: flex !important;
     flex-direction: column !important;
-    /* Clean, hardware-accelerated transition for sliding/scaling and opacity */
     transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1), 
                 transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), 
                 visibility 0.4s !important;
@@ -2836,21 +2820,11 @@
     z-index: 1 !important;
   }
 
-  @keyframes mobile-fade-in {
-    from {
-      opacity: 0;
-      transform: translateY(10px) !important;
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0) !important;
-    }
-  }
-
   .carousel-card .terminal-body {
-    padding: 16px;
-    max-height: 520px !important; /* Cap content height on mobile and allow scroll */
+    padding: 12px !important;
+    max-height: 440px !important;
     overflow-y: auto !important;
+    overflow-x: hidden !important;
   }
 
   .carousel-arrow {
@@ -2863,13 +2837,51 @@
     letter-spacing: -0.025em;
   }
 
+  .morph-heading {
+    filter: none !important; /* Disable SVG threshold blur filter on small viewports to increase clarity */
+  }
+
   .verify-grid {
     grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .verify-form {
+    padding: 12px;
+  }
+
+  .verify-accounts {
+    gap: 6px;
+  }
+
+  .verify-account {
+    padding: 8px 10px;
+  }
+
+  .verify-account-num {
+    font-size: 11px;
+    word-break: break-all;
+  }
+
+  .verify-tx-header,
+  .verify-tx-row {
+    grid-template-columns: 75px 1fr 70px;
+    font-size: 11px;
+    gap: 6px;
+  }
+
+  .ledger-sync-bar {
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    font-size: 11px;
+    padding: 6px 10px;
   }
 
   .ledger-table-header,
   .ledger-table-row {
-    grid-template-columns: 30px 70px 1fr 80px;
+    grid-template-columns: 24px 65px 1fr 70px;
+    gap: 4px;
+    font-size: 11px;
   }
 
   .ledger-table-header > :nth-child(4),
