@@ -495,6 +495,7 @@ export default function AdminDashboard() {
       ledger_show_balance: false,
       ledger_show_debit: false,
       reports_enabled: false,
+      shift_claim_report_enabled: true,
       statement_enabled: false,
       custom_recent_tx_limit: false
     }
@@ -929,6 +930,7 @@ export default function AdminDashboard() {
             ledger_show_balance: false,
             ledger_show_debit: false,
             reports_enabled: false,
+            shift_claim_report_enabled: true,
             statement_enabled: false,
             custom_recent_tx_limit: false
           }
@@ -1322,19 +1324,23 @@ export default function AdminDashboard() {
                 { key: 'ledger_show_balance', label: 'Ledger Show Balance' },
                 { key: 'ledger_show_debit', label: 'Ledger Show Debit (Outgoing)' },
                 { key: 'reports_enabled', label: 'Reports & Analytics' },
+                { key: 'shift_claim_report_enabled', label: 'Shift & Claim Report', required: true },
                 { key: 'statement_enabled', label: 'Bank Statements Generator' },
                 { key: 'custom_recent_tx_limit', label: 'Configurable Recent Tx Count' }
               ].map(f => {
                 const currentFeatures = draft.features !== undefined ? draft.features : (company.features || {});
-                const isChecked = currentFeatures[f.key] ?? false;
+                const isChecked = (f as any).required ? true : (currentFeatures[f.key] ?? false);
+                const isReq = (f as any).required;
                 return (
-                  <label key={f.key} className="flex items-center gap-2.5 text-xs text-zinc-300 cursor-pointer hover:text-white select-none">
+                  <label key={f.key} className={`flex items-center gap-2.5 text-xs select-none ${isReq ? 'text-zinc-400 cursor-not-allowed' : 'text-zinc-300 cursor-pointer hover:text-white'}`}>
                     <div className="relative inline-flex items-center shrink-0">
                       <input
                         type="checkbox"
                         className="sr-only peer"
                         checked={isChecked}
+                        disabled={isReq}
                         onChange={(e) => {
+                          if (isReq) return;
                           const updatedFeatures = {
                             ...currentFeatures,
                             [f.key]: e.target.checked
@@ -1342,9 +1348,16 @@ export default function AdminDashboard() {
                           handleDraftChange(company.id, 'features', updatedFeatures);
                         }}
                       />
-                      <div className="w-8 h-4 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500"></div>
+                      <div className={`w-8 h-4 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500 ${isReq ? 'opacity-50' : ''}`}></div>
                     </div>
-                    <span>{f.label}</span>
+                    <span className="flex items-center gap-1.5">
+                      {f.label}
+                      {isReq && (
+                        <span className="text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-1 py-0.2 rounded">
+                          REQUIRED
+                        </span>
+                      )}
+                    </span>
                   </label>
                 );
               })}
@@ -1535,18 +1548,22 @@ export default function AdminDashboard() {
                   { key: 'ledger_show_balance', label: 'Ledger Show Balance' },
                   { key: 'ledger_show_debit', label: 'Ledger Show Debit (Outgoing)' },
                   { key: 'reports_enabled', label: 'Reports & Analytics' },
+                  { key: 'shift_claim_report_enabled', label: 'Shift & Claim Report', required: true },
                   { key: 'statement_enabled', label: 'Bank Statements Generator' },
                   { key: 'custom_recent_tx_limit', label: 'Configurable Recent Tx Count' }
                 ].map(f => {
-                  const isChecked = (planForm.features as any)[f.key] ?? false;
+                  const isChecked = (f as any).required ? true : ((planForm.features as any)[f.key] ?? false);
+                  const isReq = (f as any).required;
                   return (
-                    <label key={f.key} className="flex items-center gap-2.5 text-xs text-zinc-300 cursor-pointer hover:text-white select-none">
+                    <label key={f.key} className={`flex items-center gap-2.5 text-xs select-none ${isReq ? 'text-zinc-400 cursor-not-allowed' : 'text-zinc-300 cursor-pointer hover:text-white'}`}>
                       <div className="relative inline-flex items-center shrink-0">
                         <input
                           type="checkbox"
                           className="sr-only peer"
                           checked={isChecked}
+                          disabled={isReq}
                           onChange={(e) => {
+                            if (isReq) return;
                             setPlanForm(prev => ({
                               ...prev,
                               features: {
@@ -1556,9 +1573,16 @@ export default function AdminDashboard() {
                             }));
                           }}
                         />
-                        <div className="w-8 h-4 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500"></div>
+                        <div className={`w-8 h-4 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500 ${isReq ? 'opacity-50' : ''}`}></div>
                       </div>
-                      <span>{f.label}</span>
+                      <span className="flex items-center gap-1.5">
+                        {f.label}
+                        {isReq && (
+                          <span className="text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-1 py-0.2 rounded">
+                            REQUIRED
+                          </span>
+                        )}
+                      </span>
                     </label>
                   );
                 })}
@@ -1584,6 +1608,7 @@ export default function AdminDashboard() {
                         ledger_show_balance: false,
                         ledger_show_debit: false,
                         reports_enabled: false,
+                        shift_claim_report_enabled: true,
                         statement_enabled: false,
                         custom_recent_tx_limit: false
                       }
@@ -1641,9 +1666,10 @@ export default function AdminDashboard() {
                       { key: 'ledger_enabled', label: 'Ledger' },
                       { key: 'ledger_show_balance', label: 'Balance' },
                       { key: 'ledger_show_debit', label: 'Debit' },
-                      { key: 'reports_enabled', label: 'Reports' }
+                      { key: 'reports_enabled', label: 'Reports' },
+                      { key: 'shift_claim_report_enabled', label: 'Shift Report', required: true }
                     ].map(f => {
-                      const isEnabled = plan.features?.[f.key] ?? false;
+                      const isEnabled = (f as any).required ? true : (plan.features?.[f.key] ?? false);
                       return (
                         <span
                           key={f.key}
@@ -1678,6 +1704,7 @@ export default function AdminDashboard() {
                         ledger_show_balance: plan.features?.ledger_show_balance ?? false,
                         ledger_show_debit: plan.features?.ledger_show_debit ?? false,
                         reports_enabled: plan.features?.reports_enabled ?? false,
+                        shift_claim_report_enabled: plan.features?.shift_claim_report_enabled ?? true,
                         statement_enabled: plan.features?.statement_enabled ?? false,
                         custom_recent_tx_limit: plan.features?.custom_recent_tx_limit ?? false
                       }
@@ -2635,205 +2662,175 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* 7-Day Weekly Trends (Daily Success Rate & Error Rate Line Graphs) */}
+        {/* 7-Day Weekly Trends (Combined Reliability & Combined Latency Line Graphs) */}
         {(() => {
           const weeklyTrends = telemetry.weekly_trends || [];
-          if (weeklyTrends.length === 0) return null;
-
-          const maxSuccess = 100;
-          const minSuccess = Math.max(0, Math.min(...weeklyTrends.map((w: any) => w.success_rate)) - 5);
-
-          const maxError = Math.max(5, Math.max(...weeklyTrends.map((w: any) => w.error_rate)) + 2);
-          const minError = 0;
+          const monthlyTrends = telemetry.monthly_trends || [];
+          if (weeklyTrends.length === 0 && monthlyTrends.length === 0) return null;
 
           return (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Card 1: 7-Day Daily Success Rate Trend Line Graph */}
-              <div className="bg-zinc-900/80 border border-zinc-800 p-5 rounded-2xl shadow-xl flex flex-col justify-between hover:border-emerald-500/30 transition-all">
-                <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80 mb-3">
-                  <div>
-                    <h4 className="font-bold text-white text-sm flex items-center gap-2">
-                      <TrendingUp size={16} className="text-emerald-400" />
-                      <span>7-Day Daily Success Rate Trend</span>
-                    </h4>
-                    <p className="text-xs text-zinc-400 mt-0.5">Daily API success percentage breakdown over the last 7 days.</p>
+            <div className="space-y-6">
+              {/* Row 1: Combined 7-Day Reliability & Latency Graphs (2 Grid Columns) */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Combined Card 1: 7-Day Reliability & Success Trend (Success Rate vs Error Rate) */}
+                <div className="bg-zinc-900/80 border border-zinc-800 p-5 rounded-2xl shadow-xl flex flex-col justify-between hover:border-emerald-500/30 transition-all">
+                  <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80 mb-3 flex-wrap gap-2">
+                    <div>
+                      <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                        <TrendingUp size={16} className="text-emerald-400" />
+                        <span>7-Day Daily Reliability Trend</span>
+                      </h4>
+                      <p className="text-xs text-zinc-400 mt-0.5">Success Rate % overlaid with Error Rate % over past 7 days.</p>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs font-mono font-bold">
+                      <span className="flex items-center gap-1.5 text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400"></span> Success Rate
+                      </span>
+                      <span className="flex items-center gap-1.5 text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded">
+                        <span className="w-2 h-2 rounded-full bg-rose-400"></span> Error Rate
+                      </span>
+                    </div>
                   </div>
-                  <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg">
-                    Current: {weeklyTrends[weeklyTrends.length - 1]?.success_rate ?? 100}%
-                  </span>
-                </div>
 
-                {/* SVG Line Graph */}
-                <div className="h-36 w-full relative pt-2 pb-6">
-                  <svg className="w-full h-full overflow-visible" viewBox="0 0 300 80" preserveAspectRatio="none">
-                    <defs>
-                      <linearGradient id="successGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#10b981" stopOpacity="0.35" />
-                        <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
-                      </linearGradient>
-                    </defs>
-
-                    {/* Area fill */}
-                    <polygon
-                      fill="url(#successGrad)"
-                      points={`0,80 ${weeklyTrends.map((w: any, idx: number) => {
-                        const x = (idx / (weeklyTrends.length - 1)) * 300;
-                        const y = 80 - ((w.success_rate - minSuccess) / (maxSuccess - minSuccess)) * 70;
-                        return `${x},${y}`;
-                      }).join(' ')} 300,80`}
-                    />
-
-                    {/* Line path */}
-                    <polyline
-                      fill="none"
-                      stroke="#10b981"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      points={weeklyTrends.map((w: any, idx: number) => {
-                        const x = (idx / (weeklyTrends.length - 1)) * 300;
-                        const y = 80 - ((w.success_rate - minSuccess) / (maxSuccess - minSuccess)) * 70;
-                        return `${x},${y}`;
-                      }).join(' ')}
-                    />
-
-                    {/* Data dots */}
-                    {weeklyTrends.map((w: any, idx: number) => {
-                      const x = (idx / (weeklyTrends.length - 1)) * 300;
-                      const y = 80 - ((w.success_rate - minSuccess) / (maxSuccess - minSuccess)) * 70;
+                  {/* SVG Combined Line Graph */}
+                  <div className="h-44 w-full relative pt-2 pb-6">
+                    {(() => {
+                      const maxVal = 100;
+                      const minVal = 0;
                       return (
-                        <g key={idx} className="group cursor-pointer">
-                          <circle cx={x} cy={y} r="4" className="fill-emerald-400 stroke-zinc-950 stroke-2 group-hover:r-6 transition-all" />
-                        </g>
-                      );
-                    })}
-                  </svg>
-
-                  {/* Day labels below chart */}
-                  <div className="flex justify-between items-center pt-2 text-[10px] font-mono text-zinc-400">
-                    {weeklyTrends.map((w: any, idx: number) => (
-                      <div key={idx} className="text-center">
-                        <span className="block font-bold text-zinc-300">{w.day}</span>
-                        <span className="text-[9px] text-emerald-400 font-bold">{w.success_rate}%</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 2: 7-Day Daily Error Rate Trend Line Graph */}
-              <div className="bg-zinc-900/80 border border-zinc-800 p-5 rounded-2xl shadow-xl flex flex-col justify-between hover:border-red-500/30 transition-all">
-                <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80 mb-3">
-                  <div>
-                    <h4 className="font-bold text-white text-sm flex items-center gap-2">
-                      <TrendingUp size={16} className="text-rose-500 rotate-180" />
-                      <span>7-Day Daily Error Rate Trend</span>
-                    </h4>
-                    <p className="text-xs text-zinc-400 mt-0.5">Daily API failure & error percentage breakdown over the last 7 days.</p>
-                  </div>
-                  <span className="text-xs font-mono font-bold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2.5 py-1 rounded-lg">
-                    Current: {weeklyTrends[weeklyTrends.length - 1]?.error_rate ?? 0}%
-                  </span>
-                </div>
-
-                {/* SVG Line Graph */}
-                <div className="h-36 w-full relative pt-2 pb-6">
-                  <svg className="w-full h-full overflow-visible" viewBox="0 0 300 80" preserveAspectRatio="none">
-                    <defs>
-                      <linearGradient id="errorGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#f43f5e" stopOpacity="0.35" />
-                        <stop offset="100%" stopColor="#f43f5e" stopOpacity="0.0" />
-                      </linearGradient>
-                    </defs>
-
-                    {/* Area fill */}
-                    <polygon
-                      fill="url(#errorGrad)"
-                      points={`0,80 ${weeklyTrends.map((w: any, idx: number) => {
-                        const x = (idx / (weeklyTrends.length - 1)) * 300;
-                        const y = 80 - ((w.error_rate - minError) / (maxError - minError)) * 70;
-                        return `${x},${y}`;
-                      }).join(' ')} 300,80`}
-                    />
-
-                    {/* Line path */}
-                    <polyline
-                      fill="none"
-                      stroke="#f43f5e"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      points={weeklyTrends.map((w: any, idx: number) => {
-                        const x = (idx / (weeklyTrends.length - 1)) * 300;
-                        const y = 80 - ((w.error_rate - minError) / (maxError - minError)) * 70;
-                        return `${x},${y}`;
-                      }).join(' ')}
-                    />
-
-                    {/* Data dots */}
-                    {weeklyTrends.map((w: any, idx: number) => {
-                      const x = (idx / (weeklyTrends.length - 1)) * 300;
-                      const y = 80 - ((w.error_rate - minError) / (maxError - minError)) * 70;
-                      return (
-                        <g key={idx} className="group cursor-pointer">
-                          <circle cx={x} cy={y} r="4" className="fill-rose-500 stroke-zinc-950 stroke-2 group-hover:r-6 transition-all" />
-                        </g>
-                      );
-                    })}
-                  </svg>
-
-                  {/* Day labels below chart */}
-                  <div className="flex justify-between items-center pt-2 text-[10px] font-mono text-zinc-400">
-                    {weeklyTrends.map((w: any, idx: number) => (
-                      <div key={idx} className="text-center">
-                        <span className="block font-bold text-zinc-300">{w.day}</span>
-                        <span className="text-[9px] text-rose-400 font-bold">{w.error_rate}%</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 3: 7-Day Average Request Duration Graph */}
-              <div className="bg-zinc-900/80 border border-zinc-800 p-5 rounded-2xl shadow-xl flex flex-col justify-between hover:border-cyan-500/30 transition-all">
-                <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80 mb-3">
-                  <div>
-                    <h4 className="font-bold text-white text-sm flex items-center gap-2">
-                      <Clock size={16} className="text-cyan-400" />
-                      <span>7-Day Avg Request Duration (Overall)</span>
-                    </h4>
-                    <p className="text-xs text-zinc-400 mt-0.5">Time from fetch request submitted to fulfilled (Fulfilled - Submitted).</p>
-                  </div>
-                  <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 rounded-lg">
-                    Current: {weeklyTrends[weeklyTrends.length - 1]?.avg_request_duration ?? 0}s
-                  </span>
-                </div>
-
-                {/* SVG Line Graph */}
-                <div className="h-36 w-full relative pt-2 pb-6">
-                  {(() => {
-                    const reqVals = weeklyTrends.map((w: any) => w.avg_request_duration || 0);
-                    const maxR = Math.max(5, ...reqVals) + 2;
-                    const minR = 0;
-                    return (
-                      <>
-                        <svg className="w-full h-full overflow-visible" viewBox="0 0 300 80" preserveAspectRatio="none">
+                        <svg className="w-full h-full overflow-visible" viewBox="0 0 300 90" preserveAspectRatio="none">
                           <defs>
-                            <linearGradient id="reqGrad" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.35" />
-                              <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
+                            <linearGradient id="combSuccessGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#10b981" stopOpacity="0.25" />
+                              <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
+                            </linearGradient>
+                            <linearGradient id="combErrorGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#f43f5e" stopOpacity="0.25" />
+                              <stop offset="100%" stopColor="#f43f5e" stopOpacity="0.0" />
                             </linearGradient>
                           </defs>
 
+                          {/* Line 1 Area Fill & Path (Success Rate) */}
                           <polygon
-                            fill="url(#reqGrad)"
-                            points={`0,80 ${weeklyTrends.map((w: any, idx: number) => {
-                              const x = (idx / (weeklyTrends.length - 1)) * 300;
-                              const y = 80 - (((w.avg_request_duration || 0) - minR) / (maxR - minR)) * 70;
+                            fill="url(#combSuccessGrad)"
+                            points={`0,90 ${weeklyTrends.map((w: any, idx: number) => {
+                              const x = (idx / Math.max(1, weeklyTrends.length - 1)) * 300;
+                              const y = 90 - ((w.success_rate - minVal) / (maxVal - minVal)) * 80;
                               return `${x},${y}`;
-                            }).join(' ')} 300,80`}
+                            }).join(' ')} 300,90`}
+                          />
+                          <polyline
+                            fill="none"
+                            stroke="#10b981"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            points={weeklyTrends.map((w: any, idx: number) => {
+                              const x = (idx / Math.max(1, weeklyTrends.length - 1)) * 300;
+                              const y = 90 - ((w.success_rate - minVal) / (maxVal - minVal)) * 80;
+                              return `${x},${y}`;
+                            }).join(' ')}
                           />
 
+                          {/* Line 2 Area Fill & Path (Error Rate) */}
+                          <polygon
+                            fill="url(#combErrorGrad)"
+                            points={`0,90 ${weeklyTrends.map((w: any, idx: number) => {
+                              const x = (idx / Math.max(1, weeklyTrends.length - 1)) * 300;
+                              const y = 90 - ((w.error_rate - minVal) / (maxVal - minVal)) * 80;
+                              return `${x},${y}`;
+                            }).join(' ')} 300,90`}
+                          />
+                          <polyline
+                            fill="none"
+                            stroke="#f43f5e"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            points={weeklyTrends.map((w: any, idx: number) => {
+                              const x = (idx / Math.max(1, weeklyTrends.length - 1)) * 300;
+                              const y = 90 - ((w.error_rate - minVal) / (maxVal - minVal)) * 80;
+                              return `${x},${y}`;
+                            }).join(' ')}
+                          />
+
+                          {/* Data Dots for Success Rate */}
+                          {weeklyTrends.map((w: any, idx: number) => {
+                            const x = (idx / Math.max(1, weeklyTrends.length - 1)) * 300;
+                            const ySucc = 90 - ((w.success_rate - minVal) / (maxVal - minVal)) * 80;
+                            const yErr = 90 - ((w.error_rate - minVal) / (maxVal - minVal)) * 80;
+                            return (
+                              <g key={idx} className="group cursor-pointer">
+                                <circle cx={x} cy={ySucc} r="4" className="fill-emerald-400 stroke-zinc-950 stroke-2 group-hover:r-6 transition-all" />
+                                <circle cx={x} cy={yErr} r="4" className="fill-rose-400 stroke-zinc-950 stroke-2 group-hover:r-6 transition-all" />
+                              </g>
+                            );
+                          })}
+                        </svg>
+                      );
+                    })()}
+
+                    {/* Day labels below chart */}
+                    <div className="flex justify-between items-center pt-2 text-[10px] font-mono text-zinc-400">
+                      {weeklyTrends.map((w: any, idx: number) => (
+                        <div key={idx} className="text-center">
+                          <span className="block font-bold text-zinc-300">{w.day}</span>
+                          <span className="text-[9px] text-emerald-400 font-bold">{w.success_rate}%</span>
+                          <span className="text-[9px] text-rose-400 font-bold block">{w.error_rate}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Combined Card 2: 7-Day Request Latency Trend (Avg Request Duration vs Real API Time) */}
+                <div className="bg-zinc-900/80 border border-zinc-800 p-5 rounded-2xl shadow-xl flex flex-col justify-between hover:border-cyan-500/30 transition-all">
+                  <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80 mb-3 flex-wrap gap-2">
+                    <div>
+                      <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                        <Clock size={16} className="text-cyan-400" />
+                        <span>7-Day Request Latency Trend</span>
+                      </h4>
+                      <p className="text-xs text-zinc-400 mt-0.5">Overall Request Duration (s) overlaid with Real API Execution Time (s).</p>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs font-mono font-bold">
+                      <span className="flex items-center gap-1.5 text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded">
+                        <span className="w-2 h-2 rounded-full bg-cyan-400"></span> Req Duration
+                      </span>
+                      <span className="flex items-center gap-1.5 text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
+                        <span className="w-2 h-2 rounded-full bg-amber-400"></span> Real API Time
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* SVG Combined Line Graph */}
+                  <div className="h-44 w-full relative pt-2 pb-6">
+                    {(() => {
+                      const allVals = weeklyTrends.flatMap((w: any) => [w.avg_request_duration || 0, w.avg_real_api_time || 0]);
+                      const maxVal = Math.max(5, ...allVals) + 2;
+                      const minVal = 0;
+                      return (
+                        <svg className="w-full h-full overflow-visible" viewBox="0 0 300 90" preserveAspectRatio="none">
+                          <defs>
+                            <linearGradient id="combReqGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.25" />
+                              <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
+                            </linearGradient>
+                            <linearGradient id="combApiGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.25" />
+                              <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.0" />
+                            </linearGradient>
+                          </defs>
+
+                          {/* Line 1 Area Fill & Path (Req Duration) */}
+                          <polygon
+                            fill="url(#combReqGrad)"
+                            points={`0,90 ${weeklyTrends.map((w: any, idx: number) => {
+                              const x = (idx / Math.max(1, weeklyTrends.length - 1)) * 300;
+                              const y = 90 - (((w.avg_request_duration || 0) - minVal) / (maxVal - minVal)) * 80;
+                              return `${x},${y}`;
+                            }).join(' ')} 300,90`}
+                          />
                           <polyline
                             fill="none"
                             stroke="#06b6d4"
@@ -2841,77 +2838,21 @@ export default function AdminDashboard() {
                             strokeLinecap="round"
                             strokeLinejoin="round"
                             points={weeklyTrends.map((w: any, idx: number) => {
-                              const x = (idx / (weeklyTrends.length - 1)) * 300;
-                              const y = 80 - (((w.avg_request_duration || 0) - minR) / (maxR - minR)) * 70;
+                              const x = (idx / Math.max(1, weeklyTrends.length - 1)) * 300;
+                              const y = 90 - (((w.avg_request_duration || 0) - minVal) / (maxVal - minVal)) * 80;
                               return `${x},${y}`;
                             }).join(' ')}
                           />
 
-                          {weeklyTrends.map((w: any, idx: number) => {
-                            const x = (idx / (weeklyTrends.length - 1)) * 300;
-                            const y = 80 - (((w.avg_request_duration || 0) - minR) / (maxR - minR)) * 70;
-                            return (
-                              <g key={idx} className="group cursor-pointer">
-                                <circle cx={x} cy={y} r="4" className="fill-cyan-400 stroke-zinc-950 stroke-2 group-hover:r-6 transition-all" />
-                              </g>
-                            );
-                          })}
-                        </svg>
-
-                        <div className="flex justify-between items-center pt-2 text-[10px] font-mono text-zinc-400">
-                          {weeklyTrends.map((w: any, idx: number) => (
-                            <div key={idx} className="text-center">
-                              <span className="block font-bold text-zinc-300">{w.day}</span>
-                              <span className="text-[9px] text-cyan-400 font-bold">{w.avg_request_duration}s</span>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-              </div>
-
-              {/* Card 4: 7-Day Average Real API Time Graph */}
-              <div className="bg-zinc-900/80 border border-zinc-800 p-5 rounded-2xl shadow-xl flex flex-col justify-between hover:border-amber-500/30 transition-all">
-                <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80 mb-3">
-                  <div>
-                    <h4 className="font-bold text-white text-sm flex items-center gap-2">
-                      <Zap size={16} className="text-amber-400" />
-                      <span>7-Day Avg Real API Execution Time</span>
-                    </h4>
-                    <p className="text-xs text-zinc-400 mt-0.5">Execution duration measured inside PWA debug trace (Debug Trace end - start).</p>
-                  </div>
-                  <span className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg">
-                    Current: {weeklyTrends[weeklyTrends.length - 1]?.avg_real_api_time ?? 0}s
-                  </span>
-                </div>
-
-                {/* SVG Line Graph */}
-                <div className="h-36 w-full relative pt-2 pb-6">
-                  {(() => {
-                    const apiVals = weeklyTrends.map((w: any) => w.avg_real_api_time || 0);
-                    const maxA = Math.max(5, ...apiVals) + 2;
-                    const minA = 0;
-                    return (
-                      <>
-                        <svg className="w-full h-full overflow-visible" viewBox="0 0 300 80" preserveAspectRatio="none">
-                          <defs>
-                            <linearGradient id="apiGrad" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.35" />
-                              <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.0" />
-                            </linearGradient>
-                          </defs>
-
+                          {/* Line 2 Area Fill & Path (Real API Time) */}
                           <polygon
-                            fill="url(#apiGrad)"
-                            points={`0,80 ${weeklyTrends.map((w: any, idx: number) => {
-                              const x = (idx / (weeklyTrends.length - 1)) * 300;
-                              const y = 80 - (((w.avg_real_api_time || 0) - minA) / (maxA - minA)) * 70;
+                            fill="url(#combApiGrad)"
+                            points={`0,90 ${weeklyTrends.map((w: any, idx: number) => {
+                              const x = (idx / Math.max(1, weeklyTrends.length - 1)) * 300;
+                              const y = 90 - (((w.avg_real_api_time || 0) - minVal) / (maxVal - minVal)) * 80;
                               return `${x},${y}`;
-                            }).join(' ')} 300,80`}
+                            }).join(' ')} 300,90`}
                           />
-
                           <polyline
                             fill="none"
                             stroke="#f59e0b"
@@ -2919,36 +2860,147 @@ export default function AdminDashboard() {
                             strokeLinecap="round"
                             strokeLinejoin="round"
                             points={weeklyTrends.map((w: any, idx: number) => {
-                              const x = (idx / (weeklyTrends.length - 1)) * 300;
-                              const y = 80 - (((w.avg_real_api_time || 0) - minA) / (maxA - minA)) * 70;
+                              const x = (idx / Math.max(1, weeklyTrends.length - 1)) * 300;
+                              const y = 90 - (((w.avg_real_api_time || 0) - minVal) / (maxVal - minVal)) * 80;
                               return `${x},${y}`;
                             }).join(' ')}
                           />
 
+                          {/* Data Dots for Req Duration & Real API Time */}
                           {weeklyTrends.map((w: any, idx: number) => {
-                            const x = (idx / (weeklyTrends.length - 1)) * 300;
-                            const y = 80 - (((w.avg_real_api_time || 0) - minA) / (maxA - minA)) * 70;
+                            const x = (idx / Math.max(1, weeklyTrends.length - 1)) * 300;
+                            const yReq = 90 - (((w.avg_request_duration || 0) - minVal) / (maxVal - minVal)) * 80;
+                            const yApi = 90 - (((w.avg_real_api_time || 0) - minVal) / (maxVal - minVal)) * 80;
                             return (
                               <g key={idx} className="group cursor-pointer">
-                                <circle cx={x} cy={y} r="4" className="fill-amber-400 stroke-zinc-950 stroke-2 group-hover:r-6 transition-all" />
+                                <circle cx={x} cy={yReq} r="4" className="fill-cyan-400 stroke-zinc-950 stroke-2 group-hover:r-6 transition-all" />
+                                <circle cx={x} cy={yApi} r="4" className="fill-amber-400 stroke-zinc-950 stroke-2 group-hover:r-6 transition-all" />
                               </g>
                             );
                           })}
                         </svg>
+                      );
+                    })()}
 
-                        <div className="flex justify-between items-center pt-2 text-[10px] font-mono text-zinc-400">
-                          {weeklyTrends.map((w: any, idx: number) => (
-                            <div key={idx} className="text-center">
-                              <span className="block font-bold text-zinc-300">{w.day}</span>
-                              <span className="text-[9px] text-amber-400 font-bold">{w.avg_real_api_time}s</span>
-                            </div>
-                          ))}
+                    {/* Day labels below chart */}
+                    <div className="flex justify-between items-center pt-2 text-[10px] font-mono text-zinc-400">
+                      {weeklyTrends.map((w: any, idx: number) => (
+                        <div key={idx} className="text-center">
+                          <span className="block font-bold text-zinc-300">{w.day}</span>
+                          <span className="text-[9px] text-cyan-400 font-bold">{w.avg_request_duration}s</span>
+                          <span className="text-[9px] text-amber-400 font-bold block">{w.avg_real_api_time}s</span>
                         </div>
-                      </>
-                    );
-                  })()}
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
+
+              {/* Row 2: 30-Day Monthly Activity & Active Terminals Line Graph (Full Width Card) */}
+              {monthlyTrends.length > 0 && (
+                <div className="bg-zinc-900/80 border border-zinc-800 p-5 rounded-2xl shadow-xl flex flex-col justify-between hover:border-blue-500/30 transition-all">
+                  <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80 mb-3 flex-wrap gap-2">
+                    <div>
+                      <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                        <Activity size={16} className="text-blue-400" />
+                        <span>30-Day Monthly Activity & Active Terminals Trend</span>
+                      </h4>
+                      <p className="text-xs text-zinc-400 mt-0.5">Daily volume of API requests overlaid with active terminals per day (5-min interval threshold) over past 30 days.</p>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs font-mono font-bold">
+                      <span className="flex items-center gap-1.5 text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2.5 py-1 rounded">
+                        <span className="w-2.5 h-2.5 rounded-full bg-blue-400"></span> Daily Requests
+                      </span>
+                      <span className="flex items-center gap-1.5 text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2.5 py-1 rounded">
+                        <span className="w-2.5 h-2.5 rounded-full bg-purple-400"></span> Active Terminals (5m threshold)
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* SVG Monthly Graph */}
+                  <div className="h-48 w-full relative pt-2 pb-6">
+                    {(() => {
+                      const reqVals = monthlyTrends.map((m: any) => m.requests || 0);
+                      const termVals = monthlyTrends.map((m: any) => m.active_terminals || 0);
+
+                      const maxReq = Math.max(10, ...reqVals);
+                      const maxTerm = Math.max(5, ...termVals);
+
+                      return (
+                        <svg className="w-full h-full overflow-visible" viewBox="0 0 600 100" preserveAspectRatio="none">
+                          <defs>
+                            <linearGradient id="monthReqGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.3" />
+                              <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.0" />
+                            </linearGradient>
+                          </defs>
+
+                          {/* Requests Line Area & Path */}
+                          <polygon
+                            fill="url(#monthReqGrad)"
+                            points={`0,100 ${monthlyTrends.map((m: any, idx: number) => {
+                              const x = (idx / Math.max(1, monthlyTrends.length - 1)) * 600;
+                              const y = 100 - ((m.requests || 0) / maxReq) * 85;
+                              return `${x},${y}`;
+                            }).join(' ')} 600,100`}
+                          />
+                          <polyline
+                            fill="none"
+                            stroke="#3b82f6"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            points={monthlyTrends.map((m: any, idx: number) => {
+                              const x = (idx / Math.max(1, monthlyTrends.length - 1)) * 600;
+                              const y = 100 - ((m.requests || 0) / maxReq) * 85;
+                              return `${x},${y}`;
+                            }).join(' ')}
+                          />
+
+                          {/* Active Terminals Line Path */}
+                          <polyline
+                            fill="none"
+                            stroke="#a855f7"
+                            strokeWidth="2.5"
+                            strokeDasharray="4 2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            points={monthlyTrends.map((m: any, idx: number) => {
+                              const x = (idx / Math.max(1, monthlyTrends.length - 1)) * 600;
+                              const y = 100 - ((m.active_terminals || 0) / maxTerm) * 85;
+                              return `${x},${y}`;
+                            }).join(' ')}
+                          />
+
+                          {/* Data Dots for Monthly Trends */}
+                          {monthlyTrends.map((m: any, idx: number) => {
+                            const x = (idx / Math.max(1, monthlyTrends.length - 1)) * 600;
+                            const yReq = 100 - ((m.requests || 0) / maxReq) * 85;
+                            const yTerm = 100 - ((m.active_terminals || 0) / maxTerm) * 85;
+                            return (
+                              <g key={idx} className="group cursor-pointer">
+                                <circle cx={x} cy={yReq} r="3" className="fill-blue-400 stroke-zinc-950 stroke-2 group-hover:r-5 transition-all" />
+                                <circle cx={x} cy={yTerm} r="3" className="fill-purple-400 stroke-zinc-950 stroke-2 group-hover:r-5 transition-all" />
+                              </g>
+                            );
+                          })}
+                        </svg>
+                      );
+                    })()}
+
+                    {/* Day labels below 30-day chart */}
+                    <div className="flex justify-between items-center pt-2 text-[10px] font-mono text-zinc-400 overflow-x-auto">
+                      {monthlyTrends.filter((_: any, i: number) => i % 2 === 0 || i === monthlyTrends.length - 1).map((m: any, idx: number) => (
+                        <div key={idx} className="text-center shrink-0">
+                          <span className="block font-bold text-zinc-300">{m.day}</span>
+                          <span className="text-[9px] text-blue-400 font-bold">{m.requests}</span>
+                          <span className="text-[9px] text-purple-400 font-bold block">{m.active_terminals}t</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })()}
@@ -3004,7 +3056,7 @@ export default function AdminDashboard() {
                 <Terminal size={16} className="text-emerald-400" />
                 <span>Top Terminals (24h Throughput)</span>
               </h4>
-              <p className="text-xs text-zinc-400 mt-0.5">Request volume per terminal.</p>
+              <p className="text-xs text-zinc-400 mt-0.5">Request volume per terminal & company.</p>
             </div>
 
             <div className="space-y-3 flex-1 overflow-y-auto">
@@ -3017,8 +3069,10 @@ export default function AdminDashboard() {
                   return (
                     <div key={idx} className="space-y-1 text-xs">
                       <div className="flex justify-between items-center text-zinc-300 font-medium">
-                        <span className="truncate max-w-[140px]">{t.name}</span>
-                        <span className="font-mono text-emerald-400 font-bold">{t.count} reqs</span>
+                        <span className="truncate max-w-[200px] text-zinc-200">
+                          {t.name} <span className="text-zinc-500 font-mono text-[11px]">({t.tenant_name || 'N/A'})</span>
+                        </span>
+                        <span className="font-mono text-emerald-400 font-bold shrink-0">{t.count} reqs</span>
                       </div>
                       <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
                         <div
@@ -3032,6 +3086,85 @@ export default function AdminDashboard() {
               )}
             </div>
           </div>
+        </div>
+
+        {/* Current Hour Live API Requests Section (Past 60 Mins - GMT+5) */}
+        <div className="bg-zinc-900/80 border border-zinc-800 p-5 rounded-2xl shadow-xl space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-zinc-800 flex-wrap gap-2">
+            <div>
+              <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                <Zap size={16} className="text-amber-400 animate-pulse" />
+                <span>Current Hour Live API Requests (Past 60 Minutes)</span>
+              </h4>
+              <p className="text-xs text-zinc-400 mt-0.5">Real-time stream of all incoming requests received within the current hour (GMT+5 Maldives Time).</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded-lg">
+                {telemetry.current_hour_count ?? 0} Requests (Past 60m)
+              </span>
+              <span className="text-xs font-mono text-zinc-400 bg-black/40 border border-zinc-800 px-2.5 py-1 rounded-lg">
+                GMT+5 MVT
+              </span>
+            </div>
+          </div>
+
+          {/* Requests Feed Grid / List */}
+          {(!telemetry.current_hour_requests || telemetry.current_hour_requests.length === 0) ? (
+            <div className="py-8 text-center text-xs text-zinc-500 italic bg-black/20 rounded-xl border border-zinc-800/60">
+              No API requests received during the current hour yet.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-80 overflow-y-auto pr-1">
+              {telemetry.current_hour_requests.map((item: any) => {
+                let badgeStyle = "bg-emerald-500/15 text-emerald-400 border-emerald-500/30";
+                const evType = item.event_type || '';
+                if (evType.includes('failed')) {
+                  badgeStyle = "bg-red-500/15 text-red-400 border-red-500/30";
+                } else if (evType.includes('submitted')) {
+                  badgeStyle = "bg-blue-500/15 text-blue-400 border-blue-500/30";
+                } else if (evType === 'pwa_debug_logs') {
+                  badgeStyle = "bg-purple-500/15 text-purple-400 border-purple-500/30";
+                }
+
+                let formattedMvtTime = item.time_mvt || '';
+                if (!formattedMvtTime && item.created_at) {
+                  try {
+                    const d = new Date(item.created_at);
+                    if (!isNaN(d.getTime())) {
+                      formattedMvtTime = d.toLocaleTimeString('en-US', { timeZone: 'Indian/Maldives', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    }
+                  } catch (e) {
+                    formattedMvtTime = '';
+                  }
+                }
+
+                return (
+                  <div key={item.id} className="bg-zinc-950/70 border border-zinc-800/80 hover:border-zinc-700 p-3 rounded-xl flex flex-col justify-between space-y-2 transition-all">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-bold text-white text-xs truncate">
+                        <span>{item.terminal_name}</span>
+                        <span className="text-zinc-500 font-mono text-[11px] ml-1">({item.tenant_name})</span>
+                      </div>
+                      <span className="text-[10px] font-mono font-bold text-amber-400 shrink-0 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                        {formattedMvtTime || item.time_mvt} MVT
+                      </span>
+                    </div>
+
+                    <div className="text-[11px] text-zinc-400 font-mono flex items-center justify-between gap-1">
+                      <span className="truncate">{item.bank_name} {item.account_number_masked}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1 border-t border-zinc-900 text-[10px]">
+                      <span className={`px-2 py-0.5 rounded font-extrabold border ${badgeStyle} uppercase truncate max-w-[180px]`}>
+                        {item.summary}
+                      </span>
+                      <span className="text-zinc-500 font-mono">{item.created_at}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* View Section: Grouped 3-Step Request Flow Cards vs Raw Event Log Stream */}
@@ -3076,6 +3209,18 @@ export default function AdminDashboard() {
                     statusText = "IN PROGRESS ⏳";
                   }
 
+                  let formattedFlowTime = '';
+                  if (flow.created_at) {
+                    try {
+                      const d = new Date(flow.created_at);
+                      if (!isNaN(d.getTime())) {
+                        formattedFlowTime = d.toLocaleString('en-US', { timeZone: 'Indian/Maldives', dateStyle: 'medium', timeStyle: 'medium' }) + ' MVT';
+                      }
+                    } catch (e) {
+                      formattedFlowTime = String(flow.created_at);
+                    }
+                  }
+
                   return (
                     <div
                       key={flow.session_id}
@@ -3105,7 +3250,7 @@ export default function AdminDashboard() {
 
                         <div className="flex items-center gap-4 flex-wrap">
                           <div className="text-right font-mono text-xs">
-                            <span className="text-zinc-400 block">{new Date(flow.created_at).toLocaleString()}</span>
+                            <span className="text-zinc-400 block">{formattedFlowTime || flow.created_at}</span>
                             <div className="flex items-center justify-end gap-2 text-[11px] font-bold mt-0.5">
                               <span className="text-cyan-400">Req Time: {flow.duration}</span>
                               {flow.real_api_time && (

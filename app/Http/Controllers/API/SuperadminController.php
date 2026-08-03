@@ -208,8 +208,8 @@ class SuperadminController extends Controller
         $thirtyDaysAgo = $now->copy()->subDays(30);
 
         $totalTerminals = Terminal::count();
-        // Active terminals = terminals emitting activity or heartbeats in the last 15 minutes
-        $activeTerminalIds = SessionActivityLog::where('created_at', '>=', $now->copy()->subMinutes(15))
+        // Active terminals = terminals emitting activity or heartbeats in the last 5 minutes
+        $activeTerminalIds = SessionActivityLog::where('created_at', '>=', $now->copy()->subMinutes(5))
             ->whereNotNull('terminal_id')
             ->distinct()
             ->pluck('terminal_id')
@@ -235,6 +235,29 @@ class SuperadminController extends Controller
             $hourlySpectrum[] = [
                 'hour' => $hLabel,
                 'count' => isset($hourlyData[$hKey]) ? (int)$hourlyData[$hKey] : 0,
+            ];
+        }
+
+        // 30-Day Monthly Trends (Requests Per Day & Active Terminals Per Day)
+        $monthlyTrends = [];
+        for ($m = 29; $m >= 0; $m--) {
+            $mStart = $now->copy()->subDays($m)->startOfDay();
+            $mEnd = $now->copy()->subDays($m)->endOfDay();
+            $mDate = $mStart->format('Y-m-d');
+            $mDay = $mStart->format('d');
+
+            $mReqs = SessionActivityLog::whereBetween('created_at', [$mStart, $mEnd])->count();
+            $mActiveTerminals = SessionActivityLog::whereBetween('created_at', [$mStart, $mEnd])
+                ->whereNotNull('terminal_id')
+                ->distinct('terminal_id')
+                ->count('terminal_id');
+
+            $monthlyTrends[] = [
+                'date' => $mDate,
+                'day' => $mDay,
+                'label' => $mStart->format('M d'),
+                'requests' => $mReqs,
+                'active_terminals' => $mActiveTerminals,
             ];
         }
 
@@ -341,17 +364,41 @@ class SuperadminController extends Controller
             ];
         }
 
-        // Terminal Throughput (requests per terminal in last 24h)
-        $terminalThroughput = SessionActivityLog::where('created_at', '>=', $twentyFourHoursAgo)
-            ->select('terminal_name', \Illuminate\Support\Facades\DB::raw('count(*) as count'))
-            ->groupBy('terminal_name')
+        // Terminal Throughput (requests per terminal in last 24h) with Company Name
+        $terminalThroughput = SessionActivityLog::with('tenant')
+            ->where('created_at', '>=', $twentyFourHoursAgo)
+            ->select('tenant_id', 'terminal_name', \Illuminate\Support\Facades\DB::raw('count(*) as count'))
+            ->groupBy('tenant_id', 'terminal_name')
             ->orderBy('count', 'desc')
             ->take(6)
             ->get()
             ->map(function ($item) {
                 return [
                     'name' => $item->terminal_name ?: 'System',
+                    'tenant_name' => $item->tenant ? $item->tenant->name : 'N/A',
                     'count' => (int)$item->count,
+                ];
+            });
+
+        // Current Hour Live API Requests (Within past 1 hour / 60 mins)
+        $oneHourAgo = $now->copy()->subHour();
+        $currentHourTotal = SessionActivityLog::where('created_at', '>=', $oneHourAgo)->count();
+        $currentHourRequests = SessionActivityLog::with(['tenant', 'terminal'])
+            ->where('created_at', '>=', $oneHourAgo)
+            ->orderBy('created_at', 'desc')
+            ->take(30)
+            ->get()
+            ->map(function ($log) {
+                return [
+                    'id' => $log->id,
+                    'terminal_name' => $log->terminal_name ?: ($log->terminal ? $log->terminal->terminal_name : 'System'),
+                    'tenant_name' => $log->tenant ? $log->tenant->name : 'N/A',
+                    'bank_name' => $log->bank_name ?: 'Bank API',
+                    'account_number_masked' => $log->account_number_masked ?: '',
+                    'event_type' => $log->event_type,
+                    'summary' => $log->event_summary ?: $log->event_type,
+                    'created_at' => \Carbon\Carbon::parse($log->created_at)->setTimezone('+05:00')->format('Y-m-d H:i:s'),
+                    'time_mvt' => \Carbon\Carbon::parse($log->created_at)->setTimezone('+05:00')->format('H:i:s'),
                 ];
             });
 
@@ -442,7 +489,7 @@ class SuperadminController extends Controller
                     'status' => $status,
                     'event_type' => $leadLog->event_type,
                     'summary' => $leadLog->event_summary ?: $firstLog->event_summary,
-                    'created_at' => $firstLog->created_at,
+                    'created_at' => \Carbon\Carbon::parse($firstLog->created_at)->setTimezone('+05:00')->toIso8601String(),
                     'duration' => $durationSec > 0 ? $durationSec . 's' : '< 1s',
                     'real_api_time' => $realApiSec !== null ? $realApiSec . 's' : null,
                     'steps_count' => $cluster->count(),
@@ -451,21 +498,21 @@ class SuperadminController extends Controller
                             'id' => $stepSubmitted->id,
                             'event_type' => $stepSubmitted->event_type,
                             'summary' => $stepSubmitted->event_summary,
-                            'created_at' => $stepSubmitted->created_at,
+                            'created_at' => \Carbon\Carbon::parse($stepSubmitted->created_at)->setTimezone('+05:00')->toIso8601String(),
                             'has_detail' => (bool)$stepSubmitted->has_detail,
                         ] : null,
                         'debug_logs' => $stepDebug ? [
                             'id' => $stepDebug->id,
                             'event_type' => $stepDebug->event_type,
                             'summary' => $stepDebug->event_summary,
-                            'created_at' => $stepDebug->created_at,
+                            'created_at' => \Carbon\Carbon::parse($stepDebug->created_at)->setTimezone('+05:00')->toIso8601String(),
                             'has_detail' => (bool)$stepDebug->has_detail,
                         ] : null,
                         'result' => $stepResult ? [
                             'id' => $stepResult->id,
                             'event_type' => $stepResult->event_type,
                             'summary' => $stepResult->event_summary,
-                            'created_at' => $stepResult->created_at,
+                            'created_at' => \Carbon\Carbon::parse($stepResult->created_at)->setTimezone('+05:00')->toIso8601String(),
                             'has_detail' => (bool)$stepResult->has_detail,
                         ] : null,
                     ],
@@ -489,7 +536,10 @@ class SuperadminController extends Controller
             'avg_request_duration_24h' => $latestWeekly['avg_request_duration'] ?? 0.0,
             'avg_real_api_time_24h' => $latestWeekly['avg_real_api_time'] ?? 0.0,
             'weekly_trends' => $weeklyTrends,
+            'monthly_trends' => $monthlyTrends,
             'terminal_throughput' => $terminalThroughput,
+            'current_hour_count' => $currentHourTotal,
+            'current_hour_requests' => $currentHourRequests,
             'grouped_flows' => $groupedFlows,
         ];
 

@@ -4,6 +4,49 @@ This document maintains a chronological record of code modifications made to the
 
 ---
 
+## [2026-08-03] - Current Hour Requests Card, GMT+5 (Maldives Time) Timestamps & Company Name in Top Terminals
+
+### Overview & Rationale
+Adds current hour live request tracking, GMT+5 timezone formatting, and company name context in terminal throughput:
+- **Current Hour Live API Requests Card**: Added a live telemetry card displaying all API requests received during the current hour (within past 60 mins), including Terminal Name, Company Name (Tenant Name), Bank/Account Number, Event Summary, and MVT timestamp.
+- **GMT+5 (Maldives Time `Indian/Maldives`) Alignment**: Converted all database queries, Carbon dates, and frontend timestamp displays to GMT+5 using `Indian/Maldives` timezone and `try...catch` safe formatters, adding `MVT` markers across telemetry spectrums, request feeds, and log traces. Also added null guards on event type strings.
+- **Company Name in Top Terminals**: Updated `terminalThroughput` backend query and UI widget to include the company name `(Tenant Name)` alongside the terminal name for full multi-tenant visibility.
+
+### Files Modified:
+1. `app/Http/Controllers/API/SuperadminController.php`
+2. `pwa/src/pages/Dashboard/AdminDashboard.tsx`
+
+---
+
+## [2026-08-03] - Shift & Claim Report Toggle in Superadmin Portal (Registered Companies & Tiers)
+
+### Overview & Rationale
+Integrates the **Shift & Claim Report** feature control into the Superadmin Portal across both **Registered Companies** (Individual Feature Overrides) and **Tiers** (Subscription Plans):
+- **Superadmin Portal Integration**: Added `Shift & Claim Report` (`shift_claim_report_enabled`) toggle to Registered Companies feature overrides and Subscription Plan Tiers in `AdminDashboard.tsx`.
+- **Required Feature Governance**: Marked `shift_claim_report_enabled` as a **Required Feature in All Plans** (`required: true`), locking the toggle in checked/enabled state (`REQUIRED IN ALL PLANS` badge) so it cannot be disabled.
+- **Backend & Cascade Alignment**: Enforced `shift_claim_report_enabled => true` across plan creation and tenant updates in `SuperadminController.php` and `routes/api.php`.
+
+### Files Modified:
+1. `pwa/src/pages/Dashboard/AdminDashboard.tsx`
+2. `app/Http/Controllers/API/SuperadminController.php`
+
+---
+
+## [2026-08-03] - Combined 7-Day Trend Cards, 30-Day Monthly Activity Graph & 5-Min Active Terminal Threshold
+
+### Overview & Rationale
+Consolidates and expands telemetry trend charts based on user feedback:
+- **Combined 7-Day Reliability Trend Card**: Merged Success Rate % (Emerald Green) and Error Rate % (Rose Red) into a single dual-line graph card with legends and daily data points.
+- **Combined 7-Day Request Latency Trend Card**: Merged Overall Request Duration (Cyan Blue) and Real API Execution Time (Amber Yellow) into a single dual-line graph card with legends and daily data points.
+- **30-Day Monthly Activity & Active Terminals Line Graph**: Added a 30-day monthly line graph displaying **Total Daily Requests** (Blue line & area fill) overlaid with **Active Terminals Per Day** (Purple dashed line).
+- **5-Minute Active Terminal Threshold**: Updated real-time active terminals threshold in `SuperadminController.php` to count terminals with log activity within a 5-minute window (`subMinutes(5)`).
+
+### Files Modified:
+1. `app/Http/Controllers/API/SuperadminController.php`
+2. `pwa/src/pages/Dashboard/AdminDashboard.tsx`
+
+---
+
 ## [2026-08-03] - Average Request Duration & Real API Execution Time Telemetry & Trend Graphs
 
 ### Overview & Rationale
