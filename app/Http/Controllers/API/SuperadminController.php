@@ -208,7 +208,13 @@ class SuperadminController extends Controller
         $thirtyDaysAgo = $now->copy()->subDays(30);
 
         $totalTerminals = Terminal::count();
-        $activeTerminals = Terminal::where('status', 'active')->count();
+        // Active terminals = terminals emitting activity or heartbeats in the last 15 minutes
+        $activeTerminalIds = SessionActivityLog::where('created_at', '>=', $now->copy()->subMinutes(15))
+            ->whereNotNull('terminal_id')
+            ->distinct()
+            ->pluck('terminal_id')
+            ->toArray();
+        $activeTerminals = count($activeTerminalIds);
 
         // Total requests past 24h
         $totalLogs24h = SessionActivityLog::where('created_at', '>=', $twentyFourHoursAgo)->count();
@@ -254,6 +260,87 @@ class SuperadminController extends Controller
         $totalEvaluated30d = $success30d + $failed30d;
         $successRateMonthly = $totalEvaluated30d > 0 ? round(($success30d / $totalEvaluated30d) * 100, 1) : 100.0;
 
+        // Helper lambda to calculate real API time from pwa_logs timestamps
+        $calcRealApiTimeFromDebugLog = function ($logItem) {
+            if (!$logItem || !is_array($logItem->event_detail) || empty($logItem->event_detail['pwa_logs'])) {
+                return null;
+            }
+            $lines = $logItem->event_detail['pwa_logs'];
+            $timestamps = [];
+            foreach ($lines as $line) {
+                if (is_string($line) && preg_match('/\[(\d{2}:\d{2}:\d{2})\]/', $line, $m)) {
+                    $timestamps[] = strtotime($m[1]);
+                }
+            }
+            if (count($timestamps) >= 2) {
+                return max($timestamps) - min($timestamps);
+            }
+            return null;
+        };
+
+        // 7-Day Weekly Trends (Daily Success Rate, Error Rate, Avg Request Duration, Avg Real API Time)
+        $weeklyTrends = [];
+        for ($d = 6; $d >= 0; $d--) {
+            $dayStart = $now->copy()->subDays($d)->startOfDay();
+            $dayEnd = $now->copy()->subDays($d)->endOfDay();
+            $dayLabel = $dayStart->format('D');
+            $dateStr = $dayStart->format('Y-m-d');
+
+            $dayLogs = SessionActivityLog::whereBetween('created_at', [$dayStart, $dayEnd])->get();
+            $dayTotal = $dayLogs->count();
+            $dayFailed = $dayLogs->filter(function ($l) {
+                return in_array($l->event_type, ['fetch_request_failed', 'session_login_failed', 'session_heartbeat_lost']);
+            })->count();
+            $daySuccess = $dayLogs->filter(function ($l) {
+                return in_array($l->event_type, ['fetch_request_fulfilled', 'session_login_success', 'session_claimed']);
+            })->count();
+
+            $dayEvaluated = $daySuccess + $dayFailed;
+            $wSuccessRate = $dayEvaluated > 0 ? round(($daySuccess / $dayEvaluated) * 100, 1) : 100.0;
+            $wErrorRate = $dayTotal > 0 ? round(($dayFailed / $dayTotal) * 100, 1) : 0.0;
+
+            // Calculate daily average request duration (Fulfilled time - Submitted time)
+            $daySubmittedLogs = $dayLogs->filter(function ($l) {
+                return in_array($l->event_type, ['fetch_request_submitted', 'session_login_started']);
+            });
+            $reqDurations = [];
+            foreach ($daySubmittedLogs as $subLog) {
+                $subTime = \Carbon\Carbon::parse($subLog->created_at);
+                $matchingResult = $dayLogs->first(function ($l) use ($subLog, $subTime) {
+                    if (!in_array($l->event_type, ['fetch_request_fulfilled', 'fetch_request_failed', 'session_login_success', 'session_login_failed', 'search_not_found'])) return false;
+                    if ($l->terminal_id !== $subLog->terminal_id && $l->terminal_name !== $subLog->terminal_name) return false;
+                    $resTime = \Carbon\Carbon::parse($l->created_at);
+                    return $resTime->timestamp >= $subTime->timestamp && $resTime->diffInSeconds($subTime) <= 60;
+                });
+                if ($matchingResult) {
+                    $diffSec = \Carbon\Carbon::parse($matchingResult->created_at)->timestamp - $subTime->timestamp;
+                    if ($diffSec >= 0) $reqDurations[] = $diffSec;
+                }
+            }
+            $wAvgReqDuration = count($reqDurations) > 0 ? round(array_sum($reqDurations) / count($reqDurations), 1) : 0.0;
+
+            // Calculate daily average real API execution time (Debug Trace end time - start time)
+            $dayDebugLogs = $dayLogs->filter(function ($l) {
+                return $l->event_type === 'pwa_debug_logs';
+            });
+            $apiTimes = [];
+            foreach ($dayDebugLogs as $dbgLog) {
+                $tSec = $calcRealApiTimeFromDebugLog($dbgLog);
+                if ($tSec !== null) $apiTimes[] = $tSec;
+            }
+            $wAvgRealApiTime = count($apiTimes) > 0 ? round(array_sum($apiTimes) / count($apiTimes), 1) : 0.0;
+
+            $weeklyTrends[] = [
+                'day' => $dayLabel,
+                'date' => $dateStr,
+                'success_rate' => $wSuccessRate,
+                'error_rate' => $wErrorRate,
+                'avg_request_duration' => $wAvgReqDuration,
+                'avg_real_api_time' => $wAvgRealApiTime,
+                'total' => $dayTotal,
+            ];
+        }
+
         // Terminal Throughput (requests per terminal in last 24h)
         $terminalThroughput = SessionActivityLog::where('created_at', '>=', $twentyFourHoursAgo)
             ->select('terminal_name', \Illuminate\Support\Facades\DB::raw('count(*) as count'))
@@ -272,7 +359,7 @@ class SuperadminController extends Controller
         $rawGroupLogs = SessionActivityLog::with(['tenant', 'terminal'])
             ->select([
                 'id', 'tenant_id', 'terminal_id', 'terminal_name', 'bank_name', 
-                'account_number_masked', 'event_type', 'event_summary', 'created_at',
+                'account_number_masked', 'event_type', 'event_summary', 'event_detail', 'created_at',
                 \Illuminate\Support\Facades\DB::raw('CASE WHEN event_detail IS NOT NULL THEN 1 ELSE 0 END as has_detail')
             ])
             ->orderBy('created_at', 'desc')
@@ -311,8 +398,30 @@ class SuperadminController extends Controller
 
                 $leadLog = $stepResult ?: ($stepSubmitted ?: $cluster->first());
                 $firstLog = $cluster->first();
-                $lastLog = $cluster->last();
-                $durationSec = round(abs(\Carbon\Carbon::parse($lastLog->created_at)->diffInMilliseconds(\Carbon\Carbon::parse($firstLog->created_at))) / 1000, 2);
+
+                // Exact Session Duration: Fulfilled / Result timestamp - Submitted timestamp
+                $durationSec = 0;
+                if ($stepSubmitted && $stepResult) {
+                    $subTs = \Carbon\Carbon::parse($stepSubmitted->created_at)->timestamp;
+                    $resTs = \Carbon\Carbon::parse($stepResult->created_at)->timestamp;
+                    $durationSec = max(0, $resTs - $subTs);
+                } else {
+                    $clusterTimestamps = [];
+                    foreach ($cluster as $cItem) {
+                        $clusterTimestamps[] = \Carbon\Carbon::parse($cItem->created_at)->timestamp;
+                    }
+                    $minSec = count($clusterTimestamps) > 0 ? min($clusterTimestamps) : 0;
+                    $maxSec = count($clusterTimestamps) > 0 ? max($clusterTimestamps) : 0;
+                    $durationSec = $maxSec - $minSec;
+                }
+
+                // Real API execution time from debug trace
+                $realApiSec = $calcRealApiTimeFromDebugLog($stepDebug);
+
+                // If DB timestamps land in same second, use real API trace execution time
+                if ($durationSec === 0 && $realApiSec !== null && $realApiSec > 0) {
+                    $durationSec = $realApiSec;
+                }
 
                 $status = 'success';
                 if ($leadLog->event_type === 'fetch_request_failed' || $leadLog->event_type === 'session_login_failed') {
@@ -334,7 +443,8 @@ class SuperadminController extends Controller
                     'event_type' => $leadLog->event_type,
                     'summary' => $leadLog->event_summary ?: $firstLog->event_summary,
                     'created_at' => $firstLog->created_at,
-                    'duration' => $durationSec > 0 ? $durationSec . 's' : '< 0.1s',
+                    'duration' => $durationSec > 0 ? $durationSec . 's' : '< 1s',
+                    'real_api_time' => $realApiSec !== null ? $realApiSec . 's' : null,
                     'steps_count' => $cluster->count(),
                     'steps' => [
                         'submitted' => $stepSubmitted ? [
@@ -365,6 +475,8 @@ class SuperadminController extends Controller
             }
         }
 
+        $latestWeekly = count($weeklyTrends) > 0 ? end($weeklyTrends) : [];
+
         $response['telemetry'] = [
             'total_terminals' => $totalTerminals,
             'active_terminals' => $activeTerminals,
@@ -374,6 +486,9 @@ class SuperadminController extends Controller
             'error_ratio_24h' => $errorRatio24h,
             'success_rate_daily' => $successRateDaily,
             'success_rate_monthly' => $successRateMonthly,
+            'avg_request_duration_24h' => $latestWeekly['avg_request_duration'] ?? 0.0,
+            'avg_real_api_time_24h' => $latestWeekly['avg_real_api_time'] ?? 0.0,
+            'weekly_trends' => $weeklyTrends,
             'terminal_throughput' => $terminalThroughput,
             'grouped_flows' => $groupedFlows,
         ];

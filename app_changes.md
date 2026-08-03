@@ -4,6 +4,38 @@ This document maintains a chronological record of code modifications made to the
 
 ---
 
+## [2026-08-03] - Average Request Duration & Real API Execution Time Telemetry & Trend Graphs
+
+### Overview & Rationale
+Updates the Session Activity & Telemetry Center with accurate request duration calculations and real API execution time measurements:
+- **Average Request Duration Calculation**: Updated request duration to subtract `fetch_request_submitted` timestamp from `fetch_request_fulfilled` timestamp (`Fulfilled Time - Submitted Time = 7 seconds`). Fixed previous erroneous 48s duration calculation.
+- **Real API Execution Time Measurement**: Measures execution time directly inside PWA debug trace console logs (`PWA Debug Trace end time - start time`).
+- **7-Day Average Request Duration Trend Graph**: Added a Cyan Neon line graph plotting daily average overall request duration in seconds (`Mon`..`Sun`).
+- **7-Day Average Real API Execution Time Trend Graph**: Added an Amber Neon line graph plotting daily average real API execution time in seconds (`Mon`..`Sun`).
+- **Grouped Flow Cards Update**: Displays both `Req Time: X.Xs` and `Real API: Y.Ys` side-by-side on each transaction card header.
+
+### Files Modified:
+1. `app/Http/Controllers/API/SuperadminController.php`
+2. `pwa/src/pages/Dashboard/AdminDashboard.tsx`
+
+---
+
+## [2026-08-03] - 7-Day Trend Graphs, Active Terminals Audit, Duration Calculation & Poll Slider Fixes
+
+### Overview & Rationale
+Updates the Session Activity & Telemetry Center based on auditing and user requirements:
+- **7-Day Trend Line Graphs**: Added 7-day daily trend line graphs for **Success Rate %** (Emerald Neon) and **Error Rate %** (Rose Neon) with area gradient fills and daily breakdowns (`Mon`..`Sun`).
+- **Active Terminals Calculation Audit**: Updated active terminals logic in `SuperadminController.php` to calculate online terminals with activity/heartbeats within the last 15 minutes (`subMinutes(15)`) instead of static database status configuration.
+- **Session Duration Calculation Fix**: Updated `SuperadminController.php` to calculate session duration accurately using timestamp differences and fallback parsing of execution log timestamps (`[HH:MM:SS]`) inside terminal debug traces when DB timestamps occur within the same second.
+- **Session Log Poll Interval Slider Fix**: Fixed `setSystemSettings` state handler in `AdminDashboard.tsx` to insert missing `session_log_poll_interval` setting keys when adjusting the slider.
+- **Fixed 2-Digit Refresh Timer**: Formatted `logRefreshCountdown` as 2-digit string (`02s`, `09s`, `14s`) using `.padStart(2, '0')` to eliminate UI button layout jittering.
+
+### Files Modified:
+1. `app/Http/Controllers/API/SuperadminController.php`
+2. `pwa/src/pages/Dashboard/AdminDashboard.tsx`
+
+---
+
 ## [2026-08-02] - Raw Activity Stream Direct Page Selection & Jump Control
 
 ### Overview & Rationale
