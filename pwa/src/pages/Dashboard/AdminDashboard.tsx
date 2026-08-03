@@ -59,6 +59,10 @@ export default function AdminDashboard() {
   const [logRefreshInterval, setLogRefreshInterval] = useState<number>(15);
   const [logDetailsMap, setLogDetailsMap] = useState<Record<number, any>>({});
   const [loadingDetailId, setLoadingDetailId] = useState<number | null>(null);
+  const [sessionTelemetry, setSessionTelemetry] = useState<any>(null);
+  const [sessionLogViewMode, setSessionLogViewMode] = useState<'grouped' | 'raw'>('grouped');
+  const [expandedFlowId, setExpandedFlowId] = useState<string | null>(null);
+  const [activeFlowStepTabMap, setActiveFlowStepTabMap] = useState<Record<string, 'submitted' | 'debug_logs' | 'result'>>({});
 
   // Debug state
   const [debugData, setDebugData] = useState<{ mib_keys: any[]; bml_tokens: any[]; total_mib_keys: number; total_bml_tokens: number } | null>(null);
@@ -559,6 +563,7 @@ export default function AdminDashboard() {
         setSessionLogs(data.data || []);
         setLogsTotalPages(data.last_page || 1);
         if (data.active_terminals !== undefined) setActiveTerminalsCount(data.active_terminals);
+        if (data.telemetry) setSessionTelemetry(data.telemetry);
       }
     } catch (err) {
       console.error(err);
@@ -1700,148 +1705,232 @@ export default function AdminDashboard() {
   };
 
   const renderPaymentsTab = () => {
+    const pendingPayments = payments.filter(p => p.status === 'pending');
+    const historicalPayments = payments.filter(p => p.status !== 'pending');
+
     return (
       <div className="space-y-8 animate-fade-in text-left">
-        <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl shadow-xl">
+        <div className="glass-panel p-4 sm:p-6 border border-zinc-800 bg-black/20 rounded-2xl shadow-xl">
           <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
             <CreditCard className="text-yellow-500" size={20} />
-            Pending Payment Approvals
+            Pending Payment Approvals ({pendingPayments.length})
           </h3>
           
           {paymentsLoading ? (
             <div className="text-center text-zinc-500 py-10 font-medium">Loading payments...</div>
-          ) : payments.filter(p => p.status === 'pending').length === 0 ? (
+          ) : pendingPayments.length === 0 ? (
             <div className="text-center text-zinc-500 italic py-10 border border-dashed border-zinc-800 rounded-xl bg-zinc-900/10">
               No pending payment submissions.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-zinc-800/80 text-zinc-400 font-bold uppercase tracking-wider">
-                    <th className="pb-3">Company</th>
-                    <th className="pb-3">Amount</th>
-                    <th className="pb-3">Reference Number</th>
-                    <th className="pb-3">Submitted At</th>
-                    <th className="pb-3">Admin Remarks</th>
-                    <th className="pb-3">Receipt Slip</th>
-                    <th className="pb-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800/40">
-                  {payments.filter(p => p.status === 'pending').map((pay: any) => (
-                    <tr key={pay.id} className="hover:bg-zinc-850/20">
-                      <td className="py-3 font-semibold text-white">{pay.tenant?.name || 'Unknown'}</td>
-                      <td className="py-3 font-mono font-bold text-yellow-400">MVR {parseFloat(pay.amount).toFixed(2)}</td>
-                      <td className="py-3 font-mono text-zinc-300">{pay.reference_number}</td>
-                      <td className="py-3 text-zinc-500">{new Date(pay.created_at).toLocaleString()}</td>
-                      <td className="py-3 text-zinc-400 max-w-xs truncate" title={pay.remarks}>{pay.remarks || '-'}</td>
-                      <td className="py-3">
-                        <button
-                          onClick={() => setShowSlipPreview(pay.receipt_slip_path)}
-                          className="text-blue-400 hover:text-blue-300 underline font-semibold flex items-center gap-1.5"
-                        >
-                          View Slip Image
-                        </button>
-                      </td>
-                      <td className="py-3 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => {
-                              setSelectedPayment(pay);
-                              setApproveTier(pay.tenant?.subscription_tier || '499');
-                              const defaultExpiry = new Date();
-                              defaultExpiry.setDate(defaultExpiry.getDate() + 30);
-                              setApproveExpiry(defaultExpiry.toISOString().split('T')[0]);
-                              setShowApprovalModal(true);
-                            }}
-                            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1 px-3 rounded-lg transition-colors text-[10px]"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => {
-                              setSelectedPayment(pay);
-                              setShowRejectionModal(true);
-                            }}
-                            className="bg-red-950/40 hover:bg-red-900 border border-red-500/30 hover:border-red-500 text-red-300 hover:text-white font-bold py-1 px-3 rounded-lg transition-colors text-[10px]"
-                          >
-                            Reject
-          </button>
-          <button
-            onClick={() => { setActiveTab('debug'); fetchDebugInfo(); }}
-            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
-              activeTab === 'debug'
-                ? 'border-yellow-500 text-yellow-500'
-                : 'border-transparent text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            <Code size={16} className="shrink-0" />
-            <span>Debug</span>
-          </button>
-        </div>
-                      </td>
+            <div>
+              {/* Desktop Table View */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-zinc-800/80 text-zinc-400 font-bold uppercase tracking-wider">
+                      <th className="pb-3">Company</th>
+                      <th className="pb-3">Amount</th>
+                      <th className="pb-3">Reference Number</th>
+                      <th className="pb-3">Submitted At</th>
+                      <th className="pb-3">Admin Remarks</th>
+                      <th className="pb-3">Receipt Slip</th>
+                      <th className="pb-3 text-right">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800/40">
+                    {pendingPayments.map((pay: any) => (
+                      <tr key={pay.id} className="hover:bg-zinc-850/20">
+                        <td className="py-3 font-semibold text-white">{pay.tenant?.name || 'Unknown'}</td>
+                        <td className="py-3 font-mono font-bold text-yellow-400">MVR {parseFloat(pay.amount).toFixed(2)}</td>
+                        <td className="py-3 font-mono text-zinc-300">{pay.reference_number}</td>
+                        <td className="py-3 text-zinc-500">{new Date(pay.created_at).toLocaleString()}</td>
+                        <td className="py-3 text-zinc-400 max-w-xs truncate" title={pay.remarks}>{pay.remarks || '-'}</td>
+                        <td className="py-3">
+                          <button
+                            onClick={() => setShowSlipPreview(pay.receipt_slip_path)}
+                            className="text-blue-400 hover:text-blue-300 underline font-semibold flex items-center gap-1.5"
+                          >
+                            View Slip Image
+                          </button>
+                        </td>
+                        <td className="py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => {
+                                setSelectedPayment(pay);
+                                setApproveTier(pay.tenant?.subscription_tier || '499');
+                                const defaultExpiry = new Date();
+                                defaultExpiry.setDate(defaultExpiry.getDate() + 30);
+                                setApproveExpiry(defaultExpiry.toISOString().split('T')[0]);
+                                setShowApprovalModal(true);
+                              }}
+                              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1 px-3 rounded-lg transition-colors text-[10px]"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSelectedPayment(pay);
+                                setShowRejectionModal(true);
+                              }}
+                              className="bg-red-950/40 hover:bg-red-900 border border-red-500/30 hover:border-red-500 text-red-300 hover:text-white font-bold py-1 px-3 rounded-lg transition-colors text-[10px]"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Stacked Card View */}
+              <div className="block md:hidden space-y-3">
+                {pendingPayments.map((pay: any) => (
+                  <div key={pay.id} className="bg-zinc-900/90 border border-zinc-800 rounded-xl p-3.5 shadow-md space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2">
+                      <div className="font-bold text-white text-sm">{pay.tenant?.name || 'Unknown'}</div>
+                      <span className="font-mono font-bold text-yellow-400 text-sm">MVR {parseFloat(pay.amount).toFixed(2)}</span>
+                    </div>
+
+                    <div className="space-y-1 font-mono text-[11px]">
+                      <div className="text-zinc-300"><span className="text-zinc-500 font-sans">Ref #:</span> {pay.reference_number}</div>
+                      <div className="text-zinc-500 text-[10px]"><span className="font-sans">Submitted:</span> {new Date(pay.created_at).toLocaleString()}</div>
+                      {pay.remarks && <div className="text-zinc-400 text-[10px] italic"><span className="font-sans font-normal text-zinc-500">Remarks:</span> {pay.remarks}</div>}
+                    </div>
+
+                    <div className="pt-1 flex items-center justify-between gap-2 flex-wrap">
+                      <button
+                        onClick={() => setShowSlipPreview(pay.receipt_slip_path)}
+                        className="text-blue-400 hover:text-blue-300 underline font-semibold text-xs flex items-center gap-1"
+                      >
+                        View Slip Image
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setSelectedPayment(pay);
+                            setApproveTier(pay.tenant?.subscription_tier || '499');
+                            const defaultExpiry = new Date();
+                            defaultExpiry.setDate(defaultExpiry.getDate() + 30);
+                            setApproveExpiry(defaultExpiry.toISOString().split('T')[0]);
+                            setShowApprovalModal(true);
+                          }}
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1.5 px-3 rounded-lg text-xs"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedPayment(pay);
+                            setShowRejectionModal(true);
+                          }}
+                          className="bg-red-950/40 hover:bg-red-900 border border-red-500/30 text-red-300 font-bold py-1.5 px-3 rounded-lg text-xs"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
 
-        <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl shadow-xl">
+        <div className="glass-panel p-4 sm:p-6 border border-zinc-800 bg-black/20 rounded-2xl shadow-xl">
           <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
             <ClipboardList className="text-zinc-500" size={20} />
-            Payment History Log
+            Payment History Log ({historicalPayments.length})
           </h3>
           
-          {payments.filter(p => p.status !== 'pending').length === 0 ? (
+          {historicalPayments.length === 0 ? (
             <div className="text-center text-zinc-600 italic py-10">
               No historical payment entries found.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-zinc-800/80 text-zinc-400 font-bold uppercase tracking-wider">
-                    <th className="pb-3">Company</th>
-                    <th className="pb-3">Amount</th>
-                    <th className="pb-3">Reference Number</th>
-                    <th className="pb-3">Date</th>
-                    <th className="pb-3">Receipt Slip</th>
-                    <th className="pb-3">Status</th>
-                    <th className="pb-3">Remarks / Comments</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800/40">
-                  {payments.filter(p => p.status !== 'pending').map((pay: any) => (
-                    <tr key={pay.id} className="hover:bg-zinc-850/20">
-                      <td className="py-3 text-zinc-300 font-semibold">{pay.tenant?.name || 'Unknown'}</td>
-                      <td className="py-3 font-mono font-semibold text-zinc-300">MVR {parseFloat(pay.amount).toFixed(2)}</td>
-                      <td className="py-3 font-mono text-zinc-400">{pay.reference_number}</td>
-                      <td className="py-3 text-zinc-500">{new Date(pay.created_at).toLocaleDateString()}</td>
-                      <td className="py-3">
-                        <button
-                          onClick={() => setShowSlipPreview(pay.receipt_slip_path)}
-                          className="text-blue-400 hover:text-blue-300 underline font-semibold flex items-center gap-1"
-                        >
-                          View Receipt
-                        </button>
-                      </td>
-                      <td className="py-3">
-                        <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] ${
-                          pay.status === 'approved' 
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                            : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                        }`}>
-                          {pay.status}
-                        </span>
-                      </td>
-                      <td className="py-3 text-zinc-400 max-w-xs truncate" title={pay.remarks}>{pay.remarks || '-'}</td>
+            <div>
+              {/* Desktop Table View */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-zinc-800/80 text-zinc-400 font-bold uppercase tracking-wider">
+                      <th className="pb-3">Company</th>
+                      <th className="pb-3">Amount</th>
+                      <th className="pb-3">Reference Number</th>
+                      <th className="pb-3">Date</th>
+                      <th className="pb-3">Receipt Slip</th>
+                      <th className="pb-3">Status</th>
+                      <th className="pb-3">Remarks / Comments</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800/40">
+                    {historicalPayments.map((pay: any) => (
+                      <tr key={pay.id} className="hover:bg-zinc-850/20">
+                        <td className="py-3 text-zinc-300 font-semibold">{pay.tenant?.name || 'Unknown'}</td>
+                        <td className="py-3 font-mono font-semibold text-zinc-300">MVR {parseFloat(pay.amount).toFixed(2)}</td>
+                        <td className="py-3 font-mono text-zinc-400">{pay.reference_number}</td>
+                        <td className="py-3 text-zinc-500">{new Date(pay.created_at).toLocaleDateString()}</td>
+                        <td className="py-3">
+                          <button
+                            onClick={() => setShowSlipPreview(pay.receipt_slip_path)}
+                            className="text-blue-400 hover:text-blue-300 underline font-semibold flex items-center gap-1"
+                          >
+                            View Receipt
+                          </button>
+                        </td>
+                        <td className="py-3">
+                          <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] ${
+                            pay.status === 'approved' 
+                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                              : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                          }`}>
+                            {pay.status}
+                          </span>
+                        </td>
+                        <td className="py-3 text-zinc-400 max-w-xs truncate" title={pay.remarks}>{pay.remarks || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Stacked Card View */}
+              <div className="block md:hidden space-y-3">
+                {historicalPayments.map((pay: any) => (
+                  <div key={pay.id} className="bg-zinc-900/90 border border-zinc-800 rounded-xl p-3.5 shadow-md space-y-2 text-xs">
+                    <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2">
+                      <span className="font-semibold text-white">{pay.tenant?.name || 'Unknown'}</span>
+                      <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] ${
+                        pay.status === 'approved' 
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                          : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                      }`}>
+                        {pay.status}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between font-mono text-xs">
+                      <span className="text-zinc-200 font-bold">MVR {parseFloat(pay.amount).toFixed(2)}</span>
+                      <span className="text-zinc-500 text-[10px]">{new Date(pay.created_at).toLocaleDateString()}</span>
+                    </div>
+
+                    <div className="text-[10px] font-mono text-zinc-400">Ref #: {pay.reference_number}</div>
+
+                    <div className="pt-1 flex items-center justify-between gap-2 border-t border-zinc-800/60">
+                      <button
+                        onClick={() => setShowSlipPreview(pay.receipt_slip_path)}
+                        className="text-blue-400 hover:text-blue-300 underline font-semibold text-xs"
+                      >
+                        View Receipt
+                      </button>
+                      {pay.remarks && <span className="text-zinc-500 text-[10px] italic truncate max-w-[150px]">{pay.remarks}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -2350,103 +2439,647 @@ export default function AdminDashboard() {
   };
 
   const renderSessionLogsTab = () => {
+    const telemetry = sessionTelemetry || {};
+    const groupedFlows = telemetry.grouped_flows || [];
+    const hourlySpectrum = telemetry.hourly_spectrum || [];
+    const terminalThroughput = telemetry.terminal_throughput || [];
+
+    // Max hourly count for spectrum normalization
+    const maxSpectrumCount = Math.max(1, ...hourlySpectrum.map((h: any) => h.count || 0));
+
     return (
-      <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl text-left animate-fade-in">
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+      <div className="space-y-6 text-left animate-fade-in">
+        {/* Header Controls Bar */}
+        <div className="glass-panel p-5 border border-zinc-800 bg-black/20 rounded-2xl flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <h3 className="text-xl font-bold text-white tracking-tight">Active Sessions & Logs Audit</h3>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  fetchSessionLogs(true);
-                  const intervalStr = systemSettings.find(s => s.key === 'session_log_poll_interval')?.value || '15';
-                  const iv = parseInt(intervalStr, 10);
-                  setLogRefreshInterval(iv);
-                  setLogRefreshCountdown(iv);
-                }}
-                disabled={logsLoading}
-                className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 py-1.5 px-3 text-xs flex items-center gap-1.5 font-semibold rounded-lg transition-all shadow-[0_0_12px_rgba(16,185,129,0.15)] h-auto min-h-0 disabled:opacity-50"
-                title="Refresh logs data"
-              >
-                <RefreshCw size={12} className={logsLoading ? 'animate-spin' : ''} /> Refresh Logs
-              </button>
-              {logRefreshCountdown !== null && (
-                <div className="flex items-center gap-2 bg-black/40 px-2.5 py-1.5 rounded-lg border border-zinc-800/50" title={`Auto-refreshes in ${logRefreshCountdown}s`}>
-                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0"></div>
-                  <div className="w-24 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-blue-500 rounded-full transition-all duration-1000 ease-linear"
-                      style={{ width: `${Math.max(0, (logRefreshCountdown / logRefreshInterval) * 100)}%` }}
-                    />
-                  </div>
-                  <span className="text-[10px] text-zinc-500 font-mono w-6 text-right">{logRefreshCountdown}s</span>
-                </div>
-              )}
+            <div className="w-10 h-10 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex items-center justify-center">
+              <Activity size={20} />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-white tracking-tight">Session Activity & Telemetry Center</h3>
+              <p className="text-xs text-zinc-400 mt-0.5">Live terminal heartbeat, request throughput, error ratios, and 3-step request flow traces.</p>
             </div>
           </div>
-          <div className="flex items-center gap-3 flex-wrap">
-            {/* Company Filter */}
-            <select
-              className="input-field text-xs py-1.5 px-3 font-medium bg-zinc-900 border-zinc-800"
-              value={filterCompanyId}
-              onChange={(e) => {
-                setFilterCompanyId(e.target.value);
-                setLogsPage(1);
-              }}
-            >
-              <option value="">All Companies</option>
-              {companies.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
 
-            {/* Event Type Filter */}
-            <select
-              className="input-field text-xs py-1.5 px-3 font-medium bg-zinc-900 border-zinc-800"
-              value={filterEventType}
-              onChange={(e) => {
-                setFilterEventType(e.target.value);
-                setLogsPage(1);
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* View Mode Toggle Button Group */}
+            <div className="bg-zinc-900 border border-zinc-800 p-1 rounded-xl flex items-center gap-1">
+              <button
+                onClick={() => setSessionLogViewMode('grouped')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  sessionLogViewMode === 'grouped'
+                    ? 'bg-yellow-500 text-black shadow-md'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <Layers size={13} /> Grouped Flows
+              </button>
+              <button
+                onClick={() => setSessionLogViewMode('raw')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  sessionLogViewMode === 'raw'
+                    ? 'bg-yellow-500 text-black shadow-md'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <ClipboardList size={13} /> Raw Stream
+              </button>
+            </div>
+
+            {/* Refresh Button & Countdown */}
+            <button
+              onClick={() => {
+                fetchSessionLogs(true);
+                const intervalStr = systemSettings.find(s => s.key === 'session_log_poll_interval')?.value || '15';
+                const iv = parseInt(intervalStr, 10);
+                setLogRefreshInterval(iv);
+                setLogRefreshCountdown(iv);
               }}
+              disabled={logsLoading}
+              className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 py-2 px-3 text-xs flex items-center gap-1.5 font-bold rounded-xl transition-all shadow-[0_0_12px_rgba(16,185,129,0.15)] disabled:opacity-50 cursor-pointer"
             >
-              <option value="">All Events</option>
-              <option value="session_login_started">Login Started</option>
-              <option value="session_login_success">Login Success</option>
-              <option value="session_login_failed">Login Failed</option>
-              <option value="session_claimed">Session Claimed</option>
-              <option value="session_heartbeat_lost">Heartbeat Lost</option>
-              <option value="session_released">Session Released</option>
-              <option value="session_reused">Session Reused (Cached)</option>
-              <option value="session_created">Session Created</option>
-              <option value="session_renewed">Session Renewed</option>
-              <option value="fetch_request_submitted">Request Submitted</option>
-              <option value="fetch_request_fulfilled">Request Fulfilled</option>
-              <option value="fetch_request_failed">Request Failed</option>
-              <option value="fetch_request_retried">Request Retried</option>
-              <option value="pwa_debug_logs">PWA Debug Logs</option>
-            </select>
+              <RefreshCw size={13} className={logsLoading ? 'animate-spin' : ''} /> Refresh Telemetry
+            </button>
+            {logRefreshCountdown !== null && (
+              <div className="flex items-center gap-2 bg-black/40 px-3 py-2 rounded-xl border border-zinc-800/80" title={`Auto-refreshes every ${logRefreshInterval}s (in ${logRefreshCountdown}s)`}>
+                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0"></div>
+                <span className="text-xs text-zinc-400 font-mono font-bold">{logRefreshCountdown}s</span>
+              </div>
+            )}
           </div>
         </div>
 
+        {/* Top Graphical Telemetry Cards (4 Stat Widgets) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Card 1: Active Terminals Gauge */}
+          <div className="bg-zinc-900/80 border border-zinc-800/80 p-5 rounded-2xl shadow-xl flex items-center justify-between relative overflow-hidden group hover:border-emerald-500/30 transition-all">
+            <div className="space-y-1 z-10">
+              <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">Active Terminals</span>
+              <div className="text-2xl font-extrabold font-mono text-white flex items-baseline gap-1.5">
+                <span>{telemetry.active_terminals ?? activeTerminalsCount}</span>
+                <span className="text-xs text-zinc-500 font-normal">/ {telemetry.total_terminals ?? activeTerminalsCount} total</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium pt-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>Heartbeat Active</span>
+              </div>
+            </div>
+            {/* Donut Radial Ring */}
+            <div className="relative w-14 h-14 shrink-0 flex items-center justify-center">
+              <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
+                <path className="text-zinc-800" strokeWidth="3.5" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                <path
+                  className="text-emerald-400 transition-all duration-1000"
+                  strokeDasharray={`${Math.round(((telemetry.active_terminals || 1) / Math.max(1, telemetry.total_terminals || 1)) * 100)}, 100`}
+                  strokeWidth="3.5"
+                  strokeLinecap="round"
+                  stroke="currentColor"
+                  fill="none"
+                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                />
+              </svg>
+              <span className="absolute text-[10px] font-bold font-mono text-white">
+                {Math.round(((telemetry.active_terminals || 1) / Math.max(1, telemetry.total_terminals || 1)) * 100)}%
+              </span>
+            </div>
+          </div>
 
-        {logsLoading ? (
-          <div className="text-center py-12 text-zinc-500 font-medium animate-pulse">Loading session activity logs...</div>
-        ) : sessionLogs.length === 0 ? (
-          <div className="text-center py-12 text-zinc-500 italic">No session logs match your criteria.</div>
+          {/* Card 2: Requests Per Hour (RPH) & Sparkline */}
+          <div className="bg-zinc-900/80 border border-zinc-800/80 p-5 rounded-2xl shadow-xl flex flex-col justify-between relative overflow-hidden group hover:border-yellow-500/30 transition-all">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Requests / Hour</span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">Live RPH</span>
+            </div>
+            <div className="my-2">
+              <div className="text-2xl font-extrabold font-mono text-white">{telemetry.rph_current ?? 0} <span className="text-xs text-zinc-400 font-normal">req/hr</span></div>
+              <div className="text-[11px] text-zinc-400 font-mono mt-0.5">24h Total: <strong className="text-zinc-200">{telemetry.total_logs_24h ?? 0}</strong></div>
+            </div>
+            {/* Sparkline Graph */}
+            <div className="h-8 w-full">
+              <svg className="w-full h-full" viewBox="0 0 100 25" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="rphGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#eab308" stopOpacity="0.4" />
+                    <stop offset="100%" stopColor="#eab308" stopOpacity="0.0" />
+                  </linearGradient>
+                </defs>
+                {hourlySpectrum.length > 1 && (
+                  <>
+                    <polygon
+                      fill="url(#rphGrad)"
+                      points={`0,25 ${hourlySpectrum.map((h: any, i: number) => `${(i / (hourlySpectrum.length - 1)) * 100},${25 - ((h.count || 0) / maxSpectrumCount) * 20}`).join(' ')} 100,25`}
+                    />
+                    <polyline
+                      fill="none"
+                      stroke="#eab308"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      points={hourlySpectrum.map((h: any, i: number) => `${(i / (hourlySpectrum.length - 1)) * 100},${25 - ((h.count || 0) / maxSpectrumCount) * 20}`).join(' ')}
+                    />
+                  </>
+                )}
+              </svg>
+            </div>
+          </div>
+
+          {/* Card 3: Error Ratio (24h) */}
+          <div className="bg-zinc-900/80 border border-zinc-800/80 p-5 rounded-2xl shadow-xl flex items-center justify-between relative overflow-hidden group hover:border-red-500/30 transition-all">
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">Error Ratio (24h)</span>
+              <div className="text-2xl font-extrabold font-mono text-white flex items-baseline gap-1">
+                <span>{telemetry.error_ratio_24h ?? 0.0}%</span>
+              </div>
+              <div className="pt-1">
+                {(telemetry.error_ratio_24h ?? 0) <= 2 ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                    <CheckCircle2 size={11} /> Healthy (&lt; 2%)
+                  </span>
+                ) : (telemetry.error_ratio_24h ?? 0) <= 5 ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                    <AlertTriangle size={11} /> Moderate (2-5%)
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/15 text-red-400 border border-red-500/30">
+                    <AlertTriangle size={11} /> High Error Rate (&gt; 5%)
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center shrink-0">
+              <Activity size={22} />
+            </div>
+          </div>
+
+          {/* Card 4: Daily & Monthly Success Rates */}
+          <div className="bg-zinc-900/80 border border-zinc-800/80 p-5 rounded-2xl shadow-xl flex items-center justify-between relative overflow-hidden group hover:border-cyan-500/30 transition-all">
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">Success Rate</span>
+              <div className="text-2xl font-extrabold font-mono text-emerald-400">
+                {telemetry.success_rate_daily ?? 100}% <span className="text-xs font-sans text-zinc-500 font-normal">Daily</span>
+              </div>
+              <div className="text-[11px] font-mono text-cyan-400 pt-0.5">
+                {telemetry.success_rate_monthly ?? 100}% <span className="text-zinc-500">Monthly</span>
+              </div>
+            </div>
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+              <CheckCircle2 size={22} />
+            </div>
+          </div>
+        </div>
+
+        {/* Activity Bar Chart & Terminal Throughput Distribution Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left: 24-Hour Activity Bar Chart (2 cols) */}
+          <div className="lg:col-span-2 bg-zinc-900/80 border border-zinc-800 p-5 rounded-2xl shadow-xl flex flex-col justify-between">
+            <div className="flex items-center justify-between pb-4 border-b border-zinc-800/80 mb-4">
+              <div>
+                <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                  <Activity size={16} className="text-yellow-500" />
+                  <span>24-Hour API Activity Spectrum</span>
+                </h4>
+                <p className="text-xs text-zinc-400 mt-0.5">Hourly breakdown of total API requests over the past 24 hours.</p>
+              </div>
+              <span className="text-xs font-mono text-zinc-400 font-bold bg-zinc-800 px-2.5 py-1 rounded-lg">
+                Peak: {maxSpectrumCount} reqs/hr
+              </span>
+            </div>
+
+            {/* Hourly SVG Bar Spectrum */}
+            <div className="h-36 w-full flex items-end justify-between gap-1 pt-2">
+              {hourlySpectrum.map((h: any, idx: number) => {
+                const heightPercent = maxSpectrumCount > 0 ? Math.max(8, (h.count / maxSpectrumCount) * 100) : 8;
+                return (
+                  <div key={idx} className="flex-1 flex flex-col items-center gap-1 group relative h-full justify-end">
+                    {/* Tooltip on hover */}
+                    <div className="absolute -top-8 bg-zinc-950 border border-zinc-700 text-white font-mono text-[10px] px-2 py-0.5 rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-20">
+                      {h.hour}: <strong>{h.count} reqs</strong>
+                    </div>
+                    {/* Bar graphic */}
+                    <div className="w-full bg-zinc-800/50 rounded-t overflow-hidden flex items-end h-full">
+                      <div
+                        className="w-full bg-gradient-to-t from-yellow-500/40 via-yellow-500 to-emerald-400 rounded-t transition-all duration-500 group-hover:brightness-125"
+                        style={{ height: `${heightPercent}%` }}
+                      />
+                    </div>
+                    {/* Hour label */}
+                    <span className="text-[9px] font-mono text-zinc-500 group-hover:text-zinc-300">
+                      {idx % 4 === 0 ? h.hour : ''}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Right: Per-Terminal Request Distribution */}
+          <div className="bg-zinc-900/80 border border-zinc-800 p-5 rounded-2xl shadow-xl flex flex-col justify-between">
+            <div className="pb-3 border-b border-zinc-800/80 mb-4">
+              <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                <Terminal size={16} className="text-emerald-400" />
+                <span>Top Terminals (24h Throughput)</span>
+              </h4>
+              <p className="text-xs text-zinc-400 mt-0.5">Request volume per terminal.</p>
+            </div>
+
+            <div className="space-y-3 flex-1 overflow-y-auto">
+              {terminalThroughput.length === 0 ? (
+                <p className="text-xs text-zinc-500 italic py-6 text-center">No terminal throughput recorded yet.</p>
+              ) : (
+                terminalThroughput.map((t: any, idx: number) => {
+                  const maxCount = Math.max(1, terminalThroughput[0]?.count || 1);
+                  const pct = Math.min(100, Math.round((t.count / maxCount) * 100));
+                  return (
+                    <div key={idx} className="space-y-1 text-xs">
+                      <div className="flex justify-between items-center text-zinc-300 font-medium">
+                        <span className="truncate max-w-[140px]">{t.name}</span>
+                        <span className="font-mono text-emerald-400 font-bold">{t.count} reqs</span>
+                      </div>
+                      <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-700"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* View Section: Grouped 3-Step Request Flow Cards vs Raw Event Log Stream */}
+        {sessionLogViewMode === 'grouped' ? (
+          /* SECTION 1: Grouped 3-Step Request Flow Cards (Last 10 Requests) */
+          <div className="glass-panel p-6 border border-zinc-800 bg-black/30 rounded-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+              <div>
+                <h4 className="text-base font-bold text-white flex items-center gap-2">
+                  <Layers size={18} className="text-yellow-500" />
+                  <span>Recent Request Flow Cards (3-Step Sessions)</span>
+                </h4>
+                <p className="text-xs text-zinc-400 mt-0.5">Aggregated 3-step request sessions: (1) Submitted → (2) PWA Debug Log → (3) Fulfilled / Failed.</p>
+              </div>
+              <span className="text-xs font-mono font-bold text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 px-3 py-1 rounded-xl">
+                Showing {groupedFlows.length} Grouped Sessions
+              </span>
+            </div>
+
+            {logsLoading ? (
+              <div className="text-center py-12 text-zinc-500 font-medium animate-pulse">Loading grouped request flows...</div>
+            ) : groupedFlows.length === 0 ? (
+              <div className="text-center py-12 text-zinc-500 italic">No grouped session request flows available yet.</div>
+            ) : (
+              <div className="space-y-4">
+                {groupedFlows.map((flow: any) => {
+                  const isExpanded = expandedFlowId === flow.session_id;
+                  const activeStepTab = activeFlowStepTabMap[flow.session_id] || 'submitted';
+                  const isFailed = flow.status === 'failed';
+                  const isNotFound = flow.status === 'not_found';
+
+                  let statusBadge = "bg-emerald-500/15 text-emerald-400 border-emerald-500/30";
+                  let statusText = "SUCCESS ✅";
+                  if (isFailed) {
+                    statusBadge = "bg-red-500/15 text-red-400 border-red-500/30";
+                    statusText = "FAILED ❌";
+                  } else if (isNotFound) {
+                    statusBadge = "bg-amber-500/15 text-amber-400 border-amber-500/30";
+                    statusText = "NOT FOUND ⚠️";
+                  } else if (flow.status === 'pending') {
+                    statusBadge = "bg-blue-500/15 text-blue-400 border-blue-500/30 animate-pulse";
+                    statusText = "IN PROGRESS ⏳";
+                  }
+
+                  return (
+                    <div
+                      key={flow.session_id}
+                      className={`bg-zinc-900/90 border rounded-2xl transition-all overflow-hidden ${
+                        isExpanded ? 'border-yellow-500/40 shadow-2xl bg-zinc-900' : 'border-zinc-800 hover:border-zinc-700'
+                      }`}
+                    >
+                      {/* Flow Card Summary Header */}
+                      <div
+                        className="p-4 cursor-pointer flex flex-wrap items-center justify-between gap-3 hover:bg-white/5 transition-colors"
+                        onClick={() => setExpandedFlowId(isExpanded ? null : flow.session_id)}
+                      >
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <span className={`px-3 py-1 rounded-xl text-xs font-extrabold border ${statusBadge}`}>
+                            {statusText}
+                          </span>
+                          <div>
+                            <div className="font-bold text-white text-sm flex items-center gap-2">
+                              <span>{flow.terminal_name}</span>
+                              <span className="text-zinc-500 text-xs font-mono">({flow.tenant_name})</span>
+                            </div>
+                            <div className="text-xs text-zinc-400 font-mono mt-0.5">
+                              {flow.bank_name} <span className="text-zinc-500">{flow.account_number_masked}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4 flex-wrap">
+                          <div className="text-right font-mono text-xs">
+                            <span className="text-zinc-400 block">{new Date(flow.created_at).toLocaleString()}</span>
+                            <span className="text-yellow-400 text-[11px] font-bold block">Duration: {flow.duration}</span>
+                          </div>
+
+                          <button
+                            className="btn btn-outline text-xs px-3.5 py-1.5 flex items-center gap-1 font-bold rounded-xl border-zinc-700 text-zinc-300 hover:text-white"
+                          >
+                            <span>{isExpanded ? 'Collapse' : 'Inspect 3 Steps'}</span>
+                            <ChevronDown size={14} className={`transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Summary Banner */}
+                      <div className="px-4 py-2 bg-black/40 border-t border-zinc-800/60 text-xs font-medium text-zinc-300 flex items-center gap-2">
+                        <span className="text-zinc-500 font-mono font-bold">SUMMARY:</span>
+                        <span className="truncate">{flow.summary}</span>
+                      </div>
+
+                      {/* Collapsible 3-Step Interactive Inspector Timeline */}
+                      {isExpanded && (
+                        <div className="p-4 border-t border-zinc-800 bg-zinc-950/60 space-y-4 animate-fade-in">
+                          {/* 3-Step Timeline Visual Header */}
+                          <div className="grid grid-cols-3 gap-2">
+                            {/* Step 1 Button */}
+                            <button
+                              onClick={() => setActiveFlowStepTabMap(prev => ({ ...prev, [flow.session_id]: 'submitted' }))}
+                              className={`p-3 rounded-xl border text-left transition-all ${
+                                activeStepTab === 'submitted'
+                                  ? 'bg-blue-500/15 border-blue-500/40 text-blue-300 shadow-md'
+                                  : flow.steps.submitted
+                                  ? 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                                  : 'bg-zinc-900/40 border-zinc-900 text-zinc-600 cursor-not-allowed'
+                              }`}
+                            >
+                              <div className="text-[10px] font-bold uppercase tracking-wider text-blue-400">Step 1: Submitted</div>
+                              <div className="text-xs font-bold text-white mt-1 truncate">
+                                {flow.steps.submitted ? flow.steps.submitted.event_type.replace(/_/g, ' ') : 'No Event'}
+                              </div>
+                            </button>
+
+                            {/* Step 2 Button */}
+                            <button
+                              onClick={() => setActiveFlowStepTabMap(prev => ({ ...prev, [flow.session_id]: 'debug_logs' }))}
+                              className={`p-3 rounded-xl border text-left transition-all ${
+                                activeStepTab === 'debug_logs'
+                                  ? 'bg-yellow-500/15 border-yellow-500/40 text-yellow-300 shadow-md'
+                                  : flow.steps.debug_logs
+                                  ? 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                                  : 'bg-zinc-900/40 border-zinc-900 text-zinc-600 cursor-not-allowed'
+                              }`}
+                            >
+                              <div className="text-[10px] font-bold uppercase tracking-wider text-yellow-400">Step 2: PWA Debug Trace</div>
+                              <div className="text-xs font-bold text-white mt-1 truncate">
+                                {flow.steps.debug_logs ? 'PWA Session Trace' : 'No Debug Logs'}
+                              </div>
+                            </button>
+
+                            {/* Step 3 Button */}
+                            <button
+                              onClick={() => setActiveFlowStepTabMap(prev => ({ ...prev, [flow.session_id]: 'result' }))}
+                              className={`p-3 rounded-xl border text-left transition-all ${
+                                activeStepTab === 'result'
+                                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 shadow-md'
+                                  : flow.steps.result
+                                  ? 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                                  : 'bg-zinc-900/40 border-zinc-900 text-zinc-600 cursor-not-allowed'
+                              }`}
+                            >
+                              <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Step 3: Result</div>
+                              <div className="text-xs font-bold text-white mt-1 truncate">
+                                {flow.steps.result ? flow.steps.result.event_type.replace(/_/g, ' ') : 'No Result'}
+                              </div>
+                            </button>
+                          </div>
+
+                          {/* Selected Step Detail Panel */}
+                          {(() => {
+                            const currentStepObj = flow.steps[activeStepTab];
+                            if (!currentStepObj) {
+                              return <div className="text-xs text-zinc-500 italic p-4 text-center">No log record recorded for this step.</div>;
+                            }
+
+                            const logId = currentStepObj.id;
+                            const currentDetail = logDetailsMap[logId] || currentStepObj.event_detail;
+                            const isLoadingDetail = loadingDetailId === logId;
+
+                            if (!logDetailsMap[logId] && currentStepObj.has_detail && !isLoadingDetail) {
+                              // Trigger detail fetch
+                              handleToggleDetail(logId);
+                            }
+
+                            return (
+                              <div className="space-y-3 bg-black/60 p-4 rounded-xl border border-zinc-800">
+                                <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-bold font-mono text-white">Log #{logId}</span>
+                                    <span className="text-xs text-zinc-400 font-mono">({new Date(currentStepObj.created_at).toLocaleString()})</span>
+                                  </div>
+                                  <span className="text-xs font-semibold text-zinc-300">{currentStepObj.summary}</span>
+                                </div>
+
+                                {isLoadingDetail ? (
+                                  <div className="text-xs text-zinc-400 font-mono py-4 animate-pulse text-center">Loading step log details...</div>
+                                ) : currentDetail && currentDetail.pwa_logs && currentDetail.pwa_logs.length > 0 ? (
+                                  <div className="space-y-3">
+                                    {Object.keys(currentDetail).filter(k => k !== 'pwa_logs').length > 0 && (
+                                      <div>
+                                        <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1">Payload & Parameters</div>
+                                        {renderJsonHighlighted(Object.fromEntries(Object.entries(currentDetail).filter(([k]) => k !== 'pwa_logs')))}
+                                      </div>
+                                    )}
+                                    <div>
+                                      <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1">Terminal Execution Console Log</div>
+                                      <div className="bg-[#0D0D0D] rounded-xl p-3 border border-zinc-800/80 font-mono text-[11px] text-[#4AF626] overflow-y-auto max-h-72 scrollbar-thin shadow-inner">
+                                        {Array.isArray(currentDetail.pwa_logs)
+                                          ? currentDetail.pwa_logs.map((line: string, i: number) => (
+                                              <div key={i} className="whitespace-pre-wrap break-all leading-relaxed">{line}</div>
+                                            ))
+                                          : <div className="whitespace-pre-wrap break-all leading-relaxed">{JSON.stringify(currentDetail.pwa_logs, null, 2)}</div>}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1">Event Details</div>
+                                    {renderJsonHighlighted(currentDetail || { summary: currentStepObj.summary })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         ) : (
-          <div className="flex flex-col gap-4">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-zinc-800 text-zinc-400 font-semibold">
-                    <th className="pb-3 pr-4">Timestamp</th>
-                    <th className="pb-3 pr-4">Terminal / Company</th>
-                    <th className="pb-3 pr-4">Account</th>
-                    <th className="pb-3 pr-4">Event Type</th>
-                    <th className="pb-3 pr-4">Summary</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-900">
+          /* SECTION 2: Raw Activity Log Stream (Full Historical List View) */
+          <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl text-left space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+              <h4 className="text-base font-bold text-white flex items-center gap-2">
+                <ClipboardList size={18} className="text-yellow-500" />
+                <span>Raw Activity Log Stream</span>
+              </h4>
+
+              <div className="flex items-center gap-3 flex-wrap">
+                {/* Company Filter */}
+                <select
+                  className="input-field text-xs py-1.5 px-3 font-medium bg-zinc-900 border-zinc-800"
+                  value={filterCompanyId}
+                  onChange={(e) => {
+                    setFilterCompanyId(e.target.value);
+                    setLogsPage(1);
+                  }}
+                >
+                  <option value="">All Companies</option>
+                  {companies.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+
+                {/* Event Type Filter */}
+                <select
+                  className="input-field text-xs py-1.5 px-3 font-medium bg-zinc-900 border-zinc-800"
+                  value={filterEventType}
+                  onChange={(e) => {
+                    setFilterEventType(e.target.value);
+                    setLogsPage(1);
+                  }}
+                >
+                  <option value="">All Events</option>
+                  <option value="session_login_started">Login Started</option>
+                  <option value="session_login_success">Login Success</option>
+                  <option value="session_login_failed">Login Failed</option>
+                  <option value="session_claimed">Session Claimed</option>
+                  <option value="session_heartbeat_lost">Heartbeat Lost</option>
+                  <option value="session_released">Session Released</option>
+                  <option value="session_reused">Session Reused (Cached)</option>
+                  <option value="session_created">Session Created</option>
+                  <option value="session_renewed">Session Renewed</option>
+                  <option value="fetch_request_submitted">Request Submitted</option>
+                  <option value="fetch_request_fulfilled">Request Fulfilled</option>
+                  <option value="fetch_request_failed">Request Failed</option>
+                  <option value="fetch_request_retried">Request Retried</option>
+                  <option value="pwa_debug_logs">PWA Debug Logs</option>
+                </select>
+              </div>
+            </div>
+
+            {logsLoading ? (
+              <div className="text-center py-12 text-zinc-500 font-medium animate-pulse">Loading raw activity logs...</div>
+            ) : sessionLogs.length === 0 ? (
+              <div className="text-center py-12 text-zinc-500 italic">No session logs match your criteria.</div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                {/* Desktop Table View */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-zinc-800 text-zinc-400 font-semibold">
+                        <th className="pb-3 pr-4">Timestamp</th>
+                        <th className="pb-3 pr-4">Terminal / Company</th>
+                        <th className="pb-3 pr-4">Account</th>
+                        <th className="pb-3 pr-4">Event Type</th>
+                        <th className="pb-3 pr-4">Summary</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-900">
+                      {sessionLogs.map((log: any) => {
+                        const dateStr = new Date(log.created_at).toLocaleString();
+                        let badgeClass = "bg-zinc-800 text-zinc-400 border border-zinc-700";
+                        if (['session_login_success', 'session_claimed', 'fetch_request_fulfilled', 'search_not_found'].includes(log.event_type)) {
+                          badgeClass = "bg-green-950/40 text-green-400 border border-green-500/20";
+                        } else if (['session_login_failed'].includes(log.event_type)) {
+                          badgeClass = "bg-red-950/40 text-red-400 border border-red-500/20";
+                        } else if (['session_heartbeat_lost', 'session_released', 'fetch_request_failed'].includes(log.event_type)) {
+                          badgeClass = "bg-orange-950/40 text-orange-400 border border-orange-500/20";
+                        }
+                        const isExpanded = expandedLogId === log.id;
+                        const hasDetail = Boolean(log.has_detail || log.event_detail);
+                        const currentDetail = logDetailsMap[log.id] || log.event_detail;
+                        const isLoadingDetail = loadingDetailId === log.id;
+
+                        return (
+                          <Fragment key={log.id}>
+                            <tr
+                              className={`transition-colors border-b border-zinc-900/50 ${hasDetail ? 'cursor-pointer hover:bg-zinc-800/25' : 'hover:bg-zinc-900/20'} ${isExpanded ? 'bg-zinc-850/40 border-b-0' : ''}`}
+                              onClick={() => hasDetail && handleToggleDetail(log.id)}
+                            >
+                              <td className="py-3 pr-4 font-mono text-zinc-400">{dateStr}</td>
+                              <td className="py-3 pr-4 font-medium text-white">
+                                {log.terminal_name || "System"}
+                                <span className="text-[10px] text-zinc-500 block">{log.tenant?.name}</span>
+                              </td>
+                              <td className="py-3 pr-4 font-mono text-zinc-400">
+                                {log.bank_name || "N/A"}
+                                <span className="text-[10px] block">{log.account_number_masked || ""}</span>
+                              </td>
+                              <td className="py-3 pr-4">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${badgeClass}`}>
+                                  {log.event_type === 'search_not_found' ? 'SEARCH NOT FOUND!' : log.event_type.replace(/_/g, ' ').toUpperCase()}
+                                </span>
+                              </td>
+                              <td className="py-3 pr-4 text-zinc-300 font-medium">
+                                <div className="flex items-center justify-between gap-4">
+                                  <span>{log.event_summary}</span>
+                                  {hasDetail && (
+                                    <span className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 rounded font-semibold whitespace-nowrap">
+                                      {isLoadingDetail ? 'Loading...' : isExpanded ? 'Hide Details' : 'View Details'}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                            {isExpanded && (
+                              <tr className="bg-zinc-950/20 border-b border-zinc-900">
+                                <td colSpan={5} className="p-4">
+                                  {isLoadingDetail ? (
+                                    <div className="text-xs text-zinc-400 font-mono py-4 animate-pulse text-center">Loading log details...</div>
+                                  ) : currentDetail && currentDetail.pwa_logs && currentDetail.pwa_logs.length > 0 ? (
+                                    <div className="flex flex-col gap-4">
+                                      {Object.keys(currentDetail).filter(k => k !== 'pwa_logs').length > 0 && (
+                                        <div>
+                                          <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1.5 px-1">Event Details</div>
+                                          {renderJsonHighlighted(Object.fromEntries(Object.entries(currentDetail).filter(([k]) => k !== 'pwa_logs')))}
+                                        </div>
+                                      )}
+                                      <div>
+                                        <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1.5 px-1">Terminal Session Logs</div>
+                                        <div className="bg-[#0D0D0D] rounded-lg p-3.5 border border-zinc-800/80 font-mono text-[11px] text-[#4AF626] overflow-y-auto scrollbar-thin max-h-96 shadow-inner">
+                                          {Array.isArray(currentDetail.pwa_logs)
+                                            ? currentDetail.pwa_logs.map((line: string, i: number) => (
+                                                <div key={i} className="whitespace-pre leading-relaxed">{line}</div>
+                                              ))
+                                            : <div className="whitespace-pre leading-relaxed">{JSON.stringify(currentDetail.pwa_logs, null, 2)}</div>}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div>
+                                      <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1.5 px-1">Event Details</div>
+                                      {renderJsonHighlighted(currentDetail || {})}
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Stacked Card View */}
+                <div className="block md:hidden space-y-3">
                   {sessionLogs.map((log: any) => {
                     const dateStr = new Date(log.created_at).toLocaleString();
                     let badgeClass = "bg-zinc-800 text-zinc-400 border border-zinc-700";
@@ -2459,105 +3092,89 @@ export default function AdminDashboard() {
                     }
                     const isExpanded = expandedLogId === log.id;
                     const hasDetail = Boolean(log.has_detail || log.event_detail);
-                    const currentDetail = logDetailsMap[log.id] || log.event_detail;
                     const isLoadingDetail = loadingDetailId === log.id;
 
                     return (
-                      <Fragment key={log.id}>
-                        <tr 
-                          className={`transition-colors border-b border-zinc-900/50 ${hasDetail ? 'cursor-pointer hover:bg-zinc-800/25' : 'hover:bg-zinc-900/20'} ${isExpanded ? 'bg-zinc-850/40 border-b-0' : ''}`}
-                          onClick={() => hasDetail && handleToggleDetail(log.id)}
-                        >
-                          <td className="py-3 pr-4 font-mono text-zinc-400">{dateStr}</td>
-                          <td className="py-3 pr-4 font-medium text-white">
-                            {log.terminal_name || "System"} 
-                            {currentDetail?.extension_version && (
-                              <span className="text-[9px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-mono font-bold ml-1.5 align-middle">
-                                v{currentDetail.extension_version}
-                              </span>
-                            )}
-                            <span className="text-[10px] text-zinc-500 block">{log.tenant?.name}</span>
-                          </td>
-                          <td className="py-3 pr-4 font-mono text-zinc-400">
-                            {log.bank_name || "N/A"}
-                            <span className="text-[10px] block">{log.account_number_masked || ""}</span>
-                          </td>
-                          <td className="py-3 pr-4">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${badgeClass}`}>
-                              {log.event_type === 'search_not_found' ? 'SEARCH NOT FOUND!' : log.event_type.replace(/_/g, ' ').toUpperCase()}
-                            </span>
-                          </td>
-                          <td className="py-3 pr-4 text-zinc-300 font-medium">
-                            <div className="flex items-center justify-between gap-4">
-                              <span>{log.event_summary}</span>
-                              {hasDetail && (
-                                <span className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 rounded font-semibold whitespace-nowrap">
-                                  {isLoadingDetail ? 'Loading...' : isExpanded ? 'Hide Details' : 'View Details'}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                        {isExpanded && (
-                          <tr className="bg-zinc-950/20 border-b border-zinc-900">
-                            <td colSpan={5} className="p-4">
-                              {isLoadingDetail ? (
-                                <div className="text-xs text-zinc-400 font-mono py-4 animate-pulse text-center">Loading log details...</div>
-                              ) : currentDetail && currentDetail.pwa_logs && currentDetail.pwa_logs.length > 0 ? (
-                                <div className="flex flex-col gap-4">
-                                  {Object.keys(currentDetail).filter(k => k !== 'pwa_logs').length > 0 && (
-                                    <div>
-                                      <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1.5 px-1">Event Details</div>
-                                      {renderJsonHighlighted(Object.fromEntries(Object.entries(currentDetail).filter(([k]) => k !== 'pwa_logs')))}
-                                    </div>
-                                  )}
-                                  <div>
-                                    <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1.5 px-1">Terminal Session Logs</div>
-                                    <div className="bg-[#0D0D0D] rounded-lg p-3.5 border border-zinc-800/80 font-mono text-[11px] text-[#4AF626] overflow-y-auto scrollbar-thin max-h-96 shadow-inner">
-                                      {Array.isArray(currentDetail.pwa_logs) 
-                                        ? currentDetail.pwa_logs.map((line: string, i: number) => (
-                                            <div key={i} className="whitespace-pre leading-relaxed">{line}</div>
-                                          ))
-                                        : <div className="whitespace-pre leading-relaxed">{JSON.stringify(currentDetail.pwa_logs, null, 2)}</div>}
-                                    </div>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div>
-                                  <div className="text-[10px] uppercase text-zinc-500 font-bold mb-1.5 px-1">Event Details</div>
-                                  {renderJsonHighlighted(currentDetail || {})}
-                                </div>
-                              )}
-                            </td>
-                          </tr>
+                      <div key={log.id} className="bg-zinc-900/90 border border-zinc-800 rounded-xl p-3.5 shadow-md space-y-2.5 text-xs">
+                        <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-2">
+                          <span className="font-mono text-[10px] text-zinc-400">{dateStr}</span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${badgeClass}`}>
+                            {log.event_type === 'search_not_found' ? 'SEARCH NOT FOUND!' : log.event_type.replace(/_/g, ' ').toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="text-zinc-300 bg-black/40 p-2 rounded-lg border border-zinc-800/50 text-[11px] leading-relaxed">
+                          {log.event_summary}
+                        </div>
+                        {hasDetail && (
+                          <button
+                            onClick={() => handleToggleDetail(log.id)}
+                            className="w-full text-center py-1.5 px-3 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-lg text-xs font-semibold"
+                          >
+                            {isLoadingDetail ? 'Loading Details...' : isExpanded ? 'Hide Details' : 'View Log Details'}
+                          </button>
                         )}
-                      </Fragment>
+                      </div>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
+                </div>
 
-            {/* Pagination Footer */}
-            <div className="flex items-center justify-between border-t border-zinc-800 pt-4 mt-2">
-              <button
-                className="btn btn-outline text-xs px-3 py-1.5"
-                disabled={logsPage === 1}
-                onClick={() => setLogsPage(prev => Math.max(prev - 1, 1))}
-              >
-                Previous
-              </button>
-              <span className="text-xs text-zinc-400 font-mono">
-                Page {logsPage} of {logsTotalPages}
-              </span>
-              <button
-                className="btn btn-outline text-xs px-3 py-1.5"
-                disabled={logsPage === logsTotalPages}
-                onClick={() => setLogsPage(prev => Math.min(prev + 1, logsTotalPages))}
-              >
-                Next
-              </button>
-            </div>
+                {/* Interactive Multi-Option Pagination Controls */}
+                <div className="flex flex-wrap items-center justify-between border-t border-zinc-800 pt-4 mt-2 gap-3 text-xs">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      className="btn btn-outline text-xs px-3 py-1.5 font-bold rounded-lg disabled:opacity-40 cursor-pointer"
+                      disabled={logsPage === 1}
+                      onClick={() => setLogsPage(prev => Math.max(prev - 1, 1))}
+                    >
+                      &larr; Previous
+                    </button>
+
+                    {/* Direct Page Select Dropdown */}
+                    <div className="flex items-center gap-1.5 font-mono text-zinc-400">
+                      <span>Page</span>
+                      <select
+                        value={logsPage}
+                        onChange={(e) => setLogsPage(Number(e.target.value))}
+                        className="bg-zinc-900 border border-zinc-800 text-yellow-400 font-bold font-mono rounded-lg px-2.5 py-1 text-xs outline-none focus:border-yellow-500/50 cursor-pointer"
+                      >
+                        {Array.from({ length: logsTotalPages }, (_, i) => i + 1).map(p => (
+                          <option key={p} value={p}>
+                            {p}
+                          </option>
+                        ))}
+                      </select>
+                      <span>of <strong className="text-zinc-200">{logsTotalPages}</strong></span>
+                    </div>
+
+                    <button
+                      className="btn btn-outline text-xs px-3 py-1.5 font-bold rounded-lg disabled:opacity-40 cursor-pointer"
+                      disabled={logsPage === logsTotalPages}
+                      onClick={() => setLogsPage(prev => Math.min(prev + 1, logsTotalPages))}
+                    >
+                      Next &rarr;
+                    </button>
+                  </div>
+
+                  {/* Direct Jump Input */}
+                  <div className="flex items-center gap-2 font-mono">
+                    <span className="text-zinc-500 text-[11px]">Jump to page:</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={logsTotalPages}
+                      value={logsPage}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        if (!isNaN(val) && val >= 1 && val <= logsTotalPages) {
+                          setLogsPage(val);
+                        }
+                      }}
+                      className="w-16 bg-zinc-900 border border-zinc-800 text-yellow-400 font-mono font-bold text-center rounded-lg px-2 py-1 text-xs focus:border-yellow-500/50 outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -2674,37 +3291,73 @@ export default function AdminDashboard() {
         ) : terminalDebugLogs.length === 0 ? (
           <div className="text-center py-12 text-zinc-500 italic">No terminals have uploaded debug logs yet.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-zinc-800 text-zinc-400 font-semibold">
-                  <th className="pb-3 pr-4">Terminal</th>
-                  <th className="pb-3 pr-4">Tenant</th>
-                  <th className="pb-3 pr-4">Hardware ID</th>
-                  <th className="pb-3 pr-4">Status</th>
-                  <th className="pb-3 pr-4">Runs</th>
-                  <th className="pb-3 pr-4">Last Run</th>
-                  <th className="pb-3"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {terminalDebugLogs.map((t: any) => (
-                  <tr key={t.id} className="border-b border-zinc-800/50 hover:bg-zinc-900/30">
-                    <td className="py-3 pr-4 font-medium text-white">{t.terminal_name}</td>
-                    <td className="py-3 pr-4 text-zinc-400">{t.tenant_name}</td>
-                    <td className="py-3 pr-4 text-zinc-500 font-mono text-[10px]">{t.hardware_id}</td>
-                    <td className="py-3 pr-4">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${t.status === 'active' ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-500/30' : 'bg-zinc-800 text-zinc-400'}`}>{t.status}</span>
-                    </td>
-                    <td className="py-3 pr-4 text-zinc-300 font-mono">{t.log_runs}</td>
-                    <td className="py-3 pr-4 text-zinc-500 text-[10px] font-mono">{t.last_run_at?.replace('T', ' ')?.substring(0, 19) || '—'}</td>
-                    <td className="py-3">
-                      <button onClick={() => fetchTerminalDebugLogDetail(t.id)} className="text-yellow-500 hover:text-yellow-400 text-xs font-bold">View</button>
-                    </td>
+          <div className="space-y-4">
+            {/* Desktop Table View (Large screens) */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-zinc-800 text-zinc-400 font-semibold">
+                    <th className="pb-3 pr-4">Terminal</th>
+                    <th className="pb-3 pr-4">Tenant</th>
+                    <th className="pb-3 pr-4">Hardware ID</th>
+                    <th className="pb-3 pr-4">Status</th>
+                    <th className="pb-3 pr-4">Runs</th>
+                    <th className="pb-3 pr-4">Last Run</th>
+                    <th className="pb-3"></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {terminalDebugLogs.map((t: any) => (
+                    <tr key={t.id} className="border-b border-zinc-800/50 hover:bg-zinc-900/30">
+                      <td className="py-3 pr-4 font-medium text-white">{t.terminal_name}</td>
+                      <td className="py-3 pr-4 text-zinc-400">{t.tenant_name}</td>
+                      <td className="py-3 pr-4 text-zinc-500 font-mono text-[10px]">{t.hardware_id}</td>
+                      <td className="py-3 pr-4">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${t.status === 'active' ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-500/30' : 'bg-zinc-800 text-zinc-400'}`}>{t.status}</span>
+                      </td>
+                      <td className="py-3 pr-4 text-zinc-300 font-mono">{t.log_runs}</td>
+                      <td className="py-3 pr-4 text-zinc-500 text-[10px] font-mono">{t.last_run_at?.replace('T', ' ')?.substring(0, 19) || '—'}</td>
+                      <td className="py-3">
+                        <button onClick={() => fetchTerminalDebugLogDetail(t.id)} className="text-yellow-500 hover:text-yellow-400 text-xs font-bold">View</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Stacked Card View (Zero Horizontal Scroll on Small Screens) */}
+            <div className="block md:hidden space-y-3">
+              {terminalDebugLogs.map((t: any) => (
+                <div key={t.id} className="bg-zinc-900/90 border border-zinc-800 rounded-xl p-3.5 shadow-md space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-2">
+                    <div className="font-bold text-white text-sm flex items-center gap-1.5">
+                      <Terminal size={14} className="text-yellow-500 shrink-0" />
+                      <span>{t.terminal_name}</span>
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${t.status === 'active' ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-500/30' : 'bg-zinc-800 text-zinc-400'}`}>
+                      {t.status}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1 font-mono text-[11px]">
+                    <div className="text-zinc-300"><span className="text-zinc-500 font-sans">Tenant:</span> {t.tenant_name}</div>
+                    <div className="text-zinc-400 text-[10px] break-all"><span className="text-zinc-500 font-sans">HW ID:</span> {t.hardware_id}</div>
+                    <div className="flex justify-between text-zinc-400 text-[10px] pt-1">
+                      <span>Runs: <strong className="text-white">{t.log_runs}</strong></span>
+                      <span>Last: <strong className="text-zinc-300">{t.last_run_at?.replace('T', ' ')?.substring(0, 16) || '—'}</strong></span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => fetchTerminalDebugLogDetail(t.id)}
+                    className="w-full text-center py-2 px-3 bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 rounded-lg text-xs font-bold hover:bg-yellow-500/20 transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <Terminal size={13} /> View Terminal Debug Logs
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -2829,9 +3482,10 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Overview Companies Table */}
-        <div className="glass-panel p-5 rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
-          <div className="overflow-x-auto">
+        {/* Overview Companies Container */}
+        <div className="glass-panel p-3 sm:p-5 rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
+          {/* Desktop Table View (Large screens) */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="border-b border-white/10 text-zinc-400 uppercase tracking-wider font-semibold text-[10px]">
@@ -2992,6 +3646,117 @@ export default function AdminDashboard() {
               </tbody>
             </table>
           </div>
+
+          {/* Mobile Stacked Card View (Zero Horizontal Scroll on Small Screens) */}
+          <div className="block md:hidden space-y-3">
+            {sortedOverview.length === 0 ? (
+              <div className="py-8 text-center text-zinc-500 italic text-xs">
+                No registered companies found.
+              </div>
+            ) : (
+              sortedOverview.map((company: any) => {
+                const adminUser = company.users?.find((u: any) => u.role === 'company_admin') || company.users?.[0];
+                const isPending = company.status === 'pending';
+                const hasExpiry = !!company.license_expires_at;
+                const expiryTime = hasExpiry ? new Date(company.license_expires_at).getTime() : Infinity;
+                const daysRemaining = hasExpiry ? Math.ceil((expiryTime - Date.now()) / (1000 * 3600 * 24)) : null;
+                const isExpired = daysRemaining !== null && daysRemaining < 0;
+                const isExpiringSoon = daysRemaining !== null && daysRemaining >= 0 && daysRemaining <= 7;
+
+                return (
+                  <div 
+                    key={company.id} 
+                    className={`p-3.5 rounded-xl border transition-all text-xs space-y-3 ${
+                      isPending ? 'bg-amber-500/10 border-amber-500/30' : 'bg-zinc-900/90 border-zinc-800'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2 border-b border-zinc-800/80 pb-2">
+                      <div>
+                        <div className="font-bold text-white text-sm flex items-center gap-2">
+                          <span>{company.name}</span>
+                          <span className="text-[10px] text-zinc-500 font-mono font-normal">#{company.id}</span>
+                        </div>
+                        <div className="text-[11px] text-zinc-400 mt-0.5 font-mono">
+                          <div>{adminUser?.email || 'No admin email'}</div>
+                          {adminUser?.phone_number && <div className="text-zinc-500 text-[10px]">{adminUser.phone_number}</div>}
+                        </div>
+                      </div>
+                      <div>
+                        {isPending ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-bold animate-pulse">
+                            <Clock size={11} /> PENDING
+                          </span>
+                        ) : company.status === 'active' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-semibold">
+                            <CheckCircle2 size={11} /> Active
+                          </span>
+                        ) : company.status === 'suspended' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-xl bg-red-500/15 text-red-400 border border-red-500/30 text-[10px] font-semibold">
+                            Suspended
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-xl bg-zinc-800 text-zinc-400 border border-zinc-700 text-[10px] font-semibold">
+                            {company.status}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div className="bg-black/40 p-2 rounded-lg border border-zinc-800/40">
+                        <span className="text-zinc-500 text-[10px] block uppercase font-bold">Verifications</span>
+                        <span className="font-mono text-zinc-200 font-bold text-xs flex items-center gap-1 mt-0.5">
+                          <CheckCircle2 size={12} className="text-emerald-400" />
+                          {company.verifications_count ?? company.verifications_used ?? 0}
+                          {company.custom_verifications_limit ? `/ ${company.custom_verifications_limit}` : ''}
+                        </span>
+                      </div>
+
+                      <div className="bg-black/40 p-2 rounded-lg border border-zinc-800/40">
+                        <span className="text-zinc-500 text-[10px] block uppercase font-bold">Plan</span>
+                        <span className="font-semibold text-zinc-200 text-xs block mt-0.5 font-mono uppercase">
+                          {company.subscription_tier || 'free'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] bg-black/40 p-2 rounded-lg border border-zinc-800/50">
+                      <span className="text-zinc-400 font-medium">Plan Expiry:</span>
+                      {isPending ? (
+                        <span className="text-amber-400 font-semibold italic text-[11px]">Awaiting Approval</span>
+                      ) : isExpired ? (
+                        <span className="inline-flex items-center gap-1 text-red-400 font-bold bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded text-[10px]">
+                          <AlertTriangle size={11} /> Expired {Math.abs(daysRemaining!)}d ago
+                        </span>
+                      ) : isExpiringSoon ? (
+                        <span className="inline-flex items-center gap-1 text-yellow-400 font-bold bg-yellow-500/10 border border-yellow-500/20 px-2 py-0.5 rounded text-[10px]">
+                          <Clock size={11} /> Expires in {daysRemaining}d
+                        </span>
+                      ) : hasExpiry ? (
+                        <span className="text-zinc-300 font-mono text-[11px]">
+                          {new Date(company.license_expires_at).toLocaleDateString()}
+                        </span>
+                      ) : (
+                        <span className="text-zinc-500 italic text-[11px]">No Expiry Set</span>
+                      )}
+                    </div>
+
+                    <div className="pt-1 text-right">
+                      <button
+                        onClick={() => {
+                          setSingleCompanyFilterId(company.id);
+                          setActiveTab('companies');
+                        }}
+                        className="w-full text-center py-2 px-3 bg-yellow-500/10 text-yellow-500 border border-yellow-500/30 rounded-lg text-xs font-bold hover:bg-yellow-500/20 transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <Edit size={13} /> Manage Company & Settings
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       </div>
     );
@@ -3098,8 +3863,8 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Navigation Tabs (Swipeable Horizontal Pill Bar on Mobile, Full Tab Bar on Desktop) */}
-        <div className="flex border-b border-zinc-800 mb-6 overflow-x-auto whitespace-nowrap scrollbar-none gap-1.5 pb-2">
+        {/* Navigation Tabs (Responsive: Mobile Dropdown on < md, Clean Flex Wrap Row on Desktop without Scrollbar) */}
+        <div className="hidden md:flex flex-wrap border-b border-zinc-800 mb-6 gap-1.5 pb-2">
           <button
             onClick={() => setActiveTab('overview')}
             className={`px-3.5 py-2 text-xs md:text-sm font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 relative ${

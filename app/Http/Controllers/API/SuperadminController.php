@@ -201,7 +201,184 @@ class SuperadminController extends Controller
         $logs = $query->paginate($request->input('per_page', 50));
 
         $response = $logs->toArray();
-        $response['active_terminals'] = Terminal::where('status', 'active')->count();
+
+        // 1. Calculate Telemetry Stats
+        $now = \Carbon\Carbon::now();
+        $twentyFourHoursAgo = $now->copy()->subHours(24);
+        $thirtyDaysAgo = $now->copy()->subDays(30);
+
+        $totalTerminals = Terminal::count();
+        $activeTerminals = Terminal::where('status', 'active')->count();
+
+        // Total requests past 24h
+        $totalLogs24h = SessionActivityLog::where('created_at', '>=', $twentyFourHoursAgo)->count();
+
+        // Requests per hour (past 24h)
+        $hourlyData = SessionActivityLog::where('created_at', '>=', $twentyFourHoursAgo)
+            ->select(\Illuminate\Support\Facades\DB::raw("DATE_FORMAT(created_at, '%Y-%m-%d %H:00:00') as hour"), \Illuminate\Support\Facades\DB::raw('count(*) as count'))
+            ->groupBy('hour')
+            ->orderBy('hour', 'asc')
+            ->pluck('count', 'hour')
+            ->toArray();
+
+        // Build filled 24-hour spectrum
+        $hourlySpectrum = [];
+        for ($i = 23; $i >= 0; $i--) {
+            $hKey = $now->copy()->subHours($i)->format('Y-m-d H:00:00');
+            $hLabel = $now->copy()->subHours($i)->format('H:00');
+            $hourlySpectrum[] = [
+                'hour' => $hLabel,
+                'count' => isset($hourlyData[$hKey]) ? (int)$hourlyData[$hKey] : 0,
+            ];
+        }
+
+        // Success / Error ratios past 24h
+        $failed24h = SessionActivityLog::where('created_at', '>=', $twentyFourHoursAgo)
+            ->whereIn('event_type', ['fetch_request_failed', 'session_login_failed', 'session_heartbeat_lost'])
+            ->count();
+        $success24h = SessionActivityLog::where('created_at', '>=', $twentyFourHoursAgo)
+            ->whereIn('event_type', ['fetch_request_fulfilled', 'session_login_success', 'session_claimed'])
+            ->count();
+
+        $errorRatio24h = $totalLogs24h > 0 ? round(($failed24h / $totalLogs24h) * 100, 1) : 0.0;
+        $totalEvaluated24h = $success24h + $failed24h;
+        $successRateDaily = $totalEvaluated24h > 0 ? round(($success24h / $totalEvaluated24h) * 100, 1) : 100.0;
+
+        // Past 30 days success rate
+        $failed30d = SessionActivityLog::where('created_at', '>=', $thirtyDaysAgo)
+            ->whereIn('event_type', ['fetch_request_failed', 'session_login_failed', 'session_heartbeat_lost'])
+            ->count();
+        $success30d = SessionActivityLog::where('created_at', '>=', $thirtyDaysAgo)
+            ->whereIn('event_type', ['fetch_request_fulfilled', 'session_login_success', 'session_claimed'])
+            ->count();
+        $totalEvaluated30d = $success30d + $failed30d;
+        $successRateMonthly = $totalEvaluated30d > 0 ? round(($success30d / $totalEvaluated30d) * 100, 1) : 100.0;
+
+        // Terminal Throughput (requests per terminal in last 24h)
+        $terminalThroughput = SessionActivityLog::where('created_at', '>=', $twentyFourHoursAgo)
+            ->select('terminal_name', \Illuminate\Support\Facades\DB::raw('count(*) as count'))
+            ->groupBy('terminal_name')
+            ->orderBy('count', 'desc')
+            ->take(6)
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'name' => $item->terminal_name ?: 'System',
+                    'count' => (int)$item->count,
+                ];
+            });
+
+        // 2. Build Grouped Session Request Flows (Last 10 3-step request sessions)
+        $rawGroupLogs = SessionActivityLog::with(['tenant', 'terminal'])
+            ->select([
+                'id', 'tenant_id', 'terminal_id', 'terminal_name', 'bank_name', 
+                'account_number_masked', 'event_type', 'event_summary', 'created_at',
+                \Illuminate\Support\Facades\DB::raw('CASE WHEN event_detail IS NOT NULL THEN 1 ELSE 0 END as has_detail')
+            ])
+            ->orderBy('created_at', 'desc')
+            ->take(60)
+            ->get();
+
+        $groupedFlows = [];
+        $usedIds = [];
+
+        foreach ($rawGroupLogs as $log) {
+            if (in_array($log->id, $usedIds)) continue;
+
+            // Look for correlated logs within 60s window for same terminal
+            $logTime = \Carbon\Carbon::parse($log->created_at);
+            $cluster = $rawGroupLogs->filter(function ($item) use ($log, $logTime, $usedIds) {
+                if (in_array($item->id, $usedIds)) return false;
+                if ($item->terminal_id !== $log->terminal_id && $item->terminal_name !== $log->terminal_name) return false;
+                $itemTime = \Carbon\Carbon::parse($item->created_at);
+                return abs($logTime->diffInSeconds($itemTime)) <= 60;
+            })->sortBy('created_at')->values();
+
+            if ($cluster->count() > 0) {
+                foreach ($cluster as $cItem) {
+                    $usedIds[] = $cItem->id;
+                }
+
+                $stepSubmitted = $cluster->first(function ($c) {
+                    return in_array($c->event_type, ['fetch_request_submitted', 'session_login_started']);
+                });
+                $stepDebug = $cluster->first(function ($c) {
+                    return $c->event_type === 'pwa_debug_logs';
+                });
+                $stepResult = $cluster->first(function ($c) {
+                    return in_array($c->event_type, ['fetch_request_fulfilled', 'fetch_request_failed', 'session_login_success', 'session_login_failed', 'search_not_found']);
+                });
+
+                $leadLog = $stepResult ?: ($stepSubmitted ?: $cluster->first());
+                $firstLog = $cluster->first();
+                $lastLog = $cluster->last();
+                $durationSec = round(abs(\Carbon\Carbon::parse($lastLog->created_at)->diffInMilliseconds(\Carbon\Carbon::parse($firstLog->created_at))) / 1000, 2);
+
+                $status = 'success';
+                if ($leadLog->event_type === 'fetch_request_failed' || $leadLog->event_type === 'session_login_failed') {
+                    $status = 'failed';
+                } elseif ($leadLog->event_type === 'search_not_found') {
+                    $status = 'not_found';
+                } elseif ($stepSubmitted && !$stepResult) {
+                    $status = 'pending';
+                }
+
+                $groupedFlows[] = [
+                    'session_id' => 'flow_' . $leadLog->id,
+                    'lead_id' => $leadLog->id,
+                    'terminal_name' => $leadLog->terminal_name ?: ($firstLog->terminal_name ?: 'System'),
+                    'tenant_name' => $leadLog->tenant ? $leadLog->tenant->name : 'N/A',
+                    'bank_name' => $leadLog->bank_name ?: 'Bank API',
+                    'account_number_masked' => $leadLog->account_number_masked ?: '',
+                    'status' => $status,
+                    'event_type' => $leadLog->event_type,
+                    'summary' => $leadLog->event_summary ?: $firstLog->event_summary,
+                    'created_at' => $firstLog->created_at,
+                    'duration' => $durationSec > 0 ? $durationSec . 's' : '< 0.1s',
+                    'steps_count' => $cluster->count(),
+                    'steps' => [
+                        'submitted' => $stepSubmitted ? [
+                            'id' => $stepSubmitted->id,
+                            'event_type' => $stepSubmitted->event_type,
+                            'summary' => $stepSubmitted->event_summary,
+                            'created_at' => $stepSubmitted->created_at,
+                            'has_detail' => (bool)$stepSubmitted->has_detail,
+                        ] : null,
+                        'debug_logs' => $stepDebug ? [
+                            'id' => $stepDebug->id,
+                            'event_type' => $stepDebug->event_type,
+                            'summary' => $stepDebug->event_summary,
+                            'created_at' => $stepDebug->created_at,
+                            'has_detail' => (bool)$stepDebug->has_detail,
+                        ] : null,
+                        'result' => $stepResult ? [
+                            'id' => $stepResult->id,
+                            'event_type' => $stepResult->event_type,
+                            'summary' => $stepResult->event_summary,
+                            'created_at' => $stepResult->created_at,
+                            'has_detail' => (bool)$stepResult->has_detail,
+                        ] : null,
+                    ],
+                ];
+
+                if (count($groupedFlows) >= 10) break;
+            }
+        }
+
+        $response['telemetry'] = [
+            'total_terminals' => $totalTerminals,
+            'active_terminals' => $activeTerminals,
+            'total_logs_24h' => $totalLogs24h,
+            'rph_current' => count($hourlySpectrum) > 0 ? end($hourlySpectrum)['count'] : 0,
+            'hourly_spectrum' => $hourlySpectrum,
+            'error_ratio_24h' => $errorRatio24h,
+            'success_rate_daily' => $successRateDaily,
+            'success_rate_monthly' => $successRateMonthly,
+            'terminal_throughput' => $terminalThroughput,
+            'grouped_flows' => $groupedFlows,
+        ];
+
+        $response['active_terminals'] = $activeTerminals;
 
         return response()->json($response);
     }
