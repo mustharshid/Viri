@@ -222,6 +222,7 @@ Route::post('/verify-terminal', function (Request $request) {
         'poll_interval_requesting' => $requestingInterval,
         'poll_interval_idle' => $idleInterval,
         'debug_log_mib_html' => (bool) ($settings['debug_log_mib_html'] ?? false),
+        'debug_api_payloads' => (bool) ($settings['debug_api_payloads'] ?? $settings['debug_log_mib_html'] ?? false),
         'bml_login_procedure' => 'api',
         'mib_login_procedure' => 'api',
     ];
@@ -345,6 +346,8 @@ Route::post('/verify-terminal', function (Request $request) {
             'show_vbtl' => (bool) ($terminalPermissions['show_vbtl'] ?? false),
             'sales_claiming_enabled' => (bool) ($terminalPermissions['sales_claiming_enabled'] ?? true),
             'show_sale_reference_popover' => (bool) ($terminalPermissions['show_sale_reference_popover'] ?? false),
+            'bml_combined_ledger' => (bool) (($tenantFeatures['bml_combined_ledger'] ?? ! $isFreeOr499) && ($terminalPermissions['bml_combined_ledger'] ?? false)),
+            'bml_combined_ledger_allowed' => (bool) ($tenantFeatures['bml_combined_ledger'] ?? ! $isFreeOr499),
             'shift_claim_report_enabled' => true,
             'recent_tx_limit' => (function () use ($tenantFeatures) {
                 $hasFeature = (bool) ($tenantFeatures['custom_recent_tx_limit'] ?? false);

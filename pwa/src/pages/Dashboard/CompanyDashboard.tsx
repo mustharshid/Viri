@@ -67,7 +67,7 @@ const DeleteConfirmModal = ({ isOpen, onClose, onConfirm, title, message, itemNa
 };
 
 export default function CompanyDashboard() {
-  const LATEST_EXTENSION_VERSION = "1.2.95";
+  const LATEST_EXTENSION_VERSION = "1.2.96";
   const [theme, toggleTheme] = useTheme();
   const [user, setUser] = useState<any>(null);
   const [terminals, setTerminals] = useState<any[]>([]);
@@ -259,6 +259,7 @@ export default function CompanyDashboard() {
     share_pwa_logs: true,
     sales_claiming_enabled: true,
     show_sale_reference_popover: false,
+    bml_combined_ledger: false,
     shift_claim_report_enabled: true
   });
   const [accountName, setAccountName] = useState('');
@@ -617,6 +618,7 @@ export default function CompanyDashboard() {
         share_pwa_logs: true,
         sales_claiming_enabled: true,
         show_sale_reference_popover: false,
+        bml_combined_ledger: isFeatureDisabledByPlan('bml_combined_ledger') ? false : false,
         shift_claim_report_enabled: true
       });
       setIsTerminalModalOpen(true);
@@ -652,6 +654,7 @@ export default function CompanyDashboard() {
       share_pwa_logs: term.permissions?.share_pwa_logs ?? true,
       sales_claiming_enabled: term.permissions?.sales_claiming_enabled ?? true,
       show_sale_reference_popover: term.permissions?.show_sale_reference_popover ?? false,
+      bml_combined_ledger: isFeatureDisabledByPlan('bml_combined_ledger') ? false : (term.permissions?.bml_combined_ledger ?? false),
       shift_claim_report_enabled: term.permissions?.shift_claim_report_enabled ?? true
     });
     setIsTerminalModalOpen(true);
@@ -3293,6 +3296,30 @@ export default function CompanyDashboard() {
                           )}
                         </label>
                         <p className="text-[10px] text-[var(--text-secondary)] mt-1 leading-relaxed">Allows cashier to generate and export bank account statements.</p>
+                      </div>
+                    </div>
+
+                    {/* BML Combined Ledger & Verification View */}
+                    <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-emerald-500/40 transition-colors">
+                      <label htmlFor="perm-bml-combined" className={`relative inline-flex items-center shrink-0 mt-0.5 select-none ${isFeatureDisabledByPlan('bml_combined_ledger') ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <input 
+                          type="checkbox" 
+                          id="perm-bml-combined"
+                          checked={permissionsForm.bml_combined_ledger} 
+                          onChange={e => setPermissionsForm(prev => ({ ...prev, bml_combined_ledger: e.target.checked }))}
+                          disabled={isFeatureDisabledByPlan('bml_combined_ledger')}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-zinc-700/70 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500 peer-disabled:opacity-40"></div>
+                      </label>
+                      <div>
+                        <label htmlFor="perm-bml-combined" className={`text-xs font-bold flex items-center gap-1.5 ${isFeatureDisabledByPlan('bml_combined_ledger') ? 'text-[var(--text-secondary)] cursor-not-allowed opacity-60' : 'text-[var(--text-primary)] cursor-pointer'}`}>
+                          BML Combined Ledger & Verification View
+                          {isFeatureDisabledByPlan('bml_combined_ledger') && (
+                            <span className="text-[9px] bg-amber-500/15 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono font-bold">DISABLED BY PLAN</span>
+                          )}
+                        </label>
+                        <p className="text-[10px] text-[var(--text-secondary)] mt-1 leading-relaxed">Merges recent verification entries into statement history when viewing BML account ledgers.</p>
                       </div>
                     </div>
                   </div>

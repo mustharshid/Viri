@@ -474,6 +474,9 @@ export default function AdminDashboard() {
 
   const [filterEventType, setFilterEventType] = useState('');
   const [filterCompanyId, setFilterCompanyId] = useState('');
+  const [filterTerminalName, setFilterTerminalName] = useState<string | null>(null);
+  const prevTelemetryRef = useRef<any>(null);
+  const [telemetryDeltas, setTelemetryDeltas] = useState<Record<string, { delta: number; dir: 'up' | 'down' }>>({});
   const [expandedLogId, setExpandedLogId] = useState<number | null>(null);
   
   const [activeTerminalsCount, setActiveTerminalsCount] = useState<number>(0);
@@ -497,7 +500,8 @@ export default function AdminDashboard() {
       reports_enabled: false,
       shift_claim_report_enabled: true,
       statement_enabled: false,
-      custom_recent_tx_limit: false
+      custom_recent_tx_limit: false,
+      bml_combined_ledger: false
     }
   });
 
@@ -564,7 +568,26 @@ export default function AdminDashboard() {
         setSessionLogs(data.data || []);
         setLogsTotalPages(data.last_page || 1);
         if (data.active_terminals !== undefined) setActiveTerminalsCount(data.active_terminals);
-        if (data.telemetry) setSessionTelemetry(data.telemetry);
+        if (data.telemetry) {
+          if (prevTelemetryRef.current) {
+            const prev = prevTelemetryRef.current;
+            const deltas: Record<string, { delta: number; dir: 'up' | 'down' }> = {};
+            ['active_terminals', 'rph_current', 'error_ratio_24h', 'success_rate_daily', 'current_hour_count'].forEach(key => {
+              const pVal = prev[key] ?? 0;
+              const nVal = data.telemetry[key] ?? 0;
+              const diff = Math.round((nVal - pVal) * 10) / 10;
+              if (diff !== 0) {
+                deltas[key] = { delta: Math.abs(diff), dir: diff > 0 ? 'up' : 'down' };
+              }
+            });
+            if (Object.keys(deltas).length > 0) {
+              setTelemetryDeltas(deltas);
+              setTimeout(() => setTelemetryDeltas({}), 8000);
+            }
+          }
+          prevTelemetryRef.current = data.telemetry;
+          setSessionTelemetry(data.telemetry);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -932,7 +955,8 @@ export default function AdminDashboard() {
             reports_enabled: false,
             shift_claim_report_enabled: true,
             statement_enabled: false,
-            custom_recent_tx_limit: false
+            custom_recent_tx_limit: false,
+            bml_combined_ledger: false
           }
         });
         fetchData();
@@ -1326,6 +1350,7 @@ export default function AdminDashboard() {
                 { key: 'reports_enabled', label: 'Reports & Analytics' },
                 { key: 'shift_claim_report_enabled', label: 'Shift & Claim Report', required: true },
                 { key: 'statement_enabled', label: 'Bank Statements Generator' },
+                { key: 'bml_combined_ledger', label: 'BML Combined Ledger & Verification View' },
                 { key: 'custom_recent_tx_limit', label: 'Configurable Recent Tx Count' }
               ].map(f => {
                 const currentFeatures = draft.features !== undefined ? draft.features : (company.features || {});
@@ -1550,6 +1575,7 @@ export default function AdminDashboard() {
                   { key: 'reports_enabled', label: 'Reports & Analytics' },
                   { key: 'shift_claim_report_enabled', label: 'Shift & Claim Report', required: true },
                   { key: 'statement_enabled', label: 'Bank Statements Generator' },
+                  { key: 'bml_combined_ledger', label: 'BML Combined Ledger & Verification View' },
                   { key: 'custom_recent_tx_limit', label: 'Configurable Recent Tx Count' }
                 ].map(f => {
                   const isChecked = (f as any).required ? true : ((planForm.features as any)[f.key] ?? false);
@@ -1610,7 +1636,8 @@ export default function AdminDashboard() {
                         reports_enabled: false,
                         shift_claim_report_enabled: true,
                         statement_enabled: false,
-                        custom_recent_tx_limit: false
+                        custom_recent_tx_limit: false,
+                        bml_combined_ledger: false
                       }
                     });
                   }}
@@ -1706,6 +1733,7 @@ export default function AdminDashboard() {
                         reports_enabled: plan.features?.reports_enabled ?? false,
                         shift_claim_report_enabled: plan.features?.shift_claim_report_enabled ?? true,
                         statement_enabled: plan.features?.statement_enabled ?? false,
+                        bml_combined_ledger: plan.features?.bml_combined_ledger ?? false,
                         custom_recent_tx_limit: plan.features?.custom_recent_tx_limit ?? false
                       }
                     });
@@ -2496,30 +2524,6 @@ export default function AdminDashboard() {
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
-            {/* View Mode Toggle Button Group */}
-            <div className="bg-zinc-900 border border-zinc-800 p-1 rounded-xl flex items-center gap-1">
-              <button
-                onClick={() => setSessionLogViewMode('grouped')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  sessionLogViewMode === 'grouped'
-                    ? 'bg-yellow-500 text-black shadow-md'
-                    : 'text-zinc-400 hover:text-white'
-                }`}
-              >
-                <Layers size={13} /> Grouped Flows
-              </button>
-              <button
-                onClick={() => setSessionLogViewMode('raw')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  sessionLogViewMode === 'raw'
-                    ? 'bg-yellow-500 text-black shadow-md'
-                    : 'text-zinc-400 hover:text-white'
-                }`}
-              >
-                <ClipboardList size={13} /> Raw Stream
-              </button>
-            </div>
-
             {/* Refresh Button & Countdown */}
             <button
               onClick={() => {
@@ -2548,14 +2552,21 @@ export default function AdminDashboard() {
           {/* Card 1: Active Terminals Gauge */}
           <div className="bg-zinc-900/80 border border-zinc-800/80 p-5 rounded-2xl shadow-xl flex items-center justify-between relative overflow-hidden group hover:border-emerald-500/30 transition-all">
             <div className="space-y-1 z-10">
-              <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">Active Terminals</span>
+              <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                Active Terminals (15m)
+                {telemetryDeltas.active_terminals && (
+                  <span className="animate-pulse bg-emerald-500/20 text-emerald-400 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border border-emerald-500/40">
+                    {telemetryDeltas.active_terminals.dir === 'up' ? '+' : '-'}{telemetryDeltas.active_terminals.delta}
+                  </span>
+                )}
+              </span>
               <div className="text-2xl font-extrabold font-mono text-white flex items-baseline gap-1.5">
                 <span>{telemetry.active_terminals ?? activeTerminalsCount}</span>
                 <span className="text-xs text-zinc-500 font-normal">/ {telemetry.total_terminals ?? activeTerminalsCount} total</span>
               </div>
               <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium pt-1">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span>Heartbeat Active</span>
+                <span>Heartbeat Active (15m)</span>
               </div>
             </div>
             {/* Donut Radial Ring */}
@@ -2581,7 +2592,14 @@ export default function AdminDashboard() {
           {/* Card 2: Requests Per Hour (RPH) & Sparkline */}
           <div className="bg-zinc-900/80 border border-zinc-800/80 p-5 rounded-2xl shadow-xl flex flex-col justify-between relative overflow-hidden group hover:border-yellow-500/30 transition-all">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Requests / Hour</span>
+              <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+                Requests / Hour
+                {telemetryDeltas.rph_current && (
+                  <span className="animate-pulse bg-yellow-500/20 text-yellow-400 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border border-yellow-500/40">
+                    {telemetryDeltas.rph_current.dir === 'up' ? '+' : '-'}{telemetryDeltas.rph_current.delta}
+                  </span>
+                )}
+              </span>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">Live RPH</span>
             </div>
             <div className="my-2">
@@ -2617,10 +2635,25 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* Card 3: Error Ratio (24h) */}
-          <div className="bg-zinc-900/80 border border-zinc-800/80 p-5 rounded-2xl shadow-xl flex items-center justify-between relative overflow-hidden group hover:border-red-500/30 transition-all">
+          {/* Card 3: Error Ratio (24h) - Clickable to filter Raw Activity Log Stream by Request Failed */}
+          <div
+            onClick={() => {
+              setSessionLogViewMode('raw');
+              setFilterEventType('fetch_request_failed');
+              document.getElementById('session-activity-stream')?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="bg-zinc-900/80 border border-zinc-800/80 p-5 rounded-2xl shadow-xl flex items-center justify-between relative overflow-hidden group hover:border-red-500/50 cursor-pointer transition-all"
+            title="Click to view Raw Activity Log Stream filtered by Request Failed"
+          >
             <div className="space-y-1">
-              <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">Error Ratio (24h)</span>
+              <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+                Error Ratio (24h)
+                {telemetryDeltas.error_ratio_24h && (
+                  <span className="animate-pulse bg-rose-500/20 text-rose-400 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border border-rose-500/40">
+                    {telemetryDeltas.error_ratio_24h.dir === 'up' ? '+' : '-'}{telemetryDeltas.error_ratio_24h.delta}%
+                  </span>
+                )}
+              </span>
               <div className="text-2xl font-extrabold font-mono text-white flex items-baseline gap-1">
                 <span>{telemetry.error_ratio_24h ?? 0.0}%</span>
               </div>
@@ -2640,7 +2673,7 @@ export default function AdminDashboard() {
                 )}
               </div>
             </div>
-            <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center shrink-0">
+            <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
               <Activity size={22} />
             </div>
           </div>
@@ -2648,7 +2681,14 @@ export default function AdminDashboard() {
           {/* Card 4: Daily & Monthly Success Rates */}
           <div className="bg-zinc-900/80 border border-zinc-800/80 p-5 rounded-2xl shadow-xl flex items-center justify-between relative overflow-hidden group hover:border-cyan-500/30 transition-all">
             <div className="space-y-1">
-              <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">Success Rate</span>
+              <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+                Success Rate
+                {telemetryDeltas.success_rate_daily && (
+                  <span className="animate-pulse bg-emerald-500/20 text-emerald-400 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border border-emerald-500/40">
+                    {telemetryDeltas.success_rate_daily.dir === 'up' ? '+' : '-'}{telemetryDeltas.success_rate_daily.delta}%
+                  </span>
+                )}
+              </span>
               <div className="text-2xl font-extrabold font-mono text-emerald-400">
                 {telemetry.success_rate_daily ?? 100}% <span className="text-xs font-sans text-zinc-500 font-normal">Daily</span>
               </div>
@@ -2660,6 +2700,150 @@ export default function AdminDashboard() {
               <CheckCircle2 size={22} />
             </div>
           </div>
+        </div>
+
+        {/* Bank API Reply Health (Combined BML vs MIB Latency & Health Graph) */}
+        <div className="bg-zinc-900/80 border border-zinc-800 p-5 rounded-2xl shadow-xl space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-zinc-800 flex-wrap gap-3">
+            <div>
+              <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                <Activity size={16} className="text-emerald-400" />
+                <span>Bank API Reply Health (BML vs MIB)</span>
+              </h4>
+              <p className="text-xs text-zinc-400 mt-0.5">Combined 7-day latency & reply health comparison calculated from debug trace timestamps (Fetch Request Submitted &rarr; Fulfilled).</p>
+            </div>
+            
+            {/* Stat Pills for BML & MIB */}
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* BML Pill */}
+              {(() => {
+                const bml = telemetry.bank_health?.bml || { total: 0, success_rate: 100, avg_latency: 0, status: 'healthy' };
+                let badgeStyle = "bg-emerald-500/15 text-emerald-400 border-emerald-500/30";
+                if (bml.status === 'critical') badgeStyle = "bg-red-500/15 text-red-400 border-red-500/30 animate-pulse";
+                else if (bml.status === 'degraded') badgeStyle = "bg-amber-500/15 text-amber-400 border-amber-500/30";
+
+                return (
+                  <div className="bg-zinc-950/80 border border-zinc-800 px-3 py-1.5 rounded-xl flex items-center gap-2 text-xs">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
+                    <span className="font-bold text-white">BML:</span>
+                    <span className="font-mono text-emerald-400 font-extrabold">{bml.avg_latency}s avg</span>
+                    <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded border ${badgeStyle} uppercase`}>
+                      {bml.status}
+                    </span>
+                  </div>
+                );
+              })()}
+
+              {/* MIB Pill */}
+              {(() => {
+                const mib = telemetry.bank_health?.mib || { total: 0, success_rate: 100, avg_latency: 0, status: 'healthy' };
+                let badgeStyle = "bg-emerald-500/15 text-emerald-400 border-emerald-500/30";
+                if (mib.status === 'critical') badgeStyle = "bg-red-500/15 text-red-400 border-red-500/30 animate-pulse";
+                else if (mib.status === 'degraded') badgeStyle = "bg-amber-500/15 text-amber-400 border-amber-500/30";
+
+                return (
+                  <div className="bg-zinc-950/80 border border-zinc-800 px-3 py-1.5 rounded-xl flex items-center gap-2 text-xs">
+                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shrink-0"></span>
+                    <span className="font-bold text-white">MIB:</span>
+                    <span className="font-mono text-cyan-400 font-extrabold">{mib.avg_latency}s avg</span>
+                    <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded border ${badgeStyle} uppercase`}>
+                      {mib.status}
+                    </span>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+
+          {/* Combined Dual Line SVG Graph for BML Latency vs MIB Latency */}
+          {(() => {
+            const trends = telemetry.bank_health?.trends || [];
+            if (trends.length === 0) {
+              return (
+                <div className="py-6 text-center text-xs text-zinc-500 italic bg-black/20 rounded-xl border border-zinc-800/60">
+                  No bank latency trends recorded yet.
+                </div>
+              );
+            }
+
+            const maxLat = Math.max(1, ...trends.map((t: any) => Math.max(t.bml_latency || 0, t.mib_latency || 0)));
+
+            return (
+              <div className="h-44 w-full relative pt-2">
+                <svg className="w-full h-full overflow-visible" viewBox="0 0 600 100" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id="bmlLatGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#10b981" stopOpacity="0.3" />
+                      <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
+                    </linearGradient>
+                  </defs>
+
+                  {/* BML Area Fill */}
+                  <polygon
+                    fill="url(#bmlLatGrad)"
+                    points={`0,100 ${trends.map((t: any, idx: number) => {
+                      const x = (idx / Math.max(1, trends.length - 1)) * 600;
+                      const y = 100 - ((t.bml_latency || 0) / maxLat) * 85;
+                      return `${x},${y}`;
+                    }).join(' ')} 600,100`}
+                  />
+
+                  {/* BML Latency Line (Emerald Solid) */}
+                  <polyline
+                    fill="none"
+                    stroke="#10b981"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    points={trends.map((t: any, idx: number) => {
+                      const x = (idx / Math.max(1, trends.length - 1)) * 600;
+                      const y = 100 - ((t.bml_latency || 0) / maxLat) * 85;
+                      return `${x},${y}`;
+                    }).join(' ')}
+                  />
+
+                  {/* MIB Latency Line (Cyan Dashed) */}
+                  <polyline
+                    fill="none"
+                    stroke="#06b6d4"
+                    strokeWidth="2.5"
+                    strokeDasharray="4 2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    points={trends.map((t: any, idx: number) => {
+                      const x = (idx / Math.max(1, trends.length - 1)) * 600;
+                      const y = 100 - ((t.mib_latency || 0) / maxLat) * 85;
+                      return `${x},${y}`;
+                    }).join(' ')}
+                  />
+
+                  {/* Data Points */}
+                  {trends.map((t: any, idx: number) => {
+                    const x = (idx / Math.max(1, trends.length - 1)) * 600;
+                    const yBml = 100 - ((t.bml_latency || 0) / maxLat) * 85;
+                    const yMib = 100 - ((t.mib_latency || 0) / maxLat) * 85;
+                    return (
+                      <g key={idx} className="group cursor-pointer">
+                        <circle cx={x} cy={yBml} r="3.5" className="fill-emerald-400 stroke-zinc-950 stroke-2 group-hover:r-5 transition-all" />
+                        <circle cx={x} cy={yMib} r="3.5" className="fill-cyan-400 stroke-zinc-950 stroke-2 group-hover:r-5 transition-all" />
+                      </g>
+                    );
+                  })}
+                </svg>
+
+                {/* Day Labels below chart */}
+                <div className="flex justify-between items-center pt-2 text-[10px] font-mono text-zinc-400 overflow-x-auto">
+                  {trends.map((t: any, idx: number) => (
+                    <div key={idx} className="text-center shrink-0">
+                      <span className="block font-bold text-zinc-300">{t.day}</span>
+                      <span className="text-[9px] text-emerald-400 font-bold">BML: {t.bml_latency}s</span>
+                      <span className="text-[9px] text-cyan-400 font-bold block">MIB: {t.mib_latency}s</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* 7-Day Weekly Trends (Combined Reliability & Combined Latency Line Graphs) */}
@@ -3088,19 +3272,19 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Current Hour Live API Requests Section (Past 60 Mins - GMT+5) */}
+        {/* Current Hour Active Terminals Breakdown Card (Past 60 Mins - GMT+5) */}
         <div className="bg-zinc-900/80 border border-zinc-800 p-5 rounded-2xl shadow-xl space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-zinc-800 flex-wrap gap-2">
             <div>
               <h4 className="font-bold text-white text-sm flex items-center gap-2">
                 <Zap size={16} className="text-amber-400 animate-pulse" />
-                <span>Current Hour Live API Requests (Past 60 Minutes)</span>
+                <span>Current Hour Active Terminals (Past 60 Minutes)</span>
               </h4>
-              <p className="text-xs text-zinc-400 mt-0.5">Real-time stream of all incoming requests received within the current hour (GMT+5 Maldives Time).</p>
+              <p className="text-xs text-zinc-400 mt-0.5">Last 5 terminals that made API requests in the past hour. Click any terminal card to filter flow cards.</p>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded-lg">
-                {telemetry.current_hour_count ?? 0} Requests (Past 60m)
+                {telemetry.current_hour_count ?? 0} Total Reqs (Past 60m)
               </span>
               <span className="text-xs font-mono text-zinc-400 bg-black/40 border border-zinc-800 px-2.5 py-1 rounded-lg">
                 GMT+5 MVT
@@ -3108,57 +3292,54 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* Requests Feed Grid / List */}
-          {(!telemetry.current_hour_requests || telemetry.current_hour_requests.length === 0) ? (
+          {/* Last 5 Terminals Grid */}
+          {(!telemetry.current_hour_terminals || telemetry.current_hour_terminals.length === 0) ? (
             <div className="py-8 text-center text-xs text-zinc-500 italic bg-black/20 rounded-xl border border-zinc-800/60">
-              No API requests received during the current hour yet.
+              No active terminal requests recorded in the past 60 minutes.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-80 overflow-y-auto pr-1">
-              {telemetry.current_hour_requests.map((item: any) => {
-                let badgeStyle = "bg-emerald-500/15 text-emerald-400 border-emerald-500/30";
-                const evType = item.event_type || '';
-                if (evType.includes('failed')) {
-                  badgeStyle = "bg-red-500/15 text-red-400 border-red-500/30";
-                } else if (evType.includes('submitted')) {
-                  badgeStyle = "bg-blue-500/15 text-blue-400 border-blue-500/30";
-                } else if (evType === 'pwa_debug_logs') {
-                  badgeStyle = "bg-purple-500/15 text-purple-400 border-purple-500/30";
-                }
-
-                let formattedMvtTime = item.time_mvt || '';
-                if (!formattedMvtTime && item.created_at) {
-                  try {
-                    const d = new Date(item.created_at);
-                    if (!isNaN(d.getTime())) {
-                      formattedMvtTime = d.toLocaleTimeString('en-US', { timeZone: 'Indian/Maldives', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                    }
-                  } catch (e) {
-                    formattedMvtTime = '';
-                  }
-                }
-
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+              {telemetry.current_hour_terminals.map((t: any, idx: number) => {
+                const isSelected = filterTerminalName === t.terminal_name;
                 return (
-                  <div key={item.id} className="bg-zinc-950/70 border border-zinc-800/80 hover:border-zinc-700 p-3 rounded-xl flex flex-col justify-between space-y-2 transition-all">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="font-bold text-white text-xs truncate">
-                        <span>{item.terminal_name}</span>
-                        <span className="text-zinc-500 font-mono text-[11px] ml-1">({item.tenant_name})</span>
+                  <div
+                    key={idx}
+                    onClick={() => setFilterTerminalName(prev => prev === t.terminal_name ? null : t.terminal_name)}
+                    className={`p-4 rounded-xl flex flex-col justify-between space-y-3 transition-all cursor-pointer group ${
+                      isSelected
+                        ? 'bg-amber-500/15 border-2 border-amber-500 shadow-xl shadow-amber-500/20'
+                        : 'bg-zinc-950/80 border border-zinc-800/90 hover:border-amber-500/50 hover:bg-zinc-900/80'
+                    }`}
+                    title={`Click to ${isSelected ? 'clear' : 'apply'} terminal filter for Recent Request Flow Cards`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <h5 className="font-bold text-white text-xs truncate" title={t.terminal_name}>{t.terminal_name}</h5>
+                        <span className="text-[11px] text-zinc-400 block font-medium truncate" title={t.tenant_name}>{t.tenant_name}</span>
                       </div>
-                      <span className="text-[10px] font-mono font-bold text-amber-400 shrink-0 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
-                        {formattedMvtTime || item.time_mvt} MVT
+                      <span className="text-[10px] font-mono font-extrabold text-amber-400 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-full shrink-0">
+                        #{idx + 1}
                       </span>
                     </div>
 
-                    <div className="text-[11px] text-zinc-400 font-mono flex items-center justify-between gap-1">
-                      <span className="truncate">{item.bank_name} {item.account_number_masked}</span>
+                    <div className="bg-zinc-900/90 border border-zinc-800/80 p-2.5 rounded-lg text-center group-hover:border-amber-500/30 transition-colors">
+                      <span className="text-2xl font-extrabold text-amber-400 font-mono block leading-tight">{t.count}</span>
+                      <span className="text-[10px] text-zinc-400 font-medium">reqs in past 60m</span>
                     </div>
 
-                    <div className="flex items-center justify-between pt-1 border-t border-zinc-900 text-[10px]">
-                      <span className={`px-2 py-0.5 rounded font-extrabold border ${badgeStyle} uppercase truncate max-w-[180px]`}>
-                        {item.summary}
-                      </span>
-                      <span className="text-zinc-500 font-mono">{item.created_at}</span>
+                    <div className="pt-2 border-t border-zinc-800/80 text-[10px] space-y-1">
+                      <div className="flex justify-between items-center text-zinc-400">
+                        <span>Last Activity:</span>
+                        <strong className="font-mono text-amber-400">{t.last_activity_mvt} MVT</strong>
+                      </div>
+                      {t.last_summary && (
+                        <span className="text-[9px] font-bold text-zinc-300 bg-zinc-800/60 px-1.5 py-0.5 rounded block truncate border border-zinc-700/50 mt-1" title={t.last_summary}>
+                          {t.last_summary}
+                        </span>
+                      )}
+                      <div className="text-[9px] font-mono text-amber-300 font-bold text-center bg-amber-500/10 py-0.5 rounded border border-amber-500/20 mt-1.5">
+                        {isSelected ? '✓ Filter Active (Click to clear)' : 'Click to filter flows'}
+                      </div>
                     </div>
                   </div>
                 );
@@ -3167,30 +3348,66 @@ export default function AdminDashboard() {
           )}
         </div>
 
+        {/* Stream Header Anchor */}
+        <div id="session-activity-stream" className="pt-2"></div>
+
         {/* View Section: Grouped 3-Step Request Flow Cards vs Raw Event Log Stream */}
         {sessionLogViewMode === 'grouped' ? (
           /* SECTION 1: Grouped 3-Step Request Flow Cards (Last 10 Requests) */
           <div className="glass-panel p-6 border border-zinc-800 bg-black/30 rounded-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
-              <div>
-                <h4 className="text-base font-bold text-white flex items-center gap-2">
-                  <Layers size={18} className="text-yellow-500" />
-                  <span>Recent Request Flow Cards (3-Step Sessions)</span>
-                </h4>
-                <p className="text-xs text-zinc-400 mt-0.5">Aggregated 3-step request sessions: (1) Submitted → (2) PWA Debug Log → (3) Fulfilled / Failed.</p>
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800 flex-wrap gap-3">
+              <div className="flex items-center gap-4 flex-wrap">
+                <div>
+                  <h4 className="text-base font-bold text-white flex items-center gap-2">
+                    <Layers size={18} className="text-yellow-500" />
+                    <span>Recent Request Flow Cards (3-Step Sessions)</span>
+                  </h4>
+                  <p className="text-xs text-zinc-400 mt-0.5">Aggregated 3-step request sessions: (1) Submitted &rarr; (2) PWA Debug Log &rarr; (3) Fulfilled / Failed.</p>
+                </div>
+
+                {/* View Mode Toggle Button Group */}
+                <div className="bg-zinc-950 border border-zinc-800 p-1 rounded-xl flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => setSessionLogViewMode('grouped')}
+                    className="px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 bg-yellow-500 text-black shadow-md"
+                  >
+                    <Layers size={13} /> Grouped Flows
+                  </button>
+                  <button
+                    onClick={() => setSessionLogViewMode('raw')}
+                    className="px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 text-zinc-400 hover:text-white"
+                  >
+                    <ClipboardList size={13} /> Raw Stream
+                  </button>
+                </div>
               </div>
-              <span className="text-xs font-mono font-bold text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 px-3 py-1 rounded-xl">
-                Showing {groupedFlows.length} Grouped Sessions
-              </span>
+
+              <div className="flex items-center gap-3 flex-wrap">
+                {filterTerminalName && (
+                  <span className="text-xs font-mono font-bold text-amber-300 bg-amber-500/20 border border-amber-500/40 px-3 py-1 rounded-xl flex items-center gap-2 animate-pulse">
+                    Filtered: {filterTerminalName}
+                    <button onClick={() => setFilterTerminalName(null)} className="hover:text-white font-bold ml-1 text-zinc-400 hover:text-amber-200">✕ Clear</button>
+                  </span>
+                )}
+                <span className="text-xs font-mono font-bold text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 px-3 py-1 rounded-xl">
+                  Showing {
+                    filterTerminalName
+                      ? groupedFlows.filter((f: any) => f.terminal_name === filterTerminalName).length
+                      : groupedFlows.length
+                  } Grouped Sessions
+                </span>
+              </div>
             </div>
 
             {logsLoading ? (
               <div className="text-center py-12 text-zinc-500 font-medium animate-pulse">Loading grouped request flows...</div>
-            ) : groupedFlows.length === 0 ? (
-              <div className="text-center py-12 text-zinc-500 italic">No grouped session request flows available yet.</div>
+            ) : (filterTerminalName ? groupedFlows.filter((f: any) => f.terminal_name === filterTerminalName) : groupedFlows).length === 0 ? (
+              <div className="text-center py-12 text-zinc-500 italic">
+                {filterTerminalName ? `No request flows found for terminal "${filterTerminalName}".` : 'No grouped session request flows available yet.'}
+              </div>
             ) : (
               <div className="space-y-4">
-                {groupedFlows.map((flow: any) => {
+                {(filterTerminalName ? groupedFlows.filter((f: any) => f.terminal_name === filterTerminalName) : groupedFlows).map((flow: any) => {
                   const isExpanded = expandedFlowId === flow.session_id;
                   const activeStepTab = activeFlowStepTabMap[flow.session_id] || 'submitted';
                   const isFailed = flow.status === 'failed';
@@ -3399,10 +3616,28 @@ export default function AdminDashboard() {
           /* SECTION 2: Raw Activity Log Stream (Full Historical List View) */
           <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl text-left space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-              <h4 className="text-base font-bold text-white flex items-center gap-2">
-                <ClipboardList size={18} className="text-yellow-500" />
-                <span>Raw Activity Log Stream</span>
-              </h4>
+              <div className="flex items-center gap-4 flex-wrap">
+                <h4 className="text-base font-bold text-white flex items-center gap-2">
+                  <ClipboardList size={18} className="text-yellow-500" />
+                  <span>Raw Activity Log Stream</span>
+                </h4>
+
+                {/* View Mode Toggle Button Group */}
+                <div className="bg-zinc-950 border border-zinc-800 p-1 rounded-xl flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => setSessionLogViewMode('grouped')}
+                    className="px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 text-zinc-400 hover:text-white"
+                  >
+                    <Layers size={13} /> Grouped Flows
+                  </button>
+                  <button
+                    onClick={() => setSessionLogViewMode('raw')}
+                    className="px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 bg-yellow-500 text-black shadow-md"
+                  >
+                    <ClipboardList size={13} /> Raw Stream
+                  </button>
+                </div>
+              </div>
 
               <div className="flex items-center gap-3 flex-wrap">
                 {/* Company Filter */}

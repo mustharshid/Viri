@@ -896,6 +896,7 @@ function App() {
     realtime_event_poll_interval: 3,
     poll_interval_holder: 1,
     debug_log_mib_html: false,
+    debug_api_payloads: false,
     bml_login_procedure: 'legacy',
     mib_login_procedure: 'legacy'
   });
@@ -911,7 +912,12 @@ function App() {
     recent_tx_limit: 3,
     sales_claiming_enabled: true,
     show_sale_reference_popover: false,
+    bml_combined_ledger: false,
+    bml_combined_ledger_allowed: false,
     shift_claim_report_enabled: true
+  });
+  const [bmlCombinedLedger, setBmlCombinedLedger] = useState<boolean>(() => {
+    return localStorage.getItem('viri_bml_combined_ledger') === 'true';
   });
   const [shouldUploadLogs, setShouldUploadLogs] = useState(true);
   const [creditsExhausted, setCreditsExhausted] = useState(false);
@@ -947,6 +953,9 @@ function App() {
     label: string;
     lastUpdated: string;
     timestamp: number | null;
+    balance?: string;
+    reservedBalance?: string;
+    availableBalance?: string;
   }>>(() => {
     return safeJsonParse(localStorage.getItem('viri_recent_tx_cache'), {});
   });
@@ -1051,26 +1060,11 @@ function App() {
   const [_terminalId, setTerminalId] = useState<number | null>(null);
   const [accountToClear, setAccountToClear] = useState<any | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const LATEST_EXTENSION_VERSION = "1.2.95";
+  const LATEST_EXTENSION_VERSION = "1.2.96";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
-    const bUrl = backendUrl || localStorage.getItem('viri_backend_url') || (typeof window !== 'undefined' ? `${window.location.origin}/api` : '');
-    const accId = parseInt(accountId || selectedAccountId || '0');
-    if (!isNaN(accId) && accId > 0 && bUrl) {
-      fetch(`${bUrl}/terminal/session/log`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hardware_id: hardwareId || localStorage.getItem('viri_hardware_id'),
-          event_type: 'fetch_request_failed',
-          bank_account_id: accId,
-          event_summary: errorMsg,
-          pwa_logs: logsRef.current || [],
-          extension_version: extensionVersion || LATEST_EXTENSION_VERSION
-        })
-      }).catch(e => console.error("Failed to log system error:", e));
-    }
+    logSessionActivity('fetch_request_failed', errorMsg, { error: errorMsg }, accountId);
   };
 
   // (Interval for currentTick removed for performance)
@@ -1333,6 +1327,76 @@ function App() {
     return safeJsonParse(localStorage.getItem('viri_ledger_cache'), {});
   });
 
+  const logSessionActivity = (
+    eventType: string,
+    summary: string,
+    detail: any = {},
+    targetAccountId?: string | number | null
+  ) => {
+    const bUrl = backendUrl || localStorage.getItem('viri_backend_url') || (typeof window !== 'undefined' ? `${window.location.origin}/api` : '');
+    const hId = hardwareId || localStorage.getItem('viri_hardware_id') || '';
+    if (!hId || !bUrl) return;
+
+    const accIdStr = targetAccountId !== undefined && targetAccountId !== null && targetAccountId !== ''
+      ? targetAccountId.toString() 
+      : (selectedAccountId || selectedLedgerAccountId || '');
+    const accIdNum = parseInt(accIdStr, 10);
+    const accountObj = bankAccounts.find(a => a.id.toString() === accIdStr) 
+      || (selectedAccountId && accIdStr === selectedAccountId ? bankAccounts.find(a => a.id.toString() === selectedAccountId) : null) 
+      || (selectedLedgerAccountId && accIdStr === selectedLedgerAccountId ? bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId) : null)
+      || null;
+
+    const isDebugPayloadsEnabled = Boolean(appConfig.debug_api_payloads || appConfig.debug_log_mib_html);
+
+    const screenRes = typeof window !== 'undefined' && window.screen ? `${window.screen.width}x${window.screen.height}` : 'unknown';
+    const windowSize = typeof window !== 'undefined' ? `${window.innerWidth}x${window.innerHeight}` : 'unknown';
+    const extVer = extensionVersion || LATEST_EXTENSION_VERSION;
+
+    const currentBalance = detail.balance || detail.bank_balance 
+      || (accountObj ? (recentTxCache[accountObj.id.toString()]?.balance || ledgerCache[accountObj.id.toString()]?.balance) : null) 
+      || 'Not synced';
+
+    const enrichedDetail: Record<string, any> = {
+      ...detail,
+      screen_resolution: screenRes,
+      window_size: windowSize,
+      account_number: accountObj?.account_number || detail.account_number || null, // UNMASKED as required
+      api_endpoint: `${bUrl}/terminal/session/log`,
+      bank: accountObj?.bank_name || detail.bank || null,
+      bank_balance: currentBalance,
+      extension_version: extVer,
+      user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+      device_pixel_ratio: typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1,
+      online_status: typeof navigator !== 'undefined' ? navigator.onLine : true,
+      hardware_id: hId,
+      terminal_name: localStorage.getItem('viri_terminal_name') || null,
+    };
+
+    if (isDebugPayloadsEnabled) {
+      if (detail.raw_transactions) {
+        enrichedDetail.full_payment_payload = detail.raw_transactions;
+      } else if (detail.response && detail.response.transactions) {
+        enrichedDetail.full_payment_payload = detail.response.transactions;
+      } else if (detail.transactions) {
+        enrichedDetail.full_payment_payload = detail.transactions;
+      }
+    }
+
+    fetch(`${bUrl}/terminal/session/log`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hardware_id: hId,
+        event_type: eventType,
+        bank_account_id: isNaN(accIdNum) || accIdNum <= 0 ? null : accIdNum,
+        event_summary: summary,
+        event_detail: enrichedDetail,
+        extension_version: extVer,
+        pwa_logs: logsRef.current || []
+      })
+    }).catch(e => console.error("Failed to log session activity:", e));
+  };
+
   const [checkedHashes, setCheckedHashes] = useState<Set<string>>(new Set());
 
   // Claimed Deposit Sales & Counter Shift State
@@ -1558,8 +1622,17 @@ function App() {
 
       const data = await res.json();
       if (!res.ok) {
+        logSessionActivity('claim_failed', `Failed to claim sale: ${data.error || 'Unknown error'}`, { transaction_id: txId, amount: rawAmt, error: data.error }, activeAcc?.id?.toString());
         showCustomAlert('Claim Error', data.error || 'Failed to claim transaction', 'error');
       } else {
+        logSessionActivity('sale_claimed', `Sale claimed: ${rawAmt} for transaction ${txId}`, {
+          transaction_id: txId,
+          amount: rawAmt,
+          sale_reference: saleRef || null,
+          notes: notes || null,
+          blaz_number: blazRef || null,
+          reference_number: ftRef || null,
+        }, activeAcc?.id?.toString());
         setClaimPopoverItem(null);
         setJustClaimedTxIds(prev => new Set(prev).add(txId));
 
@@ -1605,12 +1678,14 @@ function App() {
       const data = await res.json();
       if (!res.ok) {
         const errorMsg = data.error || 'Failed to unclaim transaction';
+        logSessionActivity('unclaim_failed', `Failed to unclaim sale: ${errorMsg}`, { transaction_id: txId, error: errorMsg });
         if (unclaimModalTxId) {
           setUnclaimError(errorMsg);
         } else {
           showCustomAlert('Unclaim Failed', errorMsg, 'error');
         }
       } else {
+        logSessionActivity('sale_unclaimed', `Sale unclaimed for transaction ${txId}`, { transaction_id: txId });
         setUnclaimModalTxId(null);
         setUnclaimPinInput('');
         setUnclaimError(null);
@@ -1665,6 +1740,7 @@ function App() {
           });
           const data = await res.json();
           if (res.ok) {
+            logSessionActivity('shift_closed', `Shift #${data.closed_shift?.shift_number || ''} closed & sealed by ${terminalName || 'Cashier'}`, { closed_shift: data.closed_shift, new_shift: data.new_shift });
             showCustomAlert('Shift Closed Successfully', `Shift #${data.closed_shift?.shift_number || ''} closed successfully! Next shift #${data.new_shift?.shift_number || ''} is now open.`, 'success');
             setClaimedSalesList([]);
             setShiftIdFilter('');
@@ -1672,6 +1748,7 @@ function App() {
             await loadClaimedSalesAndShift();
             await loadReports();
           } else {
+            logSessionActivity('shift_close_failed', `Failed to close shift: ${data.error || 'Unknown error'}`, { error: data.error });
             showCustomAlert('Shift Closure Failed', data.error || 'Failed to close shift', 'error');
           }
         } catch (err: any) {
@@ -1759,10 +1836,18 @@ function App() {
       });
 
       if (res.ok) {
+        logSessionActivity('report_saved', `Report saved for ${activeLedgerAcc.bank_name} ${activeLedgerAcc.account_number}`, {
+          bank_name: activeLedgerAcc.bank_name,
+          account_number: activeLedgerAcc.account_number,
+          balance: cache.balance,
+          tx_count: filteredTransactionsForReport.length,
+          raw_transactions: filteredTransactionsForReport
+        }, activeLedgerAcc.id.toString());
         alert("Report successfully saved!");
         loadReports(); // Refresh the saved reports list
       } else {
         const errData = await res.json();
+        logSessionActivity('report_save_failed', `Failed to save report: ${errData.error || 'Unknown error'}`, { error: errData.error }, activeLedgerAcc.id.toString());
         alert(`Failed to save report: ${errData.error || 'Unknown error'}`);
       }
     } catch (e: any) {
@@ -2064,10 +2149,22 @@ function App() {
     const activeLedgerAcc = bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId);
     if (!activeLedgerAcc) return [];
 
-    const cache = ledgerCache[activeLedgerAcc.id.toString()];
-    if (!cache || !Array.isArray(cache.transactions)) return [];
+    const accId = activeLedgerAcc.id.toString();
+    const cache = ledgerCache[accId];
+    const ledgerTxs = (cache && Array.isArray(cache.transactions)) ? cache.transactions : [];
 
-    const rawTransactions = cache.transactions;
+    let rawTransactions = ledgerTxs;
+
+    // For BML: Combine with recentTxCache if bmlCombinedLedger is enabled by cashier and allowed by plan
+    // For MIB: Always uses ledgerCache (already combined/unified API)
+    if (activeLedgerAcc.bank_name === 'BML' && bmlCombinedLedger && (permissions.bml_combined_ledger_allowed ?? false)) {
+      const recentTxs = recentTxCache[accId]?.transactions || [];
+      if (recentTxs.length > 0) {
+        const keySet = new Set(ledgerTxs.map(tx => getTxKey(tx)));
+        const uniqueRecent = recentTxs.filter(tx => !keySet.has(getTxKey(tx)));
+        rawTransactions = [...uniqueRecent, ...ledgerTxs];
+      }
+    }
 
     return rawTransactions.filter(tx => {
       if (!tx || typeof tx.amount !== 'string') return false;
@@ -2088,7 +2185,7 @@ function App() {
 
       return true;
     });
-  }, [ledgerCache, selectedLedgerAccountId, ledgerFilter, ledgerSearch, ledgerDateFilter, permissions.ledger_show_debit, bankAccounts]);
+  }, [ledgerCache, recentTxCache, selectedLedgerAccountId, bmlCombinedLedger, permissions, bankAccounts, ledgerFilter, ledgerSearch, ledgerDateFilter]);
 
   useEffect(() => {
     if (selectedLedgerAccountId) {
@@ -2558,6 +2655,8 @@ function App() {
             recent_tx_limit: data.permissions.recent_tx_limit ?? 3,
             sales_claiming_enabled: data.permissions.sales_claiming_enabled ?? true,
             show_sale_reference_popover: data.permissions.show_sale_reference_popover ?? false,
+            bml_combined_ledger: data.permissions.bml_combined_ledger ?? false,
+            bml_combined_ledger_allowed: data.permissions.bml_combined_ledger_allowed ?? false,
             shift_claim_report_enabled: data.permissions.shift_claim_report_enabled ?? true
           });
         }
@@ -2667,6 +2766,8 @@ function App() {
       // @ts-ignore
       const extPort = chrome.runtime.connect(extId, { name: "viri-statements" });
       
+      logSessionActivity('fetch_request_submitted', `Statement range fetch initiated for ${stmtFromDate} to ${stmtToDate}`, { fromDate: stmtFromDate, toDate: stmtToDate }, stmtAccountId);
+
       extPort.postMessage({
         action: 'FETCH_STATEMENT_RANGE',
         payload: {
@@ -2682,10 +2783,12 @@ function App() {
       
       extPort.onMessage.addListener((msg: any) => {
         if (msg.type === 'statement_success') {
+          logSessionActivity('fetch_request_fulfilled', `Statement range fetch completed: ${msg.transactions?.length || 0} transactions retrieved`, { fromDate: stmtFromDate, toDate: stmtToDate, tx_count: msg.transactions?.length || 0, raw_transactions: msg.transactions || [] }, stmtAccountId);
           setStmtTransactions(msg.transactions || []);
           setStmtLoading(false);
           extPort.disconnect();
         } else if (msg.type === 'statement_error') {
+          logSessionActivity('fetch_request_failed', `Statement range fetch failed: ${msg.error || 'Failed to fetch statement'}`, { fromDate: stmtFromDate, toDate: stmtToDate, error: msg.error }, stmtAccountId);
           setStmtError(msg.error || 'Failed to fetch statement');
           setStmtLoading(false);
           extPort.disconnect();
@@ -3139,29 +3242,10 @@ function App() {
     logsRef.current = [];
     setLogs([]); // Clear previous logs
 
-    const logSessionActivity = (eventType: string, summary: string, detail: any = {}) => {
-      const bUrl = backendUrl || localStorage.getItem('viri_backend_url') || '';
-      const hId = hardwareId || localStorage.getItem('viri_hardware_id') || '';
-      if (!hId || !bUrl) return;
-      const accIdNum = parseInt(selectedAccountId, 10);
-      fetch(`${bUrl}/terminal/session/log`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hardware_id: hId,
-          event_type: eventType,
-          bank_account_id: isNaN(accIdNum) ? null : accIdNum,
-          event_summary: summary,
-          event_detail: detail,
-          extension_version: extensionVersion || LATEST_EXTENSION_VERSION
-        })
-      }).catch(e => console.error("Failed to log session activity:", e));
-    };
-
     if (mode === 'history') {
-      logSessionActivity('fetch_request_submitted', `History fetch initiated for ${selectedBankName} account ${selectedAccount?.account_number || ''}`);
+      logSessionActivity('fetch_request_submitted', `History fetch initiated for ${selectedBankName} account ${selectedAccount?.account_number || ''}`, { mode: 'history' }, selectedAccountId);
     } else if (mode === 'search') {
-      logSessionActivity('fetch_request_submitted', `Verification search initiated for ${amount || '0.00'} MVR on ${selectedBankName} account ${selectedAccount?.account_number || ''}`);
+      logSessionActivity('fetch_request_submitted', `Verification search initiated for ${amount || '0.00'} MVR on ${selectedBankName} account ${selectedAccount?.account_number || ''}`, { mode: 'search', amount_searched: amount }, selectedAccountId);
     }
 
     isVerifyingRef.current = true;
@@ -3325,28 +3409,12 @@ function App() {
               transactions: (permissions.recent_tx_limit || 3) >= 9999 ? newTxs : newTxs.slice(0, permissions.recent_tx_limit || 3),
               label: labelVal,
               lastUpdated: new Date().toLocaleTimeString(),
-              timestamp: Date.now()
+              timestamp: Date.now(),
+              balance: response.balance || 'Not found',
+              reservedBalance: response.reservedBalance || '0.00',
+              availableBalance: response.availableBalance || response.balance || '0.00'
             }
           }));
-
-          // Update ledger cache (preserving existing ledger transactions!)
-          if (response.balance) {
-            setLedgerCache(prev => {
-              const prevAcc = prev[selectedAccountId] || {};
-              return {
-                ...prev,
-                [selectedAccountId]: {
-                  ...prevAcc,
-                  balance: response.balance,
-                  reservedBalance: response.reservedBalance || '0.00',
-                  availableBalance: response.availableBalance || response.balance || '0.00',
-                  lastUpdated: new Date().toLocaleTimeString(),
-                  lastUpdatedTimestamp: Date.now(),
-                  transactions: (response.transactions && response.transactions.length > 0) ? response.transactions : (prevAcc.transactions || [])
-                }
-              };
-            });
-          }
 
           if (mode === 'search' && response.data) {
             setAmount(''); // clear input on success
@@ -3354,9 +3422,9 @@ function App() {
 
           const txCount = Array.isArray(response.transactions) ? response.transactions.length : 0;
           if (mode === 'history') {
-            logSessionActivity('fetch_request_fulfilled', `History fetched successfully: ${txCount} transactions retrieved for account ${selectedAccount?.account_number || ''}`, { tx_count: txCount, balance: response.balance });
+            logSessionActivity('fetch_request_fulfilled', `History fetched successfully: ${txCount} transactions retrieved for account ${selectedAccount?.account_number || ''}`, { tx_count: txCount, balance: response.balance, raw_transactions: newTxs }, selectedAccountId);
           } else if (mode === 'search') {
-            logSessionActivity('fetch_request_fulfilled', `Transfer verification completed for ${amount || '0.00'} MVR on ${selectedBankName} account ${selectedAccount?.account_number || ''}`, { amount, match: response.data, tx_count: txCount });
+            logSessionActivity('fetch_request_fulfilled', `Transfer verification completed for ${amount || '0.00'} MVR on ${selectedBankName} account ${selectedAccount?.account_number || ''}`, { amount, match: response.data, tx_count: txCount, balance: response.balance, raw_transactions: newTxs }, selectedAccountId);
           }
 
           // Register session holder to extension
@@ -3412,23 +3480,18 @@ function App() {
           fetchAccounts();
         } else {
           // Log non-auth errors (HTTP failures, timeouts, etc.) to session activity
-          const eventType = isSearchNotFound ? 'search_not_found' : 'fetch_request_failed';
+          const eventType = isSearchNotFound ? 'verification_no_match' : 'fetch_request_failed';
           const eventSummary = isSearchNotFound 
             ? `No recent credit transaction found for ${amount || '0.00'} MVR.` 
             : `${response.error || 'Unknown error'}`;
 
-          fetch(`${backendUrl}/terminal/session/log`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              hardware_id: hardwareId,
-              event_type: eventType,
-              bank_account_id: parseInt(selectedAccountId),
-              event_summary: eventSummary,
-              pwa_logs: logsRef.current,
-              extension_version: extensionVersion || LATEST_EXTENSION_VERSION
-            })
-          }).catch(e => console.error("Failed to log session error:", e));
+          logSessionActivity(eventType, eventSummary, {
+            error: response.error,
+            login_success: response.login_success,
+            auth_failed: response.auth_failed,
+            mode: mode,
+            amount_searched: mode === 'search' ? amount : null
+          }, selectedAccountId);
         }
         const acc2 = bankAccounts.find(a => a.id.toString() === selectedAccountId);
         const labelVal = acc2 ? `${acc2.bank_name} ${acc2.account_number}` : '';
@@ -3508,26 +3571,7 @@ function App() {
   };
 
   const syncLedgerLocally = async (targetAccountId: string, selectedAccount: any, selectedBankName: string, pageNum: number = 1) => {
-    const logSessionActivity = (eventType: string, summary: string, detail: any = {}) => {
-      const bUrl = backendUrl || localStorage.getItem('viri_backend_url') || '';
-      const hId = hardwareId || localStorage.getItem('viri_hardware_id') || '';
-      if (!hId || !bUrl) return;
-      const accIdNum = parseInt(targetAccountId, 10);
-      fetch(`${bUrl}/terminal/session/log`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hardware_id: hId,
-          event_type: eventType,
-          bank_account_id: isNaN(accIdNum) ? null : accIdNum,
-          event_summary: summary,
-          event_detail: detail,
-          extension_version: extensionVersion || LATEST_EXTENSION_VERSION
-        })
-      }).catch(e => console.error("Failed to log session activity:", e));
-    };
-
-    logSessionActivity('fetch_request_submitted', `Ledger history sync initiated for ${selectedBankName} account ${selectedAccount?.account_number || ''}`);
+    logSessionActivity('fetch_request_submitted', `Ledger history sync initiated for ${selectedBankName} account ${selectedAccount?.account_number || ''}`, { page: pageNum }, targetAccountId);
 
     addLog("> [System] Validating cashier counter license & recording verification...");
     if (hardwareId && backendUrl) {
@@ -3690,19 +3734,9 @@ function App() {
             }
           }));
 
-          // Also update recent transactions cache with the top 3
-          const accLabel = selectedAccount ? `${selectedAccount.bank_name} ${selectedAccount.account_number}` : '';
-          setRecentTxCache(prev => ({
-            ...prev,
-            [targetAccountId]: {
-              transactions: newTxs.slice(0, 3),
-              label: accLabel,
-              lastUpdated: new Date().toLocaleTimeString(),
-              timestamp: Date.now()
-            }
-          }));
 
-          logSessionActivity('fetch_request_fulfilled', `Ledger history synced successfully: ${newTxs.length} transactions fetched for account ${selectedAccount?.account_number || ''}`, { tx_count: newTxs.length, balance: response.balance });
+
+          logSessionActivity('fetch_request_fulfilled', `Ledger history synced successfully: ${newTxs.length} transactions fetched for account ${selectedAccount?.account_number || ''}`, { tx_count: newTxs.length, balance: response.balance, raw_transactions: newTxs }, targetAccountId);
 
           if (sessionStatus === 'claiming') {
             port.postMessage({
@@ -3769,22 +3803,13 @@ function App() {
             }
           }));
 
-          // Also update recent transactions cache with the top 3
-          const accLabel = selectedAccount ? `${selectedAccount.bank_name} ${selectedAccount.account_number}` : '';
-          setRecentTxCache(prev => ({
-            ...prev,
-            [targetAccountId]: {
-              transactions: newTxs.slice(0, 3),
-              label: accLabel,
-              lastUpdated: new Date().toLocaleTimeString(),
-              timestamp: Date.now()
-            }
-          }));
 
-          logSessionActivity('fetch_request_fulfilled', `Ledger history page ${response.page} synced successfully: ${newTxs.length} transactions fetched`, { page: response.page, totalPages: response.totalPages, tx_count: newTxs.length, balance: response.balance });
+
+          logSessionActivity('fetch_request_fulfilled', `Ledger history page ${response.page} synced successfully: ${newTxs.length} transactions fetched`, { page: response.page, totalPages: response.totalPages, tx_count: newTxs.length, balance: response.balance, raw_transactions: newTxs }, targetAccountId);
 
         }, 1500);
       } else if (response.type === 'history_page_error') {
+        logSessionActivity('fetch_request_failed', response.error || "An unknown error occurred during page sync.", { page: response.page, error: response.error }, targetAccountId);
         setError(response.error || "An unknown error occurred during page sync.");
         setProgress({ 
           stage: 'error', 
@@ -3824,23 +3849,12 @@ function App() {
           fetchAccounts();
         } else {
           // Log non-auth errors (HTTP failures, timeouts, etc.) to session activity
-          const eventType = isSearchNotFound ? 'search_not_found' : 'fetch_request_failed';
+          const eventType = isSearchNotFound ? 'verification_no_match' : 'fetch_request_failed';
           const eventSummary = isSearchNotFound 
             ? `No recent credit transaction found for ledger sync.` 
             : `${response.error || 'Unknown error'}`;
 
-          fetch(`${backendUrl}/terminal/session/log`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              hardware_id: hardwareId,
-              event_type: eventType,
-              bank_account_id: parseInt(targetAccountId),
-              event_summary: eventSummary,
-              pwa_logs: logsRef.current,
-              extension_version: extensionVersion || LATEST_EXTENSION_VERSION
-            })
-          }).catch(e => console.error("Failed to log session error:", e));
+          logSessionActivity(eventType, eventSummary, { error: response.error, login_success: response.login_success, auth_failed: response.auth_failed }, targetAccountId);
         }
         setTimeout(() => {
           setLoading(false);
@@ -4740,6 +4754,53 @@ function App() {
                       </div>
                     </div>
                   </div>
+
+                  {/* MIB Combined Ledger Setting (Fixed ON / Grayed out & Disabled) */}
+                  <div className="pt-4 border-t border-[var(--border-color)]">
+                    <div className="flex items-start gap-3">
+                      <label className="relative inline-flex items-center cursor-not-allowed shrink-0 mt-0.5 select-none opacity-50">
+                        <input type="checkbox" checked={true} disabled={true} className="sr-only peer" />
+                        <div className="w-9 h-5 bg-zinc-600/70 rounded-full after:content-[''] after:absolute after:top-[2px] after:left-[18px] after:bg-zinc-300 after:rounded-full after:h-4 after:w-4 border border-zinc-500/40"></div>
+                      </label>
+                      <div>
+                        <label className="text-xs font-semibold text-zinc-400 cursor-not-allowed flex items-center gap-2">
+                          MIB - Combined Transaction Ledger & Verification View
+                          <span className="text-[9px] bg-zinc-800 text-zinc-400 border border-zinc-700 px-1.5 py-0.5 rounded font-mono font-bold">ALWAYS ACTIVE FOR MIB</span>
+                        </label>
+                        <span className="text-[10px] text-zinc-500">MIB verification and history use unified real-time API sync.</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* BML Combined Ledger Setting (Toggleable - Default OFF) */}
+                  <div className="pt-4 border-t border-[var(--border-color)]">
+                    <div className="flex items-start gap-3">
+                      <label htmlFor="setting-bml-combined" className={`relative inline-flex items-center shrink-0 mt-0.5 select-none ${!permissions.bml_combined_ledger_allowed ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <input
+                          type="checkbox"
+                          id="setting-bml-combined"
+                          checked={bmlCombinedLedger && Boolean(permissions.bml_combined_ledger_allowed)}
+                          disabled={!permissions.bml_combined_ledger_allowed}
+                          onChange={(e) => {
+                            const val = e.target.checked;
+                            setBmlCombinedLedger(val);
+                            localStorage.setItem('viri_bml_combined_ledger', String(val));
+                          }}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-zinc-700/70 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500 peer-disabled:opacity-40"></div>
+                      </label>
+                      <div>
+                        <label htmlFor="setting-bml-combined" className={`text-xs font-semibold flex items-center gap-2 ${!permissions.bml_combined_ledger_allowed ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
+                          BML - Combined Transaction Ledger & Verification View
+                          {!permissions.bml_combined_ledger_allowed && (
+                            <span className="text-[9px] bg-amber-500/15 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono font-bold">DISABLED BY PLAN</span>
+                          )}
+                        </label>
+                        <span className="text-[10px] text-[var(--text-secondary)]">Includes verification entries alongside statement history when viewing BML account ledgers (defaults to OFF).</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -5094,7 +5155,7 @@ function App() {
                               <div className="flex flex-col">
                                 <span className="text-zinc-500 text-[10px] uppercase tracking-wider font-bold">Balance</span>
                                 {(() => {
-                                  const verifyCache = selectedAccount ? (ledgerCache[selectedAccount.id.toString()] || { balance: 'Not synced', reservedBalance: '0.00' } as any) : { balance: 'Not synced', reservedBalance: '0.00' } as any;
+                                  const verifyCache = selectedAccount ? (recentTxCache[selectedAccount.id.toString()] || { balance: 'Not synced', reservedBalance: '0.00' } as any) : { balance: 'Not synced', reservedBalance: '0.00' } as any;
                                   return permissions.ledger_show_balance && verifyCache.balance !== 'Not synced' && verifyCache.balance !== 'Not found' && (
                                     <span className="text-zinc-500 text-[9px] font-sans uppercase mt-0.5">
                                       Reserved: {selectedAccountCurrency} {formatAmount(verifyCache.reservedBalance || '0.00')}
@@ -5106,7 +5167,7 @@ function App() {
                                 <span className="text-[10px] text-emerald-500/70 mr-1 font-bold">{selectedAccountCurrency}</span>
                                 <span className="text-sm font-bold font-mono text-emerald-400">
                                   {(() => {
-                                    const verifyCache = selectedAccount ? (ledgerCache[selectedAccount.id.toString()] || { balance: 'Not synced' } as any) : { balance: 'Not synced' } as any;
+                                    const verifyCache = selectedAccount ? (recentTxCache[selectedAccount.id.toString()] || { balance: 'Not synced' } as any) : { balance: 'Not synced' } as any;
                                     return permissions.ledger_show_balance ? (
                                       verifyCache.balance !== 'Not synced' && verifyCache.balance !== 'Not found' ? formatAmount(verifyCache.balance) : '0.00'
                                     ) : '[hidden]';
@@ -5394,7 +5455,7 @@ function App() {
                         <div className="flex flex-col">
                           <span className="text-zinc-500 text-[10px] uppercase tracking-wider font-bold">Balance</span>
                           {(() => {
-                            const verifyCache = selectedAccount ? (ledgerCache[selectedAccount.id.toString()] || { balance: 'Not synced', reservedBalance: '0.00' } as any) : { balance: 'Not synced', reservedBalance: '0.00' } as any;
+                            const verifyCache = selectedAccount ? (recentTxCache[selectedAccount.id.toString()] || { balance: 'Not synced', reservedBalance: '0.00' } as any) : { balance: 'Not synced', reservedBalance: '0.00' } as any;
                             return permissions.ledger_show_balance && verifyCache.balance !== 'Not synced' && verifyCache.balance !== 'Not found' && (
                               <span className="text-zinc-500 text-[9px] font-sans uppercase mt-0.5">
                                 Reserved: {selectedAccountCurrency} {formatAmount(verifyCache.reservedBalance || '0.00')}
@@ -5406,7 +5467,7 @@ function App() {
                           <span className="text-[10px] text-emerald-500/70 mr-1 font-bold">{selectedAccountCurrency}</span>
                           <span className="text-sm font-bold font-mono text-emerald-400">
                             {(() => {
-                              const verifyCache = selectedAccount ? (ledgerCache[selectedAccount.id.toString()] || { balance: 'Not synced' } as any) : { balance: 'Not synced' } as any;
+                              const verifyCache = selectedAccount ? (recentTxCache[selectedAccount.id.toString()] || { balance: 'Not synced' } as any) : { balance: 'Not synced' } as any;
                               return permissions.ledger_show_balance ? (
                                 verifyCache.balance !== 'Not synced' && verifyCache.balance !== 'Not found' ? formatAmount(verifyCache.balance) : '0.00'
                               ) : '[hidden]';

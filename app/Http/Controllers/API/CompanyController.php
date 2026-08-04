@@ -84,6 +84,7 @@ class CompanyController extends Controller
             'statement_enabled' => $hasFeature('statement_enabled') && filter_var($permissions['statement_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
             'show_vbtl' => filter_var($permissions['show_vbtl'] ?? false, FILTER_VALIDATE_BOOLEAN),
             'share_pwa_logs' => filter_var($permissions['share_pwa_logs'] ?? true, FILTER_VALIDATE_BOOLEAN),
+            'bml_combined_ledger' => $hasFeature('bml_combined_ledger') && filter_var($permissions['bml_combined_ledger'] ?? false, FILTER_VALIDATE_BOOLEAN),
             'shift_claim_report_enabled' => true,
             'terminal_pin' => isset($permissions['terminal_pin']) && $permissions['terminal_pin'] !== '' ? substr(preg_replace('/\D/', '', (string) $permissions['terminal_pin']), 0, 4) : null,
         ];
@@ -149,6 +150,7 @@ class CompanyController extends Controller
                 'share_pwa_logs' => filter_var($permissions['share_pwa_logs'] ?? true, FILTER_VALIDATE_BOOLEAN),
                 'sales_claiming_enabled' => filter_var($permissions['sales_claiming_enabled'] ?? true, FILTER_VALIDATE_BOOLEAN),
                 'show_sale_reference_popover' => filter_var($permissions['show_sale_reference_popover'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'bml_combined_ledger' => $hasFeature('bml_combined_ledger') && filter_var($permissions['bml_combined_ledger'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'shift_claim_report_enabled' => true,
                 'terminal_pin' => isset($permissions['terminal_pin']) && $permissions['terminal_pin'] !== '' ? substr(preg_replace('/\D/', '', (string) $permissions['terminal_pin']), 0, 4) : null,
             ];

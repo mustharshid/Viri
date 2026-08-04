@@ -203,13 +203,14 @@ class SuperadminController extends Controller
         $response = $logs->toArray();
 
         // 1. Calculate Telemetry Stats
-        $now = \Carbon\Carbon::now();
+        $now = \Carbon\Carbon::now('UTC');
+        $nowMvt = \Carbon\Carbon::now('+05:00');
         $twentyFourHoursAgo = $now->copy()->subHours(24);
         $thirtyDaysAgo = $now->copy()->subDays(30);
 
         $totalTerminals = Terminal::count();
-        // Active terminals = terminals emitting activity or heartbeats in the last 5 minutes
-        $activeTerminalIds = SessionActivityLog::where('created_at', '>=', $now->copy()->subMinutes(5))
+        // Active terminals = terminals emitting activity or heartbeats in the last 15 minutes
+        $activeTerminalIds = SessionActivityLog::where('created_at', '>=', $now->copy()->subMinutes(15))
             ->whereNotNull('terminal_id')
             ->distinct()
             ->pluck('terminal_id')
@@ -219,19 +220,22 @@ class SuperadminController extends Controller
         // Total requests past 24h
         $totalLogs24h = SessionActivityLog::where('created_at', '>=', $twentyFourHoursAgo)->count();
 
-        // Requests per hour (past 24h)
+        // Requests per hour (past 24h) converted to GMT+5 Maldives Time (+5 hours)
         $hourlyData = SessionActivityLog::where('created_at', '>=', $twentyFourHoursAgo)
-            ->select(\Illuminate\Support\Facades\DB::raw("DATE_FORMAT(created_at, '%Y-%m-%d %H:00:00') as hour"), \Illuminate\Support\Facades\DB::raw('count(*) as count'))
+            ->select(
+                \Illuminate\Support\Facades\DB::raw("DATE_FORMAT(DATE_ADD(created_at, INTERVAL 5 HOUR), '%Y-%m-%d %H:00:00') as hour"),
+                \Illuminate\Support\Facades\DB::raw('count(*) as count')
+            )
             ->groupBy('hour')
             ->orderBy('hour', 'asc')
             ->pluck('count', 'hour')
             ->toArray();
 
-        // Build filled 24-hour spectrum
+        // Build filled 24-hour spectrum in GMT+5 (Maldives Time)
         $hourlySpectrum = [];
         for ($i = 23; $i >= 0; $i--) {
-            $hKey = $now->copy()->subHours($i)->format('Y-m-d H:00:00');
-            $hLabel = $now->copy()->subHours($i)->format('H:00');
+            $hKey = $nowMvt->copy()->subHours($i)->format('Y-m-d H:00:00');
+            $hLabel = $nowMvt->copy()->subHours($i)->format('H:00');
             $hourlySpectrum[] = [
                 'hour' => $hLabel,
                 'count' => isset($hourlyData[$hKey]) ? (int)$hourlyData[$hKey] : 0,
@@ -380,27 +384,35 @@ class SuperadminController extends Controller
                 ];
             });
 
-        // Current Hour Live API Requests (Within past 1 hour / 60 mins)
+        // Current Hour Live API Requests & Active Terminals Breakdown (Last 5 terminals in past 60 mins)
         $oneHourAgo = $now->copy()->subHour();
         $currentHourTotal = SessionActivityLog::where('created_at', '>=', $oneHourAgo)->count();
-        $currentHourRequests = SessionActivityLog::with(['tenant', 'terminal'])
+
+        $currentHourTerminalsRaw = SessionActivityLog::with(['tenant', 'terminal'])
             ->where('created_at', '>=', $oneHourAgo)
-            ->orderBy('created_at', 'desc')
-            ->take(30)
-            ->get()
-            ->map(function ($log) {
-                return [
-                    'id' => $log->id,
-                    'terminal_name' => $log->terminal_name ?: ($log->terminal ? $log->terminal->terminal_name : 'System'),
-                    'tenant_name' => $log->tenant ? $log->tenant->name : 'N/A',
-                    'bank_name' => $log->bank_name ?: 'Bank API',
-                    'account_number_masked' => $log->account_number_masked ?: '',
-                    'event_type' => $log->event_type,
-                    'summary' => $log->event_summary ?: $log->event_type,
-                    'created_at' => \Carbon\Carbon::parse($log->created_at)->setTimezone('+05:00')->format('Y-m-d H:i:s'),
-                    'time_mvt' => \Carbon\Carbon::parse($log->created_at)->setTimezone('+05:00')->format('H:i:s'),
-                ];
-            });
+            ->select('terminal_id', 'terminal_name', 'tenant_id', \Illuminate\Support\Facades\DB::raw('count(*) as count'), \Illuminate\Support\Facades\DB::raw('MAX(created_at) as last_activity'))
+            ->groupBy('terminal_id', 'terminal_name', 'tenant_id')
+            ->orderBy('last_activity', 'desc')
+            ->take(5)
+            ->get();
+
+        $currentHourTerminals = $currentHourTerminalsRaw->map(function ($item) {
+            $lastLog = SessionActivityLog::where(function ($q) use ($item) {
+                if ($item->terminal_id) $q->where('terminal_id', $item->terminal_id);
+                if ($item->terminal_name) $q->orWhere('terminal_name', $item->terminal_name);
+            })->latest('created_at')->first();
+
+            return [
+                'terminal_id' => $item->terminal_id,
+                'terminal_name' => $item->terminal_name ?: ($item->terminal ? $item->terminal->terminal_name : 'System'),
+                'tenant_name' => $item->tenant ? $item->tenant->name : 'N/A',
+                'count' => (int)$item->count,
+                'last_activity_mvt' => \Carbon\Carbon::parse($item->last_activity)->setTimezone('+05:00')->format('H:i:s'),
+                'last_bank' => $lastLog ? ($lastLog->bank_name ?: 'Bank API') : '',
+                'last_account' => $lastLog ? ($lastLog->account_number_masked ?: '') : '',
+                'last_summary' => $lastLog ? ($lastLog->event_summary ?: $lastLog->event_type) : '',
+            ];
+        });
 
         // 2. Build Grouped Session Request Flows (Last 10 3-step request sessions)
         $rawGroupLogs = SessionActivityLog::with(['tenant', 'terminal'])
@@ -522,7 +534,86 @@ class SuperadminController extends Controller
             }
         }
 
-        $latestWeekly = count($weeklyTrends) > 0 ? end($weeklyTrends) : [];
+        // Bank API Health (BML & MIB)
+        $bmlLogs = SessionActivityLog::where('created_at', '>=', $twentyFourHoursAgo)
+            ->where(function($q) { $q->where('bank_name', 'LIKE', '%BML%')->orWhere('event_summary', 'LIKE', '%BML%'); })
+            ->get();
+        $mibLogs = SessionActivityLog::where('created_at', '>=', $twentyFourHoursAgo)
+            ->where(function($q) { $q->where('bank_name', 'LIKE', '%MIB%')->orWhere('event_summary', 'LIKE', '%MIB%'); })
+            ->get();
+
+        $calcBankHealth = function ($bankLogs) use ($calcRealApiTimeFromDebugLog) {
+            $total = $bankLogs->count();
+            $failed = $bankLogs->filter(function ($l) {
+                return in_array($l->event_type, ['fetch_request_failed', 'session_login_failed']);
+            })->count();
+            $success = $bankLogs->filter(function ($l) {
+                return in_array($l->event_type, ['fetch_request_fulfilled', 'session_login_success']);
+            })->count();
+
+            $latencies = [];
+            $debugLogs = $bankLogs->filter(function ($l) {
+                return $l->event_type === 'pwa_debug_logs';
+            });
+            foreach ($debugLogs as $dbg) {
+                $t = $calcRealApiTimeFromDebugLog($dbg);
+                if ($t !== null && $t > 0) $latencies[] = $t;
+            }
+
+            $avgLatency = count($latencies) > 0 ? round(array_sum($latencies) / count($latencies), 2) : 0.0;
+            $evaluated = $success + $failed;
+            $successRate = $evaluated > 0 ? round(($success / $evaluated) * 100, 1) : 100.0;
+
+            $status = 'healthy';
+            if ($successRate < 90 || $avgLatency > 8) {
+                $status = 'critical';
+            } elseif ($successRate < 98 || $avgLatency > 3) {
+                $status = 'degraded';
+            }
+
+            return [
+                'total' => $total,
+                'success_rate' => $successRate,
+                'avg_latency' => $avgLatency,
+                'status' => $status,
+            ];
+        };
+        // 7-Day Bank Latency & Health Trends (BML vs MIB)
+        $bankTrends = [];
+        for ($w = 6; $w >= 0; $w--) {
+            $wStart = $now->copy()->subDays($w)->startOfDay();
+            $wEnd = $now->copy()->subDays($w)->endOfDay();
+            $dayName = $wStart->setTimezone('+05:00')->format('M d');
+
+            $bmlDayLogs = SessionActivityLog::whereBetween('created_at', [$wStart, $wEnd])
+                ->where(function($q) { $q->where('bank_name', 'LIKE', '%BML%')->orWhere('event_summary', 'LIKE', '%BML%'); })
+                ->get();
+            $mibDayLogs = SessionActivityLog::whereBetween('created_at', [$wStart, $wEnd])
+                ->where(function($q) { $q->where('bank_name', 'LIKE', '%MIB%')->orWhere('event_summary', 'LIKE', '%MIB%'); })
+                ->get();
+
+            $getBankDayLatency = function ($logs) use ($calcRealApiTimeFromDebugLog) {
+                $latencies = [];
+                $debugs = $logs->filter(function ($l) { return $l->event_type === 'pwa_debug_logs'; });
+                foreach ($debugs as $d) {
+                    $t = $calcRealApiTimeFromDebugLog($d);
+                    if ($t !== null && $t > 0) $latencies[] = $t;
+                }
+                return count($latencies) > 0 ? round(array_sum($latencies) / count($latencies), 2) : 0.0;
+            };
+
+            $bankTrends[] = [
+                'day' => $dayName,
+                'bml_latency' => $getBankDayLatency($bmlDayLogs),
+                'mib_latency' => $getBankDayLatency($mibDayLogs),
+            ];
+        }
+
+        $bankHealth = [
+            'bml' => $calcBankHealth($bmlLogs),
+            'mib' => $calcBankHealth($mibLogs),
+            'trends' => $bankTrends,
+        ];
 
         $response['telemetry'] = [
             'total_terminals' => $totalTerminals,
@@ -539,7 +630,8 @@ class SuperadminController extends Controller
             'monthly_trends' => $monthlyTrends,
             'terminal_throughput' => $terminalThroughput,
             'current_hour_count' => $currentHourTotal,
-            'current_hour_requests' => $currentHourRequests,
+            'current_hour_terminals' => $currentHourTerminals,
+            'bank_health' => $bankHealth,
             'grouped_flows' => $groupedFlows,
         ];
 

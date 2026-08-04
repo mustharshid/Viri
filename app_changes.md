@@ -4,6 +4,59 @@ This document maintains a chronological record of code modifications made to the
 
 ---
 
+## [2026-08-03] - Remove Duplicate View Mode Toggle from Session Activity & Telemetry Center Header
+
+### Overview & Rationale
+Cleaned up the Telemetry Center header UI:
+- **Removed Duplicate Toggle**: Removed the `Grouped Flows | Raw Stream` view mode toggle buttons from the top `Session Activity & Telemetry Center` header bar, leaving the toggle buttons strictly on the Activity Log card headers where logs are displayed.
+
+### Files Modified:
+1. `pwa/src/pages/Dashboard/AdminDashboard.tsx`
+
+---
+
+## [2026-08-03] - Combined BML vs MIB Latency Graph & Activity Log Card View Mode Toggle
+
+### Overview & Rationale
+Refines the Telemetry Center layout and visual metrics:
+1. **Combined Bank API Reply Health Dual Line Graph (BML vs MIB)**: Transformed individual bank cards into a combined 7-day dual-line latency trend graph comparing Bank of Maldives (BML) latency (solid emerald line) vs Maldives Islamic Bank (MIB) latency (dashed cyan line), complete with real-time status pills and latency averages.
+2. **Activity Log Card View Mode Toggle**: Prominently placed the **Grouped Flows | Raw Stream** toggle button group directly on the top header of both the Recent Request Flow Cards section and the Raw Activity Log Stream section for instant mode switching.
+
+### Files Modified:
+1. `app/Http/Controllers/API/SuperadminController.php`
+2. `pwa/src/pages/Dashboard/AdminDashboard.tsx`
+
+---
+
+## [2026-08-03] - Terminal Click Filter, Bank API Health (BML/MIB), 15m Active Threshold, Error Card Stream Action & Delta Animations
+
+### Overview & Rationale
+Implements 5 major telemetry enhancements to the Superadmin Portal:
+1. **Terminal Click Filter**: Added click handler to **Current Hour Active Terminals** cards to instantly filter **Recent Request Flow Cards (3-Step Sessions)** by selected terminal name (with active badge & clear button).
+2. **Bank API Reply Health Card (BML & MIB)**: Added a dedicated health widget calculating average API latency & success rates per bank based on trace timestamps (`Submitted` &rarr; `Fulfilled`).
+3. **15-Minute Active Terminals Threshold**: Updated active terminals threshold query in `SuperadminController.php` from 5 minutes to 15 minutes (`subMinutes(15)`).
+4. **Error Ratio Card Stream Filter**: Added click handler to **Error Ratio (24h)** stat card to automatically switch to **Raw Activity Log Stream**, apply `Request Failed` event filter, and scroll to stream.
+5. **Telemetry Refresh Value Animations**: Added delta diff tracking in `AdminDashboard.tsx` to highlight changed telemetry values with pulsing change badges (`+3`, `-1%`) for 8 seconds after refresh.
+
+### Files Modified:
+1. `app/Http/Controllers/API/SuperadminController.php`
+2. `pwa/src/pages/Dashboard/AdminDashboard.tsx`
+
+---
+
+## [2026-08-03] - 24-Hour Spectrum GMT+5 (Maldives Time) Fix & Last 5 Active Terminals Breakdown Card
+
+### Overview & Rationale
+Fixes hourly spectrum timezone alignment and adds the last 5 active terminals breakdown to the current hour telemetry section:
+- **24-Hour API Activity Spectrum GMT+5 Fix**: Updated `SuperadminController.php` to calculate hourly buckets using `$nowMvt = Carbon::now('+05:00')` and MySQL `DATE_ADD(created_at, INTERVAL 5 HOUR)`, aligning spectrum hours (`15:00` MVT) directly with local Maldives Time instead of UTC (`10:00`).
+- **Last 5 Active Terminals Breakdown**: Updated **Current Hour Active Terminals (Past 60 Minutes)** card to display the last 5 terminals that made API requests, showing each terminal name, company name (tenant name), total request count in past 60m, last activity time in MVT, and latest activity summary.
+
+### Files Modified:
+1. `app/Http/Controllers/API/SuperadminController.php`
+2. `pwa/src/pages/Dashboard/AdminDashboard.tsx`
+
+---
+
 ## [2026-08-03] - Current Hour Requests Card, GMT+5 (Maldives Time) Timestamps & Company Name in Top Terminals
 
 ### Overview & Rationale
