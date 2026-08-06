@@ -67,7 +67,7 @@ const DeleteConfirmModal = ({ isOpen, onClose, onConfirm, title, message, itemNa
 };
 
 export default function CompanyDashboard() {
-  const LATEST_EXTENSION_VERSION = "1.2.96";
+  const LATEST_EXTENSION_VERSION = "1.3.05";
   const [theme, toggleTheme] = useTheme();
   const [user, setUser] = useState<any>(null);
   const [terminals, setTerminals] = useState<any[]>([]);
@@ -3426,6 +3426,32 @@ export default function CompanyDashboard() {
                         </label>
                         <p className="text-[10px] text-[var(--text-secondary)] mt-1 leading-relaxed">
                           Automatically send anonymized execution logs for superadmin troubleshooting.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Auto-Sync Live Balance & Transactions (Read-only Indicator) */}
+                    <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl opacity-80">
+                      <label className="relative inline-flex items-center shrink-0 mt-0.5 select-none cursor-not-allowed">
+                        <input 
+                          type="checkbox" 
+                          checked={!isFeatureDisabledByPlan('auto_sync_enabled')} 
+                          disabled={true}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-zinc-700/70 rounded-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 peer-checked:after:translate-x-4 peer-checked:bg-emerald-500 border border-white/10 opacity-50"></div>
+                      </label>
+                      <div>
+                        <label className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-2 cursor-not-allowed">
+                          Auto-Sync Live Balance & Transactions
+                          {isFeatureDisabledByPlan('auto_sync_enabled') ? (
+                            <span className="text-[9px] bg-amber-500/15 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono font-bold">DISABLED BY PLAN</span>
+                          ) : (
+                            <span className="text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded font-mono font-bold">ENABLED BY PLAN</span>
+                          )}
+                        </label>
+                        <p className="text-[10px] text-[var(--text-secondary)] mt-1 leading-relaxed">
+                          Superadmin plan feature indicator. Toggle switches are configured directly per account on Cashier PWA.
                         </p>
                       </div>
                     </div>

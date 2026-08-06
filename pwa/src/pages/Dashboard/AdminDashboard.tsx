@@ -501,7 +501,8 @@ export default function AdminDashboard() {
       shift_claim_report_enabled: true,
       statement_enabled: false,
       custom_recent_tx_limit: false,
-      bml_combined_ledger: false
+      bml_combined_ledger: false,
+      auto_sync_enabled: false
     }
   });
 
@@ -956,7 +957,8 @@ export default function AdminDashboard() {
             shift_claim_report_enabled: true,
             statement_enabled: false,
             custom_recent_tx_limit: false,
-            bml_combined_ledger: false
+            bml_combined_ledger: false,
+            auto_sync_enabled: false
           }
         });
         fetchData();
@@ -1351,6 +1353,7 @@ export default function AdminDashboard() {
                 { key: 'shift_claim_report_enabled', label: 'Shift & Claim Report', required: true },
                 { key: 'statement_enabled', label: 'Bank Statements Generator' },
                 { key: 'bml_combined_ledger', label: 'BML Combined Ledger & Verification View' },
+                { key: 'auto_sync_enabled', label: 'Auto-Sync Live Balance & Transactions' },
                 { key: 'custom_recent_tx_limit', label: 'Configurable Recent Tx Count' }
               ].map(f => {
                 const currentFeatures = draft.features !== undefined ? draft.features : (company.features || {});
@@ -1576,6 +1579,7 @@ export default function AdminDashboard() {
                   { key: 'shift_claim_report_enabled', label: 'Shift & Claim Report', required: true },
                   { key: 'statement_enabled', label: 'Bank Statements Generator' },
                   { key: 'bml_combined_ledger', label: 'BML Combined Ledger & Verification View' },
+                  { key: 'auto_sync_enabled', label: 'Auto-Sync Live Balance & Transactions' },
                   { key: 'custom_recent_tx_limit', label: 'Configurable Recent Tx Count' }
                 ].map(f => {
                   const isChecked = (f as any).required ? true : ((planForm.features as any)[f.key] ?? false);
@@ -1637,7 +1641,8 @@ export default function AdminDashboard() {
                         shift_claim_report_enabled: true,
                         statement_enabled: false,
                         custom_recent_tx_limit: false,
-                        bml_combined_ledger: false
+                        bml_combined_ledger: false,
+                        auto_sync_enabled: false
                       }
                     });
                   }}
@@ -1734,6 +1739,7 @@ export default function AdminDashboard() {
                         shift_claim_report_enabled: plan.features?.shift_claim_report_enabled ?? true,
                         statement_enabled: plan.features?.statement_enabled ?? false,
                         bml_combined_ledger: plan.features?.bml_combined_ledger ?? false,
+                        auto_sync_enabled: plan.features?.auto_sync_enabled ?? false,
                         custom_recent_tx_limit: plan.features?.custom_recent_tx_limit ?? false
                       }
                     });
@@ -2317,6 +2323,94 @@ export default function AdminDashboard() {
                   <span>5s</span>
                   <span>300s</span>
                 </div>
+              </div>
+
+              {/* Live View Interval Setting Slider */}
+              <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-colors md:col-span-2">
+                <div className="flex justify-between items-start mb-2">
+                  <label className="text-sm font-bold text-white block">Live View Interval Setting</label>
+                  {(() => {
+                    const targetVal = parseInt(systemSettings.find(s => s.key === 'live_view_interval')?.value || systemSettings.find(s => s.key === 'auto_sync_min_interval')?.value || '60', 10);
+                    const rangeMin = Math.max(5, targetVal - 5);
+                    const rangeMax = targetVal + 5;
+                    return (
+                      <div className="flex items-center gap-2 font-mono">
+                        <span className="text-xs text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded">
+                          Target: {targetVal}s
+                        </span>
+                        <span className="text-xs text-zinc-400 bg-zinc-800 border border-zinc-700 px-2 py-0.5 rounded">
+                          Range: {rangeMin}s - {rangeMax}s
+                        </span>
+                      </div>
+                    );
+                  })()}
+                </div>
+                <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+                  Target background polling delay for Live View enabled bank accounts (slider total: 3 min / 180s). System will poll at randomized intervals within ±5s range (e.g. 60s target polls between 55s and 65s).
+                </p>
+                {(() => {
+                  const targetVal = parseInt(systemSettings.find(s => s.key === 'live_view_interval')?.value || systemSettings.find(s => s.key === 'auto_sync_min_interval')?.value || '60', 10);
+                  return (
+                    <input
+                      type="range"
+                      min="10"
+                      max="180"
+                      className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                      value={targetVal}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        const minVal = Math.max(5, val - 5);
+                        const maxVal = val + 5;
+
+                        setSystemSettings(prev => {
+                          let next = [...prev];
+                          const setKey = (k: string, v: any) => {
+                            const idx = next.findIndex(s => s.key === k);
+                            if (idx >= 0) next[idx] = { ...next[idx], value: String(v) };
+                            else next.push({ id: Date.now() + Math.random(), key: k, value: String(v), type: 'string' });
+                          };
+                          setKey('live_view_interval', val);
+                          setKey('auto_sync_min_interval', minVal);
+                          setKey('auto_sync_max_interval', maxVal);
+                          return next;
+                        });
+                      }}
+                    />
+                  );
+                })()}
+                <div className="flex justify-between text-[10px] text-zinc-500 mt-1 font-mono">
+                  <span>10s</span>
+                  <span>90s (1.5m)</span>
+                  <span>180s (3m)</span>
+                </div>
+              </div>
+
+              {/* Live View Inactivity Timeout */}
+              <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-colors md:col-span-2">
+                <div className="flex justify-between items-start mb-2">
+                  <label className="text-sm font-bold text-white block">Live View Inactivity Timeout (Minutes)</label>
+                  <span className="text-xs text-emerald-400 font-mono font-bold bg-emerald-500/10 px-2 py-0.5 rounded">
+                    {systemSettings.find(s => s.key === 'auto_sync_idle_timeout')?.value || 15}m
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+                  Automatically disables account Live View when cashier terminal has no user activity for longer than this time.
+                </p>
+                <input
+                  type="number"
+                  min="1"
+                  max="180"
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-sm text-white font-mono focus:outline-none focus:border-emerald-500"
+                  value={systemSettings.find(s => s.key === 'auto_sync_idle_timeout')?.value || 15}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (!systemSettings.find(s => s.key === 'auto_sync_idle_timeout')) {
+                      setSystemSettings(prev => [...prev, { id: Date.now(), key: 'auto_sync_idle_timeout', value: val, type: 'string' }]);
+                    } else {
+                      setSystemSettings(prev => prev.map(s => s.key === 'auto_sync_idle_timeout' ? { ...s, value: val } : s));
+                    }
+                  }}
+                />
               </div>
               {/* Real-time Event Polling */}
               <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-colors">
@@ -3325,6 +3419,25 @@ export default function AdminDashboard() {
                     <div className="bg-zinc-900/90 border border-zinc-800/80 p-2.5 rounded-lg text-center group-hover:border-amber-500/30 transition-colors">
                       <span className="text-2xl font-extrabold text-amber-400 font-mono block leading-tight">{t.count}</span>
                       <span className="text-[10px] text-zinc-400 font-medium">reqs in past 60m</span>
+                      {t.accounts && t.accounts.length > 0 && (
+                        <div className="pt-2 border-t border-zinc-800/80 space-y-1 mt-2">
+                          <span className="text-[9px] uppercase font-bold text-zinc-500 block">Active Accounts ({t.accounts.length})</span>
+                          <div className="flex flex-col gap-1">
+                            {t.accounts.map((acc: any, aIdx: number) => {
+                              const last4 = acc.account_number_masked ? (acc.account_number_masked.replace(/\D/g, '').slice(-4) || acc.account_number_masked.slice(-4)) : '';
+                              return (
+                                <div key={aIdx} className="text-[10px] font-mono bg-zinc-900 text-zinc-300 px-2 py-0.5 rounded border border-zinc-800 flex items-center justify-between gap-1">
+                                  <div className="truncate">
+                                    <span className="font-bold text-amber-300 mr-1">{acc.bank_name}</span>
+                                    <span className="text-zinc-300 font-bold">{last4}</span>
+                                  </div>
+                                  <span className="bg-amber-500/20 text-amber-300 font-extrabold px-1.5 py-0.2 rounded text-[9px] shrink-0" title={`${acc.count} requests`}>{acc.count}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="pt-2 border-t border-zinc-800/80 text-[10px] space-y-1">
@@ -3454,6 +3567,11 @@ export default function AdminDashboard() {
                           <span className={`px-3 py-1 rounded-xl text-xs font-extrabold border ${statusBadge}`}>
                             {statusText}
                           </span>
+                          {flow.is_auto_sync && (
+                            <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-extrabold bg-purple-950/70 text-purple-300 border border-purple-500/40 shadow-[0_0_10px_rgba(168,85,247,0.3)]">
+                              Live View log
+                            </span>
+                          )}
                           <div>
                             <div className="font-bold text-white text-sm flex items-center gap-2">
                               <span>{flow.terminal_name}</span>
@@ -3704,14 +3822,26 @@ export default function AdminDashboard() {
                     <tbody className="divide-y divide-zinc-900">
                       {sessionLogs.map((log: any) => {
                         const dateStr = new Date(log.created_at).toLocaleString();
+                        const isLiveView = Boolean(
+                          (log.event_summary && log.event_summary.includes('[Live View]')) ||
+                          log.event_type?.startsWith('auto_sync') ||
+                          (log.event_detail && (log.event_detail.is_auto_sync || log.event_detail.source === 'live_view'))
+                        );
+
                         let badgeClass = "bg-zinc-800 text-zinc-400 border border-zinc-700";
-                        if (['session_login_success', 'session_claimed', 'fetch_request_fulfilled', 'search_not_found'].includes(log.event_type)) {
+                        let badgeLabel = log.event_type === 'search_not_found' ? 'SEARCH NOT FOUND!' : log.event_type.replace(/_/g, ' ').toUpperCase();
+
+                        if (isLiveView) {
+                          badgeLabel = 'LIVE VIEW LOG';
+                          badgeClass = 'bg-purple-950/70 text-purple-300 border border-purple-500/40 font-extrabold shadow-[0_0_12px_rgba(168,85,247,0.3)]';
+                        } else if (['session_login_success', 'session_claimed', 'fetch_request_fulfilled', 'search_not_found'].includes(log.event_type)) {
                           badgeClass = "bg-green-950/40 text-green-400 border border-green-500/20";
                         } else if (['session_login_failed'].includes(log.event_type)) {
                           badgeClass = "bg-red-950/40 text-red-400 border border-red-500/20";
                         } else if (['session_heartbeat_lost', 'session_released', 'fetch_request_failed'].includes(log.event_type)) {
                           badgeClass = "bg-orange-950/40 text-orange-400 border border-orange-500/20";
                         }
+
                         const isExpanded = expandedLogId === log.id;
                         const hasDetail = Boolean(log.has_detail || log.event_detail);
                         const currentDetail = logDetailsMap[log.id] || log.event_detail;
@@ -3734,7 +3864,7 @@ export default function AdminDashboard() {
                               </td>
                               <td className="py-3 pr-4">
                                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${badgeClass}`}>
-                                  {log.event_type === 'search_not_found' ? 'SEARCH NOT FOUND!' : log.event_type.replace(/_/g, ' ').toUpperCase()}
+                                  {badgeLabel}
                                 </span>
                               </td>
                               <td className="py-3 pr-4 text-zinc-300 font-medium">
@@ -3792,8 +3922,19 @@ export default function AdminDashboard() {
                 <div className="block md:hidden space-y-3">
                   {sessionLogs.map((log: any) => {
                     const dateStr = new Date(log.created_at).toLocaleString();
+                    const isLiveView = Boolean(
+                      (log.event_summary && log.event_summary.includes('[Live View]')) ||
+                      log.event_type?.startsWith('auto_sync') ||
+                      (log.event_detail && (log.event_detail.is_auto_sync || log.event_detail.source === 'live_view'))
+                    );
+
                     let badgeClass = "bg-zinc-800 text-zinc-400 border border-zinc-700";
-                    if (['session_login_success', 'session_claimed', 'fetch_request_fulfilled', 'search_not_found'].includes(log.event_type)) {
+                    let badgeLabel = log.event_type === 'search_not_found' ? 'SEARCH NOT FOUND!' : log.event_type.replace(/_/g, ' ').toUpperCase();
+
+                    if (isLiveView) {
+                      badgeLabel = 'LIVE VIEW LOG';
+                      badgeClass = 'bg-purple-950/70 text-purple-300 border border-purple-500/40 font-extrabold shadow-[0_0_12px_rgba(168,85,247,0.3)]';
+                    } else if (['session_login_success', 'session_claimed', 'fetch_request_fulfilled', 'search_not_found'].includes(log.event_type)) {
                       badgeClass = "bg-green-950/40 text-green-400 border border-green-500/20";
                     } else if (['session_login_failed'].includes(log.event_type)) {
                       badgeClass = "bg-red-950/40 text-red-400 border border-red-500/20";
@@ -3809,7 +3950,7 @@ export default function AdminDashboard() {
                         <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-2">
                           <span className="font-mono text-[10px] text-zinc-400">{dateStr}</span>
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${badgeClass}`}>
-                            {log.event_type === 'search_not_found' ? 'SEARCH NOT FOUND!' : log.event_type.replace(/_/g, ' ').toUpperCase()}
+                            {badgeLabel}
                           </span>
                         </div>
                         <div className="text-zinc-300 bg-black/40 p-2 rounded-lg border border-zinc-800/50 text-[11px] leading-relaxed">

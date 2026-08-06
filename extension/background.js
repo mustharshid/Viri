@@ -350,7 +350,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
 
 chrome.runtime.onConnectExternal.addListener((port) => {
   console.log("[Viri Bridge] PWA Connected via Port:", port.name);
-  if (port.name === "viri-verify" || port.name === "bml-auth") {
+  if (port.name === "viri-verify" || port.name === "bml-auth" || port.name === "viri-auto-sync") {
     activePort = port;
 
     port.onMessage.addListener(async (msg) => {
@@ -428,13 +428,25 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         if (payload.sanctumToken) {
           chrome.storage.local.set({ sanctumToken: payload.sanctumToken });
         }
-        const targetAccId = payload.accountId || (heldSession ? heldSession.accountId : '');
-        const targetAccNum = payload.accountNumber || (heldSession ? heldSession.accountNumber : null) || targetAccId;
+        const targetAccId = payload.accountId || '';
+        const targetAccNum = payload.accountNumber || targetAccId || (heldSession ? heldSession.accountNumber : '');
         const page = payload.page || 1;
         const bmlProfileType = payload.bmlProfileType || (heldSession ? heldSession.bmlProfileType : '0') || '0';
+        const bmlCombinedLedger = payload.bmlCombinedLedger ?? false;
+        const isAutoSync = payload.isAutoSync ?? false;
         try {
-          fetchBmlHistoryPage(payload.credentials, targetAccId, targetAccNum, port, page, bmlProfileType, payload.hardwareId, payload.backendUrl)
+          fetchBmlHistoryPage(payload.credentials, targetAccId, targetAccNum, port, page, bmlProfileType, payload.hardwareId, payload.backendUrl, bmlCombinedLedger, isAutoSync)
             .then(res => {
+              const apiEndpoints = bmlCombinedLedger ? [
+                "GET /api/mobile/dashboard",
+                `GET /api/mobile/account/${targetAccNum}/history/today`,
+                `GET /api/mobile/history/pending/${targetAccNum}`,
+                `GET /api/mobile/account/${targetAccNum}/history/${page}`
+              ] : [
+                "GET /api/mobile/dashboard",
+                `GET /api/mobile/account/${targetAccNum}/history/${page}`
+              ];
+
               port.postMessage({
                 type: 'history_page_success',
                 page: page,
@@ -442,7 +454,8 @@ chrome.runtime.onConnectExternal.addListener((port) => {
                 totalPages: res.totalPages,
                 balance: res.balance,
                 reservedBalance: res.reservedBalance,
-                availableBalance: res.availableBalance
+                availableBalance: res.availableBalance,
+                bank_api_endpoints: apiEndpoints
               });
             })
             .catch(error => {
@@ -1658,8 +1671,8 @@ async function fetchBmlStatementRange(credentials, bankAccountId, accountNumber,
   }
 }
 
-async function fetchBmlHistoryPage(credentials, bankAccountId, accountNumber, port, page, profileType, payloadHardwareId, payloadBackendUrl) {
-  emitLog(port, `> [BML-API] Starting page fetch for account ${accountNumber}, page ${page}...`);
+async function fetchBmlHistoryPage(credentials, bankAccountId, accountNumber, port, page = 1, profileType = '0', payloadHardwareId = '', payloadBackendUrl = '', bmlCombinedLedger = false, isAutoSync = false) {
+  emitLog(port, `> [BML-API] Starting page fetch for account ${accountNumber}, page ${page} (Combined: ${bmlCombinedLedger})...`);
   const BASE_URL = 'https://www.bankofmaldives.com.mv/internetbanking';
   try {
     const backendUrl = heldSession ? heldSession.backendUrl : (payloadBackendUrl || credentials.backendUrl || '');
@@ -1667,9 +1680,10 @@ async function fetchBmlHistoryPage(credentials, bankAccountId, accountNumber, po
     const bmlUsername = credentials?.username || '';
     const sanctumToken = credentials?.token || '';
 
-    logSessionEvent('fetch_request_submitted', { account: accountNumber, mode: 'history', page, bank: 'BML', backendUrl, hardwareId: terminalId, accountId: bankAccountId });
+    if (!isAutoSync) {
+      logSessionEvent('fetch_request_submitted', { account: accountNumber, mode: 'history', page, bank: 'BML', backendUrl, hardwareId: terminalId, accountId: bankAccountId });
+    }
 
-    // Verify token exists and is valid. Trigger OAuth fallback if needed.
     let token = await getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken);
     if (!token) {
         emitLog(port, `> [BML-API] Token expired or not present. Initiating OAuth flow...`);
@@ -1690,13 +1704,13 @@ async function fetchBmlHistoryPage(credentials, bankAccountId, accountNumber, po
         return await fetch(url, { ...options, headers });
     };
 
+    // Step 1: GET /dashboard
     emitLog(port, `> [BML-API] GET ${BASE_URL}/api/mobile/dashboard`);
     const dashboardRes = await authFetch(`${BASE_URL}/api/mobile/dashboard`);
     if (dashboardRes.status !== 200) throw new Error("Dashboard fetch failed.");
     const dashboardData = await dashboardRes.json();
     logApiDebug(port, dashboardData, 'BML-DASHBOARD');
     
-    // Safely match target account: exact match first, or CASA fallback matching only for valid 4+ digit numbers
     const cleanNum = String(accountNumber || '').trim();
     const cleanDbId = String(bankAccountId || '').trim();
     
@@ -1723,20 +1737,64 @@ async function fetchBmlHistoryPage(credentials, bankAccountId, accountNumber, po
     const reservedBalance = reservedBalanceNum.toFixed(2);
     const availableBalance = availableBalanceNum.toFixed(2);
 
-    emitLog(port, `> [BML-API] GET ${BASE_URL}/api/mobile/account/${accountInternalId}/history/${page}`);
-    const pageRes = await authFetch(`${BASE_URL}/api/mobile/account/${accountInternalId}/history/${page}`);
-    if (pageRes.status !== 200) throw new Error(`History page ${page} failed with status: ${pageRes.status}`);
-    const pageData = await pageRes.json();
-    logApiDebug(port, pageData, 'BML-PAGE-HISTORY');
+    let allRawTxs = [];
+    let totalPages = 1;
 
-    if (!pageData.success || !pageData.payload) {
-      throw new Error("Invalid response payload from BML API.");
+    if (!bmlCombinedLedger) {
+      // Branch A: Combined View OFF
+      // Step 2: GET /history/1
+      emitLog(port, `> [BML-API] [Branch A: Combined OFF] GET ${BASE_URL}/api/mobile/account/${accountInternalId}/history/${page}`);
+      const pageRes = await authFetch(`${BASE_URL}/api/mobile/account/${accountInternalId}/history/${page}`);
+      if (pageRes.status !== 200) throw new Error(`History page ${page} failed with status: ${pageRes.status}`);
+      const pageData = await pageRes.json();
+      logApiDebug(port, pageData, 'BML-PAGE-HISTORY');
+      if (!pageData.success || !pageData.payload) throw new Error("Invalid response payload from BML API.");
+      allRawTxs = pageData.payload.history || [];
+      totalPages = pageData.payload.totalPages || 1;
+    } else {
+      // Branch B: Combined View ON
+      // Step 2: GET /today
+      let todayTxs = [];
+      try {
+        emitLog(port, `> [BML-API] [Branch B: Combined ON] GET ${BASE_URL}/api/mobile/account/${accountInternalId}/history/today`);
+        const todayRes = await authFetch(`${BASE_URL}/api/mobile/account/${accountInternalId}/history/today`);
+        if (todayRes.status === 200) {
+          const todayData = await todayRes.json();
+          todayTxs = todayData.payload?.history || todayData.payload || [];
+        }
+      } catch (e) {}
+
+      // Step 3: GET /pending
+      let pendingTxs = [];
+      try {
+        emitLog(port, `> [BML-API] [Branch B: Combined ON] GET ${BASE_URL}/api/mobile/history/pending/${accountInternalId}`);
+        const pendingRes = await authFetch(`${BASE_URL}/api/mobile/history/pending/${accountInternalId}`);
+        if (pendingRes.status === 200) {
+          const pendingData = await pendingRes.json();
+          pendingTxs = pendingData.payload?.history || pendingData.payload || [];
+        }
+      } catch (e) {}
+
+      // Step 4: GET /history/1
+      emitLog(port, `> [BML-API] [Branch B: Combined ON] GET ${BASE_URL}/api/mobile/account/${accountInternalId}/history/${page}`);
+      const pageRes = await authFetch(`${BASE_URL}/api/mobile/account/${accountInternalId}/history/${page}`);
+      if (pageRes.status !== 200) throw new Error(`History page ${page} failed with status: ${pageRes.status}`);
+      const pageData = await pageRes.json();
+      totalPages = pageData.payload?.totalPages || 1;
+      const page1Txs = pageData.payload?.history || [];
+
+      // Step 5: Combine & deduplicate
+      const rawCombined = [...pendingTxs, ...todayTxs, ...page1Txs];
+      const seen = new Set();
+      allRawTxs = rawCombined.filter(tx => {
+        const k = `${tx.id || tx.reference || ''}-${tx.date || tx.transactionDate || ''}-${tx.amount || ''}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
     }
 
-    const rawTxs = pageData.payload.history || [];
-    const formattedTxs = normalizeTransactions(rawTxs, 'BML', null);
-    const totalPages = pageData.payload.totalPages || 1;
-
+    const formattedTxs = normalizeTransactions(allRawTxs, 'BML', null);
     emitLog(port, `> [BML-API] Page ${page} fetched successfully. Total pages: ${totalPages}. Transactions found: ${formattedTxs.length}`);
 
     logSessionEvent('fetch_request_fulfilled', { account: accountNumber, tx_count: formattedTxs.length, mode: 'history', page, totalPages, bank: 'BML', backendUrl, hardwareId: terminalId, accountId: bankAccountId });

@@ -161,6 +161,7 @@ class SuperadminController extends Controller
 
     public function getSessionLogs(Request $request)
     {
+        @ini_set('memory_limit', '512M');
         // Query builder on SessionActivityLog excluding heavy event_detail payload for list speed
         $query = SessionActivityLog::with(['tenant', 'terminal', 'bankAccount'])
             ->select([
@@ -396,11 +397,30 @@ class SuperadminController extends Controller
             ->take(5)
             ->get();
 
-        $currentHourTerminals = $currentHourTerminalsRaw->map(function ($item) {
+        $currentHourTerminals = $currentHourTerminalsRaw->map(function ($item) use ($oneHourAgo) {
             $lastLog = SessionActivityLog::where(function ($q) use ($item) {
                 if ($item->terminal_id) $q->where('terminal_id', $item->terminal_id);
                 if ($item->terminal_name) $q->orWhere('terminal_name', $item->terminal_name);
             })->latest('created_at')->first();
+
+            $accountsBreakdown = SessionActivityLog::where('created_at', '>=', $oneHourAgo)
+                ->where(function($q) use ($item) {
+                    if ($item->terminal_id) $q->where('terminal_id', $item->terminal_id);
+                    if ($item->terminal_name) $q->orWhere('terminal_name', $item->terminal_name);
+                })
+                ->whereNotNull('account_number_masked')
+                ->where('account_number_masked', '!=', '')
+                ->select('bank_name', 'account_number_masked', \Illuminate\Support\Facades\DB::raw('count(*) as account_count'))
+                ->groupBy('bank_name', 'account_number_masked')
+                ->orderBy('account_count', 'desc')
+                ->get()
+                ->map(function($acc) {
+                    return [
+                        'bank_name' => $acc->bank_name ?: 'Bank API',
+                        'account_number_masked' => $acc->account_number_masked,
+                        'count' => (int)$acc->account_count,
+                    ];
+                })->values()->toArray();
 
             return [
                 'terminal_id' => $item->terminal_id,
@@ -411,6 +431,7 @@ class SuperadminController extends Controller
                 'last_bank' => $lastLog ? ($lastLog->bank_name ?: 'Bank API') : '',
                 'last_account' => $lastLog ? ($lastLog->account_number_masked ?: '') : '',
                 'last_summary' => $lastLog ? ($lastLog->event_summary ?: $lastLog->event_type) : '',
+                'accounts' => $accountsBreakdown,
             ];
         });
 
@@ -458,6 +479,15 @@ class SuperadminController extends Controller
                 $leadLog = $stepResult ?: ($stepSubmitted ?: $cluster->first());
                 $firstLog = $cluster->first();
 
+                // Check if this flow represents an auto-sync event
+                $isAutoSyncFlow = false;
+                foreach ($cluster as $cItem) {
+                    if (str_contains($cItem->event_summary ?? '', '[Live View]') || str_starts_with($cItem->event_type, 'auto_sync')) {
+                        $isAutoSyncFlow = true;
+                        break;
+                    }
+                }
+
                 // Exact Session Duration: Fulfilled / Result timestamp - Submitted timestamp
                 $durationSec = 0;
                 if ($stepSubmitted && $stepResult) {
@@ -499,6 +529,7 @@ class SuperadminController extends Controller
                     'bank_name' => $leadLog->bank_name ?: 'Bank API',
                     'account_number_masked' => $leadLog->account_number_masked ?: '',
                     'status' => $status,
+                    'is_auto_sync' => $isAutoSyncFlow,
                     'event_type' => $leadLog->event_type,
                     'summary' => $leadLog->event_summary ?: $firstLog->event_summary,
                     'created_at' => \Carbon\Carbon::parse($firstLog->created_at)->setTimezone('+05:00')->toIso8601String(),
@@ -535,10 +566,12 @@ class SuperadminController extends Controller
         }
 
         // Bank API Health (BML & MIB)
-        $bmlLogs = SessionActivityLog::where('created_at', '>=', $twentyFourHoursAgo)
+        $bmlLogs = SessionActivityLog::select(['id', 'event_type', 'bank_name', 'event_summary', 'event_detail', 'created_at'])
+            ->where('created_at', '>=', $twentyFourHoursAgo)
             ->where(function($q) { $q->where('bank_name', 'LIKE', '%BML%')->orWhere('event_summary', 'LIKE', '%BML%'); })
             ->get();
-        $mibLogs = SessionActivityLog::where('created_at', '>=', $twentyFourHoursAgo)
+        $mibLogs = SessionActivityLog::select(['id', 'event_type', 'bank_name', 'event_summary', 'event_detail', 'created_at'])
+            ->where('created_at', '>=', $twentyFourHoursAgo)
             ->where(function($q) { $q->where('bank_name', 'LIKE', '%MIB%')->orWhere('event_summary', 'LIKE', '%MIB%'); })
             ->get();
 
@@ -585,10 +618,12 @@ class SuperadminController extends Controller
             $wEnd = $now->copy()->subDays($w)->endOfDay();
             $dayName = $wStart->setTimezone('+05:00')->format('M d');
 
-            $bmlDayLogs = SessionActivityLog::whereBetween('created_at', [$wStart, $wEnd])
+            $bmlDayLogs = SessionActivityLog::select(['id', 'event_type', 'bank_name', 'event_summary', 'event_detail', 'created_at'])
+                ->whereBetween('created_at', [$wStart, $wEnd])
                 ->where(function($q) { $q->where('bank_name', 'LIKE', '%BML%')->orWhere('event_summary', 'LIKE', '%BML%'); })
                 ->get();
-            $mibDayLogs = SessionActivityLog::whereBetween('created_at', [$wStart, $wEnd])
+            $mibDayLogs = SessionActivityLog::select(['id', 'event_type', 'bank_name', 'event_summary', 'event_detail', 'created_at'])
+                ->whereBetween('created_at', [$wStart, $wEnd])
                 ->where(function($q) { $q->where('bank_name', 'LIKE', '%MIB%')->orWhere('event_summary', 'LIKE', '%MIB%'); })
                 ->get();
 

@@ -2,6 +2,173 @@
 
 This document maintains a chronological record of code modifications made to the application frontend (`pwa/` directory) and backend, including exact before-and-after code snippets.
 
+## [2026-08-05] - Render VBTL Debug Log Panel in Transaction Ledger View
+
+### Overview & Rationale
+- Updated `pwa/src/pages/Cashier/CashierApp.tsx` so that when `show_vbtl` feature is enabled by Superadmin (`permissions.show_vbtl === true`), the **Viri Bridge Cashier Counter Logs** debugging window is displayed at the top of the **Transaction Ledger** page as well as the Verification page.
+- Fully respects 3-Tier Feature Governance (remains hidden when `show_vbtl` is disabled by Superadmin).
+
+### Files Modified:
+1. `pwa/src/pages/Cashier/CashierApp.tsx`
+2. `app_changes.md`
+
+---
+
+## [2026-08-04] - Superadmin App Config: Single 'Live View Interval Setting' Slider Card & Renamed Timeout Card
+
+### Overview & Rationale
+1. **Single 'Live View Interval Setting' Card**:
+   - Converted the two separate min/max poll delay cards in Superadmin > App Config into a single **'Live View Interval Setting'** card.
+   - Includes a single range slider with max 3 minutes (180s).
+   - Displays the **Target Interval** (e.g. `60s`) and calculated **Poll Range** (e.g. `55s - 65s` / ±5s range).
+   - Live View polling continuously runs at randomized intervals within this range until toggled OFF manually or by inactivity timeout.
+2. **Renamed Timeout Card**:
+   - Renamed **Auto-Sync Inactivity Timeout (Minutes)** to **Live View Inactivity Timeout (Minutes)** in Superadmin > App Config.
+
+### Files Modified:
+1. `routes/api.php`
+2. `pwa/src/pages/Dashboard/AdminDashboard.tsx`
+3. `app_changes.md`
+
+---
+
+## [2026-08-04] - Immediate Live View Poll Execution & Removal of Duplicate Form Toggle
+
+### Overview & Rationale
+1. **Immediate Poll Execution on Toggle ON**:
+   - Updated `toggleAccountAutoSync` so that turning Live View ON for an account triggers an immediate background poll tick (`executeSilentAutoSync(accountId)`) without waiting 50–60 seconds for the first scheduled interval.
+2. **Master OFF State Auto-Disable & Off-State Toggles**:
+   - When PWA > Settings > **Enable/Disable Live Balance & Transaction** is OFF, all active account Live Views are cleared (`autoSyncAccounts = []`) and toggle buttons are hidden (`visibility OFF`).
+   - When turned ON, all account toggles render in the **OFF state** (`"Live View Disabled"`), allowing cashiers to explicitly opt-in per account.
+3. **Removal of Duplicate Form Controls Toggle**:
+   - Removed the extra auto-sync toggle switch from the verification form controls area next to Sync History. Toggles are now strictly placed on **Carousel Cards** and **Active Account Card**.
+
+### Files Modified:
+1. `pwa/src/pages/Cashier/CashierApp.tsx`
+2. `app_changes.md`
+
+---
+
+## [2026-08-04] - Live View Visibility Control, "Live View Enabled/Disabled" Wording & Combined Settings Grouping
+
+### Overview & Rationale
+1. **Master Setting Visibility Control**:
+   - Updated PWA > Settings master toggle to **"Enable/Disable Live Balance & Transaction"**.
+   - When the master toggle is ON (`liveViewMasterEnabled = true` & plan feature allowed), Live View buttons become VISIBLE throughout the PWA on carousel bank account cards and active account cards.
+   - When OFF, Live View buttons are hidden (`visibility OFF`) across the PWA.
+2. **"Live View Enabled / Disabled" Card Wording**:
+   - Renamed "Auto-Sync" to **"Live View"** across cards and banner notifications.
+   - Bank account cards now display `"Live View Enabled"` (when active) or `"Live View Disabled"` (when inactive).
+3. **Grouped Combined View Settings**:
+   - Neatly grouped **MIB - Combined Transaction Ledger & Verification View** (always ON) and **BML - Combined Transaction Ledger & Verification View** under a unified **Combined View Settings** section card in PWA > Settings.
+
+### Files Modified:
+1. `pwa/src/pages/Cashier/CashierApp.tsx`
+2. `app_changes.md`
+
+---
+
+## [2026-08-04] - Silent Non-Intrusive Auto-Sync Engine & Per-Card Carousel Toggle Buttons
+
+### Overview & Rationale
+Refined the **Auto-Sync Live Balance & Transactions** polling engine to operate completely silently without UI disruption or flag collision:
+1. **Silent Non-Intrusive Engine (`executeSilentAutoSync`)**:
+   - Created a dedicated background fetch handler that bypasses interactive manual UI spinners (`setLoading(true)`) and avoids locking `isVerifyingRef.current`.
+   - Connects seamlessly to API endpoints or background Chrome Extension ports (`viri-auto-sync`).
+   - Updates `recentTxCache` and `ledgerCache` with fresh balance, reserved balance, and transactions while updating the live `HH:MM:SS` timer.
+   - Emits structured session log events (`auto_sync_poll_initiated` and `auto_sync_poll_fulfilled`) under `event_type: 'auto_sync_activity'` with unmasked account numbers.
+2. **Carousel & Active Account Toggle Placement**:
+   - Moved auto-sync toggle slider buttons onto **EACH individual bank account card in the Transaction Ledger carousel**.
+   - Added auto-sync toggle slider button on the **Active Account card in Verification View**.
+   - Ensured initial state defaults to `[]` (empty list; no accounts are auto-enabled ON automatically).
+
+### Files Modified:
+1. `pwa/src/pages/Cashier/CashierApp.tsx`
+2. `app_changes.md`
+
+---
+
+## [2026-08-04] - Auto-Sync Live Balance & Transactions Background Polling (v1.2.97)
+
+### Overview & Rationale
+Implemented the **Auto-Sync Live Balance & Transactions** background polling feature across all 3 tiers with strict governance:
+1. **Superadmin App Config & Governance**:
+   - Added `auto_sync_min_interval` slider (range 5s–180s, default 50s) and `auto_sync_max_interval` slider (range 5s–180s, default 60s) in Superadmin App Config.
+   - Added `auto_sync_idle_timeout` textbox input (range 1m–180m, default 15m) in Superadmin App Config for idle auto-disabling.
+   - Added `auto_sync_enabled` tenant feature flag.
+2. **Company Dashboard**:
+   - Rendered read-only `auto_sync_enabled` toggle in Terminal Counter Permissions modal with `DISABLED BY PLAN` or `ENABLED BY PLAN` badge.
+3. **Cashier PWA & 2-Account FIFO Queue**:
+   - Added auto-sync toggle switches in Verification Active Account card, Transaction Ledger controls, and PWA Settings.
+   - Restricted maximum active auto-sync accounts to 2 per cashier PWA session. Enabling a 3rd account automatically evicts the oldest (1st) account with a bottom notification banner.
+   - Added background polling scheduler with randomized interval between `minSec` and `maxSec` seconds.
+   - Added **Collision Safeguard**: Defers background poll ticks if manual verification search or extension port action is active.
+   - Added **Button Imitation Safeguard**: If cashier clicks **View History** / **Sync History** while auto-sync is active, waits for the background poll result and updates UI without sending duplicate API calls.
+   - Added **Idle Auto-Disable Safeguard**: Automatically turns OFF auto-sync when cashier terminal is deep idle for longer than `auto_sync_idle_timeout` minutes.
+   - Added `<FormatSinceLastSync />` component rendering live `HH:MM:SS` timer above Daily Entries and Recent Transactions tables.
+   - Grouped session logs under `event_type: 'auto_sync_activity'` with unmasked account numbers.
+4. **Extension Version Bump**:
+   - Incremented version to `1.2.97` across `manifest.json`, `CashierApp.tsx`, `CompanyDashboard.tsx`, ran `./package-extension.sh`, and rebuilt/deployed PWA bundle to `public/viri/`.
+
+### Files Modified:
+1. `routes/api.php`
+2. `pwa/src/pages/Dashboard/AdminDashboard.tsx`
+3. `pwa/src/pages/Dashboard/CompanyDashboard.tsx`
+4. `pwa/src/pages/Cashier/CashierApp.tsx`
+5. `extension/manifest.json`
+6. `app_changes.md`
+
+### Code Snippets & Revert Instructions
+
+#### 1. `routes/api.php` (App Config & Permissions)
+```php
+// BEFORE:
+'bml_login_procedure' => 'api',
+'mib_login_procedure' => 'api',
+];
+'bml_combined_ledger_allowed' => (bool) ($tenantFeatures['bml_combined_ledger'] ?? ! $isFreeOr499),
+'shift_claim_report_enabled' => true,
+
+// AFTER:
+'bml_login_procedure' => 'api',
+'mib_login_procedure' => 'api',
+'auto_sync_min_interval' => max(5, min(180, (int) ($settings['auto_sync_min_interval'] ?? 50))),
+'auto_sync_max_interval' => max(5, min(180, (int) ($settings['auto_sync_max_interval'] ?? 60))),
+'auto_sync_idle_timeout' => max(1, (int) ($settings['auto_sync_idle_timeout'] ?? 15)),
+];
+'bml_combined_ledger_allowed' => (bool) ($tenantFeatures['bml_combined_ledger'] ?? ! $isFreeOr499),
+'auto_sync_enabled' => (bool) ($tenantFeatures['auto_sync_enabled'] ?? false),
+'shift_claim_report_enabled' => true,
+```
+
+#### 2. `CashierApp.tsx` (State, FIFO, Polling & Timers)
+```tsx
+const [autoSyncAccounts, setAutoSyncAccounts] = useState<string[]>(() => {
+  return safeJsonParse(localStorage.getItem('viri_auto_sync_accounts'), []);
+});
+
+const toggleAccountAutoSync = (accountId: string) => {
+  const accObj = bankAccounts.find(a => a.id.toString() === accountId);
+  const isEnabling = !autoSyncAccounts.includes(accountId);
+
+  setAutoSyncAccounts(prev => {
+    let next = [...prev];
+    if (isEnabling) {
+      if (next.length >= 2) {
+        const evictedId = next.shift();
+        const evictedAcc = bankAccounts.find(a => a.id.toString() === evictedId);
+        showAutoSyncBanner(`Auto-sync disabled for ${evictedAcc?.bank_name || ''} (${evictedAcc?.account_number.slice(-4) || evictedId}) (Max 2 accounts limit reached).`);
+      }
+      next.push(accountId);
+    } else {
+      next = next.filter(id => id !== accountId);
+    }
+    localStorage.setItem('viri_auto_sync_accounts', JSON.stringify(next));
+    return next;
+  });
+};
+```
+
 ---
 
 ## [2026-08-03] - Remove Duplicate View Mode Toggle from Session Activity & Telemetry Center Header

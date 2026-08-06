@@ -102,6 +102,33 @@ async function encryptCredentialsForSync(
   };
 }
 
+function FormatSinceLastSync({ timestamp }: { timestamp: number | null }) {
+  const [elapsedSec, setElapsedSec] = useState<number>(() => {
+    return timestamp ? Math.max(0, Math.floor((Date.now() - timestamp) / 1000)) : 0;
+  });
+
+  useEffect(() => {
+    if (!timestamp) return;
+    const update = () => setElapsedSec(Math.max(0, Math.floor((Date.now() - timestamp) / 1000)));
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, [timestamp]);
+
+  if (!timestamp) return <span className="opacity-40 font-mono text-[10px] text-zinc-500">-</span>;
+
+  const hrs = String(Math.floor(elapsedSec / 3600)).padStart(2, '0');
+  const mins = String(Math.floor((elapsedSec % 3600) / 60)).padStart(2, '0');
+  const secs = String(elapsedSec % 60).padStart(2, '0');
+
+  return (
+    <span className="font-mono text-zinc-300 font-bold text-[11px] bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded flex items-center gap-1.5 shrink-0" title="Time elapsed since last successful bank API synchronization">
+      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+      Since last sync: {hrs}:{mins}:{secs}
+    </span>
+  );
+}
+
 async function decryptCredentialsFromSync(
   payload: { passphrase: string; encrypted_blob: string; wrapped_dek: string; kdf_salt: string; gcm_iv: string }
 ): Promise<Record<string, { username?: string; password?: string; totpSeed?: string }>> {
@@ -898,7 +925,10 @@ function App() {
     debug_log_mib_html: false,
     debug_api_payloads: false,
     bml_login_procedure: 'legacy',
-    mib_login_procedure: 'legacy'
+    mib_login_procedure: 'legacy',
+    auto_sync_min_interval: 50,
+    auto_sync_max_interval: 60,
+    auto_sync_idle_timeout: 15
   });
   const [hasSettingsPin, setHasSettingsPin] = useState(false);
   const [permissions, setPermissions] = useState<any>({
@@ -914,11 +944,89 @@ function App() {
     show_sale_reference_popover: false,
     bml_combined_ledger: false,
     bml_combined_ledger_allowed: false,
+    auto_sync_enabled: false,
     shift_claim_report_enabled: true
   });
   const [bmlCombinedLedger, setBmlCombinedLedger] = useState<boolean>(() => {
     return localStorage.getItem('viri_bml_combined_ledger') === 'true';
   });
+  const [liveViewMasterEnabled, setLiveViewMasterEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('viri_live_view_master_enabled') !== 'false';
+  });
+  const [autoSyncAccounts, setAutoSyncAccounts] = useState<string[]>(() => {
+    return safeJsonParse(localStorage.getItem('viri_auto_sync_accounts'), []);
+  });
+  const [autoSyncBannerMsg, setAutoSyncBannerMsg] = useState<string | null>(null);
+  const isAutoSyncingRef = useRef<Record<string, boolean>>({});
+  const isAccountBusyRef = useRef<Record<string, boolean>>({});
+  const activeRequestPromiseRef = useRef<Record<string, Promise<any> | null>>({});
+  const autoSyncQueueRef = useRef<Record<string, boolean>>({});
+  const nextSyncTimeRef = useRef<Record<string, string>>({});
+
+  const isLiveViewVisible = Boolean(permissions.auto_sync_enabled && liveViewMasterEnabled);
+
+  const handleToggleLiveViewMaster = (enabled: boolean) => {
+    setLiveViewMasterEnabled(enabled);
+    localStorage.setItem('viri_live_view_master_enabled', enabled ? 'true' : 'false');
+    if (!enabled) {
+      setAutoSyncAccounts([]);
+      localStorage.removeItem('viri_auto_sync_accounts');
+    }
+  };
+
+  const showAutoSyncBanner = (msg: string) => {
+    setAutoSyncBannerMsg(msg);
+    setTimeout(() => setAutoSyncBannerMsg(null), 5000);
+  };
+
+  const toggleAccountAutoSync = (accountId: string) => {
+    const accObj = bankAccounts.find(a => a.id.toString() === accountId);
+    const isEnabling = !autoSyncAccounts.includes(accountId);
+
+    if (isEnabling && accObj?.bank_name === 'BML' && !bmlCombinedLedger && (permissions.bml_combined_ledger_allowed ?? false)) {
+      setBmlCombinedLedger(true);
+      localStorage.setItem('viri_bml_combined_ledger', 'true');
+      showAutoSyncBanner("BML - Combined Transaction Ledger & Verification View is now ON");
+    }
+
+    setAutoSyncAccounts(prev => {
+      let next = [...prev];
+      if (isEnabling) {
+        if (next.length >= 2) {
+          const evictedId = next.shift();
+          const evictedAcc = bankAccounts.find(a => a.id.toString() === evictedId);
+          showAutoSyncBanner(`Live View disabled for ${evictedAcc?.bank_name || ''} (${evictedAcc?.account_number.slice(-4) || evictedId}) (Max 2 accounts limit reached).`);
+          if (evictedId) {
+            logSessionActivity(
+              'auto_sync_fifo_disabled',
+              `Live View automatically disabled for account ${evictedAcc?.account_number || evictedId} (2-account max limit reached)`,
+              { status: 'OFF', reason: 'max_limit_exceeded', account_number: evictedAcc?.account_number || null },
+              evictedId
+            );
+          }
+        }
+        next.push(accountId);
+      } else {
+        next = next.filter(id => id !== accountId);
+      }
+      localStorage.setItem('viri_auto_sync_accounts', JSON.stringify(next));
+      return next;
+    });
+
+    logSessionActivity(
+      isEnabling ? 'auto_sync_enabled' : 'auto_sync_disabled',
+      `Live View ${isEnabling ? 'ENABLED' : 'DISABLED'} for ${accObj?.bank_name || ''} account ${accObj?.account_number || accountId}`,
+      { status: isEnabling ? 'ON' : 'OFF', account_number: accObj?.account_number || null },
+      accountId
+    );
+
+    if (isEnabling) {
+      // Immediate background poll execution when Live View is toggled ON
+      setTimeout(() => {
+        executeSilentAutoSync(accountId);
+      }, 100);
+    }
+  };
   const [shouldUploadLogs, setShouldUploadLogs] = useState(true);
   const [creditsExhausted, setCreditsExhausted] = useState(false);
   const [subscriptionExpired, setSubscriptionExpired] = useState(false);
@@ -950,7 +1058,7 @@ function App() {
       narrative3?: string;
       hash?: string;
     }[];
-    label: string;
+    label?: string;
     lastUpdated: string;
     timestamp: number | null;
     balance?: string;
@@ -1060,7 +1168,7 @@ function App() {
   const [_terminalId, setTerminalId] = useState<number | null>(null);
   const [accountToClear, setAccountToClear] = useState<any | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const LATEST_EXTENSION_VERSION = "1.2.96";
+  const LATEST_EXTENSION_VERSION = "1.3.05";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -1345,9 +1453,6 @@ function App() {
       || (selectedAccountId && accIdStr === selectedAccountId ? bankAccounts.find(a => a.id.toString() === selectedAccountId) : null) 
       || (selectedLedgerAccountId && accIdStr === selectedLedgerAccountId ? bankAccounts.find(a => a.id.toString() === selectedLedgerAccountId) : null)
       || null;
-
-    const isDebugPayloadsEnabled = Boolean(appConfig.debug_api_payloads || appConfig.debug_log_mib_html);
-
     const screenRes = typeof window !== 'undefined' && window.screen ? `${window.screen.width}x${window.screen.height}` : 'unknown';
     const windowSize = typeof window !== 'undefined' ? `${window.innerWidth}x${window.innerHeight}` : 'unknown';
     const extVer = extensionVersion || LATEST_EXTENSION_VERSION;
@@ -1360,8 +1465,7 @@ function App() {
       ...detail,
       screen_resolution: screenRes,
       window_size: windowSize,
-      account_number: accountObj?.account_number || detail.account_number || null, // UNMASKED as required
-      api_endpoint: `${bUrl}/terminal/session/log`,
+      account_number: accountObj?.account_number || detail.account_number || null,
       bank: accountObj?.bank_name || detail.bank || null,
       bank_balance: currentBalance,
       extension_version: extVer,
@@ -1372,15 +1476,8 @@ function App() {
       terminal_name: localStorage.getItem('viri_terminal_name') || null,
     };
 
-    if (isDebugPayloadsEnabled) {
-      if (detail.raw_transactions) {
-        enrichedDetail.full_payment_payload = detail.raw_transactions;
-      } else if (detail.response && detail.response.transactions) {
-        enrichedDetail.full_payment_payload = detail.response.transactions;
-      } else if (detail.transactions) {
-        enrichedDetail.full_payment_payload = detail.transactions;
-      }
-    }
+    // Clean up internal temporary fields from detail
+    delete enrichedDetail.raw_transactions;
 
     fetch(`${bUrl}/terminal/session/log`, {
       method: 'POST',
@@ -1391,8 +1488,7 @@ function App() {
         bank_account_id: isNaN(accIdNum) || accIdNum <= 0 ? null : accIdNum,
         event_summary: summary,
         event_detail: enrichedDetail,
-        extension_version: extVer,
-        pwa_logs: logsRef.current || []
+        extension_version: extVer
       })
     }).catch(e => console.error("Failed to log session activity:", e));
   };
@@ -2657,6 +2753,7 @@ function App() {
             show_sale_reference_popover: data.permissions.show_sale_reference_popover ?? false,
             bml_combined_ledger: data.permissions.bml_combined_ledger ?? false,
             bml_combined_ledger_allowed: data.permissions.bml_combined_ledger_allowed ?? false,
+            auto_sync_enabled: data.permissions.auto_sync_enabled ?? false,
             shift_claim_report_enabled: data.permissions.shift_claim_report_enabled ?? true
           });
         }
@@ -3209,14 +3306,314 @@ function App() {
     };
   }, [sessionStatus, hardwareId, backendUrl, sessionHolderAccountId, accountsCreds, delegatedFulfilling, extensionId, bankAccounts, appConfig.poll_interval_holder, visibility]);
 
+  // Idle Auto-Disable Safeguard (turns off auto-sync if PWA is inactive > auto_sync_idle_timeout)
   useEffect(() => {
-    if (activeTab === 'verify' && selectedAccountId && verifyAccountRefs.current[selectedAccountId]) {
-      verifyAccountRefs.current[selectedAccountId]?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center'
+    if (autoSyncAccounts.length === 0) return;
+
+    const idleTimeoutMin = appConfig.auto_sync_idle_timeout || 15;
+    if (isUserDeepIdle) {
+      autoSyncAccounts.forEach(accId => {
+        const accObj = bankAccounts.find(a => a.id.toString() === accId);
+        logSessionActivity(
+          'auto_sync_idle_disabled',
+          `Auto-sync automatically disabled due to inactivity timeout (${idleTimeoutMin} min) for account ${accObj?.account_number || accId}`,
+          { status: 'OFF', reason: 'inactivity_timeout', idle_minutes: idleTimeoutMin, account_number: accObj?.account_number || null },
+          accId
+        );
       });
+      setAutoSyncAccounts([]);
+      localStorage.removeItem('viri_auto_sync_accounts');
+      showAutoSyncBanner(`Auto-sync turned off due to ${idleTimeoutMin} min inactivity timeout.`);
     }
-  }, [selectedAccountId, activeTab]);
+  }, [isUserDeepIdle, autoSyncAccounts, appConfig.auto_sync_idle_timeout, bankAccounts]);
+
+  const executeSilentAutoSync = async (accountId: string): Promise<any> => {
+    const targetAcc = bankAccounts.find(a => a.id.toString() === accountId);
+    if (!targetAcc || !hardwareId || !backendUrl) return;
+
+    // AUTO-SYNC QUEUE CHECK: If an API request is already ongoing for this account, queue it
+    if (isAccountBusyRef.current[accountId]) {
+      autoSyncQueueRef.current[accountId] = true;
+      logSessionActivity(
+        'auto_sync_queued',
+        `[Live View] Auto-sync queued for ${targetAcc.bank_name} account ${targetAcc.account_number || accountId} (ongoing request in progress)`,
+        { source: 'live_view', is_auto_sync: true, account_number: targetAcc.account_number },
+        accountId
+      );
+      return activeRequestPromiseRef.current[accountId];
+    }
+
+    isAccountBusyRef.current[accountId] = true;
+    isAutoSyncingRef.current[accountId] = true;
+
+    const nextSyncTime = nextSyncTimeRef.current[accountId] || 'Pending calculation';
+
+    // LOG EVENT 1: fetch_request_submitted (Live View)
+    logSessionActivity(
+      'fetch_request_submitted',
+      `[Live View] Ledger history sync initiated for ${targetAcc.bank_name} account ${targetAcc.account_number || accountId}`,
+      { source: 'live_view', is_auto_sync: true, account_number: targetAcc.account_number, next_sync_at: nextSyncTime },
+      accountId
+    );
+
+    const requestPromise = (async () => {
+      try {
+        const isBml = targetAcc.bank_name === 'BML';
+        const isApiManaged = (isBml && appConfig.bml_login_procedure === 'api') || 
+                             (targetAcc.bank_name === 'MIB' && appConfig.mib_login_procedure === 'api');
+
+        const currentCreds = accountsCreds[accountId] || {};
+        const activeCreds = {
+          username: currentCreds.username || '',
+          password: currentCreds.password || '',
+          totpSeed: currentCreds.totpSeed || '',
+          token: localStorage.getItem('viri_token') || ''
+        };
+
+        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.connect && extensionId) {
+          await new Promise<void>((resolve) => {
+            let port: chrome.runtime.Port | null = null;
+            try {
+              port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
+              if (isBml) {
+                port.postMessage({
+                  action: 'FETCH_BML_HISTORY_PAGE',
+                  payload: {
+                    page: 1,
+                    bank: 'BML',
+                    accountId: accountId,
+                    accountNumber: targetAcc.account_number,
+                    accountName: targetAcc.account_name,
+                    bmlProfileType: targetAcc.bml_profile_type || '0',
+                    credentials: activeCreds,
+                    hardwareId: hardwareId,
+                    backendUrl: backendUrl,
+                    bmlCombinedLedger: true,
+                    isAutoSync: true
+                  }
+                });
+              } else {
+                port.postMessage({
+                  action: 'VERIFY_TRANSFER',
+                  payload: {
+                    mode: 'ledger',
+                    sessionMode: 'fresh_login',
+                    amount: '0.00',
+                    bank: targetAcc.bank_name,
+                    accountId: accountId,
+                    accountNumber: targetAcc.account_number,
+                    accountName: targetAcc.account_name,
+                    mibProfileType: targetAcc.mib_profile_type || '0',
+                    credentials: activeCreds,
+                    debugLogMibHtml: appConfig.debug_log_mib_html,
+                    mibLoginProcedure: appConfig.mib_login_procedure || 'legacy',
+                    backendUrl: backendUrl,
+                    hardwareId: hardwareId,
+                    sanctumToken: localStorage.getItem('viri_token') || ''
+                  }
+                });
+              }
+
+              const timer = setTimeout(() => {
+                if (port) port.disconnect();
+                logSessionActivity(
+                  'fetch_request_failed',
+                  `[Live View] Ledger history sync timed out for account ${targetAcc.account_number || accountId}`,
+                  { source: 'live_view', is_auto_sync: true, error: 'Request timeout', next_sync_at: nextSyncTimeRef.current[accountId] || 'Pending' },
+                  accountId
+                );
+                resolve();
+              }, 25000);
+
+              port.onMessage.addListener((msg: any) => {
+                if (msg.type === 'history_page_success' || msg.type === 'ledger_success' || msg.type === 'verification_complete') {
+                  clearTimeout(timer);
+                  const freshTxs = msg.transactions || [];
+                  const freshBal = msg.balance || '0.00';
+                  const freshRes = msg.reservedBalance || '0.00';
+                  const nowMs = Date.now();
+                  const updatedStr = new Date().toLocaleTimeString();
+
+                  // UPDATE CACHE & RESET "SINCE LAST SYNC" TIMER (lastUpdatedTimestamp: nowMs)
+                  setRecentTxCache(prev => ({
+                    ...prev,
+                    [accountId]: { transactions: freshTxs, balance: freshBal, reservedBalance: freshRes, timestamp: nowMs, lastUpdated: updatedStr, lastUpdatedTimestamp: nowMs, label: targetAcc.label || '' }
+                  }));
+                  setLedgerCache(prev => ({
+                    ...prev,
+                    [accountId]: { transactions: freshTxs, balance: freshBal, reservedBalance: freshRes, timestamp: nowMs, lastUpdated: updatedStr, lastUpdatedTimestamp: nowMs, label: targetAcc.label || '' }
+                  }));
+
+                  // LOG EVENT: fetch_request_fulfilled with raw JSON payload if debug_api_payloads is ON
+                  const logDetail: any = {
+                    source: 'live_view',
+                    is_auto_sync: true,
+                    tx_count: freshTxs.length,
+                    balance: freshBal,
+                    next_sync_at: nextSyncTimeRef.current[accountId] || 'Pending',
+                    bank_api_endpoints: msg.bank_api_endpoints || (targetAcc.bank_name === 'MIB' ? ['POST /aAccount/accountHistory'] : ['GET /api/mobile/dashboard'])
+                  };
+                  if (appConfig.debug_api_payloads) {
+                    logDetail.raw_payload = msg;
+                  }
+
+                  logSessionActivity(
+                    'fetch_request_fulfilled',
+                    `[Live View] Ledger history synced successfully: ${freshTxs.length} transactions fetched for account ${targetAcc.account_number || accountId}`,
+                    logDetail,
+                    accountId
+                  );
+                  if (port) port.disconnect();
+                  resolve();
+                } else if (msg.type === 'history_page_error' || msg.type === 'error') {
+                  clearTimeout(timer);
+                  const errDetail: any = {
+                    source: 'live_view',
+                    is_auto_sync: true,
+                    error: msg.error || 'Unknown error',
+                    next_sync_at: nextSyncTimeRef.current[accountId] || 'Pending'
+                  };
+                  if (appConfig.debug_api_payloads) {
+                    errDetail.raw_payload = msg;
+                  }
+
+                  logSessionActivity(
+                    'fetch_request_failed',
+                    `[Live View] Ledger history sync failed for account ${targetAcc.account_number || accountId}: ${msg.error || 'Unknown error'}`,
+                    errDetail,
+                    accountId
+                  );
+                  if (port) port.disconnect();
+                  resolve();
+                }
+              });
+            } catch (err) {
+              if (port) (port as any).disconnect();
+              resolve();
+            }
+          });
+        } else if (isApiManaged) {
+          const url = `${backendUrl}/terminal/ledger-history?hardware_id=${hardwareId}&bank_account_id=${accountId}&page=1`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            const freshTxs = data.transactions || [];
+            const freshBal = data.balance || '0.00';
+            const freshRes = data.reservedBalance || '0.00';
+            const nowMs = Date.now();
+            const updatedStr = new Date().toLocaleTimeString();
+
+            setRecentTxCache(prev => ({
+              ...prev,
+              [accountId]: { transactions: freshTxs, balance: freshBal, reservedBalance: freshRes, timestamp: nowMs, lastUpdated: updatedStr, lastUpdatedTimestamp: nowMs, label: targetAcc.label || '' }
+            }));
+            setLedgerCache(prev => ({
+              ...prev,
+              [accountId]: { transactions: freshTxs, balance: freshBal, reservedBalance: freshRes, timestamp: nowMs, lastUpdated: updatedStr, lastUpdatedTimestamp: nowMs, label: targetAcc.label || '' }
+            }));
+
+            const logDetail: any = {
+              source: 'live_view',
+              is_auto_sync: true,
+              tx_count: freshTxs.length,
+              balance: freshBal,
+              next_sync_at: nextSyncTimeRef.current[accountId] || 'Pending'
+            };
+            if (appConfig.debug_api_payloads) {
+              logDetail.raw_payload = data;
+              logDetail.raw_transactions = freshTxs;
+            }
+
+            logSessionActivity(
+              'fetch_request_fulfilled',
+              `[Live View] Ledger history synced successfully: ${freshTxs.length} transactions fetched for account ${targetAcc.account_number || accountId}`,
+              logDetail,
+              accountId
+            );
+          }
+        }
+      } catch (e: any) {
+        console.error(`Background auto-sync error for account ${accountId}:`, e);
+      } finally {
+        isAutoSyncingRef.current[accountId] = false;
+        isAccountBusyRef.current[accountId] = false;
+        activeRequestPromiseRef.current[accountId] = null;
+
+        // QUEUE EXECUTION: If auto-sync request was queued while busy, trigger it now
+        if (autoSyncQueueRef.current[accountId]) {
+          autoSyncQueueRef.current[accountId] = false;
+          setTimeout(() => {
+            executeSilentAutoSync(accountId);
+          }, 100);
+        }
+      }
+    })();
+
+    activeRequestPromiseRef.current[accountId] = requestPromise;
+    return requestPromise;
+  };
+
+  const autoSyncAccountsRef = useRef<string[]>(autoSyncAccounts);
+  useEffect(() => {
+    autoSyncAccountsRef.current = autoSyncAccounts;
+  }, [autoSyncAccounts]);
+
+  const autoSyncTimeoutsRef = useRef<Record<string, any>>({});
+
+  // Background Auto-Sync Polling Engine with Collision Defense & Persistent Timers
+  useEffect(() => {
+    if (!isLiveViewVisible || isSetupMode) {
+      Object.values(autoSyncTimeoutsRef.current).forEach(t => clearTimeout(t));
+      autoSyncTimeoutsRef.current = {};
+      return;
+    }
+
+    const minSec = appConfig.auto_sync_min_interval || 50;
+    const maxSec = appConfig.auto_sync_max_interval || 60;
+
+    // Clean up timeouts for accounts that are no longer in autoSyncAccounts
+    Object.keys(autoSyncTimeoutsRef.current).forEach(accId => {
+      if (!autoSyncAccounts.includes(accId)) {
+        clearTimeout(autoSyncTimeoutsRef.current[accId]);
+        delete autoSyncTimeoutsRef.current[accId];
+      }
+    });
+
+    const scheduleNextPoll = (accountId: string) => {
+      if (autoSyncTimeoutsRef.current[accountId]) {
+        clearTimeout(autoSyncTimeoutsRef.current[accountId]);
+      }
+
+      const randomSec = Math.floor(Math.random() * (maxSec - minSec + 1)) + minSec;
+      const delayMs = randomSec * 1000;
+      nextSyncTimeRef.current[accountId] = new Date(Date.now() + delayMs).toLocaleTimeString();
+
+      autoSyncTimeoutsRef.current[accountId] = setTimeout(async () => {
+        if (!autoSyncAccountsRef.current.includes(accountId)) return;
+
+        // Collision Safeguard: Defer background poll tick ONLY if interactive manual verification is active
+        if (isVerifyingRef.current && activePortRef.current !== null) {
+          if (autoSyncAccountsRef.current.includes(accountId)) {
+            scheduleNextPoll(accountId);
+          }
+          return;
+        }
+
+        if (autoSyncAccountsRef.current.includes(accountId)) {
+          await executeSilentAutoSync(accountId);
+          if (autoSyncAccountsRef.current.includes(accountId)) {
+            scheduleNextPoll(accountId);
+          }
+        }
+      }, delayMs);
+    };
+
+    autoSyncAccounts.forEach(accId => {
+      if (!autoSyncTimeoutsRef.current[accId]) {
+        scheduleNextPoll(accId);
+      }
+    });
+  }, [autoSyncAccounts, isLiveViewVisible, isSetupMode, appConfig.auto_sync_min_interval, appConfig.auto_sync_max_interval]);
 
 
   const handleVerify = async (mode: 'search' | 'history' = 'search') => {
@@ -3421,10 +3818,24 @@ function App() {
           }
 
           const txCount = Array.isArray(response.transactions) ? response.transactions.length : 0;
+          const logDetail: any = {
+            tx_count: txCount,
+            balance: response.balance,
+            bank: selectedBankName
+          };
+          if (mode === 'search') {
+            logDetail.amount = amount;
+            logDetail.match = response.data;
+          }
+          if (appConfig.debug_api_payloads) {
+            logDetail.raw_payload = response;
+            logDetail.raw_transactions = newTxs;
+          }
+
           if (mode === 'history') {
-            logSessionActivity('fetch_request_fulfilled', `History fetched successfully: ${txCount} transactions retrieved for account ${selectedAccount?.account_number || ''}`, { tx_count: txCount, balance: response.balance, raw_transactions: newTxs }, selectedAccountId);
+            logSessionActivity('fetch_request_fulfilled', `History fetched successfully: ${txCount} transactions retrieved for account ${selectedAccount?.account_number || ''}`, logDetail, selectedAccountId);
           } else if (mode === 'search') {
-            logSessionActivity('fetch_request_fulfilled', `Transfer verification completed for ${amount || '0.00'} MVR on ${selectedBankName} account ${selectedAccount?.account_number || ''}`, { amount, match: response.data, tx_count: txCount, balance: response.balance, raw_transactions: newTxs }, selectedAccountId);
+            logSessionActivity('fetch_request_fulfilled', `Transfer verification completed for ${amount || '0.00'} MVR on ${selectedBankName} account ${selectedAccount?.account_number || ''}`, logDetail, selectedAccountId);
           }
 
           // Register session holder to extension
@@ -3571,6 +3982,27 @@ function App() {
   };
 
   const syncLedgerLocally = async (targetAccountId: string, selectedAccount: any, selectedBankName: string, pageNum: number = 1) => {
+    // If an API request is ALREADY ongoing for targetAccountId, piggyback on it
+    if (isAccountBusyRef.current[targetAccountId] && activeRequestPromiseRef.current[targetAccountId]) {
+      logSessionActivity(
+        'fetch_request_attached',
+        `[Manual Sync] Piggybacked onto ongoing API request for ${selectedBankName} account ${selectedAccount?.account_number || ''}`,
+        { source: 'manual_sync_piggyback', account_number: selectedAccount?.account_number || null },
+        targetAccountId
+      );
+      addLog(`> [Live View] Ongoing API request detected for account ${selectedAccount?.account_number || ''}. Piggybacking onto live result...`);
+      setLoading(true);
+      try {
+        await activeRequestPromiseRef.current[targetAccountId];
+        addLog(`> [Live View] Ongoing API request completed cleanly.`);
+      } catch (err: any) {
+        console.error("Piggybacked request error:", err);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     logSessionActivity('fetch_request_submitted', `Ledger history sync initiated for ${selectedBankName} account ${selectedAccount?.account_number || ''}`, { page: pageNum }, targetAccountId);
 
     addLog("> [System] Validating cashier counter license & recording verification...");
@@ -3873,19 +4305,20 @@ function App() {
           addLog("> [System] Valid local session detected. Proceeding...");
         }
         try {
-          if (isBmlApi) {
+          if (selectedBankName === 'BML') {
             port.postMessage({
               action: 'FETCH_BML_HISTORY_PAGE',
               payload: {
                 page: pageNum,
-                bank: selectedBankName,
+                bank: 'BML',
                 accountId: targetAccountId,
                 accountNumber: selectedAccount ? selectedAccount.account_number : '',
                 accountName: selectedAccount ? selectedAccount.account_name : '',
                 bmlProfileType: selectedAccount ? (selectedAccount.bml_profile_type || '0') : '0',
                 credentials: activeCreds,
                 hardwareId: hardwareId,
-                backendUrl: backendUrl
+                backendUrl: backendUrl,
+                bmlCombinedLedger: bmlCombinedLedger && Boolean(permissions.bml_combined_ledger_allowed)
               }
             });
           } else {
@@ -3900,11 +4333,8 @@ function App() {
                 accountNumber: selectedAccount ? selectedAccount.account_number : '',
                 accountName: selectedAccount ? selectedAccount.account_name : '',
                 mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
-                bmlProfileType: selectedAccount ? (selectedAccount.bml_profile_type || '0') : '0',
-                bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
                 credentials: activeCreds,
                 debugLogMibHtml: appConfig.debug_log_mib_html,
-                bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
                 mibLoginProcedure: appConfig.mib_login_procedure || 'legacy',
                 backendUrl: backendUrl,
                 hardwareId: hardwareId,
@@ -3937,21 +4367,22 @@ function App() {
         isVerifyingRef.current = false;
       }
     } else {
-      addLog(isBmlApi ? `> [System] Sending FETCH_BML_HISTORY_PAGE (page ${pageNum}) to extension...` : "> [System] Sending VERIFY_TRANSFER (ledger mode) to extension...");
+      addLog(selectedBankName === 'BML' ? `> [System] Sending FETCH_BML_HISTORY_PAGE (page ${pageNum}) to extension...` : "> [System] Sending VERIFY_TRANSFER (ledger mode) to extension...");
       try {
-        if (isBmlApi) {
+        if (selectedBankName === 'BML') {
           port.postMessage({
             action: 'FETCH_BML_HISTORY_PAGE',
             payload: {
               page: pageNum,
-              bank: selectedBankName,
+              bank: 'BML',
               accountId: targetAccountId,
               accountNumber: selectedAccount ? selectedAccount.account_number : '',
               accountName: selectedAccount ? selectedAccount.account_name : '',
               bmlProfileType: selectedAccount ? (selectedAccount.bml_profile_type || '0') : '0',
               credentials: activeCreds,
               hardwareId: hardwareId,
-              backendUrl: backendUrl
+              backendUrl: backendUrl,
+              bmlCombinedLedger: bmlCombinedLedger && Boolean(permissions.bml_combined_ledger_allowed)
             }
           });
         } else {
@@ -3966,11 +4397,8 @@ function App() {
               accountNumber: selectedAccount ? selectedAccount.account_number : '',
               accountName: selectedAccount ? selectedAccount.account_name : '',
               mibProfileType: selectedAccount ? (selectedAccount.mib_profile_type || '0') : '0',
-              bmlProfileType: selectedAccount ? (selectedAccount.bml_profile_type || '0') : '0',
-              bmlAuthState: selectedAccount ? selectedAccount.bml_auth_state : null,
               credentials: activeCreds,
               debugLogMibHtml: appConfig.debug_log_mib_html,
-              bmlLoginProcedure: appConfig.bml_login_procedure || 'legacy',
               mibLoginProcedure: appConfig.mib_login_procedure || 'legacy',
               backendUrl: backendUrl,
               hardwareId: hardwareId,
@@ -3990,10 +4418,23 @@ function App() {
     }
   };
 
-  const syncLedger = async (targetAccountId: string, pageNum: number = 1) => {
+  const syncLedger = async (targetAccountId: string, pageNum: number = 1, isAutoSync: boolean = false) => {
     if (!targetAccountId) return;
     const selectedAccount = bankAccounts.find(a => a.id.toString() === targetAccountId);
     if (!selectedAccount) return;
+
+    // Button Imitation Safeguard: If auto-sync is actively running for this account and user clicked button, wait for it
+    if (!isAutoSync && isAutoSyncingRef.current[targetAccountId]) {
+      setLoading(true);
+      setLoadingMode('ledger');
+      setProgress({ stage: 'fetch', text: 'Auto-syncing background update...', percent: 75, isIndeterminate: true });
+      while (isAutoSyncingRef.current[targetAccountId]) {
+        await new Promise(r => setTimeout(r, 200));
+      }
+      setLoading(false);
+      setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+      return;
+    }
 
     if (!extensionId) {
       setError("Extension ID is not configured.");
@@ -4755,49 +5196,77 @@ function App() {
                     </div>
                   </div>
 
-                  {/* MIB Combined Ledger Setting (Fixed ON / Grayed out & Disabled) */}
+                  {/* Master Setting: Enable/Disable Live Balance & Transaction */}
                   <div className="pt-4 border-t border-[var(--border-color)]">
                     <div className="flex items-start gap-3">
-                      <label className="relative inline-flex items-center cursor-not-allowed shrink-0 mt-0.5 select-none opacity-50">
-                        <input type="checkbox" checked={true} disabled={true} className="sr-only peer" />
-                        <div className="w-9 h-5 bg-zinc-600/70 rounded-full after:content-[''] after:absolute after:top-[2px] after:left-[18px] after:bg-zinc-300 after:rounded-full after:h-4 after:w-4 border border-zinc-500/40"></div>
-                      </label>
-                      <div>
-                        <label className="text-xs font-semibold text-zinc-400 cursor-not-allowed flex items-center gap-2">
-                          MIB - Combined Transaction Ledger & Verification View
-                          <span className="text-[9px] bg-zinc-800 text-zinc-400 border border-zinc-700 px-1.5 py-0.5 rounded font-mono font-bold">ALWAYS ACTIVE FOR MIB</span>
-                        </label>
-                        <span className="text-[10px] text-zinc-500">MIB verification and history use unified real-time API sync.</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* BML Combined Ledger Setting (Toggleable - Default OFF) */}
-                  <div className="pt-4 border-t border-[var(--border-color)]">
-                    <div className="flex items-start gap-3">
-                      <label htmlFor="setting-bml-combined" className={`relative inline-flex items-center shrink-0 mt-0.5 select-none ${!permissions.bml_combined_ledger_allowed ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                      <label htmlFor="setting-live-view-master" className={`relative inline-flex items-center shrink-0 mt-0.5 select-none ${!permissions.auto_sync_enabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                         <input
                           type="checkbox"
-                          id="setting-bml-combined"
-                          checked={bmlCombinedLedger && Boolean(permissions.bml_combined_ledger_allowed)}
-                          disabled={!permissions.bml_combined_ledger_allowed}
-                          onChange={(e) => {
-                            const val = e.target.checked;
-                            setBmlCombinedLedger(val);
-                            localStorage.setItem('viri_bml_combined_ledger', String(val));
-                          }}
+                          id="setting-live-view-master"
+                          checked={liveViewMasterEnabled && Boolean(permissions.auto_sync_enabled)}
+                          disabled={!permissions.auto_sync_enabled}
+                          onChange={(e) => handleToggleLiveViewMaster(e.target.checked)}
                           className="sr-only peer"
                         />
                         <div className="w-9 h-5 bg-zinc-700/70 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500 peer-disabled:opacity-40"></div>
                       </label>
                       <div>
-                        <label htmlFor="setting-bml-combined" className={`text-xs font-semibold flex items-center gap-2 ${!permissions.bml_combined_ledger_allowed ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
-                          BML - Combined Transaction Ledger & Verification View
-                          {!permissions.bml_combined_ledger_allowed && (
+                        <label htmlFor="setting-live-view-master" className={`text-xs font-semibold flex items-center gap-2 ${!permissions.auto_sync_enabled ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
+                          Enable/Disable Live Balance & Transaction
+                          {!permissions.auto_sync_enabled && (
                             <span className="text-[9px] bg-amber-500/15 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono font-bold">DISABLED BY PLAN</span>
                           )}
                         </label>
-                        <span className="text-[10px] text-[var(--text-secondary)]">Includes verification entries alongside statement history when viewing BML account ledgers (defaults to OFF).</span>
+                        <span className="text-[10px] text-[var(--text-secondary)]">Master control to enable or disable Live View background polling buttons on bank account cards across the PWA.</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Grouped Combined View Settings */}
+                  <div className="pt-4 border-t border-[var(--border-color)]">
+                    <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-3">Combined View Settings</h4>
+                    <div className="space-y-4 bg-zinc-950/40 p-4 rounded-xl border border-zinc-800">
+                      {/* MIB - Combined Transaction Ledger & Verification View */}
+                      <div className="flex items-start gap-3">
+                        <label className="relative inline-flex items-center cursor-not-allowed shrink-0 mt-0.5 select-none opacity-50">
+                          <input type="checkbox" checked={true} disabled={true} className="sr-only peer" />
+                          <div className="w-9 h-5 bg-zinc-600/70 rounded-full after:content-[''] after:absolute after:top-[2px] after:left-[18px] after:bg-zinc-300 after:rounded-full after:h-4 after:w-4 border border-zinc-500/40"></div>
+                        </label>
+                        <div>
+                          <label className="text-xs font-semibold text-zinc-400 cursor-not-allowed flex items-center gap-2">
+                            MIB - Combined Transaction Ledger & Verification View
+                            <span className="text-[9px] bg-zinc-800 text-zinc-400 border border-zinc-700 px-1.5 py-0.5 rounded font-mono font-bold">ALWAYS ACTIVE FOR MIB</span>
+                          </label>
+                          <span className="text-[10px] text-zinc-500">MIB verification and history use unified real-time API sync.</span>
+                        </div>
+                      </div>
+
+                      {/* BML - Combined Transaction Ledger & Verification View */}
+                      <div className="flex items-start gap-3 pt-3 border-t border-zinc-800/60">
+                        <label htmlFor="setting-bml-combined" className={`relative inline-flex items-center shrink-0 mt-0.5 select-none ${!permissions.bml_combined_ledger_allowed ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                          <input
+                            type="checkbox"
+                            id="setting-bml-combined"
+                            checked={bmlCombinedLedger && Boolean(permissions.bml_combined_ledger_allowed)}
+                            disabled={!permissions.bml_combined_ledger_allowed}
+                            onChange={(e) => {
+                              const val = e.target.checked;
+                              setBmlCombinedLedger(val);
+                              localStorage.setItem('viri_bml_combined_ledger', String(val));
+                            }}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-zinc-700/70 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500 peer-disabled:opacity-40"></div>
+                        </label>
+                        <div>
+                          <label htmlFor="setting-bml-combined" className={`text-xs font-semibold flex items-center gap-2 ${!permissions.bml_combined_ledger_allowed ? 'text-zinc-500 cursor-not-allowed' : 'text-white cursor-pointer'}`}>
+                            BML - Combined Transaction Ledger & Verification View
+                            {!permissions.bml_combined_ledger_allowed && (
+                              <span className="text-[9px] bg-amber-500/15 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono font-bold">DISABLED BY PLAN</span>
+                            )}
+                          </label>
+                          <span className="text-[10px] text-[var(--text-secondary)]">Includes verification entries alongside statement history when viewing BML account ledgers (defaults to OFF).</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -5151,28 +5620,30 @@ function App() {
                             </div>
 
                             {/* Balance Footer */}
-                            <div className="flex justify-between items-end z-10 pt-2 border-t border-zinc-800/60 mt-auto">
-                              <div className="flex flex-col">
-                                <span className="text-zinc-500 text-[10px] uppercase tracking-wider font-bold">Balance</span>
-                                {(() => {
-                                  const verifyCache = selectedAccount ? (recentTxCache[selectedAccount.id.toString()] || { balance: 'Not synced', reservedBalance: '0.00' } as any) : { balance: 'Not synced', reservedBalance: '0.00' } as any;
-                                  return permissions.ledger_show_balance && verifyCache.balance !== 'Not synced' && verifyCache.balance !== 'Not found' && (
-                                    <span className="text-zinc-500 text-[9px] font-sans uppercase mt-0.5">
-                                      Reserved: {selectedAccountCurrency} {formatAmount(verifyCache.reservedBalance || '0.00')}
-                                    </span>
-                                  );
-                                })()}
-                              </div>
-                              <div className="text-right">
-                                <span className="text-[10px] text-emerald-500/70 mr-1 font-bold">{selectedAccountCurrency}</span>
-                                <span className="text-sm font-bold font-mono text-emerald-400">
+                            <div className="flex flex-col gap-2 z-10 pt-2 border-t border-zinc-800/60 mt-auto">
+                              <div className="flex justify-between items-end">
+                                <div className="flex flex-col">
+                                  <span className="text-zinc-500 text-[10px] uppercase tracking-wider font-bold">Balance</span>
                                   {(() => {
-                                    const verifyCache = selectedAccount ? (recentTxCache[selectedAccount.id.toString()] || { balance: 'Not synced' } as any) : { balance: 'Not synced' } as any;
-                                    return permissions.ledger_show_balance ? (
-                                      verifyCache.balance !== 'Not synced' && verifyCache.balance !== 'Not found' ? formatAmount(verifyCache.balance) : '0.00'
-                                    ) : '[hidden]';
+                                    const verifyCache = selectedAccount ? (recentTxCache[selectedAccount.id.toString()] || { balance: 'Not synced', reservedBalance: '0.00' } as any) : { balance: 'Not synced', reservedBalance: '0.00' } as any;
+                                    return permissions.ledger_show_balance && verifyCache.balance !== 'Not synced' && verifyCache.balance !== 'Not found' && (
+                                      <span className="text-zinc-500 text-[9px] font-sans uppercase mt-0.5">
+                                        Reserved: {selectedAccountCurrency} {formatAmount(verifyCache.reservedBalance || '0.00')}
+                                      </span>
+                                    );
                                   })()}
-                                </span>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-[10px] text-emerald-500/70 mr-1 font-bold">{selectedAccountCurrency}</span>
+                                  <span className="text-sm font-bold font-mono text-emerald-400">
+                                    {(() => {
+                                      const verifyCache = selectedAccount ? (recentTxCache[selectedAccount.id.toString()] || { balance: 'Not synced' } as any) : { balance: 'Not synced' } as any;
+                                      return permissions.ledger_show_balance ? (
+                                        verifyCache.balance !== 'Not synced' && verifyCache.balance !== 'Not found' ? formatAmount(verifyCache.balance) : '0.00'
+                                      ) : '[hidden]';
+                                    })()}
+                                  </span>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -5475,6 +5946,29 @@ function App() {
                           </span>
                         </div>
                       </div>
+
+                      {/* Live View Toggle for Active Account in Verification View */}
+                      {isLiveViewVisible && selectedAccount && (
+                        <div className="flex items-center justify-between pt-2.5 border-t border-zinc-800/60 mt-2.5 z-10">
+                          <div className="flex items-center gap-1.5">
+                            <RefreshCw size={11} className={autoSyncAccounts.includes(selectedAccount.id.toString()) ? 'text-emerald-400 animate-spin' : 'text-zinc-500'} />
+                            <span className={`text-[10px] font-bold uppercase tracking-wider ${
+                              autoSyncAccounts.includes(selectedAccount.id.toString()) ? 'text-emerald-400' : 'text-zinc-400'
+                            }`}>
+                              {autoSyncAccounts.includes(selectedAccount.id.toString()) ? 'Live View Enabled' : 'Live View Disabled'}
+                            </span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={autoSyncAccounts.includes(selectedAccount.id.toString())}
+                              onChange={() => toggleAccountAutoSync(selectedAccount.id.toString())}
+                              className="sr-only peer"
+                            />
+                            <div className="w-7 h-3.5 bg-zinc-700/70 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-3.5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500"></div>
+                          </label>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -5524,10 +6018,13 @@ function App() {
 
                   {/* Recent Transactions Table */}
                   <div className="w-full glass-panel p-6 border border-zinc-800 bg-zinc-950/80 rounded-2xl flex flex-col gap-4 order-3 lg:order-none">
-                    <div className="flex justify-between items-center border-b border-zinc-800/80 pb-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-zinc-800/80 pb-3 gap-2">
                       <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-1.5">
                         Recent Transactions {lastTransactionsLabel ? `- ${lastTransactionsLabel}` : ''} <Tooltip text="The last few statement entries cached/fetched from the bank's database." helpSectionId="transaction-ledger" />
                       </h3>
+                      {selectedAccount && (
+                        <FormatSinceLastSync timestamp={recentTxCache[selectedAccount.id.toString()]?.timestamp || null} />
+                      )}
                     </div>
 
                     <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 bg-zinc-900/40 rounded-xl border border-zinc-800">
@@ -5750,6 +6247,54 @@ function App() {
                     </div>
                   </div>
 
+                  {/* VBTL Debug Log Panel (Rendered when show_vbtl feature is enabled by Superadmin) */}
+                  {permissions.show_vbtl && (
+                    <div className="w-full bg-black border border-zinc-800 rounded-lg overflow-hidden animate-fade-in shadow-2xl">
+                      <div className="bg-zinc-900 px-4 py-2 border-b border-zinc-800 flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                        <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                        <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                        <span className="text-xs text-zinc-400 ml-2 font-mono flex items-center gap-1">
+                          Viri Bridge Cashier Counter Logs <Tooltip text="Real-time network crawler debugging logs execution stream." helpSectionId="extension-installation" />
+                        </span>
+                        {loading && <Loader2 size={12} className="text-[var(--color-success)] animate-spin ml-2" />}
+
+                        <div className="ml-auto flex items-center gap-2">
+                          {logs.length > 0 && (
+                            <button
+                              onClick={copyLogs}
+                              className="flex items-center gap-1 text-[10px] uppercase font-bold text-zinc-400 bg-zinc-900 border border-zinc-800 px-2 py-1 rounded hover:bg-zinc-800 transition-colors"
+                            >
+                              <Copy size={12} /> Copy
+                            </button>
+                          )}
+                          {loading && (
+                            <button
+                              onClick={killRobot}
+                              className="flex items-center gap-1 text-[10px] uppercase font-bold text-red-500 bg-red-955 border border-red-900 px-2 py-1 rounded hover:bg-red-900 transition-colors"
+                            >
+                              <XCircle size={12} /> Kill
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div
+                        className="p-4 font-mono text-xs text-[var(--color-success)] h-40 overflow-y-auto flex flex-col gap-1 scrollbar-thin"
+                        ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}
+                      >
+                        {logs.length === 0 ? (
+                          <span className="text-zinc-500">Waiting for extension connection...</span>
+                        ) : (
+                          logs.map((log, i) => (
+                            <div key={i} className={`${log.includes('error') || log.includes('Exception') || log.includes('Failed') ? 'text-red-400' : ''}`}>
+                              {log}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Search input above carousel */}
                   <div className="w-full flex justify-between items-center gap-4">
                     <span className="text-xs text-zinc-500 font-sans">
@@ -5862,6 +6407,30 @@ function App() {
                                     '[hidden]'
                                   )}
                                 </div>
+
+                                {/* Per-Account Live View Slider Button on Carousel Card */}
+                                {isLiveViewVisible && (
+                                  <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-zinc-800/50" onClick={e => e.stopPropagation()}>
+                                    <span className={`text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 ${
+                                      autoSyncAccounts.includes(acc.id.toString()) ? 'text-emerald-400' : 'text-zinc-500'
+                                    }`}>
+                                      <RefreshCw size={10} className={autoSyncAccounts.includes(acc.id.toString()) ? 'animate-spin' : ''} />
+                                      {autoSyncAccounts.includes(acc.id.toString()) ? 'Live View Enabled' : 'Live View Disabled'}
+                                    </span>
+                                    <label className="relative inline-flex items-center cursor-pointer select-none">
+                                      <input
+                                        type="checkbox"
+                                        checked={autoSyncAccounts.includes(acc.id.toString())}
+                                        onChange={(e) => {
+                                          e.stopPropagation();
+                                          toggleAccountAutoSync(acc.id.toString());
+                                        }}
+                                        className="sr-only peer"
+                                      />
+                                      <div className="w-7 h-3.5 bg-zinc-700/70 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-3.5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500"></div>
+                                    </label>
+                                  </div>
+                                )}
                               </div>
                             </button>
                           );
@@ -5890,9 +6459,10 @@ function App() {
 
                       {/* Filter & Toolbar Area */}
                       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-3 flex-wrap">
                           <h3 className="text-lg font-bold text-white tracking-tight">Daily Entries</h3>
                           <span className="text-sm font-mono text-zinc-500">({filteredTransactions.length})</span>
+                          <FormatSinceLastSync timestamp={ledgerCache[activeLedgerAcc.id.toString()]?.timestamp || null} />
                           {/* Shared Sync Badge */}
                           {(() => {
                             const cache = ledgerCache[activeLedgerAcc.id.toString()];
@@ -6105,6 +6675,23 @@ function App() {
 
 
 
+                          {/* Auto-Sync Toggle Switch in Transaction Ledger */}
+                          {permissions.auto_sync_enabled && activeLedgerAcc && (
+                            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg">
+                              <label htmlFor={`auto-sync-ledger-${activeLedgerAcc.id}`} className="relative inline-flex items-center cursor-pointer select-none">
+                                <input
+                                  type="checkbox"
+                                  id={`auto-sync-ledger-${activeLedgerAcc.id}`}
+                                  checked={autoSyncAccounts.includes(activeLedgerAcc.id.toString())}
+                                  onChange={() => toggleAccountAutoSync(activeLedgerAcc.id.toString())}
+                                  className="sr-only peer"
+                                />
+                                <div className="w-8 h-4 bg-zinc-700/70 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500 border border-white/10 peer-checked:border-emerald-500"></div>
+                              </label>
+                              <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider">Auto-Sync</span>
+                            </div>
+                          )}
+
                           <button
                             onClick={() => syncLedger(activeLedgerAcc.id.toString(), activeLedgerAcc.bank_name === 'BML' && appConfig.bml_login_procedure === 'api' ? bmlCurrentPage : 1)}
                             disabled={isSyncing || isLockedByVerify || subscriptionExpired || !isActiveLedgerConfigured}
@@ -6147,14 +6734,6 @@ function App() {
                               ? <><LiveTimer startTime={syncStartTimeRef.current} mode="elapsed" /></>
                               : (syncTimeElapsed !== null ? `${(syncTimeElapsed / 1000).toFixed(1)}s` : '0.0s')}
                           </span>
-                          <span className="text-zinc-700">|</span>
-                          <span className="text-zinc-500">Since last sync: <span className={`${!isSyncing ? 'text-zinc-300' : 'text-zinc-500'}`}>
-                            {cache.lastUpdatedTimestamp ? (
-                              <LiveTimer startTime={cache.lastUpdatedTimestamp} mode="hms" />
-                            ) : '00:00:00'}
-                          </span></span>
-                          <span className="text-zinc-700">|</span>
-                          <span className="text-zinc-500">{cache.lastUpdated !== 'Never' ? cache.lastUpdated : 'Never synced'}</span>
                         </div>
                       </div>
 
@@ -7712,6 +8291,14 @@ function App() {
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Bottom Screen Auto-Sync FIFO Banner Notification */}
+        {autoSyncBannerMsg && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[250] bg-zinc-900 border border-amber-500/40 text-amber-300 px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-slide-up backdrop-blur-md">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+            <span className="text-xs font-bold font-mono">{autoSyncBannerMsg}</span>
           </div>
         )}
 

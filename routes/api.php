@@ -225,6 +225,10 @@ Route::post('/verify-terminal', function (Request $request) {
         'debug_api_payloads' => (bool) ($settings['debug_api_payloads'] ?? $settings['debug_log_mib_html'] ?? false),
         'bml_login_procedure' => 'api',
         'mib_login_procedure' => 'api',
+        'live_view_interval' => max(10, min(180, (int) ($settings['live_view_interval'] ?? $settings['auto_sync_min_interval'] ?? 60))),
+        'auto_sync_min_interval' => max(5, min(180, (int) ($settings['live_view_interval'] ?? $settings['auto_sync_min_interval'] ?? 60) - 5)),
+        'auto_sync_max_interval' => min(185, (int) ($settings['live_view_interval'] ?? $settings['auto_sync_max_interval'] ?? 60) + 5),
+        'auto_sync_idle_timeout' => max(1, (int) ($settings['auto_sync_idle_timeout'] ?? 15)),
     ];
 
     $activeTerminalsCount = 1;
@@ -348,6 +352,7 @@ Route::post('/verify-terminal', function (Request $request) {
             'show_sale_reference_popover' => (bool) ($terminalPermissions['show_sale_reference_popover'] ?? false),
             'bml_combined_ledger' => (bool) (($tenantFeatures['bml_combined_ledger'] ?? ! $isFreeOr499) && ($terminalPermissions['bml_combined_ledger'] ?? false)),
             'bml_combined_ledger_allowed' => (bool) ($tenantFeatures['bml_combined_ledger'] ?? ! $isFreeOr499),
+            'auto_sync_enabled' => (bool) ($tenantFeatures['auto_sync_enabled'] ?? false),
             'shift_claim_report_enabled' => true,
             'recent_tx_limit' => (function () use ($tenantFeatures) {
                 $hasFeature = (bool) ($tenantFeatures['custom_recent_tx_limit'] ?? false);
