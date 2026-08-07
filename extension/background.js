@@ -387,7 +387,7 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         }
         try {
           if (payload.bank === 'MIB') {
-            await runMibApiFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode, sessionMode, payload.hardwareId, payload.backendUrl, payload.accountId);
+            await runMibApiFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode, sessionMode, payload.hardwareId, payload.backendUrl, payload.accountId, payload.isAutoSync || false, payload.sanctumToken || '');
           } else {
             await runBmlApiFlow(payload.credentials, targetAcc, payload.accountName, port, payload.amount, payload.bmlProfileType || '0', mode, sessionMode, payload.bmlAuthState, payload.hardwareId, payload.backendUrl, payload.accountId);
           }
@@ -455,7 +455,8 @@ chrome.runtime.onConnectExternal.addListener((port) => {
                 balance: res.balance,
                 reservedBalance: res.reservedBalance,
                 availableBalance: res.availableBalance,
-                bank_api_endpoints: apiEndpoints
+                bank_api_endpoints: apiEndpoints,
+                raw_bank_response: res.raw_bank_response
               });
             })
             .catch(error => {
@@ -1740,6 +1741,8 @@ async function fetchBmlHistoryPage(credentials, bankAccountId, accountNumber, po
     let allRawTxs = [];
     let totalPages = 1;
 
+    let rawBankResponse = null;
+
     if (!bmlCombinedLedger) {
       // Branch A: Combined View OFF
       // Step 2: GET /history/1
@@ -1747,6 +1750,7 @@ async function fetchBmlHistoryPage(credentials, bankAccountId, accountNumber, po
       const pageRes = await authFetch(`${BASE_URL}/api/mobile/account/${accountInternalId}/history/${page}`);
       if (pageRes.status !== 200) throw new Error(`History page ${page} failed with status: ${pageRes.status}`);
       const pageData = await pageRes.json();
+      rawBankResponse = pageData;
       logApiDebug(port, pageData, 'BML-PAGE-HISTORY');
       if (!pageData.success || !pageData.payload) throw new Error("Invalid response payload from BML API.");
       allRawTxs = pageData.payload.history || [];
@@ -1780,6 +1784,7 @@ async function fetchBmlHistoryPage(credentials, bankAccountId, accountNumber, po
       const pageRes = await authFetch(`${BASE_URL}/api/mobile/account/${accountInternalId}/history/${page}`);
       if (pageRes.status !== 200) throw new Error(`History page ${page} failed with status: ${pageRes.status}`);
       const pageData = await pageRes.json();
+      rawBankResponse = pageData;
       totalPages = pageData.payload?.totalPages || 1;
       const page1Txs = pageData.payload?.history || [];
 
@@ -1804,7 +1809,8 @@ async function fetchBmlHistoryPage(credentials, bankAccountId, accountNumber, po
       totalPages: totalPages,
       balance: balance,
       reservedBalance: reservedBalance,
-      availableBalance: availableBalance
+      availableBalance: availableBalance,
+      raw_bank_response: rawBankResponse
     };
   } catch (error) {
     emitLog(port, `> [BML-API] Error during page fetch: ${error.message}`);
@@ -2395,7 +2401,7 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
   }
 }
 
-async function ensureMibSession(port, terminalId, backendUrl, credentials, targetAccount) {
+async function ensureMibSession(port, terminalId, backendUrl, credentials, targetAccount, sanctumTokenParam = '') {
   const mibSessionKey = 'mibSession_' + (targetAccount || 'default');
   const mibProfileIdKey = 'mib_profileId_' + (targetAccount || 'default');
   const mibProfileTypeKey = 'mib_profileType_' + (targetAccount || 'default');
@@ -2430,13 +2436,14 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
   if (!localRes.mib_appId || !localRes.mib_key1 || !localRes.mib_key2) {
     if(port) emitLog(port, '> [MIB-API] Local keys not found. Attempting server fetch...');
     const tokenRes = await chrome.storage.local.get('sanctumToken');
-    if (!tokenRes.sanctumToken) throw new Error("Missing MIB device credentials and no auth token.");
+    const token = tokenRes.sanctumToken || sanctumTokenParam || credentials?.token || '';
+    if (!token) throw new Error("Missing MIB device credentials and no auth token.");
     const params = new URLSearchParams({ hardware_id: terminalId });
     if (targetAccount) {
       params.append('account_number', targetAccount);
     }
     const keysResp = await fetch(`${backendUrl}/mib/keys?${params}`, {
-      headers: { 'Authorization': `Bearer ${tokenRes.sanctumToken}` }
+      headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!keysResp.ok) throw new Error("Missing MIB device credentials. Please link account again.");
     const keysData = await keysResp.json();
@@ -2906,9 +2913,11 @@ async function selectMibProfile(profileId, profileType) {
   return { success: true };
 }
 
-async function runMibApiFlow(credentials, targetAccount, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', hardwareId = '', backendUrl = '', payloadAccountId = '') {
-  emitLog(port, `> [MIB-API] Starting API ledger flow (mode: ${mode})...`);
-  logSessionEvent('session_login_started', { account: targetAccount, mode: mode, session_mode: sessionMode });
+async function runMibApiFlow(credentials, targetAccount, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', hardwareId = '', backendUrl = '', payloadAccountId = '', isAutoSync = false, sanctumTokenParam = '') {
+  emitLog(port, `> [MIB-API] Starting API ledger flow (mode: ${mode}, autoSync: ${isAutoSync})...`);
+  if (!isAutoSync) {
+    logSessionEvent('session_login_started', { account: targetAccount, mode: mode, session_mode: sessionMode, backendUrl, hardwareId, accountId: payloadAccountId });
+  }
   let last3Txs = [];
   
   try {
@@ -2920,8 +2929,10 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
       if(port) emitLog(port, `> [MIB-API] Cached credentials for account ${targetAccount}.`);
     }
     
-    const mibSession = await ensureMibSession(port, hardwareId, backendUrl, credentials, targetAccount);
-    logSessionEvent('session_login_success', { account: targetAccount, mode: mode });
+    const mibSession = await ensureMibSession(port, hardwareId, backendUrl, credentials, targetAccount, sanctumTokenParam);
+    if (!isAutoSync) {
+      logSessionEvent('session_login_success', { account: targetAccount, mode: mode, backendUrl, hardwareId, accountId: payloadAccountId });
+    }
 
     // Check if ensureMibSession saved a balance from A40 into session storage
     let accountBalance = null;
@@ -3129,15 +3140,19 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
       })
     });
 
+    const responseText = await trxRes.text().catch(() => '');
     if (trxRes.status !== 200) {
-      const errBody = await trxRes.text().catch(() => '');
-      emitLog(port, `> [MIB-API] WebView API error body: ${errBody.substring(0, 500)}`);
+      emitLog(port, `> [MIB-API] WebView API error body: ${responseText.substring(0, 500)}`);
       throw new Error(`WebView API returned HTTP ${trxRes.status}`);
     }
 
-    const data = await trxRes.json();
-    logApiDebug(port, data, 'MIB-HISTORY');
-
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (e) {
+      emitLog(port, `> [MIB-API] Response text: ${responseText.substring(0, 300)}`);
+      throw new Error(`MIB API returned HTML page instead of JSON. Bank session may have expired.`);
+    }
     if (!data.success) {
       throw new Error("WebView API response indicated failure.");
     }
@@ -3164,12 +3179,6 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
       let benefName = t.benefName || "";
       let otherAcc = t.otherAccountNo && t.otherAccountNo !== "-" ? t.otherAccountNo : "";
 
-      // Build multi-line details: descr1 as title (first line), then extra fields
-      // - fromAcc: sender name
-      // - otherAcc: counterparty account number  
-      // - desc2: transaction reference code
-      // Note: descr3 is already shown as narrative3 below title in Column 3
-      // Note: trxNumber is shown as a copiable chip via reference field
       const extraLines = [
         fromAcc ? `From: ${fromAcc}` : "",
         otherAcc ? `Account: ${otherAcc}` : "",
@@ -3200,13 +3209,16 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
         transactions: formattedTxs, 
         balance: accountBalance || '0.00',
         reservedBalance: accountReservedBalance || '0.00',
-        availableBalance: accountAvailableBalance || '0.00'
+        availableBalance: accountAvailableBalance || '0.00',
+        bank_api_endpoints: ['POST https://faisamobilex-wv.mib.com.mv/ajaxAccounts/trxHistory']
       });
       return;
     }
 
     if (mode === 'ledger' || mode === 'history') {
-      logSessionEvent('fetch_request_fulfilled', { account: targetAccount, tx_count: formattedTxs.length, mode: mode });
+      if (!isAutoSync) {
+        logSessionEvent('fetch_request_fulfilled', { account: targetAccount, tx_count: formattedTxs.length, mode: mode, backendUrl, hardwareId, accountId: payloadAccountId });
+      }
       port.postMessage({
         type: 'success',
         match: null,
@@ -3214,7 +3226,9 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
         balance: accountBalance || '0.00',
         reservedBalance: accountReservedBalance || '0.00',
         availableBalance: accountAvailableBalance || '0.00',
-        login_success: true
+        login_success: true,
+        bank_api_endpoints: ['POST https://faisamobilex-wv.mib.com.mv/ajaxAccounts/trxHistory'],
+        raw_bank_response: data
       });
       return;
     }

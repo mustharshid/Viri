@@ -1168,7 +1168,7 @@ function App() {
   const [_terminalId, setTerminalId] = useState<number | null>(null);
   const [accountToClear, setAccountToClear] = useState<any | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const LATEST_EXTENSION_VERSION = "1.3.05";
+  const LATEST_EXTENSION_VERSION = "1.3.10";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -3370,6 +3370,11 @@ function App() {
           token: localStorage.getItem('viri_token') || ''
         };
 
+        const sToken = localStorage.getItem('viri_token') || '';
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+          chrome.storage.local.set({ sanctumToken: sToken });
+        }
+
         if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.connect && extensionId) {
           await new Promise<void>((resolve) => {
             let port: chrome.runtime.Port | null = null;
@@ -3409,6 +3414,7 @@ function App() {
                     mibLoginProcedure: appConfig.mib_login_procedure || 'legacy',
                     backendUrl: backendUrl,
                     hardwareId: hardwareId,
+                    isAutoSync: true,
                     sanctumToken: localStorage.getItem('viri_token') || ''
                   }
                 });
@@ -3426,7 +3432,7 @@ function App() {
               }, 25000);
 
               port.onMessage.addListener((msg: any) => {
-                if (msg.type === 'history_page_success' || msg.type === 'ledger_success' || msg.type === 'verification_complete') {
+                if (msg.type === 'history_page_success' || msg.type === 'ledger_success' || msg.type === 'verification_complete' || msg.type === 'success') {
                   clearTimeout(timer);
                   const freshTxs = msg.transactions || [];
                   const freshBal = msg.balance || '0.00';
@@ -3454,7 +3460,15 @@ function App() {
                     bank_api_endpoints: msg.bank_api_endpoints || (targetAcc.bank_name === 'MIB' ? ['POST /aAccount/accountHistory'] : ['GET /api/mobile/dashboard'])
                   };
                   if (appConfig.debug_api_payloads) {
-                    logDetail.raw_payload = msg;
+                    const rawBankResp = msg.raw_bank_response ? JSON.parse(JSON.stringify(msg.raw_bank_response)) : JSON.parse(JSON.stringify(msg));
+                    if (rawBankResp && typeof rawBankResp === 'object') {
+                      delete rawBankResp.data;
+                      delete rawBankResp.transactions;
+                    }
+                    logDetail.raw_bank_payload = {
+                      received_at: new Date().toISOString(),
+                      bank_response: rawBankResp
+                    };
                   }
 
                   logSessionActivity(
@@ -3828,8 +3842,15 @@ function App() {
             logDetail.match = response.data;
           }
           if (appConfig.debug_api_payloads) {
-            logDetail.raw_payload = response;
-            logDetail.raw_transactions = newTxs;
+            const rawBankResp = response.raw_bank_response ? JSON.parse(JSON.stringify(response.raw_bank_response)) : JSON.parse(JSON.stringify(response));
+            if (rawBankResp && typeof rawBankResp === 'object') {
+              delete rawBankResp.data;
+              delete rawBankResp.transactions;
+            }
+            logDetail.raw_bank_payload = {
+              received_at: new Date().toISOString(),
+              bank_response: rawBankResp
+            };
           }
 
           if (mode === 'history') {
@@ -4168,7 +4189,19 @@ function App() {
 
 
 
-          logSessionActivity('fetch_request_fulfilled', `Ledger history synced successfully: ${newTxs.length} transactions fetched for account ${selectedAccount?.account_number || ''}`, { tx_count: newTxs.length, balance: response.balance, raw_transactions: newTxs }, targetAccountId);
+          const syncLogDetail: any = { tx_count: newTxs.length, balance: response.balance };
+          if (appConfig.debug_api_payloads) {
+            const rawBankResp = response.raw_bank_response ? JSON.parse(JSON.stringify(response.raw_bank_response)) : JSON.parse(JSON.stringify(response));
+            if (rawBankResp && typeof rawBankResp === 'object') {
+              delete rawBankResp.data;
+              delete rawBankResp.transactions;
+            }
+            syncLogDetail.raw_bank_payload = {
+              received_at: new Date().toISOString(),
+              bank_response: rawBankResp
+            };
+          }
+          logSessionActivity('fetch_request_fulfilled', `Ledger history synced successfully: ${newTxs.length} transactions fetched for account ${selectedAccount?.account_number || ''}`, syncLogDetail, targetAccountId);
 
           if (sessionStatus === 'claiming') {
             port.postMessage({
@@ -4235,9 +4268,19 @@ function App() {
             }
           }));
 
-
-
-          logSessionActivity('fetch_request_fulfilled', `Ledger history page ${response.page} synced successfully: ${newTxs.length} transactions fetched`, { page: response.page, totalPages: response.totalPages, tx_count: newTxs.length, balance: response.balance, raw_transactions: newTxs }, targetAccountId);
+          const pageSyncLogDetail: any = { page: response.page, totalPages: response.totalPages, tx_count: newTxs.length, balance: response.balance };
+          if (appConfig.debug_api_payloads) {
+            const rawBankResp = response.raw_bank_response ? JSON.parse(JSON.stringify(response.raw_bank_response)) : JSON.parse(JSON.stringify(response));
+            if (rawBankResp && typeof rawBankResp === 'object') {
+              delete rawBankResp.data;
+              delete rawBankResp.transactions;
+            }
+            pageSyncLogDetail.raw_bank_payload = {
+              received_at: new Date().toISOString(),
+              bank_response: rawBankResp
+            };
+          }
+          logSessionActivity('fetch_request_fulfilled', `Ledger history page ${response.page} synced successfully: ${newTxs.length} transactions fetched`, pageSyncLogDetail, targetAccountId);
 
         }, 1500);
       } else if (response.type === 'history_page_error') {

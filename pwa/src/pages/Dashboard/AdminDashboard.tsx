@@ -64,6 +64,38 @@ export default function AdminDashboard() {
   const [expandedFlowId, setExpandedFlowId] = useState<string | null>(null);
   const [activeFlowStepTabMap, setActiveFlowStepTabMap] = useState<Record<string, 'submitted' | 'debug_logs' | 'result'>>({});
 
+  const [newlyAddedIds, setNewlyAddedIds] = useState<Set<string>>(new Set());
+  const previousLogIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const groupedFlows = sessionTelemetry?.grouped_flows || [];
+    const currentIds = new Set<string>();
+    groupedFlows.forEach((f: any) => currentIds.add(String(f.session_id)));
+    sessionLogs.forEach((l: any) => currentIds.add(String(l.id)));
+
+    if (previousLogIdsRef.current.size > 0) {
+      const brandNew = new Set<string>();
+      currentIds.forEach(id => {
+        if (!previousLogIdsRef.current.has(id)) {
+          brandNew.add(id);
+        }
+      });
+
+      if (brandNew.size > 0) {
+        setNewlyAddedIds(prev => new Set([...prev, ...brandNew]));
+        setTimeout(() => {
+          setNewlyAddedIds(prev => {
+            const next = new Set(prev);
+            brandNew.forEach(id => next.delete(id));
+            return next;
+          });
+        }, 3500);
+      }
+    }
+
+    previousLogIdsRef.current = currentIds;
+  }, [sessionTelemetry, sessionLogs]);
+
   // Debug state
   const [debugData, setDebugData] = useState<{ mib_keys: any[]; bml_tokens: any[]; total_mib_keys: number; total_bml_tokens: number } | null>(null);
   const [debugLoading, setDebugLoading] = useState(false);
@@ -3551,11 +3583,17 @@ export default function AdminDashboard() {
                     }
                   }
 
+                  const isNewlyAdded = newlyAddedIds.has(String(flow.session_id));
+
                   return (
                     <div
                       key={flow.session_id}
-                      className={`bg-zinc-900/90 border rounded-2xl transition-all overflow-hidden ${
-                        isExpanded ? 'border-yellow-500/40 shadow-2xl bg-zinc-900' : 'border-zinc-800 hover:border-zinc-700'
+                      className={`bg-zinc-900/90 border rounded-2xl transition-all duration-700 overflow-hidden ${
+                        isNewlyAdded
+                          ? 'border-amber-400/90 bg-amber-950/30 shadow-[0_0_20px_rgba(245,158,11,0.4)] animate-pulse'
+                          : isExpanded
+                          ? 'border-yellow-500/40 shadow-2xl bg-zinc-900'
+                          : 'border-zinc-800 hover:border-zinc-700'
                       }`}
                     >
                       {/* Flow Card Summary Header */}
@@ -3577,8 +3615,15 @@ export default function AdminDashboard() {
                               <span>{flow.terminal_name}</span>
                               <span className="text-zinc-500 text-xs font-mono">({flow.tenant_name})</span>
                             </div>
-                            <div className="text-xs text-zinc-400 font-mono mt-0.5">
-                              {flow.bank_name} <span className="text-zinc-500">{flow.account_number_masked}</span>
+                            <div className="text-xs text-zinc-400 font-mono mt-1 flex items-center gap-1.5">
+                              {flow.bank_name === 'BML' ? (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-950/80 text-rose-300 border border-rose-500/50">BML</span>
+                              ) : flow.bank_name === 'MIB' ? (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-black bg-emerald-950/80 text-emerald-300 border border-emerald-500/50">MIB</span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700">{flow.bank_name || 'SYSTEM'}</span>
+                              )}
+                              <span className="text-zinc-400 font-mono">{flow.account_number_masked}</span>
                             </div>
                           </div>
                         </div>
@@ -3847,10 +3892,18 @@ export default function AdminDashboard() {
                         const currentDetail = logDetailsMap[log.id] || log.event_detail;
                         const isLoadingDetail = loadingDetailId === log.id;
 
+                        const isNewlyAdded = newlyAddedIds.has(String(log.id));
+
                         return (
                           <Fragment key={log.id}>
                             <tr
-                              className={`transition-colors border-b border-zinc-900/50 ${hasDetail ? 'cursor-pointer hover:bg-zinc-800/25' : 'hover:bg-zinc-900/20'} ${isExpanded ? 'bg-zinc-850/40 border-b-0' : ''}`}
+                              className={`transition-all duration-700 border-b border-zinc-900/50 ${
+                                isNewlyAdded
+                                  ? 'bg-amber-950/40 border-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.3)] animate-pulse'
+                                  : hasDetail
+                                  ? 'cursor-pointer hover:bg-zinc-800/25'
+                                  : 'hover:bg-zinc-900/20'
+                              } ${isExpanded ? 'bg-zinc-850/40 border-b-0' : ''}`}
                               onClick={() => hasDetail && handleToggleDetail(log.id)}
                             >
                               <td className="py-3 pr-4 font-mono text-zinc-400">{dateStr}</td>
@@ -3858,9 +3911,15 @@ export default function AdminDashboard() {
                                 {log.terminal_name || "System"}
                                 <span className="text-[10px] text-zinc-500 block">{log.tenant?.name}</span>
                               </td>
-                              <td className="py-3 pr-4 font-mono text-zinc-400">
-                                {log.bank_name || "N/A"}
-                                <span className="text-[10px] block">{log.account_number_masked || ""}</span>
+                              <td className="py-3 pr-4 font-mono">
+                                {log.bank_name === 'BML' ? (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-950/80 text-rose-300 border border-rose-500/50 inline-block">BML</span>
+                                ) : log.bank_name === 'MIB' ? (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-emerald-950/80 text-emerald-300 border border-emerald-500/50 inline-block">MIB</span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700 inline-block">{log.bank_name || "N/A"}</span>
+                                )}
+                                <span className="text-[10px] text-zinc-400 font-mono block mt-0.5">{log.account_number_masked || ""}</span>
                               </td>
                               <td className="py-3 pr-4">
                                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${badgeClass}`}>
