@@ -1168,11 +1168,42 @@ function App() {
   const [_terminalId, setTerminalId] = useState<number | null>(null);
   const [accountToClear, setAccountToClear] = useState<any | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const LATEST_EXTENSION_VERSION = "1.3.10";
+  const LATEST_EXTENSION_VERSION = "1.3.11";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
     logSessionActivity('fetch_request_failed', errorMsg, { error: errorMsg }, accountId);
+  };
+
+  const handleResetExtension = (source: 'error_banner' | 'settings_modal' = 'error_banner') => {
+    if (activePortRef.current) {
+      try { activePortRef.current.disconnect(); } catch (e) {}
+      activePortRef.current = null;
+    }
+
+    setLoading(false);
+    isVerifyingRef.current = false;
+    releaseLock();
+    setProgress({ stage: 'idle', text: '', percent: 0, isIndeterminate: false });
+
+    logSessionActivity(
+      'extension_reset_triggered',
+      `Extension Bridge Reset triggered from ${source === 'settings_modal' ? 'Settings' : 'Error Banner'}`,
+      { source, account_id: selectedAccountId, extension_id: extensionId },
+      selectedAccountId
+    );
+
+    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage && extensionId) {
+      try {
+        chrome.runtime.sendMessage(extensionId, { action: 'RESET_EXTENSION_WORKER' }, () => {
+          if (chrome.runtime.lastError) {
+            console.warn("[PWA] Extension reset:", chrome.runtime.lastError.message);
+          }
+        });
+      } catch (err) {}
+    }
+
+    setErrorAndLog("Extension Bridge reset successfully. You can now click View History again.", selectedAccountId);
   };
 
   // (Interval for currentTick removed for performance)
@@ -3745,11 +3776,15 @@ function App() {
     port.onDisconnect.addListener(() => {
       if (!isVerifyingRef.current) return; // We manually disconnected it, or kill switch was used
 
-      if (chrome.runtime.lastError) {
-        setErrorAndLog(`Extension connection failed: ${chrome.runtime.lastError.message}`);
-      } else {
-        setErrorAndLog("Connection to background robot lost unexpectedly. Is the extension installed and enabled?");
-      }
+      const errorMsg = chrome.runtime.lastError?.message || "Connection to background robot lost unexpectedly. Is the extension installed and enabled?";
+      logSessionActivity(
+        'extension_port_disconnected',
+        `Extension connection severed: ${errorMsg}`,
+        { error: errorMsg, account_id: selectedAccountId, sync_elapsed_ms: syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0 },
+        selectedAccountId
+      );
+
+      setErrorAndLog(`Extension connection failed: ${errorMsg}`, selectedAccountId);
       setProgress({ stage: 'error', text: 'Connection lost', percent: 100, isIndeterminate: false });
       setLoading(false);
       setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
@@ -5201,6 +5236,25 @@ function App() {
                         ✓ Active Extension Connected (v{extensionVersion})
                       </span>
                     )}
+
+                    <div className="p-3 bg-zinc-950/40 border border-zinc-800/80 rounded-xl flex items-center justify-between mt-2">
+                      <div>
+                        <div className="text-xs font-semibold text-white flex items-center gap-1.5">
+                          <RefreshCw size={13} className="text-emerald-400" />
+                          Extension Bridge Reset
+                        </div>
+                        <div className="text-[10px] text-zinc-400 mt-0.5">
+                          Restart background worker and release hung ports without restarting Windows.
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleResetExtension('settings_modal')}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all flex items-center gap-1.5 shrink-0"
+                      >
+                        ⚡ Reset Bridge
+                      </button>
+                    </div>
                   </div>
 
                   <div className="input-group">
@@ -5453,9 +5507,18 @@ function App() {
 
                     {/* Error Alert */}
                     {error && (
-                      <div className="p-3 bg-[var(--color-warning-bg)] border border-[var(--color-warning)] border-opacity-30 rounded-lg flex items-center gap-3 text-sm text-[var(--color-warning)]">
-                        <AlertTriangle className="shrink-0" size={18} />
-                        <p>{error}</p>
+                      <div className="p-3 bg-[var(--color-warning-bg)] border border-[var(--color-warning)] border-opacity-30 rounded-lg flex items-center justify-between gap-3 text-sm text-[var(--color-warning)]">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <AlertTriangle className="shrink-0 text-amber-400" size={18} />
+                          <p className="truncate font-medium">{error}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleResetExtension('error_banner')}
+                          className="px-2.5 py-1 text-xs font-semibold rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 transition-colors shrink-0 flex items-center gap-1"
+                        >
+                          ⚡ Reset Bridge
+                        </button>
                       </div>
                     )}
 

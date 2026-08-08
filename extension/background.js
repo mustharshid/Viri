@@ -122,6 +122,70 @@ async function clearBankSessions() {
   console.log("[Viri Bridge] All bank session cookies destroyed.");
 }
 
+async function safeFetchWithTimeout(url, options = {}, timeoutMs = 20000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timer);
+    return res;
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === 'AbortError') {
+      throw new Error(`Bank request timed out after ${timeoutMs / 1000}s.`);
+    }
+    throw err;
+  }
+}
+
+async function withFlowWatchdog(flowPromise, maxDurationMs = 45000, context = {}) {
+  let timerId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timerId = setTimeout(() => {
+      logSessionEvent('flow_watchdog_timeout', {
+        account: context.targetAccount,
+        bank: context.bank,
+        mode: context.mode,
+        max_duration_ms: maxDurationMs
+      });
+      reject(new Error(`Bank flow exceeded maximum duration of ${maxDurationMs / 1000}s.`));
+    }, maxDurationMs);
+  });
+  try {
+    return await Promise.race([flowPromise, timeoutPromise]);
+  } finally {
+    clearTimeout(timerId);
+  }
+}
+
+let lastActiveAccount = null;
+let lastActiveBank = null;
+
+async function sanitizeAccountSession(targetAccount, bank) {
+  if (lastActiveAccount && (lastActiveAccount !== targetAccount || lastActiveBank !== bank)) {
+    console.log(`[Viri Bridge] Switching account: ${lastActiveAccount} (${lastActiveBank}) -> ${targetAccount} (${bank})`);
+    const domain = bank === 'MIB' ? 'faisamobilex-wv.mib.com.mv' : 'bankofmaldives.com.mv';
+    try {
+      const cookies = await chrome.cookies.getAll({ domain });
+      for (const cookie of cookies) {
+        const protocol = cookie.secure ? "https://" : "http://";
+        const cleanDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+        const cookieUrl = `${protocol}${cleanDomain}${cookie.path}`;
+        await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
+      }
+    } catch (e) {}
+
+    logSessionEvent('session_sanitized', {
+      previous_account: lastActiveAccount,
+      new_account: targetAccount,
+      bank: bank,
+      action: 'cookies_and_keys_cleared'
+    });
+  }
+  lastActiveAccount = targetAccount;
+  lastActiveBank = bank;
+}
+
 // Clear any left-over lockdown rules on extension startup/reload.
 // NOTE: clearBankSessions() is intentionally NOT called here anymore.
 // The legacy webscraping flow required a fresh cookie jar, but the new API token
@@ -257,6 +321,14 @@ function stopHeartbeat() {
 
 
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
+  if (msg.action === 'RESET_EXTENSION_WORKER' || msg.action === 'FORCE_RELOAD_EXTENSION') {
+    sendResponse({ success: true, message: 'Reloading extension worker...' });
+    setTimeout(() => {
+      chrome.runtime.reload();
+    }, 100);
+    return true;
+  }
+
   if (msg.action === 'GET_VERSION') {
     sendResponse({ version: EXTENSION_VERSION });
     return true;
@@ -386,11 +458,15 @@ chrome.runtime.onConnectExternal.addListener((port) => {
           chrome.storage.local.set({ sanctumToken: payload.sanctumToken });
         }
         try {
-          if (payload.bank === 'MIB') {
-            await runMibApiFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode, sessionMode, payload.hardwareId, payload.backendUrl, payload.accountId, payload.isAutoSync || false, payload.sanctumToken || '');
-          } else {
-            await runBmlApiFlow(payload.credentials, targetAcc, payload.accountName, port, payload.amount, payload.bmlProfileType || '0', mode, sessionMode, payload.bmlAuthState, payload.hardwareId, payload.backendUrl, payload.accountId);
-          }
+          await sanitizeAccountSession(targetAcc, payload.bank || 'BML');
+          const flowPromise = (async () => {
+            if (payload.bank === 'MIB') {
+              await runMibApiFlow(payload.credentials, targetAcc, port, payload.amount, payload.mibProfileType || '0', mode, sessionMode, payload.hardwareId, payload.backendUrl, payload.accountId, payload.isAutoSync || false, payload.sanctumToken || '');
+            } else {
+              await runBmlApiFlow(payload.credentials, targetAcc, payload.accountName, port, payload.amount, payload.bmlProfileType || '0', mode, sessionMode, payload.bmlAuthState, payload.hardwareId, payload.backendUrl, payload.accountId);
+            }
+          })();
+          await withFlowWatchdog(flowPromise, 45000, { targetAccount: targetAcc, bank: payload.bank || 'BML', mode });
         } catch (error) {
           try { port.postMessage({ type: 'error', error: error.message }); } catch(e) {}
         }
@@ -400,13 +476,17 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         const req = payload.req;
         const targetAcc = req.bank_account_id || (heldSession ? heldSession.accountId : '');
         try {
-          if (payload.bankName === 'MIB') {
-            await runMibApiFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', req.mib_profile_type || '0', req.request_type, 'fetch_only', req.hardware_id || payload.hardwareId, req.backend_url || payload.backendUrl, req.bank_account_id);
-          } else {
-            const bmlAuthState = heldSession ? heldSession.bmlAuthState : req.bml_auth_state;
-            const bmlProfileType = payload.bmlProfileType || req.bml_profile_type || (heldSession ? heldSession.bmlProfileType : '0') || '0';
-            await runBmlApiFlow(payload.credentials, targetAcc, req.account_name, port, req.target_amount || '1.00', bmlProfileType, req.request_type, 'fetch_only', bmlAuthState, req.hardware_id || payload.hardwareId, req.backend_url || payload.backendUrl, req.bank_account_id);
-          }
+          await sanitizeAccountSession(targetAcc, payload.bankName || 'BML');
+          const flowPromise = (async () => {
+            if (payload.bankName === 'MIB') {
+              await runMibApiFlow(payload.credentials, targetAcc, port, req.target_amount || '1.00', req.mib_profile_type || '0', req.request_type, 'fetch_only', req.hardware_id || payload.hardwareId, req.backend_url || payload.backendUrl, req.bank_account_id);
+            } else {
+              const bmlAuthState = heldSession ? heldSession.bmlAuthState : req.bml_auth_state;
+              const bmlProfileType = payload.bmlProfileType || req.bml_profile_type || (heldSession ? heldSession.bmlProfileType : '0') || '0';
+              await runBmlApiFlow(payload.credentials, targetAcc, req.account_name, port, req.target_amount || '1.00', bmlProfileType, req.request_type, 'fetch_only', bmlAuthState, req.hardware_id || payload.hardwareId, req.backend_url || payload.backendUrl, req.bank_account_id);
+            }
+          })();
+          await withFlowWatchdog(flowPromise, 45000, { targetAccount: targetAcc, bank: payload.bankName || 'BML', mode: req.request_type });
         } catch (error) {
           port.postMessage({ type: 'error', error: error.message });
         }
