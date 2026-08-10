@@ -15,14 +15,20 @@ class MibCredentialGroup extends Model
         'tenant_id',
         'terminal_id',
         'mib_username',
+        'mib_password',
         'key1',
         'key2',
         'app_id',
         'obtained_at',
     ];
 
+    protected $hidden = [
+        'mib_password',
+    ];
+
     protected $casts = [
         'obtained_at' => 'datetime',
+        'mib_password' => 'encrypted',
     ];
 
     public function tenant()

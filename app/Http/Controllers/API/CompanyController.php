@@ -5,6 +5,8 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\BankAccount;
+use App\Models\MibCredentialGroup;
+use App\Models\MibCredentialProfile;
 use App\Models\PaymentReceipt;
 use App\Models\Terminal;
 use Illuminate\Http\Request;
@@ -315,6 +317,35 @@ class CompanyController extends Controller
             'bml_profile_type' => $request->bml_profile_type ?? '0',
             'label' => $request->label,
             'currency' => $request->currency ?? 'MVR',
+        ]);
+
+        return response()->json(['account' => $account]);
+    }
+
+    /**
+     * Assign (or clear) the MIB profile under which a bank account lives,
+     * based on the profile list captured at first sign-in for the username's
+     * credential group. Admin-driven mapping takes precedence over the
+     * extension's auto-heal/auto-link logic.
+     */
+    public function updateMibProfile(Request $request, $id)
+    {
+        $account = BankAccount::where('tenant_id', $request->user()->tenant_id)->findOrFail($id);
+
+        $request->validate([
+            'profile_id' => 'required|integer|exists:mib_credential_profiles,id',
+        ]);
+
+        $profile = MibCredentialProfile::findOrFail($request->profile_id);
+        $group = $profile->credentialGroup;
+
+        if (! $group || $group->tenant_id !== $request->user()->tenant_id) {
+            return response()->json(['error' => 'Profile does not belong to this company'], 403);
+        }
+
+        $account->update([
+            'mib_credential_profile_id' => $profile->id,
+            'mib_profile_type' => $profile->profile_type,
         ]);
 
         return response()->json(['account' => $account]);

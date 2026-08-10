@@ -5125,7 +5125,7 @@ function App() {
                                   <button
                                     className={`btn text-xs py-1.5 px-3 font-semibold ${hasCreds ? 'border border-emerald-500 hover:bg-emerald-950/50 text-emerald-400' : 'btn-success text-black'}`}
                                     onClick={() => {
-                                      window.open(`/cashier/mib-login?accountId=${acc.id}&terminalId=${hardwareId}`, '_blank');
+                                      window.open(`/cashier/mib-login?accountId=${acc.id}&accountNumber=${encodeURIComponent(acc.account_number || '')}&terminalId=${hardwareId}`, '_blank');
                                     }}
                                   >
                                     {hasCreds ? 'Re-authenticate MIB' : 'Authenticate with MIB'}

@@ -1,17 +1,46 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import '../../landing.css';
 
 export default function Register() {
+  const [searchParams] = useSearchParams();
   const [companyName, setCompanyName] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [passwordConfirmation, setPasswordConfirmation] = useState('');
+  const [referralCode, setReferralCode] = useState(searchParams.get('ref') || '');
+  const [referralDiscount, setReferralDiscount] = useState<any>(null);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const code = searchParams.get('ref');
+    if (code) {
+      setReferralCode(code);
+      validateCode(code);
+    }
+  }, [searchParams]);
+
+  const validateCode = async (code: string) => {
+    if (!code.trim()) {
+      setReferralDiscount(null);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/ref/${encodeURIComponent(code.trim())}`);
+      if (res.ok) {
+        const data = await res.json();
+        setReferralDiscount(data);
+      } else {
+        setReferralDiscount(null);
+      }
+    } catch (e) {
+      setReferralDiscount(null);
+    }
+  };
 
   const [activeModal, setActiveModal] = useState<'terms' | 'privacy' | null>(null);
 
@@ -129,6 +158,7 @@ export default function Register() {
           phone_number: phoneNumber,
           password,
           password_confirmation: passwordConfirmation,
+          referral_code: referralCode.trim() || undefined,
         }),
       });
 
@@ -246,6 +276,35 @@ export default function Register() {
                 value={passwordConfirmation}
                 onChange={(e) => setPasswordConfirmation(e.target.value)}
               />
+            </div>
+
+            {/* Referral / Partner Discount */}
+            <div className="form-group">
+              <div className="flex items-center justify-between">
+                <label className="form-label" htmlFor="referral-code">Referral / Promo Code (Optional)</label>
+                {referralDiscount?.valid && (
+                  <span className="text-[11px] font-bold text-emerald-400 font-mono">
+                    ✓ {referralDiscount.discount_badge}
+                  </span>
+                )}
+              </div>
+              <input
+                className={`form-input font-mono uppercase ${referralDiscount?.valid ? 'border-emerald-500 bg-emerald-950/20' : ''}`}
+                type="text"
+                id="referral-code"
+                placeholder="e.g. AHMED20"
+                value={referralCode}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setReferralCode(val);
+                  validateCode(val);
+                }}
+              />
+              {referralDiscount?.valid && (
+                <p className="text-[11px] text-emerald-300 mt-1">
+                  Referred by <strong>{referralDiscount.partner_name}</strong>. Discount will apply to your first invoice!
+                </p>
+              )}
             </div>
 
             <div className="form-checkbox-group">

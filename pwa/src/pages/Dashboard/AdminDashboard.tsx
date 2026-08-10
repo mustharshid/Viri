@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2, Server, Database, Code, Zap, Activity, Sun, Moon, Briefcase, Sparkles, Clock, AlertTriangle, Search, Key, ArrowLeft, ChevronDown, TrendingUp } from 'lucide-react';
+import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2, Server, Database, Code, Zap, Activity, Sun, Moon, Briefcase, Sparkles, Clock, AlertTriangle, Search, Key, ArrowLeft, ChevronDown, TrendingUp, Gift } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
+import ReferralSettingsManager from './ReferralSettingsManager';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="relative inline-flex items-center group/tooltip ml-1.5 cursor-help align-middle">
@@ -47,7 +48,7 @@ export default function AdminDashboard() {
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRunIdx, setSelectedRunIdx] = useState<number>(0);
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'companies' | 'archived' | 'tiers' | 'logs' | 'terminalDebug' | 'settings' | 'payments' | 'debug' | 'credentials'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'companies' | 'archived' | 'tiers' | 'logs' | 'terminalDebug' | 'settings' | 'payments' | 'debug' | 'credentials' | 'referrals'>('overview');
   const [singleCompanyFilterId, setSingleCompanyFilterId] = useState<number | null>(null);
   const [overviewSearch, setOverviewSearch] = useState('');
   const [overviewStatusFilter, setOverviewStatusFilter] = useState('all');
@@ -585,7 +586,11 @@ export default function AdminDashboard() {
     return () => clearInterval(timer);
   }, [activeTab, systemSettings, logsPage, filterEventType, filterCompanyId]);
 
+  const isFetchingLogsRef = useRef(false);
+
   const fetchSessionLogs = async (showLoading: boolean = true) => {
+    if (isFetchingLogsRef.current) return;
+    isFetchingLogsRef.current = true;
     if (showLoading) setLogsLoading(true);
     try {
       const token = localStorage.getItem('viri_token');
@@ -625,7 +630,8 @@ export default function AdminDashboard() {
     } catch (err) {
       console.error(err);
     } finally {
-      setLogsLoading(false);
+      if (showLoading) setLogsLoading(false);
+      isFetchingLogsRef.current = false;
     }
   };
 
@@ -4884,6 +4890,17 @@ export default function AdminDashboard() {
             <Key size={15} className="shrink-0" />
             <span>Credentials</span>
           </button>
+          <button
+            onClick={() => setActiveTab('referrals')}
+            className={`px-3.5 py-2 text-xs md:text-sm font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${
+              activeTab === 'referrals'
+                ? 'border-yellow-500 text-yellow-500 bg-yellow-500/10 rounded-t-xl'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50 rounded-t-xl'
+            }`}
+          >
+            <Gift size={15} className="shrink-0" />
+            <span>Referrals & Affiliates</span>
+          </button>
         </div>
 
         {/* Security Confirmation PIN display */}
@@ -4987,6 +5004,15 @@ export default function AdminDashboard() {
           {activeTab === 'settings' && renderSystemSettingsTab()}
 
           {activeTab === 'payments' && renderPaymentsTab()}
+
+          {activeTab === 'referrals' && (
+            <ReferralSettingsManager
+              token={localStorage.getItem('viri_token')}
+              verifySecurityPin={verifySecurityPin}
+              customAlert={customAlert}
+              customConfirm={customConfirm}
+            />
+          )}
 
           {activeTab === 'debug' && (
             <div className="space-y-6">

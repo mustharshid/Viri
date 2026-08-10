@@ -8,6 +8,15 @@ import AdminDashboard from './pages/Dashboard/AdminDashboard';
 import CashierApp from './pages/Cashier/CashierApp';
 import MibLogin from './pages/Cashier/MibLogin';
 
+import AffiliatePortal from './pages/Affiliate/AffiliatePortal';
+import AffiliateRegister from './pages/Affiliate/AffiliateRegister';
+import { useParams } from 'react-router-dom';
+
+function RefRedirect() {
+  const { code } = useParams();
+  return <Navigate to={`/register?ref=${code}`} replace />;
+}
+
 function App() {
   return (
     <Router>
@@ -16,8 +25,14 @@ function App() {
         <Route path="/faq" element={<FaqPage />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/ref/:code" element={<RefRedirect />} />
         
-        {/* Protected Routes would normally have an AuthGuard here */}
+        {/* Affiliate Portal & Registration */}
+        <Route path="/affiliate/register" element={<AffiliateRegister />} />
+        <Route path="/affiliate/join" element={<AffiliateRegister />} />
+        <Route path="/affiliate/*" element={<AffiliatePortal />} />
+        
+        {/* Protected Routes */}
         <Route path="/company/*" element={<CompanyDashboard />} />
         <Route path="/admin/*" element={<AdminDashboard />} />
         

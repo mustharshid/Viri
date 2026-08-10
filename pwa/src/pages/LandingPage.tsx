@@ -359,6 +359,7 @@ export default function LandingPage() {
         </Link>
         <div className="nav-links">
           <Link to="/faq" className="nav-link">FAQ</Link>
+          <Link to="/affiliate/register" className="nav-link" style={{ color: '#10B981', fontWeight: 600 }}>Partners</Link>
           <Link to="/login" className="nav-signin">Sign in</Link>
           <Link to="/register" className="btn-primary">Get started</Link>
         </div>
@@ -1100,6 +1101,7 @@ export default function LandingPage() {
             </div>
             <div className="footer-links">
               <Link to="/faq">FAQ</Link>
+              <Link to="/affiliate/register">Partner Program</Link>
               <Link to="/login">Sign in</Link>
               <Link to="/register">Get started</Link>
               <a href="#">Security</a>

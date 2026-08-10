@@ -342,9 +342,20 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === 'START_MIB_AUTH') {
-    startMibAuthFlow(msg.payload.terminalId, msg.payload.bankAccountId, msg.payload.backendUrl, msg.payload.mibUsername, msg.payload.sanctumToken, msg.payload.password, msg.payload.hardwareId)
-      .then(res => sendResponse(res))
-      .catch(e => sendResponse({ success: false, error: e.message }));
+    (async () => {
+      try {
+        // Recover server-side device keys into the local cache BEFORE the login flow
+        // decides between returning-device (A41, OTP-free) and fresh registration
+        // (C41/C42 + OTP). Prevents the "MIB transient: HTTP 500" when re-registering
+        // an already-registered account after local keys were cleared.
+        await seedServerKeysIfCacheMissing(msg.payload.terminalId, msg.payload.bankAccountId, msg.payload.backendUrl, msg.payload.sanctumToken, msg.payload.mibUsername);
+      } catch (e) {
+        // Best-effort: any failure falls through to the normal auth flow.
+      }
+      startMibAuthFlow(msg.payload.terminalId, msg.payload.bankAccountId, msg.payload.backendUrl, msg.payload.mibUsername, msg.payload.sanctumToken, msg.payload.password, msg.payload.hardwareId)
+        .then(res => sendResponse(res))
+        .catch(e => sendResponse({ success: false, error: e.message }));
+    })();
     return true;
   }
 
@@ -359,6 +370,27 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     selectMibProfile(msg.payload.profileId, msg.payload.profileType)
       .then(res => sendResponse(res))
       .catch(e => sendResponse({ success: false, error: e.message }));
+    return true;
+  }
+
+  if (msg.action === 'GET_MIB_PROFILES') {
+    const { terminalId, backendUrl, accountId, accountNumber, sanctumToken } = msg.payload || {};
+    fetchMibGroupForProfile(null, terminalId, backendUrl, accountNumber || accountId, sanctumToken, accountId)
+      .then(res => sendResponse(res))
+      .catch(e => sendResponse({ ok: false, needsLogin: true, error: e.message }));
+    return true;
+  }
+
+  if (msg.action === 'SELECT_MIB_PROFILE_ON_SESSION') {
+    const p = msg.payload || {};
+    const credentials = (p.mibUsername && p.mibPassword) ? { username: p.mibUsername, password: p.mibPassword } : {};
+    selectMibProfileOnSession(null, p.accountNumber || p.accountId, p.terminalId, p.backendUrl, credentials, p.profileId, p.profileType || '0', p.sanctumToken || '', p.accountId || '')
+      .then(res => sendResponse(res))
+      .catch(e => sendResponse({
+        success: false,
+        error: e.message,
+        needsLogin: /no credentials available|not found|Missing MIB device credentials/i.test(String(e.message)) || undefined
+      }));
     return true;
   }
 
@@ -2037,6 +2069,48 @@ async function fetchMibUserSalt(sessionState, username) {
   throw new Error("Failed to fetch userSalt");
 }
 
+/**
+ * If the terminal's local device-key cache is empty, restore it from the server
+ * BEFORE the (untouched) startMibAuthFlow decides which flow to run. With keys
+ * seeded, the next startMibAuthFlow picks the returning-device A41 path instead
+ * of a fresh sfunc=r/C41/C42 registration — avoiding the "MIB transient: HTTP
+ * 500" on re-registering an already-registered account. Additive only.
+ *
+ * @returns {Promise<boolean>} true if keys were seeded from the server.
+ */
+async function seedServerKeysIfCacheMissing(terminalId, bankAccountId, backendUrl, sanctumToken, mibUsername) {
+  const cached = await chrome.storage.local.get(['mib_key1', 'mib_key2', 'mib_appId']);
+  if (cached.mib_key1 && cached.mib_key2 && cached.mib_appId) {
+    return false;
+  }
+  if (!sanctumToken || !backendUrl) return false;
+  const params = new URLSearchParams({
+    hardware_id: terminalId,
+    bank_account_id: bankAccountId,
+    mib_username: mibUsername || '',
+  });
+  const resp = await fetch(`${backendUrl}/mib/keys?${params}`, {
+    headers: { 'Authorization': `Bearer ${sanctumToken}` }
+  });
+  if (!resp.ok) return false;
+  let data;
+  try {
+    data = await resp.json();
+  } catch (e) {
+    return false;
+  }
+  if (!data.key1 || !data.key2) return false;
+  await chrome.storage.local.set({
+    mib_key1: data.key1,
+    mib_key2: data.key2,
+    mib_appId: data.appId || cached.mib_appId,
+  });
+  if (data.profileId) {
+    await chrome.storage.local.set({ mib_profileId: data.profileId, mib_profileType: data.profileType || '0' });
+  }
+  return true;
+}
+
 async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUsername, sanctumToken, password, hardwareId) {
   return Promise.race([
     new Promise((_, reject) => setTimeout(() => reject(new Error("Extension Auth Flow internal timeout after 20s")), 20000)),
@@ -2964,24 +3038,37 @@ async function selectMibProfile(profileId, profileType) {
 
   // Save keys and profile to backend
   const credsHash = await computeCredsHash('MIB', mibUsername);
+  const storeBody = {
+    hardware_id: terminalId,
+    bank_account_id: bankAccountId,
+    mib_username: mibUsername,
+    key1: key1ToSave,
+    key2: key2ToSave,
+    app_id: sessionState.appId,
+    profile_id: profileId,
+    profile_type: profileType,
+    profile_name: profileName,
+    credentials_hash: credsHash,
+  };
+  if (mibAuthTemp?.mibPassword) {
+    storeBody.mib_password = mibAuthTemp.mibPassword;
+  }
+  // Persist the full captured profile list so every terminal/admin sees the
+  // same "Choose Profile" set for this username (bulk-capture from first sign-in).
+  if (Array.isArray(profiles) && profiles.length > 0) {
+    storeBody.profiles = profiles.map(p => ({
+      profile_id: String(p.profileId || p.customerProfileId || p.profile_id || ''),
+      profile_type: String(p.profileType || p.profile_type || '0'),
+      profile_name: String(p.profileName || p.name || p.profile_name || ''),
+    })).filter(p => !!p.profile_id);
+  }
   const storeResp = await fetch(`${backendUrl}/mib/keys/store`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${sanctumToken}`
     },
-    body: JSON.stringify({
-      hardware_id: terminalId,
-      bank_account_id: bankAccountId,
-      mib_username: mibUsername,
-      key1: key1ToSave,
-      key2: key2ToSave,
-      app_id: sessionState.appId,
-      profile_id: profileId,
-      profile_type: profileType,
-      profile_name: profileName,
-      credentials_hash: credsHash
-    })
+    body: JSON.stringify(storeBody)
   });
   if (!storeResp.ok) {
     const errText = await storeResp.text();
@@ -2991,6 +3078,141 @@ async function selectMibProfile(profileId, profileType) {
   await chrome.storage.session.remove('mibAuthTemp');
   if(port) emitLog(port, '> [MIB-API] Profile selected and keys saved.');
   return { success: true };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bank-app-style MIB session helpers (ADDITIVE — only net-new functions; the
+// existing startMibAuthFlow / ensureMibSession / submitMibOtp bodies are
+// untouched).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Fetch the shared profile list for a (tenant, username) group plus the stored
+ * device keys / credentials so a terminal can show the "Choose Profile" screen
+ * without performing a fresh login. Only succeeds when the server already has
+ * keys for the group; a full login is needed otherwise.
+ *
+ * @returns {Promise<{ok: boolean, needsLogin: boolean, profiles: Array, profileId: string|null, profileType: string|null, mibUsername: string|null, mibPassword: string|null}>}
+ */
+async function fetchMibGroupForProfile(port, terminalId, backendUrl, targetAccount, sanctumTokenParam, bankAccountId = '') {
+  const tokenRes = await chrome.storage.local.get('sanctumToken');
+  const token = tokenRes.sanctumToken || sanctumTokenParam;
+  if (!token) return { ok: false, needsLogin: true, error: 'Missing auth token.' };
+
+  const params = new URLSearchParams({ hardware_id: terminalId });
+  if (bankAccountId) params.append('bank_account_id', bankAccountId);
+  else if (targetAccount) params.append('account_number', targetAccount);
+
+  try {
+    const resp = await fetch(`${backendUrl}/mib/keys?${params}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!resp.ok) {
+      if (resp.status === 404) return { ok: false, needsLogin: true };
+      const errText = await resp.text();
+      if(port) emitLog(port, `> [MIB-API] Profile fetch failed (${resp.status}): ${errText.substring(0, 200)}`);
+      return { ok: false, needsLogin: true, error: errText };
+    }
+    const data = await resp.json();
+    if (!data.key1 || !data.key2) {
+      return { ok: false, needsLogin: true, profiles: data.profiles || [], error: 'No registered device keys on server.' };
+    }
+
+    const profiles = Array.isArray(data.profiles) ? data.profiles : [];
+    const profileId = data.profileId || (profiles.length === 1 ? (profiles[0].profile_id || profiles[0].customerProfileId) : null);
+    const profileType = data.profileType || (profiles.length === 1 ? (profiles[0].profile_type || '0') : '0');
+
+    return {
+      ok: true,
+      needsLogin: false,
+      profiles,
+      profileId,
+      profileType,
+      mibUsername: data.mib_username || '',
+      mibPassword: data.mib_password || '',
+      key1: data.key1,
+      key2: data.key2,
+      appId: data.appId,
+      obtainedAt: data.obtained_at || null,
+    };
+  } catch (e) {
+    if(port) emitLog(port, `> [MIB-API] Group fetch error: ${e.message}`);
+    return { ok: false, needsLogin: true, error: e.message };
+  }
+}
+
+/**
+ * Seed the terminal's key cache from the server before a resume, so a terminal
+ * that lost its local storage can rebuild its device identity without the
+ * cashier re-entering anything. Deletes nothing; only writes valid values.
+ */
+async function seedMibKeysFromServer(port, groupInfo, targetAccount) {
+  if (!groupInfo?.key1 || !groupInfo?.key2 || !groupInfo?.appId) return false;
+  await chrome.storage.local.set({
+    mib_key1: groupInfo.key1,
+    mib_key2: groupInfo.key2,
+    mib_appId: groupInfo.appId,
+  });
+  if (groupInfo.mibUsername) {
+    const { mib_stored_creds_map = {} } = await chrome.storage.session.get('mib_stored_creds_map');
+    if (groupInfo.mibPassword) {
+      mib_stored_creds_map[targetAccount] = { username: groupInfo.mibUsername, password: groupInfo.mibPassword };
+      // Persist for this username too so any sibling account on this terminal
+      // inherits the same credentials.
+      mib_stored_creds_map['__username_' + groupInfo.mibUsername] = { username: groupInfo.mibUsername, password: groupInfo.mibPassword };
+    }
+    await chrome.storage.session.set({ mib_stored_creds_map });
+  }
+  if(port) emitLog(port, `> [MIB-API] Seeded terminal keys/credentials from server for ${groupInfo.mibUsername || targetAccount}.`);
+  return true;
+}
+
+/**
+ * "Choose Profile" flow for an account whose group is already authenticated on
+ * the server: resume the session via the existing ensureMibSession, then select
+ * the requested profile with P47. Falls back to a fresh login only if the
+ * server has no registered device keys.
+ */
+async function selectMibProfileOnSession(port, targetAccount, hardwareId, backendUrl, credentials, profileId, profileType, sanctumTokenParam = '', bankAccountId = '') {
+  if(port) emitLog(port, `> [MIB-API] Selecting MIB profile on session: ${profileId} (type ${profileType})`);
+
+  // If the caller did not supply credentials (e.g. a terminal that lost its local
+  // key state), pull the account-scoped group from the server (device keys +
+  // encrypted password) and seed local storage so the resume below "just works".
+  if (!credentials || !credentials.username || !credentials.password) {
+    const groupInfo = await fetchMibGroupForProfile(port, hardwareId, backendUrl, targetAccount, sanctumTokenParam, bankAccountId);
+    if (groupInfo.ok) {
+      await seedMibKeysFromServer(port, groupInfo, targetAccount);
+      credentials = {
+        username: groupInfo.mibUsername,
+        password: groupInfo.mibPassword,
+        token: sanctumTokenParam,
+      };
+    }
+  }
+
+  // Ensure a live session exists without a fresh login.
+  const mibSession = await ensureMibSession(port, hardwareId, backendUrl, credentials || {}, targetAccount, sanctumTokenParam);
+
+  const p47Result = await attemptP47(port, mibSession, profileId, profileType);
+  if (!p47Result.selected) {
+    throw new Error("P47 profile selection failed on existing session.");
+  }
+
+  const profileKeyId = 'mib_profileId_' + targetAccount;
+  const profileKeyType = 'mib_profileType_' + targetAccount;
+  await chrome.storage.local.set({
+    [profileKeyId]: profileId,
+    [profileKeyType]: profileType,
+  });
+
+  if (p47Result.accountBalance.length > 0) {
+    await chrome.storage.session.set({ ['mib_accountBalance_' + targetAccount]: p47Result.accountBalance });
+    if(port) emitLog(port, `> [MIB-API] Cached ${p47Result.accountBalance.length} balance(s) after profile selection.`);
+  }
+
+  if(port) emitLog(port, '> [MIB-API] Profile selected on resumed session.');
+  return { success: true, accountBalance: p47Result.accountBalance };
 }
 
 async function runMibApiFlow(credentials, targetAccount, port, targetAmount, profileType = '0', mode = 'search', sessionMode = 'fresh_login', hardwareId = '', backendUrl = '', payloadAccountId = '', isAutoSync = false, sanctumTokenParam = '') {

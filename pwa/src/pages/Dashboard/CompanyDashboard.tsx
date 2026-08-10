@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Shield, Plus, Trash2, LogOut, Copy, Check, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound, Lock, Menu, AlertTriangle, Search, FileSpreadsheet, ListFilter, Eye, Activity, Calendar, ChevronRight, User, Briefcase, Sparkles } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { Shield, Plus, Trash2, LogOut, Copy, Check, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound, Lock, Menu, AlertTriangle, Search, FileSpreadsheet, ListFilter, Eye, Activity, Calendar, ChevronRight, User, Briefcase, Sparkles, Gift } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 
 const Tooltip = ({ text, onClick }: { text: string; onClick?: () => void }) => (
@@ -941,10 +941,14 @@ export default function CompanyDashboard() {
             </button>
           </nav>
         </div>
-        <div>
+        <div className="flex flex-col gap-2">
           <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'settings' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
             <Settings size={18} /> Settings
           </button>
+          <Link to="/affiliate" className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-bold bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 shadow-sm">
+            <Gift size={18} className="text-emerald-400 shrink-0" />
+            <span>Partner Program (15–25%)</span>
+          </Link>
         </div>
       </aside>
 
@@ -1013,6 +1017,10 @@ export default function CompanyDashboard() {
             <button onClick={() => { setActiveTab('settings'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'settings' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
               <Settings size={18} /> Settings
             </button>
+            <Link to="/affiliate" onClick={() => setMobileNavOpen(false)} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-bold bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+              <Gift size={18} className="text-emerald-400 shrink-0" />
+              <span>Partner Program (15–25%)</span>
+            </Link>
           </div>
         )}
 

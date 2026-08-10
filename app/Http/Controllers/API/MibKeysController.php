@@ -19,6 +19,7 @@ class MibKeysController extends Controller
             'hardware_id' => 'required|string',
             'bank_account_id' => 'required|integer',
             'mib_username' => 'required|string',
+            'mib_password' => 'sometimes|nullable|string',
             'key1' => 'required|string',
             'key2' => 'required|string',
             'app_id' => 'required|string|max:64',
@@ -26,6 +27,10 @@ class MibKeysController extends Controller
             'profile_type' => 'sometimes|nullable|string|max:4',
             'profile_name' => 'sometimes|nullable|string',
             'credentials_hash' => 'sometimes|nullable|string',
+            'profiles' => 'sometimes|nullable|array',
+            'profiles.*.profile_id' => 'required|string',
+            'profiles.*.profile_type' => 'sometimes|nullable|string|max:4',
+            'profiles.*.profile_name' => 'sometimes|nullable|string',
         ]);
 
         $terminal = Terminal::where('hardware_id', $validated['hardware_id'])->first();
@@ -35,14 +40,32 @@ class MibKeysController extends Controller
 
         // 1. Upsert credential group — keyed by (tenant_id, mib_username) so the same credentials
         //    share ONE group across all terminals. terminal_id tracks whichever terminal most
-        //    recently registered or refreshed the device keys.
+        //    recently registered or refreshed the device keys. mib_password is stored encrypted
+        //    at rest (model cast) so terminals that lose local state can re-authenticate.
         $group = MibCredentialGroup::updateOrCreate(
             [
                 'tenant_id' => $terminal->tenant_id,
                 'mib_username' => $validated['mib_username'],
             ],
+            array_merge([
+                'terminal_id' => $terminal->id,
+                'key1' => $validated['key1'],
+                'key2' => $validated['key2'],
+                'app_id' => $validated['app_id'],
+                'obtained_at' => Carbon::now(),
+            ], $request->filled('mib_password') ? ['mib_password' => $validated['mib_password']] : [])
+        );
+
+        // 1b. Persist the terminal's own device keys (per-terminal registration). This table is
+        //     keyed by (terminal_id, bank_account_id, mib_username) — see migration
+        //     2026_07_16_163052. Retain per-terminal rows for rebuild/re-auth lookups.
+        MibDeviceCredential::updateOrCreate(
             [
                 'terminal_id' => $terminal->id,
+                'bank_account_id' => $validated['bank_account_id'],
+                'mib_username' => $validated['mib_username'],
+            ],
+            [
                 'key1' => $validated['key1'],
                 'key2' => $validated['key2'],
                 'app_id' => $validated['app_id'],
@@ -50,7 +73,7 @@ class MibKeysController extends Controller
             ]
         );
 
-        // 2. Resolve and upsert the profile
+        // 2. Resolve and upsert the single profile (backward-compatible single-profile payload)
         $profileId = $validated['profile_id'] ?? 'default_profile';
         $profileType = $validated['profile_type'] ?? '0';
         $profileName = $validated['profile_name'] ?? '';
@@ -66,30 +89,60 @@ class MibKeysController extends Controller
             ]
         );
 
-        // 3. Link requesting bank account and unlinked sibling accounts to this profile
+        // 2b. Bulk-persist the full profile list captured at first sign-in so the shared
+        // "Choose Profile" list is available to every terminal / the admin dashboard.
+        $capturedProfileIds = [];
+        if (is_array($validated['profiles'] ?? null)) {
+            foreach ($validated['profiles'] as $p) {
+                $pid = $p['profile_id'] ?? null;
+                if (! $pid) {
+                    continue;
+                }
+                $capturedProfileIds[] = $pid;
+                MibCredentialProfile::updateOrCreate(
+                    [
+                        'credential_group_id' => $group->id,
+                        'profile_id' => $pid,
+                    ],
+                    [
+                        'profile_type' => $p['profile_type'] ?? '0',
+                        'profile_name' => $p['profile_name'] ?? '',
+                    ]
+                );
+            }
+        }
+
+        // 3. Link requesting account to its profile
         $account = BankAccount::where('id', $validated['bank_account_id'])
             ->where('tenant_id', $terminal->tenant_id)
             ->first();
 
         if ($account) {
-            $account->update(['mib_credential_profile_id' => $profile->id]);
+            // If the account already has an admin-assigned profile, prefer it over re-linking.
+            if ($account->mib_credential_profile_id === null) {
+                $account->update(['mib_credential_profile_id' => $profile->id]);
 
-            // Auto-link any unlinked sibling MIB accounts under the same tenant
-            BankAccount::where('tenant_id', $terminal->tenant_id)
-                ->where('bank_name', 'MIB')
-                ->whereNull('mib_credential_profile_id')
-                ->where(function ($q) use ($account, $profileType) {
-                    if ($account->login_credentials_hash) {
-                        $q->where('login_credentials_hash', $account->login_credentials_hash);
-                    } else {
-                        $q->where('mib_profile_type', $profileType)
-                          ->orWhereNull('mib_profile_type');
-                    }
-                })
-                ->update(['mib_credential_profile_id' => $profile->id]);
+                // Auto-link unlinked sibling MIB accounts under the same tenant — but only
+                // ever accounts belonging to the SAME MIB user (matched via
+                // login_credentials_hash). Never link by profile-type alone: with several
+                // MIB users under one tenant a type-match would attach another user's
+                // account to this login's keys/profile. Admin-assigned profiles are left
+                // untouched (mib_credential_profile_id NOT NULL above).
+                BankAccount::where('tenant_id', $terminal->tenant_id)
+                    ->where('bank_name', 'MIB')
+                    ->whereNotNull('login_credentials_hash')
+                    ->whereNull('mib_credential_profile_id')
+                    ->where('login_credentials_hash', $account->login_credentials_hash)
+                    ->update(['mib_credential_profile_id' => $profile->id]);
+            }
         }
 
-        return response()->json(['success' => true, 'group_id' => $group->id, 'profile_id' => $profile->id]);
+        return response()->json([
+            'success' => true,
+            'group_id' => $group->id,
+            'profile_id' => $profile->id,
+            'profiles_persisted' => count($capturedProfileIds),
+        ]);
     }
 
     public function getKeys(Request $request)
@@ -106,6 +159,7 @@ class MibKeysController extends Controller
         $group = null;
         $profile = null;
         $account = null;
+        $device = null;
 
         if ($request->has('mib_username')) {
             // Groups are now keyed by tenant, not terminal — look up by tenant scope.
@@ -119,6 +173,10 @@ class MibKeysController extends Controller
             if ($account) {
                 $profile = $account->mibCredentialProfile;
                 $group = $profile?->credentialGroup;
+                $device = MibDeviceCredential::where('terminal_id', $terminal->id)
+                    ->where('bank_account_id', $account->id)
+                    ->where('mib_username', $account->mibCredentialProfile?->credentialGroup?->mib_username ?? null)
+                    ->first();
             }
         } elseif ($request->has('account_number')) {
             $account = BankAccount::where('account_number', $request->account_number)
@@ -127,16 +185,29 @@ class MibKeysController extends Controller
             if ($account) {
                 $profile = $account->mibCredentialProfile;
                 $group = $profile?->credentialGroup;
+                $device = MibDeviceCredential::where('terminal_id', $terminal->id)
+                    ->where('bank_account_id', $account->id)
+                    ->where('mib_username', $account->mibCredentialProfile?->credentialGroup?->mib_username ?? null)
+                    ->first();
             }
         }
 
-        // Fallback 1: any group for this tenant (for legacy or unlinked accounts)
+        // Fallback 1: If the requested account has no group, fall back to the
+        // tenant's group ONLY when it is unambiguous (exactly one MIB group for
+        // the tenant). Never hand a different MIB user's keys/credentials to a
+        // look-up — with multiple MIB users under one tenant the fallback would
+        // cross-match secrets and reproduce the MIB auth failures.
         if (! $group) {
-            $group = MibCredentialGroup::where('tenant_id', $terminal->tenant_id)->first();
+            $tenantGroups = MibCredentialGroup::where('tenant_id', $terminal->tenant_id)->get();
+            if ($tenantGroups->count() === 1) {
+                $group = $tenantGroups->first();
+            }
         }
 
-        // Auto-heal: If group exists for tenant but account profile is not linked, link it now
-        if ($group && $account && ! $profile) {
+        // Auto-heal: If group exists for tenant but account profile is not linked, link it.
+        // Only when the group is unambiguous for this account AND the admin has not
+        // already assigned a profile.
+        if ($group && $account && ! $profile && $account->mib_credential_profile_id === null) {
             $targetType = $account->mib_profile_type ?? '0';
             $profile = MibCredentialProfile::where('credential_group_id', $group->id)
                 ->where('profile_type', $targetType)
@@ -176,6 +247,15 @@ class MibKeysController extends Controller
             return response()->json(['error' => 'Not found'], 404);
         }
 
+        // Prefer the requesting terminal's own device keys; fall back to the shared group keys.
+        // The password is only disclosed when a concrete bank account is requested (i.e. the
+        // terminal is operating on a specific admin-assigned account), never for a username-only
+        // lookup that any terminal of the tenant could make.
+        $resolvedKey1 = $device?->key1 ?: $group->key1;
+        $resolvedKey2 = $device?->key2 ?: $group->key2;
+        $resolvedAppId = $device?->app_id ?: $group->app_id;
+        $resolvedObtainedAt = $device?->obtained_at ?: $group->obtained_at;
+
         $allProfiles = $group->profiles()->get()->map(function ($p) {
             return [
                 'profile_id' => $p->profile_id,
@@ -184,14 +264,19 @@ class MibKeysController extends Controller
             ];
         });
 
+        $hasConcreteAccount = $request->filled('bank_account_id') || $request->filled('account_number');
+        $mibUsername = $group->mib_username;
+
         return response()->json([
-            'key1' => $group->key1,
-            'key2' => $group->key2,
-            'appId' => $group->app_id,
+            'key1' => $resolvedKey1,
+            'key2' => $resolvedKey2,
+            'appId' => $resolvedAppId,
+            'mib_username' => $mibUsername,
+            'mib_password' => $hasConcreteAccount ? $group->mib_password : null,
             'profileId' => $profile?->profile_id,
             'profileType' => $profile?->profile_type ?? '0',
             'profiles' => $allProfiles,
-            'obtained_at' => $group->obtained_at ? $group->obtained_at->toIso8601String() : null,
+            'obtained_at' => $resolvedObtainedAt ? $resolvedObtainedAt->toIso8601String() : null,
         ]);
     }
 

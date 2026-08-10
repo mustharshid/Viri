@@ -28,6 +28,12 @@ class AuthController extends Controller
             'subscription_tier' => 'free',
         ]);
 
+        // 1.5 Register referral attribution if referral code is provided
+        if ($request->filled('referral_code')) {
+            $engine = new \App\Services\ReferralCommissionEngine();
+            $engine->registerAttribution($tenant, $request->referral_code, $request->input('plan_key', 'starter'));
+        }
+
         // 2. Create the user
         $user = User::create([
             'tenant_id' => $tenant->id,

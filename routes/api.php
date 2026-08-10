@@ -8,6 +8,8 @@ use App\Http\Controllers\API\CompanyController;
 use App\Http\Controllers\API\CredentialSyncController;
 use App\Http\Controllers\API\LedgerReportController;
 use App\Http\Controllers\API\MibKeysController;
+use App\Http\Controllers\API\AffiliatePortalController;
+use App\Http\Controllers\API\ReferralAdminController;
 use App\Http\Controllers\API\SessionController;
 use App\Http\Controllers\API\SuperadminController;
 use App\Http\Controllers\API\TerminalPairingController;
@@ -27,6 +29,8 @@ use Illuminate\Support\Facades\Route;
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/terminal/pair', [TerminalPairingController::class, 'pair']);
+Route::get('/ref/{code}', [AffiliatePortalController::class, 'validateReferralCode']);
+Route::post('/affiliate/register', [AffiliatePortalController::class, 'register']);
 
 /*
 |--------------------------------------------------------------------------
@@ -71,7 +75,29 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/credentials/bml/inject', [SuperadminController::class, 'injectBmlCredentials'])->middleware('throttle:10,1');
         Route::post('/credentials/mib/inject', [SuperadminController::class, 'injectMibCredentials'])->middleware('throttle:10,1');
         Route::get('/tenants/{id}/bank-accounts', [SuperadminController::class, 'listTenantBankAccounts']);
+
+        // Referral & Affiliate Management (Superadmin)
+        Route::get('/referrals/config', [ReferralAdminController::class, 'getConfig']);
+        Route::put('/referrals/config', [ReferralAdminController::class, 'updateConfig']);
+        Route::get('/referrals/tiers', [ReferralAdminController::class, 'listTiers']);
+        Route::post('/referrals/tiers', [ReferralAdminController::class, 'createTier']);
+        Route::put('/referrals/tiers/{id}', [ReferralAdminController::class, 'updateTier']);
+        Route::delete('/referrals/tiers/{id}', [ReferralAdminController::class, 'deleteTier']);
+        Route::get('/referrals/affiliates', [ReferralAdminController::class, 'listAffiliates']);
+        Route::get('/referrals/payouts', [ReferralAdminController::class, 'listPayouts']);
+        Route::post('/referrals/payouts/{id}/approve', [ReferralAdminController::class, 'approvePayout']);
+        Route::post('/referrals/payouts/{id}/reject', [ReferralAdminController::class, 'rejectPayout']);
+        Route::post('/referrals/payouts/generate-batch', [ReferralAdminController::class, 'triggerBatchGeneration']);
+        Route::post('/referrals/maturity-check', [ReferralAdminController::class, 'triggerMaturityCheck']);
     });
+
+    // Affiliate Portal Routes (Authenticated User)
+    Route::get('/affiliate/overview', [AffiliatePortalController::class, 'getOverview']);
+    Route::get('/affiliate/sales', [AffiliatePortalController::class, 'getClientSales']);
+    Route::get('/affiliate/commissions', [AffiliatePortalController::class, 'getCommissions']);
+    Route::post('/affiliate/payout-request', [AffiliatePortalController::class, 'requestPayout']);
+    Route::put('/affiliate/bank-details', [AffiliatePortalController::class, 'updateBankDetails']);
+    Route::get('/affiliate/projections', [AffiliatePortalController::class, 'calculateProjections']);
 
     // Company Routes
     Route::get('/company/terminals', [CompanyController::class, 'getTerminals']);
@@ -85,6 +111,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/company/bank-accounts', [CompanyController::class, 'getBankAccounts']);
     Route::post('/company/bank-accounts', [CompanyController::class, 'createBankAccount']);
     Route::put('/company/bank-accounts/{id}', [CompanyController::class, 'updateBankAccount']);
+    Route::put('/company/bank-accounts/{id}/mib-profile', [CompanyController::class, 'updateMibProfile']);
     Route::delete('/company/bank-accounts/{id}', [CompanyController::class, 'deleteBankAccount']);
     Route::post('/company/bank-accounts/{id}/reset-failures', [CompanyController::class, 'resetBankAccountFailures']);
     Route::get('/company/bank-accounts/sibling-check', [MibKeysController::class, 'getSiblingCheck']);

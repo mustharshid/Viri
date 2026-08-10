@@ -5,6 +5,7 @@ import { Lock, CheckCircle, ArrowRight, Loader2, ShieldAlert } from 'lucide-reac
 export default function MibLogin() {
   const [searchParams] = useSearchParams();
   const accountId = searchParams.get('accountId');
+  const accountNumber = searchParams.get('accountNumber') || '';
   const terminalId = searchParams.get('terminalId');
 
   const [username, setUsername] = useState('');
@@ -15,6 +16,7 @@ export default function MibLogin() {
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<'login' | 'otp' | 'profile' | 'success'>('login');
   const [profiles, setProfiles] = useState<any[]>([]);
+  const [resumeFlow, setResumeFlow] = useState(false);
   const [isAccessDenied, setIsAccessDenied] = useState(false);
   const [accessDeniedReason, setAccessDeniedReason] = useState<string | null>(null);
 
@@ -47,6 +49,101 @@ export default function MibLogin() {
       setError('Viri Extension is not linked. Please pair the cashier counter first.');
     }
   }, [accountId, terminalId, extensionId, pairedHardwareId]);
+
+  // Gateway: If the account's MIB group already exists on the server (this terminal or a
+  // sibling registered it before), offer the shared "Choose Profile" list instead of forcing
+  // a fresh login. Only falls back to the login form when no registered keys exist yet.
+  useEffect(() => {
+    if (!accountId || !extensionId || !pairedHardwareId) return;
+
+    let cancelled = false;
+    const checkGroup = async () => {
+      try {
+        const resp: any = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(extensionId, {
+            action: 'GET_MIB_PROFILES',
+            payload: {
+              terminalId,
+              backendUrl,
+              accountId,
+              accountNumber,
+              sanctumToken: localStorage.getItem('token') || ''
+            }
+          }, resolve);
+        });
+        if (cancelled) return;
+        if (resp?.ok && !resp.needsLogin && Array.isArray(resp.profiles) && resp.profiles.length > 0) {
+          const profileList = resp.profiles.map((p: any) => ({
+            profileId: p.profile_id || p.customerProfileId || '',
+            profileType: p.profile_type || '0',
+            profileName: p.profile_name || '',
+            color: '#1a1a2e'
+          }));
+          setProfiles(profileList);
+          // If only one profile exists, resume that account automatically (no picker tap needed).
+          if (profileList.length === 1) {
+            await resumeAndSelect(profileList[0], resp);
+          } else {
+            setResumeFlow(true);
+            setUsername(resp.mib_username || '');
+            setPassword(resp.mib_password || '');
+            setStep('profile');
+          }
+        }
+      } catch {
+        if (cancelled) return;
+        // Fall through to the normal login flow
+      }
+    };
+    checkGroup();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId, accountNumber, extensionId, terminalId, pairedHardwareId]);
+
+  const resumeAndSelect = async (profile: any, resp: any) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const timeoutId = setTimeout(() => {
+        setLoading(false);
+        setError('Profile selection timed out.');
+      }, 45000);
+      const response: any = await new Promise((resolve) => {
+        chrome.runtime.sendMessage(extensionId, {
+          action: 'SELECT_MIB_PROFILE_ON_SESSION',
+          payload: {
+            accountId,
+            accountNumber,
+            terminalId,
+            backendUrl,
+            profileId: profile.profileId,
+            profileType: profile.profileType,
+            mibUsername: resp?.mib_username || profile.profile_mib_username || '',
+            mibPassword: resp?.mib_password || profile.profile_mib_password || '',
+            sanctumToken: localStorage.getItem('token') || ''
+          }
+        }, resolve);
+      });
+      clearTimeout(timeoutId);
+      setLoading(false);
+      if (response && response.success) {
+        setUsername(resp?.mib_username || profile.profile_mib_username || '');
+        setPassword(resp?.mib_password || profile.profile_mib_password || '');
+        setStep('success');
+      } else if (response && response.needsLogin) {
+        // Server group exists but no stored password/keys for this terminal —
+        // the cashier must sign in once here, then resume is seamless after.
+        setResumeFlow(false);
+        setStep('login');
+        setError('This terminal needs one-time MIB sign-in before it can reuse the shared profiles.');
+      } else {
+        setError(response?.error || 'Profile selection failed on existing session.');
+      }
+    } catch (e: any) {
+      setLoading(false);
+      setError(`Extension error: ${e.message}`);
+    }
+  };
 
   // Store credentials to localStorage on successful auth so the A40 fallback can re-authenticate sessions
   useEffect(() => {
@@ -170,6 +267,10 @@ export default function MibLogin() {
   };
 
   const handleProfileSelect = (profileId: string, profileType: string) => {
+    if (resumeFlow) {
+      resumeAndSelect({ profileId, profileType }, { mib_username: username, mib_password: password });
+      return;
+    }
     setLoading(true);
     setError(null);
 
@@ -349,7 +450,7 @@ export default function MibLogin() {
               </div>
               <div className="space-y-3">
                 {profiles.map((p, i) => {
-                  const name = p.name || p.customerProfileId || `Profile ${i + 1}`;
+                  const name = p.profileName || p.name || p.customerProfileId || `Profile ${i + 1}`;
                   const type = p.profileType === '1' ? 'Business' : 'Personal';
                   const color = p.color || '#1a1a2e';
                   const initials = name.split(' ').map((w: string) => w[0]).join('').substring(0, 2).toUpperCase();
