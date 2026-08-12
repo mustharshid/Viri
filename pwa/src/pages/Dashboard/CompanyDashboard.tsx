@@ -3,6 +3,13 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Shield, Plus, Trash2, LogOut, Copy, Check, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound, Lock, Menu, AlertTriangle, Search, FileSpreadsheet, ListFilter, Eye, Activity, Calendar, ChevronRight, User, Briefcase, Sparkles, Gift } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 
+const maskUsername = (username: string | null | undefined): string | null => {
+  if (!username || username.length === 0) return null;
+  if (username.length <= 1) return '*';
+  if (username.length <= 3) return `${username[0]}${'*'.repeat(username.length - 1)}`;
+  return `${username[0]}${'*'.repeat(username.length - 2)}${username[username.length - 1]}`;
+};
+
 const Tooltip = ({ text, onClick }: { text: string; onClick?: () => void }) => (
   <div 
     className={`relative inline-flex items-center group ml-2 align-middle ${onClick ? 'cursor-pointer' : 'cursor-help'}`}
@@ -67,7 +74,7 @@ const DeleteConfirmModal = ({ isOpen, onClose, onConfirm, title, message, itemNa
 };
 
 export default function CompanyDashboard() {
-  const LATEST_EXTENSION_VERSION = "1.3.11";
+  const LATEST_EXTENSION_VERSION = "1.3.12";
   const [theme, toggleTheme] = useTheme();
   const [user, setUser] = useState<any>(null);
   const [terminals, setTerminals] = useState<any[]>([]);
@@ -268,6 +275,8 @@ export default function CompanyDashboard() {
   const [mibProfileType, setMibProfileType] = useState('0');
   const [bmlProfileType, setBmlProfileType] = useState('0');
   const [currency, setCurrency] = useState('MVR');
+  const [mibUsername, setMibUsername] = useState('');
+  const [bmlUsername, setBmlUsername] = useState('');
 
   // Bank Account Edit States
   const [editingBankAccount, setEditingBankAccount] = useState<any | null>(null);
@@ -278,7 +287,17 @@ export default function CompanyDashboard() {
   const [editMibProfileType, setEditMibProfileType] = useState('0');
   const [editBmlProfileType, setEditBmlProfileType] = useState('0');
   const [editCurrency, setEditCurrency] = useState('MVR');
+  const [editMibUsername, setEditMibUsername] = useState('');
+  const [editBmlUsername, setEditBmlUsername] = useState('');
   const [isSavingBankAccount, setIsSavingBankAccount] = useState(false);
+  const [linkConfirm, setLinkConfirm] = useState<{
+    pendingId: number | null;
+    pendingUsername: string;
+    maskedUsername: string | null;
+    siblingCount: number;
+    type: 'mib' | 'bml';
+    isEdit: boolean;
+  } | null>(null);
 
   // Settings Form States
   const [settingsPhone, setSettingsPhone] = useState('');
@@ -786,22 +805,41 @@ export default function CompanyDashboard() {
         mib_profile_type: bankName === 'MIB' ? mibProfileType : '0',
         bml_profile_type: bankName === 'BML' ? bmlProfileType : '0',
         label: accountLabel,
-        currency: currency
+        currency: currency,
+        mib_username: bankName === 'MIB' ? mibUsername : null,
+        bml_username: bankName === 'BML' ? bmlUsername : null
       })
     });
     
     if (!res.ok) {
       const data = await res.json();
       alert(data.message || 'Error adding account');
-    } else {
-      setAccountName('');
-      setAccountNumber('');
-      setAccountLabel('');
-      setMibProfileType('0');
-      setBmlProfileType('0');
-      setCurrency('MVR');
-      fetchData();
+      return;
     }
+
+    const data = await res.json();
+    const link = data.link;
+    if (link?.needs_confirmation && data.account?.id) {
+      setLinkConfirm({
+        pendingId: data.account.id,
+        pendingUsername: bankName === 'MIB' ? mibUsername : bmlUsername,
+        maskedUsername: link.masked_username,
+        siblingCount: link.sibling_account_count,
+        type: link.type || (bankName === 'MIB' ? 'mib' : 'bml'),
+        isEdit: false
+      });
+      return;
+    }
+
+    setAccountName('');
+    setAccountNumber('');
+    setAccountLabel('');
+    setMibProfileType('0');
+    setBmlProfileType('0');
+    setCurrency('MVR');
+    setMibUsername('');
+    setBmlUsername('');
+    fetchData();
   };
 
   const deleteBankAccount = async (id: number) => {
@@ -818,6 +856,8 @@ export default function CompanyDashboard() {
     setEditMibProfileType(acc.mib_profile_type || '0');
     setEditBmlProfileType(acc.bml_profile_type || '0');
     setEditCurrency(acc.currency || 'MVR');
+    setEditMibUsername(acc.mib_username || acc.mib_credential_profile?.credential_group?.mib_username || '');
+    setEditBmlUsername(acc.bml_username || acc.bml_credential_group?.bml_username || '');
     setIsBankAccountModalOpen(true);
   };
 
@@ -837,21 +877,100 @@ export default function CompanyDashboard() {
           mib_profile_type: editBankName === 'MIB' ? editMibProfileType : '0',
           bml_profile_type: editBankName === 'BML' ? editBmlProfileType : '0',
           label: editAccountLabel,
-          currency: editCurrency
+          currency: editCurrency,
+          mib_username: editBankName === 'MIB' ? editMibUsername : null,
+          bml_username: editBankName === 'BML' ? editBmlUsername : null
         })
       });
 
       if (!res.ok) {
         const data = await res.json();
         alert(data.message || 'Error updating account');
-      } else {
-        setIsBankAccountModalOpen(false);
-        setEditingBankAccount(null);
-        fetchData();
+        return;
       }
+
+      const data = await res.json();
+      const link = data.link;
+      if (link?.needs_confirmation) {
+        setIsBankAccountModalOpen(false);
+        setLinkConfirm({
+          pendingId: editingBankAccount.id,
+          pendingUsername: editBankName === 'MIB' ? editMibUsername : editBmlUsername,
+          maskedUsername: link.masked_username,
+          siblingCount: link.sibling_account_count,
+          type: link.type || (editBankName === 'MIB' ? 'mib' : 'bml'),
+          isEdit: true
+        });
+        return;
+      }
+
+      setIsBankAccountModalOpen(false);
+      setEditingBankAccount(null);
+      fetchData();
     } catch (err: any) {
       console.error(err);
       alert('Failed to save bank account: ' + err.message);
+    } finally {
+      setIsSavingBankAccount(false);
+    }
+  };
+
+  const confirmLinkSave = async () => {
+    if (!linkConfirm) return;
+    const token = localStorage.getItem('viri_token');
+    setIsSavingBankAccount(true);
+    try {
+      const baseBody = linkConfirm.isEdit ? {
+        bank_name: editBankName,
+        account_name: editAccountName,
+        mib_profile_type: editBankName === 'MIB' ? editMibProfileType : '0',
+        bml_profile_type: editBankName === 'BML' ? editBmlProfileType : '0',
+        label: editAccountLabel,
+        currency: editCurrency,
+      } : {
+        bank_name: bankName,
+        account_name: accountName,
+        account_number: accountNumber,
+        mib_profile_type: bankName === 'MIB' ? mibProfileType : '0',
+        bml_profile_type: bankName === 'BML' ? bmlProfileType : '0',
+        label: accountLabel,
+        currency: currency,
+      };
+
+      const res = await fetch(`/api/company/bank-accounts/${linkConfirm.pendingId}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...baseBody,
+          ...(linkConfirm.type === 'mib' ? { mib_username: linkConfirm.pendingUsername, bml_username: null } : { bml_username: linkConfirm.pendingUsername, mib_username: null }),
+          confirm_link: true
+        })
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.message || data.error || 'Error linking account');
+        return;
+      }
+
+      setLinkConfirm(null);
+      if (linkConfirm.isEdit) {
+        setIsBankAccountModalOpen(false);
+        setEditingBankAccount(null);
+      } else {
+        setAccountName('');
+        setAccountNumber('');
+        setAccountLabel('');
+        setMibProfileType('0');
+        setBmlProfileType('0');
+        setCurrency('MVR');
+        setMibUsername('');
+        setBmlUsername('');
+      }
+      fetchData();
+    } catch (err: any) {
+      console.error(err);
+      alert('Failed to link account: ' + err.message);
     } finally {
       setIsSavingBankAccount(false);
     }
@@ -902,6 +1021,63 @@ export default function CompanyDashboard() {
         message={`Are you sure you want to delete this ${deleteConfirm.type === 'terminal' ? 'terminal' : 'bank account'}? This action cannot be undone and will immediately revoke access.`}
         itemName={deleteConfirm.name}
       />
+
+      {linkConfirm && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl w-full max-w-md shadow-2xl p-6 relative animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+            <button onClick={() => setLinkConfirm(null)} className="absolute top-4 right-4 text-[var(--text-secondary)] hover:text-white transition-colors">
+              <X size={20} />
+            </button>
+
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-12 h-12 rounded-full bg-sky-500/10 flex items-center justify-center text-sky-400 shrink-0">
+                <KeyRound size={24} />
+              </div>
+              <div>
+                <h3 className="text-xl font-medium text-white">Link to existing credentials?</h3>
+                <p className="text-[var(--text-secondary)] text-sm mt-1">Shared {linkConfirm.type.toUpperCase()} login detected</p>
+              </div>
+            </div>
+
+            <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
+              This username matches an already-authenticated {linkConfirm.type.toUpperCase()} login:
+              <span className="text-white font-mono font-semibold mx-1">{linkConfirm.maskedUsername}</span>
+              {linkConfirm.siblingCount > 0 && (
+                <span>(already used by {linkConfirm.siblingCount} account{linkConfirm.siblingCount === 1 ? '' : 's'})</span>
+              )}.
+              Linking this account will let it resume using the existing bank session — it will <span className="text-white">not</span> require a fresh login or OTP.
+            </p>
+
+            <p className="text-[11px] text-[var(--text-secondary)] mt-3">
+              Verify the username is correct. If it is a typo, cancel and correct it — linking to the wrong account would bind it to that user's credentials.
+            </p>
+
+            <div className="flex justify-end gap-3 pt-5 mt-4 border-t border-[var(--border-subtle)]">
+              <button
+                type="button"
+                onClick={() => setLinkConfirm(null)}
+                className="btn btn-outline border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white py-2 px-4 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isSavingBankAccount}
+                onClick={confirmLinkSave}
+                className="btn btn-success py-2 px-6 text-sm font-semibold flex items-center justify-center gap-2"
+              >
+                {isSavingBankAccount ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" /> Linking...
+                  </>
+                ) : (
+                  'Confirm Link'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* ── Sidebar Navigation ── */}
       <aside className="w-56 lg:w-64 border-r border-[var(--border-color)] bg-[var(--bg-surface)] backdrop-blur-xl p-4 lg:p-6 hidden md:flex flex-col justify-between h-screen sticky top-0 shrink-0">
@@ -1627,6 +1803,23 @@ export default function CompanyDashboard() {
                     <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-1">Label / Nickname</label>
                     <input type="text" placeholder="Counter 1, Main Vault..." className="input-field text-sm" value={accountLabel} onChange={e => setAccountLabel(e.target.value)} />
                   </div>
+
+                  {bankName === 'MIB' && (
+                    <div>
+                      <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-1">
+                        MIB Login Username <span className="text-[var(--text-tertiary)] normal-case font-normal">(optional)</span>
+                      </label>
+                      <input type="text" placeholder="e.g. johndoe" autoComplete="off" className="input-field text-sm font-mono" value={mibUsername} onChange={e => setMibUsername(e.target.value)} />
+                    </div>
+                  )}
+                  {bankName === 'BML' && (
+                    <div>
+                      <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-1">
+                        BML Login Username <span className="text-[var(--text-tertiary)] normal-case font-normal">(optional)</span>
+                      </label>
+                      <input type="text" placeholder="e.g. johndoe" autoComplete="off" className="input-field text-sm font-mono" value={bmlUsername} onChange={e => setBmlUsername(e.target.value)} />
+                    </div>
+                  )}
                 </div>
 
                 {/* Bottom Row: Add Account Button in Left Corner */}
@@ -1649,13 +1842,13 @@ export default function CompanyDashboard() {
                     const key = `bml-${acc.bml_credential_group_id}`;
                     if (!groupMap[key]) {
                       const pt = acc.bml_credential_group.profile_type === '1' ? 'Business' : 'Personal';
-                      groupMap[key] = { label: `${acc.bml_credential_group.bml_username} · ${pt}`, bank: 'BML', accounts: [] };
+                      groupMap[key] = { label: `${maskUsername(acc.bml_credential_group.bml_username) ?? '—'} · ${pt}`, bank: 'BML', accounts: [] };
                     }
                     groupMap[key].accounts.push(acc);
                   } else if (acc.mib_credential_profile_id && acc.mib_credential_profile) {
                     const key = `mib-${acc.mib_credential_profile_id}`;
                     if (!groupMap[key]) {
-                      const username = acc.mib_credential_profile.credential_group?.mib_username ?? '—';
+                      const username = maskUsername(acc.mib_credential_profile.credential_group?.mib_username) ?? '—';
                       const profileName = acc.mib_credential_profile.profile_name ?? 'Default';
                       groupMap[key] = { label: `${username} · ${profileName}`, bank: 'MIB', accounts: [] };
                     }
@@ -1693,6 +1886,12 @@ export default function CompanyDashboard() {
                             <span className="text-[8px] bg-violet-950/50 border border-violet-500/30 px-1 rounded font-bold font-sans text-violet-300">Multi-Profile</span>
                           )}
                         </div>
+                        {acc.bank_name === 'MIB' && acc.mib_username && !acc.mib_credential_profile_id && (
+                          <div className="text-[10px] text-[var(--text-secondary)] font-mono mt-0.5">user: {maskUsername(acc.mib_username)}</div>
+                        )}
+                        {acc.bank_name === 'BML' && acc.bml_username && !acc.bml_credential_group_id && (
+                          <div className="text-[10px] text-[var(--text-secondary)] font-mono mt-0.5">user: {maskUsername(acc.bml_username)}</div>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
@@ -3725,6 +3924,37 @@ export default function CompanyDashboard() {
                     onChange={e => setEditAccountLabel(e.target.value)} 
                   />
                 </div>
+
+                {editBankName === 'MIB' && (
+                  <div>
+                    <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">
+                      MIB Login Username <span className="text-[10px] font-normal text-zinc-500">(optional — leave unchanged to keep existing)</span>
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. johndoe" 
+                      autoComplete="off"
+                      className="input-field w-full text-sm font-mono" 
+                      value={editMibUsername} 
+                      onChange={e => setEditMibUsername(e.target.value)} 
+                    />
+                  </div>
+                )}
+                {editBankName === 'BML' && (
+                  <div>
+                    <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">
+                      BML Login Username <span className="text-[10px] font-normal text-zinc-500">(optional — leave unchanged to keep existing)</span>
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. johndoe" 
+                      autoComplete="off"
+                      className="input-field w-full text-sm font-mono" 
+                      value={editBmlUsername} 
+                      onChange={e => setEditBmlUsername(e.target.value)} 
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-3 border-t border-zinc-800 pt-5 mt-6">

@@ -1,4 +1,4 @@
-// Extension Version: 1.2.81
+// Extension Version: 1.3.12
 import { 
   generateNonce, blowfishEncrypt, blowfishDecrypt, computePgf03, 
   deriveSessionKey, generateSodium, generateXxid, generateAppId,
@@ -506,7 +506,7 @@ chrome.runtime.onConnectExternal.addListener((port) => {
       else if (msg.action === 'FULFILL_DELEGATED_REQUEST') {
         const payload = msg.payload;
         const req = payload.req;
-        const targetAcc = req.bank_account_id || (heldSession ? heldSession.accountId : '');
+        const targetAcc = req.account_number || req.bank_account_id || (heldSession ? heldSession.accountId : '');
         try {
           await sanitizeAccountSession(targetAcc, payload.bankName || 'BML');
           const flowPromise = (async () => {
@@ -2559,7 +2559,86 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
   const mibSessionKey = 'mibSession_' + (targetAccount || 'default');
   const mibProfileIdKey = 'mib_profileId_' + (targetAccount || 'default');
   const mibProfileTypeKey = 'mib_profileType_' + (targetAccount || 'default');
+  // ── Hoisted server identity fetch (single round-trip, throw-proof) ──
+  // Replaces the two downstream server-fetch blocks. It (a) resolves the token via
+  // the full sanctumToken -> sanctumTokenParam -> credentials.token chain, (b) keeps
+  // local device keys in sync so a stale local key can never trigger an unnecessary
+  // sfunc=r re-registration, and (c) provisions the shared group's credentials so a
+  // linked-but-unpaired account can authenticate without a fresh sign-in. Any failure
+  // falls back to local cache with today's behavior (never breaks the cached path).
+  let serverIdentity = null;
+  try {
+    const tokenRes = await chrome.storage.local.get('sanctumToken');
+    const token = tokenRes.sanctumToken || sanctumTokenParam || credentials?.token || '';
+    if (token) {
+      const params = new URLSearchParams({ hardware_id: terminalId });
+      if (targetAccount) params.append('account_number', targetAccount);
+      const keysResp = await fetch(`${backendUrl}/mib/keys?${params}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (keysResp.ok) {
+        const keysData = await keysResp.json();
+        if (keysData.key1 && keysData.key2) {
+          serverIdentity = {
+            appId: keysData.appId || '',
+            username: keysData.mib_username || '',
+            password: keysData.mib_password || '',
+            key1: keysData.key1,
+            key2: keysData.key2,
+            profileId: keysData.profileId || null,
+            profileType: keysData.profileType || null,
+          };
+        }
+      }
+    }
+  } catch (e) {
+    // best-effort — continue with local cache
+    if(port) emitLog(port, `> [MIB-API] Server identity fetch skipped: ${e.message}`);
+  }
+
+  // Sync server device keys into local cache when missing or different, and persist
+  // the server's profile selection (same semantics as the previous always-check block).
+  let localRes = await chrome.storage.local.get(['mib_appId', 'mib_key1', 'mib_key2']);
+  if (serverIdentity && serverIdentity.key1 && serverIdentity.key2) {
+    const keysDiffer = serverIdentity.key1 !== localRes.mib_key1 || serverIdentity.key2 !== localRes.mib_key2;
+    if (!localRes.mib_key1 || !localRes.mib_key2 || keysDiffer) {
+      const appId = serverIdentity.appId || localRes.mib_appId || '';
+      await chrome.storage.local.set({ mib_key1: serverIdentity.key1, mib_key2: serverIdentity.key2, mib_appId: appId });
+      localRes = { mib_appId: appId, mib_key1: serverIdentity.key1, mib_key2: serverIdentity.key2 };
+      if(port) emitLog(port, '> [MIB-API] Synced server device keys to local cache.');
+    }
+    const profUpdate = {};
+    if (serverIdentity.profileId) profUpdate[mibProfileIdKey] = serverIdentity.profileId;
+    if (serverIdentity.profileType) profUpdate[mibProfileTypeKey] = serverIdentity.profileType;
+    if (Object.keys(profUpdate).length) await chrome.storage.local.set(profUpdate);
+  }
+
+  // Provision the shared group's credentials (chrome.storage.session — non-persistent,
+  // same medium as the existing seedMibKeysFromServer). The A40/A41 fallback reads
+  // mib_stored_creds_map[targetAccount], so a linked-but-unpaired account now authenticates.
+  if (serverIdentity && serverIdentity.username && serverIdentity.password) {
+    const { mib_stored_creds_map = {} } = await chrome.storage.session.get('mib_stored_creds_map');
+    mib_stored_creds_map[targetAccount] = { username: serverIdentity.username, password: serverIdentity.password };
+    mib_stored_creds_map['__username_' + serverIdentity.username] = { username: serverIdentity.username, password: serverIdentity.password };
+    await chrome.storage.session.set({ mib_stored_creds_map });
+    if(port) emitLog(port, `> [MIB-API] Provisioned shared credentials for account ${targetAccount}.`);
+  }
+
   let { [mibSessionKey]: mibSession } = await chrome.storage.session.get(mibSessionKey);
+  if (mibSession && mibSession.sessionKey) {
+    // Discard a cached session only when the account was re-linked to a DIFFERENT
+    // user's credential group. Identity = group username. NEVER discard on appId:
+    // the appId legitimately changes for the same user when another terminal
+    // re-registers or a stale per-account device row wins in getKeys. Sessions that
+    // predate this version carry no recorded username and were never reusable anyway
+    // (the old A80 always failed), so discarding them just reproduces today's resume.
+    if (serverIdentity?.username && (!mibSession.username || serverIdentity.username !== mibSession.username)) {
+      if(port) emitLog(port, `> [MIB-API] Cached session cannot be verified for user (${serverIdentity.username}); discarding.`);
+      await chrome.storage.session.remove(mibSessionKey);
+      await chrome.storage.local.remove([mibProfileIdKey, mibProfileTypeKey]);
+      mibSession = null;
+    }
+  }
   if (mibSession && mibSession.sessionKey) {
     // Validate cached session is still alive via lightweight A80 call
     try {
@@ -2567,6 +2646,7 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
         nonce: generateNonce(mibSession.nonceGenerator),
         appId: mibSession.appId,
         sodium: generateSodium(),
+        routePath: 'A80',
         xxid: mibSession.xxid
       };
       const a80Resp = await executeMibSfunc('n', a80Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
@@ -2586,67 +2666,8 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
 
   // Need to resume via sfunc=i
   if(port) emitLog(port, '> [MIB-API] No active session in memory. Attempting sfunc=i resume...');
-  let localRes = await chrome.storage.local.get(['mib_appId', 'mib_key1', 'mib_key2']);
   if (!localRes.mib_appId || !localRes.mib_key1 || !localRes.mib_key2) {
-    if(port) emitLog(port, '> [MIB-API] Local keys not found. Attempting server fetch...');
-    const tokenRes = await chrome.storage.local.get('sanctumToken');
-    const token = tokenRes.sanctumToken || sanctumTokenParam || credentials?.token || '';
-    if (!token) throw new Error("Missing MIB device credentials and no auth token.");
-    const params = new URLSearchParams({ hardware_id: terminalId });
-    if (targetAccount) {
-      params.append('account_number', targetAccount);
-    }
-    const keysResp = await fetch(`${backendUrl}/mib/keys?${params}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    if (!keysResp.ok) throw new Error("Missing MIB device credentials. Please link account again.");
-    const keysData = await keysResp.json();
-    if (!keysData.key1 || !keysData.key2) throw new Error("Server has no MIB keys. Please link account again.");
-    const profileUpdate = {};
-    if (keysData.profileId) profileUpdate[mibProfileIdKey] = keysData.profileId;
-    if (keysData.profileType) profileUpdate[mibProfileTypeKey] = keysData.profileType;
-    await chrome.storage.local.set({
-      mib_key1: keysData.key1,
-      mib_key2: keysData.key2,
-      mib_appId: keysData.appId,
-      ...profileUpdate
-    });
-    localRes = { mib_appId: keysData.appId, mib_key1: keysData.key1, mib_key2: keysData.key2 };
-  } else {
-    // === ALWAYS check server for potentially newer keys ===
-    // Another terminal may have registered the same MIB username with fresh keys.
-    // If the server has different keys, prefer them — it avoids an unnecessary
-    // sfunc=r re-registration and OTP prompt.
-    try {
-      const tokenRes = await chrome.storage.local.get('sanctumToken');
-      if (tokenRes.sanctumToken) {
-        const params = new URLSearchParams({ hardware_id: terminalId });
-        if (targetAccount) params.append('account_number', targetAccount);
-        const keysResp = await fetch(`${backendUrl}/mib/keys?${params}`, {
-          headers: { 'Authorization': `Bearer ${tokenRes.sanctumToken}` }
-        });
-        if (keysResp.ok) {
-          const keysData = await keysResp.json();
-          if (keysData.key1 && keysData.key2 &&
-              (keysData.key1 !== localRes.mib_key1 || keysData.key2 !== localRes.mib_key2)) {
-            if(port) emitLog(port, '> [MIB-API] Server has newer keys than local cache. Using server keys.');
-            const profUpdate = {};
-            if (keysData.profileId) profUpdate[mibProfileIdKey] = keysData.profileId;
-            if (keysData.profileType) profUpdate[mibProfileTypeKey] = keysData.profileType;
-            await chrome.storage.local.set({
-              mib_key1: keysData.key1,
-              mib_key2: keysData.key2,
-              mib_appId: keysData.appId || localRes.mib_appId,
-              ...profUpdate
-            });
-            localRes = { mib_appId: keysData.appId || localRes.mib_appId, mib_key1: keysData.key1, mib_key2: keysData.key2 };
-          }
-        }
-      }
-    } catch(e) {
-      // Server check is best-effort; if unreachable, continue with local keys
-      if(port) emitLog(port, `> [MIB-API] Server key check skipped: ${e.message}`);
-    }
+    throw new Error("Missing MIB device credentials. Please link account again.");
   }
 
   try {
@@ -2684,6 +2705,7 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
       appId: localRes.mib_appId,
       key1: localRes.mib_key1,
       key2: localRes.mib_key2,
+      username: serverIdentity?.username || credentials?.username || '',
       sessionKey: await deriveSessionKey(iResp.smod),
       xxid: String(iResp.xxid),
       nonceGenerator: iResp.nonceGenerator
@@ -2831,6 +2853,7 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
                     nonce: generateNonce(mibSession.nonceGenerator),
                     appId: mibSession.appId,
                     sodium: generateSodium(),
+                    routePath: 'A80',
                     xxid: mibSession.xxid
                   };
                   const a80Resp = await executeMibSfunc('n', a80Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
@@ -2908,6 +2931,7 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
         const iResp = await executeMibSfunc('i', iPayloadRe, rResp.key1, { key2: rResp.key2 });
         mibSession = {
           appId: freshAppId, key1: rResp.key1, key2: rResp.key2,
+          username: serverIdentity?.username || credentials?.username || mibUsername || '',
           sessionKey: await deriveSessionKey(iResp.smod),
           xxid: String(iResp.xxid), nonceGenerator: iResp.nonceGenerator
         };
@@ -2958,7 +2982,7 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
                   await chrome.storage.local.set({ [mibProfileIdKey]: a40Resp.selectedProfileId, [mibProfileTypeKey]: a40Resp.selectedProfileType || '0' });
                   profileSelected = await attemptP47(port, mibSession, a40Resp.selectedProfileId, a40Resp.selectedProfileType || '0');
                 } else {
-                  const a80Payload = { nonce: generateNonce(mibSession.nonceGenerator), appId: mibSession.appId, sodium: generateSodium(), xxid: mibSession.xxid };
+                  const a80Payload = { nonce: generateNonce(mibSession.nonceGenerator), appId: mibSession.appId, sodium: generateSodium(), routePath: 'A80', xxid: mibSession.xxid };
                   const a80Resp = await executeMibSfunc('n', a80Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
                   if (a80Resp.success) profileSelected = true;
                 }

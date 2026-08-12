@@ -160,7 +160,9 @@ class BankAccountLockController extends Controller
         $terminal = $validation['terminal'];
         $hash = $request->input('credentials_hash');
 
-        if ($hash) {
+        // H3: a stale terminal hash must not sever an admin-set linkage — only adopt
+        // the incoming hash when the account's current hash is not group-backed.
+        if ($hash && $this->shouldWriteHash($bankAccount, $hash)) {
             $bankAccount->update(['login_credentials_hash' => $hash]);
         }
 
@@ -202,7 +204,9 @@ class BankAccountLockController extends Controller
         $terminal = $validation['terminal'];
         $hash = $request->input('credentials_hash');
 
-        if ($hash) {
+        // H3: same guard as incrementFailures — never let a stale terminal hash
+        // sever an admin-entered linkage.
+        if ($hash && $this->shouldWriteHash($bankAccount, $hash)) {
             $bankAccount->update(['login_credentials_hash' => $hash]);
         }
 
@@ -248,7 +252,10 @@ class BankAccountLockController extends Controller
             $bankAccount->update(['bml_credential_group_id' => null]);
 
             $stillReferenced = BankAccount::where('bml_credential_group_id', $bmlGroupId)->exists();
-            if (! $stillReferenced) {
+            // H4: if another tenant account shares these credentials, keep the group so
+            // the server copy of the token survives the clear.
+            $keepForSibling = $this->retainGroupForSibling($bankAccount);
+            if (! $stillReferenced && ! $keepForSibling) {
                 BmlCredentialGroup::destroy($bmlGroupId);
             }
         }
@@ -256,19 +263,19 @@ class BankAccountLockController extends Controller
         // 2. MIB: detach/cleanup credential profiles
         $mibProfileId = $bankAccount->mib_credential_profile_id;
         if ($mibProfileId) {
+            $profile = MibCredentialProfile::find($mibProfileId);
+            $groupId = $profile?->credential_group_id;
             $bankAccount->update(['mib_credential_profile_id' => null]);
 
             $stillReferenced = BankAccount::where('mib_credential_profile_id', $mibProfileId)->exists();
-            if (! $stillReferenced) {
-                $profile = MibCredentialProfile::find($mibProfileId);
-                if ($profile) {
-                    $groupId = $profile->credential_group_id;
-                    $profile->delete();
+            // H4: keep the profile+group (device keys) when a sibling shares credentials.
+            $keepForSibling = $this->retainGroupForSibling($bankAccount);
+            if (! $stillReferenced && ! $keepForSibling && $profile) {
+                $profile->delete();
 
-                    $groupStillUsed = MibCredentialProfile::where('credential_group_id', $groupId)->exists();
-                    if (! $groupStillUsed) {
-                        MibCredentialGroup::destroy($groupId);
-                    }
+                $groupStillUsed = MibCredentialProfile::where('credential_group_id', $groupId)->exists();
+                if (! $groupStillUsed) {
+                    MibCredentialGroup::destroy($groupId);
                 }
             }
         }
@@ -301,11 +308,92 @@ class BankAccountLockController extends Controller
         }
 
         foreach ($request->mapping as $accountId => $hash) {
-            BankAccount::where('id', $accountId)
+            $bankAccount = BankAccount::where('id', $accountId)
                 ->where('tenant_id', $terminal->tenant_id)
-                ->update(['login_credentials_hash' => $hash]);
+                ->first();
+
+            if (! $bankAccount) {
+                continue;
+            }
+
+            // H3: never let the cashier's cached username hash overwrite an admin-set
+            // linkage. A group-backed current hash is authoritative over the mapping.
+            if ($this->shouldWriteHash($bankAccount, $hash)) {
+                $bankAccount->update(['login_credentials_hash' => $hash]);
+            }
         }
 
         return response()->json(['status' => 'success']);
+    }
+
+    /**
+     * Whether the incoming (extension/mapping) credentials hash may replace the
+     * account's current hash. Returns false when the current hash is backed by an
+     * existing tenant group and the incoming hash differs — i.e. an admin-entered
+     * username is authoritative and a stale terminal hash must not sever it.
+     */
+    private function shouldWriteHash(BankAccount $bankAccount, $incomingHash): bool
+    {
+        if (! $incomingHash || ! is_string($incomingHash) || $incomingHash === '') {
+            return false;
+        }
+
+        $current = $bankAccount->login_credentials_hash;
+        if (! $current) {
+            return true;
+        }
+        if (hash_equals($current, $incomingHash)) {
+            return false;
+        }
+
+        return ! $this->hashMatchesTenantGroup($bankAccount->tenant_id, $current);
+    }
+
+    /**
+     * True when a tenant credential group's username hashes to the given value.
+     */
+    private function hashMatchesTenantGroup(int $tenantId, string $hash): bool
+    {
+        foreach (MibCredentialGroup::where('tenant_id', $tenantId)->get(['mib_username']) as $group) {
+            if ($group->mib_username && hash_equals(hash('sha256', 'MIB_'.mb_strtolower(trim($group->mib_username))), $hash)) {
+                return true;
+            }
+        }
+        foreach (BmlCredentialGroup::where('tenant_id', $tenantId)->whereNotNull('bml_username')->get(['bml_username']) as $group) {
+            if ($group->bml_username && hash_equals(hash('sha256', 'BML_'.mb_strtolower(trim($group->bml_username))), $hash)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * True when another account in the same tenant shares this account's credentials
+     * (by login_credentials_hash or by the matching admin-entered username column).
+     * Used to keep a credential group alive across a "Clear Credentials" action.
+     */
+    private function retainGroupForSibling(BankAccount $bankAccount): bool
+    {
+        if ($bankAccount->login_credentials_hash) {
+            $byHash = BankAccount::where('tenant_id', $bankAccount->tenant_id)
+                ->where('id', '!=', $bankAccount->id)
+                ->where('login_credentials_hash', $bankAccount->login_credentials_hash)
+                ->exists();
+            if ($byHash) {
+                return true;
+            }
+        }
+
+        $usernameCol = $bankAccount->bank_name === 'MIB' ? 'mib_username' : 'bml_username';
+        $username = $bankAccount->{$usernameCol};
+        if ($username) {
+            return BankAccount::where('tenant_id', $bankAccount->tenant_id)
+                ->where('id', '!=', $bankAccount->id)
+                ->where($usernameCol, $username)
+                ->exists();
+        }
+
+        return false;
     }
 }

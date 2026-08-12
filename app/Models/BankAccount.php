@@ -19,6 +19,8 @@ class BankAccount extends Model
         'mib_credential_profile_id',
         'bml_credential_group_id',
         'bml_auth_state',
+        'mib_username',
+        'bml_username',
         'is_default',
         'label',
         'currency',

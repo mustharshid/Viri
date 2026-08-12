@@ -43,6 +43,20 @@ class BmlOAuthController extends Controller
             ->where('tenant_id', $terminal->tenant_id)
             ->first();
 
+        // The extension cannot capture the username during the BML website login, so
+        // an admin-entered username on the account record is authoritative. When the
+        // request carries no username but the account has one stored, use it — this
+        // joins the account to the shared tenant group instead of a per-terminal
+        // NULL-username group.
+        if ($bmlUsername === null && $account && $account->bml_username !== null && $account->bml_username !== '') {
+            $bmlUsername = trim($account->bml_username);
+        }
+
+        // Retain the account's previous group so an orphaned NULL-username group can
+        // be cleaned up once the account moves onto a shared tenant group below.
+        $oldGroupId = $account?->bml_credential_group_id;
+        $oldGroup = $oldGroupId ? BmlCredentialGroup::find($oldGroupId) : null;
+
         if ($bmlUsername !== null) {
             // --- Username known: upsert the tenant-scoped shared group ---------------
             // Same credentials across multiple accounts (siblings) correctly share ONE
@@ -71,7 +85,12 @@ class BmlOAuthController extends Controller
             // has one; otherwise create a new standalone group (bml_username = NULL).
             // NULL groups are NOT subject to the username-based unique constraint, so
             // they never collide with other null-username accounts.
-            $group = $account?->bml_credential_group_id
+            if (! $account) {
+                // Nothing to link this token to — avoid creating an unreferenced group.
+                return response()->json(['success' => true]);
+            }
+
+            $group = $account->bml_credential_group_id
                 ? BmlCredentialGroup::find($account->bml_credential_group_id)
                 : null;
 
@@ -100,6 +119,17 @@ class BmlOAuthController extends Controller
 
         if ($account) {
             $account->update(['bml_credential_group_id' => $group->id]);
+
+            // Clean up the orphaned per-terminal NULL-username group the account was
+            // previously anchored to, once it has moved onto a shared tenant group.
+            if ($oldGroup && $oldGroup->id !== $group->id && $oldGroup->bml_username === null) {
+                $stillReferenced = BankAccount::where('bml_credential_group_id', $oldGroup->id)
+                    ->where('id', '!=', $account->id)
+                    ->exists();
+                if (! $stillReferenced) {
+                    $oldGroup->delete();
+                }
+            }
         }
 
         return response()->json(['success' => true]);
@@ -122,14 +152,11 @@ class BmlOAuthController extends Controller
         $group = null;
         $dbAccount = null;
 
-        if ($request->has('bml_username') && $request->has('profile_type') && $request->bml_username !== null && $request->bml_username !== '') {
-            // Groups are now keyed by tenant, not terminal — look up by tenant scope.
-            // Only use this path when a real (non-null/non-empty) username is provided.
-            $group = BmlCredentialGroup::where('tenant_id', $terminal->tenant_id)
-                ->where('bml_username', $request->bml_username)
-                ->where('profile_type', $request->profile_type)
-                ->first();
-        } elseif ($request->has('bank_account_id')) {
+        // Prefer the bank-account FK path when present: an admin-linked account must
+        // always resolve through its group even if a stale cached username is sent
+        // alongside it (W2). The username lookup below remains as a fallback for
+        // requests that carry a username but no bank_account_id.
+        if ($request->has('bank_account_id')) {
             $dbAccount = BankAccount::where('id', $request->bank_account_id)
                 ->where('tenant_id', $terminal->tenant_id)
                 ->first();
@@ -179,6 +206,14 @@ class BmlOAuthController extends Controller
                     $dbAccount->update(['bml_credential_group_id' => $group->id]);
                 }
             }
+        }
+
+        // Username lookup fallback for requests without a bank_account_id.
+        if (! $group && $request->has('bml_username') && $request->has('profile_type') && $request->bml_username !== null && $request->bml_username !== '') {
+            $group = BmlCredentialGroup::where('tenant_id', $terminal->tenant_id)
+                ->where('bml_username', $request->bml_username)
+                ->where('profile_type', $request->profile_type)
+                ->first();
         }
 
         // Fallback: Legacy BmlOAuthToken lookup

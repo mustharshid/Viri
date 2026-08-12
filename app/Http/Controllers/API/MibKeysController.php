@@ -161,10 +161,11 @@ class MibKeysController extends Controller
         $account = null;
         $device = null;
 
-        if ($request->has('mib_username')) {
+        if ($request->filled('mib_username')) {
             // Groups are now keyed by tenant, not terminal — look up by tenant scope.
+            // Match case-insensitively to stay consistent with the admin resolver.
             $group = MibCredentialGroup::where('tenant_id', $terminal->tenant_id)
-                ->where('mib_username', $request->mib_username)
+                ->whereRaw('LOWER(mib_username) = ?', [mb_strtolower(trim((string) $request->mib_username))])
                 ->first();
         } elseif ($request->has('bank_account_id')) {
             $account = BankAccount::where('id', $request->bank_account_id)
@@ -206,19 +207,28 @@ class MibKeysController extends Controller
 
         // Auto-heal: If group exists for tenant but account profile is not linked, link it.
         // Only when the group is unambiguous for this account AND the admin has not
-        // already assigned a profile.
+        // already assigned a profile. When the account carries an admin-entered
+        // username, only auto-heal onto a group belonging to the SAME user — never
+        // attach a stored username to a different user's group (C2).
         if ($group && $account && ! $profile && $account->mib_credential_profile_id === null) {
-            $targetType = $account->mib_profile_type ?? '0';
-            $profile = MibCredentialProfile::where('credential_group_id', $group->id)
-                ->where('profile_type', $targetType)
-                ->first();
+            $accountUsername = $account->mib_username !== null && $account->mib_username !== ''
+                ? mb_strtolower(trim((string) $account->mib_username)) : null;
+            $groupUsername = $group->mib_username !== null && $group->mib_username !== ''
+                ? mb_strtolower(trim((string) $group->mib_username)) : null;
 
-            if (! $profile) {
-                $profile = MibCredentialProfile::where('credential_group_id', $group->id)->first();
-            }
+            if ($accountUsername === null || ($groupUsername !== null && $accountUsername === $groupUsername)) {
+                $targetType = $account->mib_profile_type ?? '0';
+                $profile = MibCredentialProfile::where('credential_group_id', $group->id)
+                    ->where('profile_type', $targetType)
+                    ->first();
 
-            if ($profile) {
-                $account->update(['mib_credential_profile_id' => $profile->id]);
+                if (! $profile) {
+                    $profile = MibCredentialProfile::where('credential_group_id', $group->id)->first();
+                }
+
+                if ($profile) {
+                    $account->update(['mib_credential_profile_id' => $profile->id]);
+                }
             }
         }
 
@@ -267,12 +277,35 @@ class MibKeysController extends Controller
         $hasConcreteAccount = $request->filled('bank_account_id') || $request->filled('account_number');
         $mibUsername = $group->mib_username;
 
+        // H2 + B3 (defense-in-depth): the encrypted password is disclosed to a
+        // terminal only when the account is CONFIRMEDLY linked to the resolved group —
+        // a profile FK, a stored login hash matching the group's username, or a profile
+        // auto-healed in this same request — AND (for accounts carrying a stored
+        // username) the usernames match. This blocks the single-group fallback and
+        // unconfirmed two-step links from leaking another user's password to a terminal,
+        // while preserving disclosure for every extension-paired/legacy account.
+        $disclosePassword = $hasConcreteAccount && $account && $group;
+        if ($disclosePassword) {
+            $isLinked = $account->mib_credential_profile_id !== null
+                || ($account->login_credentials_hash !== null
+                    && hash_equals(hash('sha256', 'MIB_'.mb_strtolower(trim((string) $group->mib_username))), $account->login_credentials_hash))
+                || $profile !== null;
+            $disclosePassword = $isLinked;
+        }
+        if ($disclosePassword && $account->mib_username !== null && $account->mib_username !== '') {
+            $stored = mb_strtolower(trim((string) $account->mib_username));
+            $grouped = mb_strtolower(trim((string) $group->mib_username));
+            if ($stored !== $grouped) {
+                $disclosePassword = false;
+            }
+        }
+
         return response()->json([
             'key1' => $resolvedKey1,
             'key2' => $resolvedKey2,
             'appId' => $resolvedAppId,
             'mib_username' => $mibUsername,
-            'mib_password' => $hasConcreteAccount ? $group->mib_password : null,
+            'mib_password' => $disclosePassword ? $group->mib_password : null,
             'profileId' => $profile?->profile_id,
             'profileType' => $profile?->profile_type ?? '0',
             'profiles' => $allProfiles,
@@ -346,6 +379,34 @@ class MibKeysController extends Controller
 
         if ($sibling) {
             if ($bankName === 'MIB') {
+                $siblingGroup = $sibling->mibCredentialProfile?->credentialGroup;
+
+                // B1 (H1): never rebind an account that is already linked to a
+                // different user's profile — require an explicit unlink first.
+                if ($newAccount->mib_credential_profile_id !== null) {
+                    $currentGroup = $newAccount->mibCredentialProfile?->credentialGroup;
+                    if ($currentGroup && $siblingGroup && $currentGroup->id !== $siblingGroup->id) {
+                        return response()->json([
+                            'has_existing_group' => false,
+                            'can_link' => false,
+                            'error' => 'Account is already linked to a different MIB profile. Unlink it first.',
+                        ]);
+                    }
+                }
+
+                // B2: when the account carries a stored hash, the sibling group must
+                // belong to the same MIB user identified by that hash.
+                if ($newAccount->login_credentials_hash && $siblingGroup && $siblingGroup->mib_username) {
+                    $expectedHash = hash('sha256', 'MIB_'.mb_strtolower(trim($siblingGroup->mib_username)));
+                    if (! hash_equals($expectedHash, $newAccount->login_credentials_hash)) {
+                        return response()->json([
+                            'has_existing_group' => false,
+                            'can_link' => false,
+                            'error' => 'Existing credential group does not match this account\'s username.',
+                        ]);
+                    }
+                }
+
                 $newAccount->update(['mib_credential_profile_id' => $sibling->mib_credential_profile_id]);
                 $linkedAccounts = BankAccount::where('mib_credential_profile_id', $sibling->mib_credential_profile_id)
                     ->pluck('account_number');
@@ -356,6 +417,30 @@ class MibKeysController extends Controller
                     'can_link' => true,
                 ]);
             } elseif ($bankName === 'BML') {
+                $siblingGroup = $sibling->bmlCredentialGroup;
+
+                // B1 (H1): mirror the MIB guard for BML — never rebind an account
+                // that is already linked to a different credential group.
+                if ($newAccount->bml_credential_group_id !== null && $newAccount->bml_credential_group_id !== $sibling->bml_credential_group_id) {
+                    return response()->json([
+                        'has_existing_group' => false,
+                        'can_link' => false,
+                        'error' => 'Account is already linked to a different BML credential group. Unlink it first.',
+                    ]);
+                }
+
+                // B2: verify the account's stored hash identifies the sibling's user.
+                if ($newAccount->login_credentials_hash && $siblingGroup && $siblingGroup->bml_username) {
+                    $expectedHash = hash('sha256', 'BML_'.mb_strtolower(trim($siblingGroup->bml_username)));
+                    if (! hash_equals($expectedHash, $newAccount->login_credentials_hash)) {
+                        return response()->json([
+                            'has_existing_group' => false,
+                            'can_link' => false,
+                            'error' => 'Existing credential group does not match this account\'s username.',
+                        ]);
+                    }
+                }
+
                 $newAccount->update(['bml_credential_group_id' => $sibling->bml_credential_group_id]);
                 $linkedAccounts = BankAccount::where('bml_credential_group_id', $sibling->bml_credential_group_id)
                     ->pluck('account_number');

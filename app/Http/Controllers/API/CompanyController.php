@@ -5,6 +5,7 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\BankAccount;
+use App\Models\BmlCredentialGroup;
 use App\Models\MibCredentialGroup;
 use App\Models\MibCredentialProfile;
 use App\Models\PaymentReceipt;
@@ -272,6 +273,8 @@ class CompanyController extends Controller
             'bml_profile_type' => 'nullable|string|in:0,1',
             'label' => 'nullable|string',
             'currency' => 'nullable|string|in:MVR,USD',
+            'mib_username' => 'nullable|string|max:255',
+            'bml_username' => 'nullable|string|max:255',
         ]);
 
         $account = BankAccount::create([
@@ -283,9 +286,27 @@ class CompanyController extends Controller
             'bml_profile_type' => $request->bml_profile_type ?? '0',
             'label' => $request->label,
             'currency' => $request->currency ?? 'MVR',
+            'mib_username' => $request->filled('mib_username') ? trim($request->mib_username) : null,
+            'bml_username' => $request->filled('bml_username') ? trim($request->bml_username) : null,
         ]);
 
-        return response()->json(['account' => $account]);
+        // Usernames are stored on the account, but the login_credentials_hash and
+        // any profile/group linkage are deferred to an explicit confirmation
+        // (PUT /company/bank-accounts/{id} with confirm_link=true). This prevents a
+        // typo'd username from silently binding the account to another user's group.
+        $link = null;
+        if ($request->filled('mib_username')) {
+            $link = $this->resolveMibLinkResponse($account, trim($request->mib_username));
+        } elseif ($request->filled('bml_username')) {
+            $link = $this->resolveBmlLinkResponse($account, trim($request->bml_username));
+        }
+
+        $payload = ['account' => $account->fresh()];
+        if ($link && $link['needs_confirmation']) {
+            $payload['link'] = $link;
+        }
+
+        return response()->json($payload);
     }
 
     public function deleteBankAccount(Request $request, $id)
@@ -308,18 +329,285 @@ class CompanyController extends Controller
             'bml_profile_type' => 'nullable|string|in:0,1',
             'label' => 'nullable|string',
             'currency' => 'nullable|string|in:MVR,USD',
+            'mib_username' => 'nullable|string|max:255',
+            'bml_username' => 'nullable|string|max:255',
+            'confirm_link' => 'nullable|boolean',
         ]);
 
-        $account->update([
+        // Capture persisted profile types BEFORE applying the request, so the
+        // linkage lookups below use the pre-update values (not the request default).
+        $origMibType = (string) ($account->getOriginal('mib_profile_type') ?? '0');
+        $origBmlType = (string) ($account->getOriginal('bml_profile_type') ?? '0');
+
+        $updates = [
             'bank_name' => $request->bank_name,
             'account_name' => $request->account_name,
-            'mib_profile_type' => $request->mib_profile_type ?? '0',
-            'bml_profile_type' => $request->bml_profile_type ?? '0',
             'label' => $request->label,
             'currency' => $request->currency ?? 'MVR',
-        ]);
+        ];
 
-        return response()->json(['account' => $account]);
+        // M1: when a profile/group FK is set, the profile_type column must stay
+        // consistent with the linked group rather than the request value.
+        if ($account->mib_credential_profile_id !== null) {
+            $updates['mib_profile_type'] = (string) ($account->mibCredentialProfile?->profile_type ?? $origMibType);
+        } else {
+            $updates['mib_profile_type'] = $request->mib_profile_type ?? $origMibType;
+        }
+
+        if ($account->bml_credential_group_id !== null) {
+            $bmlGroupType = $account->bmlCredentialGroup?->profile_type;
+            $updates['bml_profile_type'] = $bmlGroupType === 'business' ? '1' : ($bmlGroupType === 'personal' ? '0' : $origBmlType);
+        } else {
+            $updates['bml_profile_type'] = $request->bml_profile_type ?? $origBmlType;
+        }
+
+        // MED1: the hash/FK/username writes are applied conditionally below — never
+        // pushed into the update array when the username is empty or unresolvable.
+        // The username column itself is only written inside applyMibLink/applyBmlLink,
+        // after the H1 conflict check, so a 409 never persists a conflicting username.
+
+        $account->update($updates);
+
+        $confirmLink = $request->boolean('confirm_link');
+        $link = null;
+
+        if ($request->filled('mib_username')) {
+            $link = $this->applyMibLink($account, trim($request->mib_username), $origMibType, $confirmLink);
+            if ($link instanceof \Symfony\Component\HttpFoundation\Response) {
+                return $link;
+            }
+        } elseif ($request->filled('bml_username')) {
+            $link = $this->applyBmlLink($account, trim($request->bml_username), $origBmlType, $confirmLink);
+            if ($link instanceof \Symfony\Component\HttpFoundation\Response) {
+                return $link;
+            }
+        }
+
+        $payload = ['account' => $account->fresh()];
+        if ($link && $link['needs_confirmation']) {
+            $payload['link'] = $link;
+        }
+
+        return response()->json($payload);
+    }
+
+    /**
+     * Resolve the MIB credential group for an admin-entered username, applying
+     * H5 pinning: the account is only pinned to a profile when the group has
+     * exactly ONE profile of the account's persisted mib_profile_type.
+     */
+    private function resolveMibProfile(BankAccount $account, string $username, string $profileType)
+    {
+        $group = MibCredentialGroup::where('tenant_id', $account->tenant_id)
+            ->whereRaw('LOWER(mib_username) = ?', [mb_strtolower(trim($username))])
+            ->first();
+
+        if (! $group) {
+            return null;
+        }
+
+        $profile = MibCredentialProfile::where('credential_group_id', $group->id)
+            ->where('profile_type', (string) $profileType)
+            ->get();
+
+        // H5: pin only when unambiguous — exactly one profile of the persisted type.
+        if ($profile->count() === 1) {
+            return ['group' => $group, 'profile' => $profile->first()];
+        }
+
+        return ['group' => $group, 'profile' => null];
+    }
+
+    /**
+     * Build the confirmation payload for a MIB username match (used by create).
+     */
+    private function resolveMibLinkResponse(BankAccount $account, string $username)
+    {
+        $resolved = $this->resolveMibProfile($account, $username, (string) ($account->mib_profile_type ?? '0'));
+        if (! $resolved) {
+            return ['needs_confirmation' => false];
+        }
+
+        $group = $resolved['group'];
+        $siblingCount = BankAccount::where('tenant_id', $account->tenant_id)
+            ->whereHas('mibCredentialProfile', function ($q) use ($group) {
+                $q->where('credential_group_id', $group->id);
+            })->count();
+
+        return [
+            'needs_confirmation' => true,
+            'type' => 'mib',
+            'masked_username' => $this->maskUsername($group->mib_username),
+            'sibling_account_count' => $siblingCount,
+        ];
+    }
+
+    /**
+     * Apply (or prepare) the MIB linkage on update. Returns the link payload, or a
+     * 409 Response when the account is already bound to a different group (H1).
+     */
+    private function applyMibLink(BankAccount $account, string $username, string $profileType, bool $confirmLink)
+    {
+        $resolved = $this->resolveMibProfile($account, $username, $profileType);
+        if (! $resolved) {
+            // HIGH2: never write a hash that matches no group. The username is still
+            // persisted so a future group matching it can auto-link the account.
+            $account->update(['mib_username' => $username]);
+
+            return ['needs_confirmation' => false];
+        }
+
+        $group = $resolved['group'];
+
+        $isAlreadyLinked = false;
+        if ($account->mib_credential_profile_id !== null) {
+            $currentGroup = $account->mibCredentialProfile?->credentialGroup;
+            if ($currentGroup && $currentGroup->id !== $group->id) {
+                return response()->json([
+                    'error' => 'Account is already linked to the MIB profile for a different username. Unlink it first or clear the MIB profile.',
+                    'link' => $this->resolveMibLinkResponse($account, $username),
+                ], 409);
+            }
+            $isAlreadyLinked = $currentGroup && $currentGroup->id === $group->id;
+        }
+
+        $account->update(['mib_username' => $username]);
+
+        $siblingCount = BankAccount::where('tenant_id', $account->tenant_id)
+            ->whereHas('mibCredentialProfile', function ($q) use ($group) {
+                $q->where('credential_group_id', $group->id);
+            })->count();
+
+        if (! $confirmLink) {
+            // W1: an account already linked to this group needs no confirmation —
+            // a plain edit/save of a linked account should not pop the dialog.
+            if ($isAlreadyLinked) {
+                return ['needs_confirmation' => false];
+            }
+
+            return [
+                'needs_confirmation' => true,
+                'type' => 'mib',
+                'masked_username' => $this->maskUsername($group->mib_username),
+                'sibling_account_count' => $siblingCount,
+            ];
+        }
+
+        $account->update(['login_credentials_hash' => $this->computeMibHash($username)]);
+
+        $profile = $resolved['profile'];
+        if ($profile && $account->mib_credential_profile_id === null) {
+            $account->update(['mib_credential_profile_id' => $profile->id]);
+        }
+
+        return ['needs_confirmation' => false];
+    }
+
+    /**
+     * Resolve the BML credential group for an admin-entered username.
+     */
+    private function resolveBmlGroup(BankAccount $account, string $username, string $profileType)
+    {
+        $bmlProfileType = $profileType === '1' ? 'business' : 'personal';
+
+        return BmlCredentialGroup::where('tenant_id', $account->tenant_id)
+            ->whereRaw('LOWER(bml_username) = ?', [mb_strtolower(trim($username))])
+            ->where('profile_type', $bmlProfileType)
+            ->first();
+    }
+
+    private function resolveBmlLinkResponse(BankAccount $account, string $username)
+    {
+        $group = $this->resolveBmlGroup($account, $username, (string) ($account->bml_profile_type ?? '0'));
+        if (! $group) {
+            return ['needs_confirmation' => false];
+        }
+
+        $siblingCount = BankAccount::where('tenant_id', $account->tenant_id)
+            ->where('bml_credential_group_id', $group->id)->count();
+
+        return [
+            'needs_confirmation' => true,
+            'type' => 'bml',
+            'masked_username' => $this->maskUsername($group->bml_username),
+            'sibling_account_count' => $siblingCount,
+        ];
+    }
+
+    /**
+     * Apply (or prepare) the BML linkage on update.
+     */
+    private function applyBmlLink(BankAccount $account, string $username, string $profileType, bool $confirmLink)
+    {
+        $group = $this->resolveBmlGroup($account, $username, $profileType);
+        if (! $group) {
+            // HIGH2: never write a hash that matches no group.
+            $account->update(['bml_username' => $username]);
+
+            return ['needs_confirmation' => false];
+        }
+
+        $isAlreadyLinked = $account->bml_credential_group_id !== null && $account->bml_credential_group_id === $group->id;
+
+        if ($account->bml_credential_group_id !== null && $account->bml_credential_group_id !== $group->id) {
+            return response()->json([
+                'error' => 'Account is already linked to a BML credential group for a different username. Unlink it first or clear the BML credentials.',
+                'link' => $this->resolveBmlLinkResponse($account, $username),
+            ], 409);
+        }
+
+        $account->update(['bml_username' => $username]);
+
+        $siblingCount = BankAccount::where('tenant_id', $account->tenant_id)
+            ->where('bml_credential_group_id', $group->id)->count();
+
+        if (! $confirmLink) {
+            // W1: an account already linked to this group needs no confirmation.
+            if ($isAlreadyLinked) {
+                return ['needs_confirmation' => false];
+            }
+
+            return [
+                'needs_confirmation' => true,
+                'type' => 'bml',
+                'masked_username' => $this->maskUsername($group->bml_username),
+                'sibling_account_count' => $siblingCount,
+            ];
+        }
+
+        $account->update(['login_credentials_hash' => $this->computeBmlHash($username)]);
+
+        if ($account->bml_credential_group_id === null) {
+            $account->update(['bml_credential_group_id' => $group->id]);
+        }
+
+        return ['needs_confirmation' => false];
+    }
+
+    private function computeMibHash(string $username): string
+    {
+        return hash('sha256', 'MIB_'.mb_strtolower(trim($username)));
+    }
+
+    private function computeBmlHash(string $username): string
+    {
+        return hash('sha256', 'BML_'.mb_strtolower(trim($username)));
+    }
+
+    private function maskUsername(?string $username): ?string
+    {
+        if ($username === null || $username === '') {
+            return null;
+        }
+        $len = mb_strlen($username);
+        if ($len <= 1) {
+            return str_repeat('*', max(1, $len));
+        }
+        if ($len <= 3) {
+            return mb_substr($username, 0, 1).str_repeat('*', $len - 1);
+        }
+
+        return mb_substr($username, 0, 1).str_repeat('*', $len - 2).mb_substr($username, -1);
     }
 
     /**
@@ -343,9 +631,28 @@ class CompanyController extends Controller
             return response()->json(['error' => 'Profile does not belong to this company'], 403);
         }
 
+        // C1: never point the account at a profile whose group belongs to a different
+        // MIB user than the one already pinned by this account's username/hash.
+        $groupUsername = trim((string) $group->mib_username);
+        if ($account->mib_username !== null && $account->mib_username !== '') {
+            if (mb_strtolower(trim((string) $account->mib_username)) !== mb_strtolower($groupUsername)) {
+                return response()->json([
+                    'error' => 'Profile belongs to a different MIB user ('.$this->maskUsername($groupUsername).'). Unlink the current MIB profile first.',
+                ], 409);
+            }
+        } elseif ($account->login_credentials_hash) {
+            $expected = hash('sha256', 'MIB_'.mb_strtolower($groupUsername));
+            if (! hash_equals($expected, $account->login_credentials_hash)) {
+                return response()->json([
+                    'error' => 'Profile belongs to a different MIB user ('.$this->maskUsername($groupUsername).'). Unlink the current MIB profile first.',
+                ], 409);
+            }
+        }
+
         $account->update([
             'mib_credential_profile_id' => $profile->id,
             'mib_profile_type' => $profile->profile_type,
+            'login_credentials_hash' => $this->computeMibHash($groupUsername),
         ]);
 
         return response()->json(['account' => $account]);
