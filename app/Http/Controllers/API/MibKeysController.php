@@ -38,6 +38,14 @@ class MibKeysController extends Controller
             return response()->json(['error' => 'Unauthorized terminal'], 403);
         }
 
+        // auth:sanctum is required on this route; the authenticated user must belong
+        // to the terminal's tenant (superadmin exempt) so a terminal token can never
+        // poison another tenant's credential group.
+        $user = $request->user();
+        if ($user && $user->role !== 'superadmin' && $user->tenant_id !== $terminal->tenant_id) {
+            return response()->json(['error' => 'Unauthorized terminal'], 403);
+        }
+
         // 1. Upsert credential group — keyed by (tenant_id, mib_username) so the same credentials
         //    share ONE group across all terminals. terminal_id tracks whichever terminal most
         //    recently registered or refreshed the device keys. mib_password is stored encrypted
@@ -153,6 +161,13 @@ class MibKeysController extends Controller
 
         $terminal = Terminal::where('hardware_id', $request->hardware_id)->first();
         if (! $terminal) {
+            return response()->json(['error' => 'Unauthorized terminal'], 403);
+        }
+
+        // auth:sanctum is required on this route; additionally the authenticated user
+        // must belong to the terminal's tenant (superadmin is exempt for platform ops).
+        $user = $request->user();
+        if ($user && $user->role !== 'superadmin' && $user->tenant_id !== $terminal->tenant_id) {
             return response()->json(['error' => 'Unauthorized terminal'], 403);
         }
 

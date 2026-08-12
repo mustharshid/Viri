@@ -67,7 +67,7 @@ export default function MibLogin() {
               backendUrl,
               accountId,
               accountNumber,
-              sanctumToken: localStorage.getItem('token') || ''
+              sanctumToken: localStorage.getItem('viri_token') || ''
             }
           }, resolve);
         });
@@ -120,7 +120,7 @@ export default function MibLogin() {
             profileType: profile.profileType,
             mibUsername: resp?.mib_username || profile.profile_mib_username || '',
             mibPassword: resp?.mib_password || profile.profile_mib_password || '',
-            sanctumToken: localStorage.getItem('token') || ''
+            sanctumToken: localStorage.getItem('viri_token') || ''
           }
         }, resolve);
       });
@@ -195,7 +195,7 @@ export default function MibLogin() {
           terminalId: terminalId,
           bankAccountId: accountId,
           backendUrl: backendUrl,
-          sanctumToken: localStorage.getItem('token') || '',
+          sanctumToken: localStorage.getItem('viri_token') || '',
           hardwareId: terminalId
         }
       }, (response: any) => {
@@ -244,7 +244,7 @@ export default function MibLogin() {
           bankAccountId: accountId,
           backendUrl: backendUrl,
           mibUsername: username.trim(),
-          sanctumToken: localStorage.getItem('token') || ''
+          sanctumToken: localStorage.getItem('viri_token') || ''
         }
       }, (response: any) => {
         clearTimeout(timeoutId);

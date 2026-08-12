@@ -1,4 +1,4 @@
-// Extension Version: 1.3.12
+// Extension Version: 1.3.13
 import { 
   generateNonce, blowfishEncrypt, blowfishDecrypt, computePgf03, 
   deriveSessionKey, generateSodium, generateXxid, generateAppId,
@@ -2314,6 +2314,7 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
                 profile_id: spProfileId,
                 profile_type: spProfileType,
                 profile_name: spProfileName,
+                mib_password: password,
                 credentials_hash: credsHash
               })
             });
@@ -2366,6 +2367,7 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
                 profile_id: spProfileId,
                 profile_type: spProfileType,
                 profile_name: spProfileName,
+                mib_password: password,
                 credentials_hash: credsHash
               })
             });
@@ -2464,6 +2466,7 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
             profile_id: spProfileId,
             profile_type: spProfileType,
             profile_name: spProfileName,
+            mib_password: mibPassword,
             credentials_hash: credsHash
           })
         });
@@ -2876,6 +2879,33 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
       }  // close if (uname && pwd)
     }
 
+    // A80 safety-net: when the freshly resumed sfunc=i session is a live, authenticated
+    // shared bank session and this account's profile is already known (confirmed link),
+    // validate it with A80 and proceed WITHOUT credentials. Gated on a known profileId
+    // so it can never claim a profile-selected state it cannot map to a real profile.
+    if (!profileSelected && serverIdentity?.profileId) {
+      try {
+        const a80Payload = {
+          nonce: generateNonce(mibSession.nonceGenerator),
+          appId: mibSession.appId,
+          sodium: generateSodium(),
+          routePath: 'A80',
+          xxid: mibSession.xxid
+        };
+        const a80Resp = await executeMibSfunc('n', a80Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
+        if (a80Resp.success) {
+          await chrome.storage.local.set({
+            [mibProfileIdKey]: serverIdentity.profileId,
+            [mibProfileTypeKey]: serverIdentity.profileType || '0'
+          });
+          if(port) emitLog(port, `> [MIB-API] A80 confirmed live shared session (profile ${serverIdentity.profileId}). Proceeding without credentials.`);
+          profileSelected = true;
+        }
+      } catch (a80e) {
+        if(port) emitLog(port, `> [MIB-API] A80 safety-net failed: ${a80e.message}`);
+      }
+    }
+
     if (!profileSelected) {
       throw new Error("MIB authentication failed: no credentials available or profile could not be selected. Please re-pair the account.");
     }
@@ -2905,23 +2935,27 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
           const { sanctumToken, [mibProfileIdKey]: mib_profileId, [mibProfileTypeKey]: mib_profileType } = await chrome.storage.local.get(['sanctumToken', mibProfileIdKey, mibProfileTypeKey]);
           if (sanctumToken) {
             const mibUsername = credentials?.username || '';
-            const credsHash = await computeCredsHash('MIB', mibUsername);
-            await fetch(`${backendUrl}/mib/keys/store`, {
-              method: 'POST',
-              headers: { 'Authorization': `Bearer ${sanctumToken}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                hardware_id: terminalId,
-                bank_account_id: 0,
-                mib_username: mibUsername,
-                key1: rResp.key1,
-                key2: rResp.key2,
-                app_id: freshAppId,
-                profile_id: mib_profileId || 'default_profile',
-                profile_type: mib_profileType || '0',
-                profile_name: 'Re-registered Profile',
-                credentials_hash: credsHash
-              })
-            });
+            if (!mibUsername) {
+              if(port) emitLog(port, '> [MIB-API] Skipping fresh-key upload: no username known for this account.');
+            } else {
+              const credsHash = await computeCredsHash('MIB', mibUsername);
+              await fetch(`${backendUrl}/mib/keys/store`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${sanctumToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  hardware_id: terminalId,
+                  bank_account_id: 0,
+                  mib_username: mibUsername,
+                  key1: rResp.key1,
+                  key2: rResp.key2,
+                  app_id: freshAppId,
+                  profile_id: mib_profileId || 'default_profile',
+                  profile_type: mib_profileType || '0',
+                  profile_name: 'Re-registered Profile',
+                  credentials_hash: credsHash
+                })
+              });
+            }
           }
         } catch (uploadErr) {
           if(port) emitLog(port, `> [MIB-API] Warning: failed to upload fresh keys to server: ${uploadErr.message}`);
@@ -2942,7 +2976,10 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
         let profileSelected = false;
         try {
           const { [mibProfileIdKey]: mib_profileId, [mibProfileTypeKey]: mib_profileType } = await chrome.storage.local.get([mibProfileIdKey, mibProfileTypeKey]);
-          if (mib_profileId) profileSelected = await attemptP47(port, mibSession, mib_profileId, mib_profileType || '0');
+          if (mib_profileId) {
+            const p47 = await attemptP47(port, mibSession, mib_profileId, mib_profileType || '0');
+            profileSelected = p47.selected;
+          }
         } catch (pe) { /* ignore */ }
         // Try fallback credentials from session storage if PWA didn't provide them
         if (!profileSelected && (!credentials?.username?.length || !credentials?.password?.length)) {

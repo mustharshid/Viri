@@ -157,6 +157,7 @@ interface BankAccount {
   account_number: string;
   mib_profile_type?: string;
   bml_profile_type?: string;
+  mib_username?: string | null;
   mib_credential_profile_id?: number | null;
   bml_credential_group_id?: number | null;
   bml_auth_state?: any;
@@ -1168,7 +1169,7 @@ function App() {
   const [_terminalId, setTerminalId] = useState<number | null>(null);
   const [accountToClear, setAccountToClear] = useState<any | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const LATEST_EXTENSION_VERSION = "1.3.12";
+  const LATEST_EXTENSION_VERSION = "1.3.13";
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -1402,6 +1403,14 @@ function App() {
     delete updated[accId];
     setAccountsCreds(updated);
     localStorage.setItem('viri_accounts_creds', JSON.stringify(updated));
+
+    // 1b. Tombstone the account so the sibling-copy effect does not immediately
+    // restore the cleared credentials from a paired sibling account.
+    const cleared = JSON.parse(localStorage.getItem('viri_creds_cleared') || '[]');
+    if (!cleared.includes(accId)) {
+      cleared.push(accId);
+      localStorage.setItem('viri_creds_cleared', JSON.stringify(cleared));
+    }
 
     // 2. Optimistically clear has_api_token from state so UI and buttons disable immediately
     setBankAccounts(prev =>
@@ -2114,6 +2123,48 @@ function App() {
       }
     }
   }, [bankAccounts]);
+
+  // Sibling credential copy: an admin-linked MIB account that shares a credential
+  // group with a paired sibling inherits that sibling's stored credentials, so the
+  // cashier can operate it without re-pairing. Durable (localStorage), no server
+  // involvement. Matches siblings by the credential profile FK, falling back to the
+  // group username (case-insensitive) for accounts without a stored username.
+  useEffect(() => {
+    if (!bankAccounts || bankAccounts.length === 0) return;
+    const cleared = new Set<string>(JSON.parse(localStorage.getItem('viri_creds_cleared') || '[]'));
+    const sources: Record<string, string> = {};
+    bankAccounts.forEach(acc => {
+      if (acc.bank_name !== 'MIB') return;
+      const id = acc.id.toString();
+      if (!accountsCreds[id]?.username) return;
+      if (acc.mib_credential_profile_id) {
+        sources[`profile:${acc.mib_credential_profile_id}`] = id;
+      }
+      if (acc.mib_username) {
+        const u = acc.mib_username.trim().toLowerCase();
+        sources[`user:${u}`] = sources[`user:${u}`] || id;
+      }
+    });
+    const next = { ...accountsCreds };
+    let changed = false;
+    bankAccounts.forEach(acc => {
+      if (acc.bank_name !== 'MIB') return;
+      const id = acc.id.toString();
+      if (cleared.has(id)) return;
+      if (next[id]?.username) return;
+      const srcId = acc.mib_credential_profile_id ? sources[`profile:${acc.mib_credential_profile_id}`] : undefined;
+      const srcIdByUser = acc.mib_username ? sources[`user:${acc.mib_username.trim().toLowerCase()}`] : undefined;
+      const src = srcId || srcIdByUser;
+      if (src && src !== id && accountsCreds[src]) {
+        next[id] = { ...accountsCreds[src] };
+        changed = true;
+      }
+    });
+    if (changed) {
+      setAccountsCreds(next);
+      localStorage.setItem('viri_accounts_creds', JSON.stringify(next));
+    }
+  }, [bankAccounts, accountsCreds]);
 
   // Poll bank accounts session state from server every 6 seconds
   // Poll bank accounts session state from server every 6 seconds (runs even when locked to receive PIN reset signals)

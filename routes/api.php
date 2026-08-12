@@ -176,8 +176,11 @@ Route::get('/bml/oauth/tokens', [BmlOAuthController::class, 'getTokens']);
 Route::post('/bml/oauth/update', [BmlOAuthController::class, 'updateTokens']);
 
 // MIB Device Credentials (Keys) Endpoints
-Route::post('/mib/keys/store', [MibKeysController::class, 'store']);
-Route::get('/mib/keys', [MibKeysController::class, 'getKeys']);
+// auth:sanctum: these endpoints now expose long-lived bank passwords (see
+// MibKeysController::getKeys mib_password disclosure), so a valid account token is
+// required in addition to the terminal hardware_id.
+Route::post('/mib/keys/store', [MibKeysController::class, 'store'])->middleware('auth:sanctum');
+Route::get('/mib/keys', [MibKeysController::class, 'getKeys'])->middleware('auth:sanctum');
 Route::get('/terminal/bank-accounts/sibling-check', [MibKeysController::class, 'getSiblingCheck']);
 Route::get('/terminal/bank-accounts/credential-siblings', [MibKeysController::class, 'getCredentialSiblings']);
 
