@@ -1,4 +1,4 @@
-// Extension Version: 1.3.13
+// Extension Version: 1.3.14
 import { 
   generateNonce, blowfishEncrypt, blowfishDecrypt, computePgf03, 
   deriveSessionKey, generateSodium, generateXxid, generateAppId,
@@ -142,13 +142,15 @@ async function withFlowWatchdog(flowPromise, maxDurationMs = 45000, context = {}
   let timerId;
   const timeoutPromise = new Promise((_, reject) => {
     timerId = setTimeout(() => {
+      const stage = activeFlowStage || '';
       logSessionEvent('flow_watchdog_timeout', {
         account: context.targetAccount,
         bank: context.bank,
         mode: context.mode,
+        stage,
         max_duration_ms: maxDurationMs
       });
-      reject(new Error(`Bank flow exceeded maximum duration of ${maxDurationMs / 1000}s.`));
+      reject(new Error(`Bank flow exceeded maximum duration of ${maxDurationMs / 1000}s.` + (stage ? ` (stuck at: ${stage})` : '')));
     }, maxDurationMs);
   });
   try {
@@ -193,6 +195,30 @@ async function sanitizeAccountSession(targetAccount, bank) {
 // Wiping cookies on startup was destroying valid persistent API sessions for MIB.
 disableBankLockdown();
 
+// ── SW lifecycle diagnostics (v1.3.14) ──
+// MV3 service workers idle-stop every ~30s, so this counter counts SW
+// instantiations. Correlated with failure bursts it reveals eviction/crash loops.
+// Callback style (no top-level await) so module evaluation is never blocked.
+chrome.storage.local.get('viri_sw_restart_count', (res) => {
+  const count = (res.viri_sw_restart_count || 0) + 1;
+  const now = new Date().toISOString();
+  chrome.storage.local.set({ viri_sw_restart_count: count, viri_sw_last_restart_ts: now });
+});
+
+// Persist the last uncaught error/unhandled rejection so a stuck/crashing SW
+// leaves evidence. Note: OOM/OS kills do NOT fire these — restart counter remains
+// the primary crash signal.
+self.addEventListener('error', (e) => {
+  chrome.storage.local.set({
+    viri_sw_last_error: { msg: String(e.message || e.error || 'uncaught error'), stack: e.error?.stack || '', ts: new Date().toISOString() }
+  });
+});
+self.addEventListener('unhandledrejection', (e) => {
+  chrome.storage.local.set({
+    viri_sw_last_error: { msg: String(e.reason?.message || e.reason || 'unhandled rejection'), stack: e.reason?.stack || '', ts: new Date().toISOString() }
+  });
+});
+
 // Global active port
 let activePort = null;
 let heldSession = null;
@@ -204,6 +230,8 @@ let _flushingBuffer = false;
 const _pendingBufferFlush = [];
 const MAX_DEBUG_BUFFER = 5000;
 const _bmlRefreshLocks = {};
+// Tracks the in-flight bank-flow stage so a 45s watchdog timeout can say WHAT hung.
+let activeFlowStage = '';
 
 // Restore session state on worker wake up
 chrome.storage.local.get(['viri_held_session', 'viri_debug_log_mib_html'], (result) => {
@@ -330,7 +358,28 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === 'GET_VERSION') {
-    sendResponse({ version: EXTENSION_VERSION });
+    // v1.3.14+: also returns SW restart/crash telemetry used by the PWA liveness probe.
+    chrome.storage.local.get(['viri_sw_restart_count', 'viri_sw_last_restart_ts', 'viri_sw_last_error'], (res) => {
+      sendResponse({
+        version: EXTENSION_VERSION,
+        restartCount: res.viri_sw_restart_count || 0,
+        swStartedAt: res.viri_sw_last_restart_ts || null,
+        lastError: res.viri_sw_last_error || null,
+      });
+    });
+    return true;
+  }
+
+  if (msg.action === 'PING') {
+    chrome.storage.local.get(['viri_sw_restart_count', 'viri_sw_last_restart_ts', 'viri_sw_last_error'], (res) => {
+      sendResponse({
+        pong: true,
+        version: EXTENSION_VERSION,
+        restartCount: res.viri_sw_restart_count || 0,
+        swStartedAt: res.viri_sw_last_restart_ts || null,
+        lastError: res.viri_sw_last_error || null,
+      });
+    });
     return true;
   }
 
@@ -454,7 +503,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
 
 chrome.runtime.onConnectExternal.addListener((port) => {
   console.log("[Viri Bridge] PWA Connected via Port:", port.name);
-  if (port.name === "viri-verify" || port.name === "bml-auth" || port.name === "viri-auto-sync") {
+  if (port.name === "viri-verify" || port.name === "bml-auth" || port.name === "viri-auto-sync" || port.name === "viri-statements") {
     activePort = port;
 
     port.onMessage.addListener(async (msg) => {
@@ -1437,6 +1486,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     const sanctumToken = credentials.token || ''; // Assuming the PWA passes sanctum token in credentials if needed
 
     emitLog(port, `> [BML-API] Fetching valid OAuth token...`);
+    activeFlowStage = 'bml_token';
     const accessToken = await getValidBmlAccessToken(terminalId, bankAccountId, backendUrl, bmlUsername, profileType, sanctumToken);
 
     if (!accessToken) {
@@ -1485,6 +1535,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     // --- FETCH DATA ---
 
     // Always fetch dashboard to resolve account UUID and balance
+    activeFlowStage = 'bml_dashboard';
     emitLog(port, `> [BML-API] GET ${BASE_URL}/api/mobile/dashboard`);
     const dashRes = await authFetch(`${BASE_URL}/api/mobile/dashboard`);
     if (dashRes.status !== 200) {
@@ -1535,6 +1586,7 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
     emitLog(port, `> [BML-API] Resolved account UUID: ${accountInternalId}, cleared: ${dashboardBalance}, reserved: ${dashboardReservedBalance}`);
 
     // Fetch history
+    activeFlowStage = 'bml_history';
     emitLog(port, `> [BML-API] GET ${BASE_URL}/api/mobile/account/${accountInternalId}/history/today`);
     logSessionEvent('fetch_request_submitted', { account: targetAccount, mode: mode, bank: 'BML' });
     const historyRes = await authFetch(`${BASE_URL}/api/mobile/account/${accountInternalId}/history/today`);
@@ -3293,6 +3345,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     }
     
     const mibSession = await ensureMibSession(port, hardwareId, backendUrl, credentials, targetAccount, sanctumTokenParam);
+    activeFlowStage = 'mib_session';
     if (!isAutoSync) {
       logSessionEvent('session_login_success', { account: targetAccount, mode: mode, backendUrl, hardwareId, accountId: payloadAccountId });
     }
@@ -3479,6 +3532,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     }
 
     emitLog(port, `> [MIB-API] Fetching transactions from ${wvDomain}/ajaxAccounts/trxHistory...`);
+    activeFlowStage = 'mib_history';
     logSessionEvent('fetch_request_submitted', { account: targetAccount, mode: mode });
     const trxRes = await fetch(`https://${wvDomain}/ajaxAccounts/trxHistory`, {
       method: 'POST',

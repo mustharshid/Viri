@@ -1169,7 +1169,56 @@ function App() {
   const [_terminalId, setTerminalId] = useState<number | null>(null);
   const [accountToClear, setAccountToClear] = useState<any | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const LATEST_EXTENSION_VERSION = "1.3.13";
+  const LATEST_EXTENSION_VERSION = "1.3.14";
+
+  // ── Port-lifecycle diagnostics (bounded in-memory ring, near-zero load) ──
+  // Captures connect/disconnect/response timing + chrome.runtime.lastError so a
+  // 'Request timeout' can be attributed to SW-unreachable vs hung flow vs slow bank.
+  const portTelemetryRef = useRef<any[]>([]);
+  const pushPortTelemetry = (entry: any) => {
+    portTelemetryRef.current = [{ ...entry, ts: Date.now() }, ...portTelemetryRef.current].slice(0, 30);
+  };
+  const lastPortTelemetry = (n = 5) => portTelemetryRef.current.slice(0, n);
+
+  // SW-liveness probe. GET_VERSION answers on every shipped extension (1.3.11+);
+  // v1.3.14+ also returns restartCount/swStartedAt/lastError for correlation.
+  // Fire-and-forget with a 3s cap — never awaited before posting a failure row.
+  const probeExtensionLiveness = (trigger: string, accountId?: string) => {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage || !extensionId) return;
+    const probeTs = Date.now();
+    let settled = false;
+    const finish = (result: any) => {
+      if (settled) return;
+      settled = true;
+      pushPortTelemetry({ outcome: 'probe', trigger, ...result, probe_ms: Date.now() - probeTs });
+      try {
+        logSessionActivity(
+          'extension_liveness_probe',
+          `Extension liveness probe (${trigger}): ${result.sw_alive ? 'alive' : 'down'}`,
+          { trigger, ...result, probe_ms: Date.now() - probeTs },
+          accountId
+        );
+      } catch { /* never let the probe break the caller */ }
+    };
+    try {
+      chrome.runtime.sendMessage(extensionId, { action: 'GET_VERSION' }, (response: any) => {
+        if (chrome.runtime.lastError) {
+          finish({ sw_alive: false, lastError: chrome.runtime.lastError.message });
+          return;
+        }
+        finish({
+          sw_alive: true,
+          extension_version: response?.version ? String(response.version) : undefined,
+          sw_restart_count: response?.restartCount ?? undefined,
+          sw_started_at: response?.swStartedAt ?? undefined,
+          sw_last_error: response?.lastError ?? undefined,
+        });
+      });
+    } catch (e: any) {
+      finish({ sw_alive: false, lastError: String(e?.message || e) });
+    }
+    setTimeout(() => { finish({ sw_alive: false, probe_timeout: true }); }, 3000);
+  };
 
   const setErrorAndLog = (errorMsg: string, accountId?: string) => {
     setError(errorMsg);
@@ -3460,8 +3509,12 @@ function App() {
         if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.connect && extensionId) {
           await new Promise<void>((resolve) => {
             let port: chrome.runtime.Port | null = null;
+            const startTs = Date.now();
+            let settled = false;
+            const settle = () => { settled = true; };
             try {
               port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
+              pushPortTelemetry({ outcome: 'connect_ok', action: isBml ? 'FETCH_BML_HISTORY_PAGE' : 'VERIFY_TRANSFER', is_auto_sync: true });
               if (isBml) {
                 port.postMessage({
                   action: 'FETCH_BML_HISTORY_PAGE',
@@ -3503,19 +3556,43 @@ function App() {
               }
 
               const timer = setTimeout(() => {
+                settle();
                 if (port) port.disconnect();
+                pushPortTelemetry({ outcome: 'timeout', is_auto_sync: true, response_ms: Date.now() - startTs });
                 logSessionActivity(
                   'fetch_request_failed',
                   `[Live View] Ledger history sync timed out for account ${targetAcc.account_number || accountId}`,
-                  { source: 'live_view', is_auto_sync: true, error: 'Request timeout', next_sync_at: nextSyncTimeRef.current[accountId] || 'Pending' },
+                  { source: 'live_view', is_auto_sync: true, error: 'Request timeout', response_ms: Date.now() - startTs, pwa_port_events: lastPortTelemetry(5), next_sync_at: nextSyncTimeRef.current[accountId] || 'Pending' },
                   accountId
                 );
+                probeExtensionLiveness('auto_sync_timeout', accountId);
                 resolve();
               }, 25000);
 
+              // Gated onDisconnect: only an UNEXPECTED disconnect (lastError set) is a
+              // failure. Clean self-disconnects (success/timer/error) set settled first,
+              // so they never log a spurious fetch_request_failed (B1).
+              port.onDisconnect.addListener(() => {
+                const err = chrome.runtime.lastError?.message;
+                if (settled || !err) return;
+                settle();
+                clearTimeout(timer);
+                pushPortTelemetry({ outcome: 'disconnected', is_auto_sync: true, lastError: err, response_ms: Date.now() - startTs });
+                logSessionActivity(
+                  'fetch_request_failed',
+                  `[Live View] Extension port died for account ${targetAcc.account_number || accountId}: ${err}`,
+                  { source: 'live_view', is_auto_sync: true, error: err, response_ms: Date.now() - startTs, pwa_port_events: lastPortTelemetry(5), next_sync_at: nextSyncTimeRef.current[accountId] || 'Pending' },
+                  accountId
+                );
+                probeExtensionLiveness('auto_sync_port_died', accountId);
+                resolve();
+              });
+
               port.onMessage.addListener((msg: any) => {
                 if (msg.type === 'history_page_success' || msg.type === 'ledger_success' || msg.type === 'verification_complete' || msg.type === 'success') {
+                  settle();
                   clearTimeout(timer);
+                  pushPortTelemetry({ outcome: 'responded', is_auto_sync: true, response_ms: Date.now() - startTs });
                   const freshTxs = msg.transactions || [];
                   const freshBal = msg.balance || '0.00';
                   const freshRes = msg.reservedBalance || '0.00';
@@ -3562,11 +3639,14 @@ function App() {
                   if (port) port.disconnect();
                   resolve();
                 } else if (msg.type === 'history_page_error' || msg.type === 'error') {
+                  settle();
                   clearTimeout(timer);
+                  pushPortTelemetry({ outcome: 'error', is_auto_sync: true, response_ms: Date.now() - startTs });
                   const errDetail: any = {
                     source: 'live_view',
                     is_auto_sync: true,
                     error: msg.error || 'Unknown error',
+                    pwa_port_events: lastPortTelemetry(5),
                     next_sync_at: nextSyncTimeRef.current[accountId] || 'Pending'
                   };
                   if (appConfig.debug_api_payloads) {
@@ -3584,6 +3664,15 @@ function App() {
                 }
               });
             } catch (err) {
+              settle();
+              pushPortTelemetry({ outcome: 'connect_error', is_auto_sync: true, lastError: String((err as any)?.message || err), connect_ms: Date.now() - startTs });
+              logSessionActivity(
+                'fetch_request_failed',
+                `[Live View] Extension connect failed for account ${targetAcc.account_number || accountId}: ${(err as any)?.message || 'unknown'}`,
+                { source: 'live_view', is_auto_sync: true, error: String((err as any)?.message || err), pwa_port_events: lastPortTelemetry(5), next_sync_at: nextSyncTimeRef.current[accountId] || 'Pending' },
+                accountId
+              );
+              probeExtensionLiveness('auto_sync_connect_error', accountId);
               if (port) (port as any).disconnect();
               resolve();
             }
@@ -3810,10 +3899,14 @@ function App() {
     }
 
     let port;
+    const verifyStartTs = Date.now();
     try {
       port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
+      pushPortTelemetry({ outcome: 'connect_ok', action: 'VERIFY_TRANSFER', connect_ms: Date.now() - verifyStartTs });
     } catch (e: any) {
-      setErrorAndLog(`Extension connection failed: ${e.message}. Is the Extension ID correct?`);
+      pushPortTelemetry({ outcome: 'connect_error', action: 'VERIFY_TRANSFER', lastError: String(e?.message || e) });
+      probeExtensionLiveness('verify_connect_error', selectedAccountId);
+      setErrorAndLog(`Extension connection failed: ${e.message}. Is the Extension ID correct?`, selectedAccountId);
       setLoading(false);
       releaseLock();
       isVerifyingRef.current = false;
@@ -3828,14 +3921,16 @@ function App() {
       if (!isVerifyingRef.current) return; // We manually disconnected it, or kill switch was used
 
       const errorMsg = chrome.runtime.lastError?.message || "Connection to background robot lost unexpectedly. Is the extension installed and enabled?";
+      pushPortTelemetry({ outcome: 'disconnected', action: 'VERIFY_TRANSFER', lastError: errorMsg, response_ms: Date.now() - verifyStartTs });
       logSessionActivity(
         'extension_port_disconnected',
         `Extension connection severed: ${errorMsg}`,
-        { error: errorMsg, account_id: selectedAccountId, sync_elapsed_ms: syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0 },
+        { error: errorMsg, account_id: selectedAccountId, sync_elapsed_ms: syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0, pwa_port_events: lastPortTelemetry(5), elapsed_ms: Date.now() - verifyStartTs },
         selectedAccountId
       );
 
       setErrorAndLog(`Extension connection failed: ${errorMsg}`, selectedAccountId);
+      probeExtensionLiveness('verify_port_died', selectedAccountId);
       setProgress({ stage: 'error', text: 'Connection lost', percent: 100, isIndeterminate: false });
       setLoading(false);
       setSyncTimeElapsed(syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0);
@@ -3853,6 +3948,7 @@ function App() {
           setProgress(parsed);
         }
       } else if (response.type === 'success') {
+        pushPortTelemetry({ outcome: 'responded', action: 'VERIFY_TRANSFER', response_ms: Date.now() - verifyStartTs });
         addLog("> [Session] Request completed successfully.");
         setProgress({
           stage: 'success',
@@ -4182,6 +4278,8 @@ function App() {
     try {
       port = chrome.runtime.connect(extensionId, { name: "viri-verify" });
     } catch (e: any) {
+      pushPortTelemetry({ outcome: 'connect_error', action: 'LEDGER_SYNC', lastError: String(e?.message || e) });
+      probeExtensionLiveness('ledger_sync_connect_error', targetAccountId);
       setErrorAndLog(`Extension connection failed: ${e.message}`, targetAccountId);
       addLog(`> [System] Extension connection FAILED: ${e.message}`);
       setLoading(false);
@@ -4191,6 +4289,7 @@ function App() {
 
     activePortRef.current = port;
     addLog("> [System] Extension port connected. Preparing credentials...");
+    pushPortTelemetry({ outcome: 'connect_ok', action: 'LEDGER_SYNC' });
 
     const isBmlApi = selectedBankName === 'BML' && appConfig.bml_login_procedure === 'api';
 
@@ -4212,12 +4311,48 @@ function App() {
       return;
     }
 
+    // Diagnostic: bounded port telemetry + a 45s watchdog + gated onDisconnect so a
+    // dead SW surfaces as an explicit failure instead of an infinite spinner (W3).
+    const ledgerSyncStartTs = Date.now();
+    let syncSettled = false;
+    let syncWatchdog: ReturnType<typeof setTimeout> | null = null;
+
+    const failLedgerSync = (errorMsg: string) => {
+      if (syncSettled) return;
+      syncSettled = true;
+      if (syncWatchdog) clearTimeout(syncWatchdog);
+      pushPortTelemetry({ outcome: 'disconnected', action: 'LEDGER_SYNC', lastError: errorMsg, response_ms: Date.now() - ledgerSyncStartTs });
+      logSessionActivity('fetch_request_failed', `Ledger sync connection lost: ${errorMsg}`, { error: errorMsg, pwa_port_events: lastPortTelemetry(5), elapsed_ms: Date.now() - ledgerSyncStartTs }, targetAccountId);
+      probeExtensionLiveness('ledger_sync_port_died', targetAccountId);
+      setError(errorMsg);
+      setProgress({ stage: 'error', text: 'Sync connection lost', percent: 100, isIndeterminate: false });
+      setLoading(false);
+      setSyncTimeElapsed(Date.now() - ledgerSyncStartTs);
+      try { port.disconnect(); } catch { /* port already gone */ }
+      activePortRef.current = null;
+      releaseLock();
+      isVerifyingRef.current = false;
+    };
+
+    port.onDisconnect.addListener(() => {
+      const err = chrome.runtime.lastError?.message;
+      if (syncSettled || !err) return;
+      failLedgerSync(err);
+    });
+
+    syncWatchdog = setTimeout(() => {
+      failLedgerSync('Ledger sync exceeded 45s without a response.');
+    }, 45000);
+
     port.onMessage.addListener((response: any) => {
       if (response.type === 'log') {
         addLog(response.message);
         const parsed = parseLogForProgress(response.message);
         if (parsed) setProgress(parsed);
       } else if (response.type === 'success') {
+        syncSettled = true;
+        if (syncWatchdog) clearTimeout(syncWatchdog);
+        pushPortTelemetry({ outcome: 'responded', action: 'LEDGER_SYNC', response_ms: Date.now() - ledgerSyncStartTs });
         addLog("> [System] Ledger synced successfully.");
         addLog(`> [System] Raw history size: ${response.raw_history ? response.raw_history.length : 0} items.`);
         if (response.raw_history && response.raw_history.length > 0) {
@@ -4309,6 +4444,9 @@ function App() {
           }
         }, 1500);
       } else if (response.type === 'history_page_success') {
+        syncSettled = true;
+        if (syncWatchdog) clearTimeout(syncWatchdog);
+        pushPortTelemetry({ outcome: 'responded', action: 'LEDGER_SYNC', response_ms: Date.now() - ledgerSyncStartTs });
         addLog(`> [System] History page ${response.page} synced successfully.`);
         setProgress({
           stage: 'success',
@@ -4370,6 +4508,9 @@ function App() {
 
         }, 1500);
       } else if (response.type === 'history_page_error') {
+        syncSettled = true;
+        if (syncWatchdog) clearTimeout(syncWatchdog);
+        pushPortTelemetry({ outcome: 'error', action: 'LEDGER_SYNC', response_ms: Date.now() - ledgerSyncStartTs });
         logSessionActivity('fetch_request_failed', response.error || "An unknown error occurred during page sync.", { page: response.page, error: response.error }, targetAccountId);
         setError(response.error || "An unknown error occurred during page sync.");
         setProgress({ 
@@ -4385,6 +4526,9 @@ function App() {
         releaseLock();
         isVerifyingRef.current = false;
       } else if (response.type === 'error') {
+        syncSettled = true;
+        if (syncWatchdog) clearTimeout(syncWatchdog);
+        pushPortTelemetry({ outcome: 'error', action: 'LEDGER_SYNC', response_ms: Date.now() - ledgerSyncStartTs });
         const isSearchNotFound = /No recent credit transaction found/i.test(response.error || '');
         setError(isSearchNotFound ? "Search not found" : (response.error || "An unknown error occurred during sync."));
         setProgress({ 
