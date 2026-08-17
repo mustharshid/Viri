@@ -3891,6 +3891,8 @@ export default function AdminDashboard() {
                           badgeClass = "bg-red-950/40 text-red-400 border border-red-500/20";
                         } else if (['session_heartbeat_lost', 'session_released', 'fetch_request_failed'].includes(log.event_type)) {
                           badgeClass = "bg-orange-950/40 text-orange-400 border border-orange-500/20";
+                        } else if (['extension_liveness_probe'].includes(log.event_type)) {
+                          badgeClass = "bg-cyan-950/40 text-cyan-300 border border-cyan-500/30";
                         }
 
                         const isExpanded = expandedLogId === log.id;
@@ -3941,6 +3943,30 @@ export default function AdminDashboard() {
                                     </span>
                                   )}
                                 </div>
+                                {(log.diag_response_ms !== null || log.diag_sw_alive !== null || log.diag_last_error !== null || log.diag_error !== null || log.diag_sw_restart_count !== null || log.diag_sw_started_at !== null) && (
+                                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                    {log.diag_sw_alive !== null && (
+                                      <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${log.diag_sw_alive === 'true' ? 'bg-emerald-950/40 text-emerald-300 border-emerald-500/30' : 'bg-red-950/40 text-red-300 border-red-500/40'}`}>
+                                        sw_alive={log.diag_sw_alive}
+                                      </span>
+                                    )}
+                                    {log.diag_response_ms !== null && (
+                                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">{log.diag_response_ms}ms</span>
+                                    )}
+                                    {log.diag_sw_restart_count !== null && (
+                                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-violet-950/40 text-violet-300 border border-violet-500/30">SW restart #{log.diag_sw_restart_count}</span>
+                                    )}
+                                    {log.diag_sw_started_at !== null && (
+                                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-violet-950/20 text-violet-400 border border-violet-500/20" title={log.diag_sw_started_at}>SW started {log.diag_sw_started_at}</span>
+                                    )}
+                                    {log.diag_last_error !== null && (
+                                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-950/40 text-amber-300 border border-amber-500/40 max-w-[320px] truncate" title={log.diag_last_error}>lastError: {log.diag_last_error}</span>
+                                    )}
+                                    {log.diag_error !== null && log.diag_error !== log.event_summary && (
+                                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-950/40 text-rose-300 border border-rose-500/40 max-w-[320px] truncate" title={log.diag_error}>err: {log.diag_error}</span>
+                                    )}
+                                  </div>
+                                )}
                               </td>
                             </tr>
                             {isExpanded && (

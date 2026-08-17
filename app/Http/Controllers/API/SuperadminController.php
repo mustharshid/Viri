@@ -162,6 +162,9 @@ class SuperadminController extends Controller
     public function getSessionLogs(Request $request)
     {
         // 1. Paginated table rows (Lightweight: excludes event_detail column for blazing list speed)
+        //    Diagnostic fields (response_ms / sw_alive / lastError / error / restart count) are
+        //    extracted from event_detail as cheap scalar columns so the panel can surface them
+        //    inline without loading the full JSON.
         $query = SessionActivityLog::with(['tenant', 'terminal', 'bankAccount'])
             ->select([
                 'id',
@@ -175,7 +178,13 @@ class SuperadminController extends Controller
                 'event_summary',
                 'masked_username',
                 'created_at',
-                \Illuminate\Support\Facades\DB::raw('CASE WHEN event_detail IS NOT NULL THEN 1 ELSE 0 END as has_detail')
+                \Illuminate\Support\Facades\DB::raw('CASE WHEN event_detail IS NOT NULL THEN 1 ELSE 0 END as has_detail'),
+                \Illuminate\Support\Facades\DB::raw("JSON_UNQUOTE(JSON_EXTRACT(event_detail, '$.response_ms')) as diag_response_ms"),
+                \Illuminate\Support\Facades\DB::raw("JSON_UNQUOTE(JSON_EXTRACT(event_detail, '$.sw_alive')) as diag_sw_alive"),
+                \Illuminate\Support\Facades\DB::raw("JSON_UNQUOTE(JSON_EXTRACT(event_detail, '$.lastError')) as diag_last_error"),
+                \Illuminate\Support\Facades\DB::raw("JSON_UNQUOTE(JSON_EXTRACT(event_detail, '$.error')) as diag_error"),
+                \Illuminate\Support\Facades\DB::raw("JSON_UNQUOTE(JSON_EXTRACT(event_detail, '$.sw_restart_count')) as diag_sw_restart_count"),
+                \Illuminate\Support\Facades\DB::raw("JSON_UNQUOTE(JSON_EXTRACT(event_detail, '$.sw_started_at')) as diag_sw_started_at"),
             ])
             ->orderBy('created_at', 'desc');
 

@@ -670,9 +670,6 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         activePort = null;
       }
       disableBankLockdown();
-      if (!heldSession) {
-        clearBankSessions();
-      }
     });
   }
 });
@@ -706,7 +703,7 @@ async function loggedFetch(url, options = {}) {
   }
 
   try {
-    const res = await fetch(url, options);
+    const res = await safeFetchWithTimeout(url, options, 20000);
     emitLog(port, `> [BML] Response: HTTP ${res.status} from ${url}`);
     return res;
   } catch (error) {
@@ -1526,10 +1523,10 @@ async function runBmlApiFlow(credentials, targetAccount, accountName, port, targ
         headers['User-Agent'] = 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)';
         headers['x-app-version'] = '2.1.44.348';
         
-        return await fetch(url, {
+        return await safeFetchWithTimeout(url, {
             ...options,
             headers
-        });
+        }, 20000);
     };
 
     // --- FETCH DATA ---
@@ -1741,7 +1738,7 @@ async function fetchBmlStatementRange(credentials, bankAccountId, accountNumber,
         headers['Accept'] = 'application/json';
         headers['User-Agent'] = 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)';
         headers['x-app-version'] = '2.1.44.348';
-        return await fetch(url, { ...options, headers });
+        return await safeFetchWithTimeout(url, { ...options, headers }, 20000);
     };
 
     const dashboardRes = await authFetch(`${BASE_URL}/api/mobile/dashboard`);
@@ -1866,7 +1863,7 @@ async function fetchBmlHistoryPage(credentials, bankAccountId, accountNumber, po
         headers['Accept'] = 'application/json';
         headers['User-Agent'] = 'bml-mobile-banking/348 (samsung; Android 14; SM-G998B)';
         headers['x-app-version'] = '2.1.44.348';
-        return await fetch(url, { ...options, headers });
+        return await safeFetchWithTimeout(url, { ...options, headers }, 20000);
     };
 
     // Step 1: GET /dashboard

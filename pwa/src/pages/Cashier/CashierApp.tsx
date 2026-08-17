@@ -1169,7 +1169,7 @@ function App() {
   const [_terminalId, setTerminalId] = useState<number | null>(null);
   const [accountToClear, setAccountToClear] = useState<any | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const LATEST_EXTENSION_VERSION = "1.3.14";
+  const LATEST_EXTENSION_VERSION = "1.3.15";
 
   // ── Port-lifecycle diagnostics (bounded in-memory ring, near-zero load) ──
   // Captures connect/disconnect/response timing + chrome.runtime.lastError so a
@@ -3916,8 +3916,29 @@ function App() {
 
     activePortRef.current = port;
 
+    const verifyWatchdog = setTimeout(() => {
+      if (isVerifyingRef.current) {
+        if (port) {
+          try { port.disconnect(); } catch {}
+        }
+        activePortRef.current = null;
+        isVerifyingRef.current = false;
+        setLoading(false);
+        releaseLock();
+        setProgress({ stage: 'error', text: 'Verification timed out (60s)', percent: 100, isIndeterminate: false });
+        setErrorAndLog('Verification operation timed out after 60s without response from extension.', selectedAccountId);
+        logSessionActivity(
+          'fetch_request_failed',
+          `Verification timed out after 60s for account ${selectedAccount?.account_number || selectedAccountId}`,
+          { error: 'Client-side watchdog timeout (60s)', mode, account_id: selectedAccountId },
+          selectedAccountId
+        );
+      }
+    }, 60000);
+
     // Add connection error handling
     port.onDisconnect.addListener(() => {
+      clearTimeout(verifyWatchdog);
       if (!isVerifyingRef.current) return; // We manually disconnected it, or kill switch was used
 
       const errorMsg = chrome.runtime.lastError?.message || "Connection to background robot lost unexpectedly. Is the extension installed and enabled?";
@@ -3948,6 +3969,7 @@ function App() {
           setProgress(parsed);
         }
       } else if (response.type === 'success') {
+        clearTimeout(verifyWatchdog);
         pushPortTelemetry({ outcome: 'responded', action: 'VERIFY_TRANSFER', response_ms: Date.now() - verifyStartTs });
         addLog("> [Session] Request completed successfully.");
         setProgress({
@@ -4075,6 +4097,7 @@ function App() {
         })();
         }, 1500); // 1.5s reinforcement checkmark flash
       } else if (response.type === 'error') {
+        clearTimeout(verifyWatchdog);
         const isSearchNotFound = /No recent credit transaction found/i.test(response.error || '');
         setProgress({
           stage: 'error',
