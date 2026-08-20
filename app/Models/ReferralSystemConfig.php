@@ -8,6 +8,7 @@ class ReferralSystemConfig extends Model
 {
     protected $fillable = [
         'payout_mode',
+        'program_headline',
         'min_payout_threshold',
         'auto_payout_day_of_month',
         'customer_discount_enabled',
@@ -34,6 +35,7 @@ class ReferralSystemConfig extends Model
         if (! $config) {
             $config = self::create([
                 'payout_mode' => 'manual_request',
+                'program_headline' => 'Earn 15% to 25% recurring monthly commissions.',
                 'min_payout_threshold' => 500.00,
                 'auto_payout_day_of_month' => 1,
                 'customer_discount_enabled' => true,

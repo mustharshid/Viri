@@ -5,6 +5,14 @@ const DH_P = BigInt('24103124269210325885520760221975660748569505485024599426541
 const DH_A = BigInt('1563516802667282387226490351799736881442299778484610378722158765594241028592123324764949712696577');
 export const DEFAULT_KEY = '8M3L9SBF1AC4FRE56788M3L9SBF1AC4FRE5678';
 
+// August-2026 bundle transport constants (HANDOFF.md §3.1/§4.1)
+export const MIB_API_URL = 'https://faisamobilex-smvc-v2.mib.com.mv/index/';
+export const MIB_WEBVIEW_URL = 'https://faisamobilex-wv-v2.mib.com.mv';
+export const MIB_MODEL = 'AND-1.0';
+export const MIB_APP_VERSION = '15'; // app version hard-coded '15' (new.dec ~517330)
+
+const KEY_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
 export function computeCmod() {
   return modPow(DH_G, DH_A, DH_P);
 }
@@ -60,18 +68,43 @@ function modPow(base, exp, mod) {
   return result;
 }
 
+/** Random alphanumeric string of `length` chars (device keys / appId middle). */
+export function generateKey(length) {
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  let out = '';
+  for (let i = 0; i < length; i++) out += KEY_CHARS[bytes[i] % KEY_CHARS.length];
+  return out;
+}
+
+/** `n` random bytes rendered as a decimal string (sodium=20, xxid=40). */
+function randomBytesDecimal(n) {
+  const bytes = crypto.getRandomValues(new Uint8Array(n));
+  let hex = '';
+  for (const b of bytes) hex += b.toString(16).padStart(2, '0');
+  return BigInt('0x' + hex).toString();
+}
+
 export function generateNonce(nonceGenerator) {
+  if (!nonceGenerator || !String(nonceGenerator).trim()) {
+    throw new Error('Empty nonceGenerator — cannot build a nonce.');
+  }
   const groups = nonceGenerator.split('-');
   const paddedList = [];
   const lastTwo = [];
   const digitSum = [];
   let cumSum = 0;
 
-  for (const group of groups) {
-    const tokens = group.trim().split(/\s+/);
+  for (let gi = 0; gi < groups.length; gi++) {
+    const tokens = groups[gi].trim().split(/\s+/);
+    if (tokens.length !== 8) {
+      throw new Error(
+        `Malformed nonceGenerator group #${gi + 1}: expected 8 tokens, got ${tokens.length} ` +
+        '— the server may have changed the generator format.'
+      );
+    }
     const numStr = tokens[0].replace(/[^0-9]/g, '');
     const n = parseInt(numStr, 10);
-    const r = Math.floor(Math.random() * 99) + 1;
+    const r = (crypto.getRandomValues(new Uint32Array(1))[0] % 99) + 1;
     const product = n * r;
     const padded = String(product).padStart(5, '0');
     let ds = 0;
@@ -116,27 +149,24 @@ export function generateNonce(nonceGenerator) {
     );
   }
 
-  return resultGroups.join('-');
+  const result = resultGroups.join('-');
+  if (!result) throw new Error('Nonce assembly produced an empty string — check nonceGenerator format.');
+  return result;
 }
 
 export function generateSodium() {
-  return Math.floor(Math.random() * (15999999 - 1000000 + 1)) + 1000000;
+  return randomBytesDecimal(20); // 20 random bytes as decimal string
 }
 
 export function generateXxid() {
-  return Math.floor(Math.random() * 1099511627776);
+  return randomBytesDecimal(40); // 40 random bytes as decimal string
 }
 
 export function generateAppId() {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let id = 'IOS17.2-';
-  for (let i = 0; i < 15; i++) id += chars[Math.floor(Math.random() * chars.length)];
-  return id;
+  // AND{ver}-{rand15}{ver} — new.dec ~517330, version hard-coded '15'
+  return 'AND' + MIB_APP_VERSION + '-' + generateKey(15) + MIB_APP_VERSION;
 }
 
 export function generateClientSalt() {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let salt = '';
-  for (let i = 0; i < 32; i++) salt += chars[Math.floor(Math.random() * chars.length)];
-  return salt;
+  return generateKey(32);
 }

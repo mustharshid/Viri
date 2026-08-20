@@ -291,6 +291,27 @@ export default function AffiliatePortal() {
           </div>
         </div>
 
+        {/* Missing Bank Details Callout */}
+        {!affiliate.payout_account_number && (
+          <div className="rounded-2xl border border-amber-500/30 bg-amber-950/20 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 backdrop-blur-md">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                <CreditCard size={16} />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-white">Payout Bank Account Not Set</p>
+                <p className="text-[11px] text-zinc-400">Configure your BML or MIB account in Payout Settings whenever you're ready to receive payouts.</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setActiveTab('settings')}
+              className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-all shrink-0"
+            >
+              Add Bank Account &rarr;
+            </button>
+          </div>
+        )}
+
         {/* 4 Financial Metric Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           

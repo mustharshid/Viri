@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Shield, RefreshCw, Settings, AlertTriangle, Lock, Unlock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, ChevronDown, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, KeyRound, Download, FileText, Check, Briefcase, Sparkles, Tag, Printer, FileSpreadsheet, X } from 'lucide-react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, Unlock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, ChevronDown, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, Download, FileText, Check, Briefcase, Sparkles, Tag, Printer, FileSpreadsheet, X, RotateCcw, Keyboard } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import CryptoJS from 'crypto-js';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
@@ -39,69 +39,6 @@ const safeJsonParse = <T,>(raw: string | null, fallback: T): T => {
 
 
 
-// ---------------------------------------------------------------------------
-// Zero-Knowledge Credential Sync Helpers
-// All cryptography runs exclusively in the browser via Web Crypto API.
-// ---------------------------------------------------------------------------
-const ZK_WORD_LIST = [
-  'apple', 'brave', 'coral', 'delta', 'eagle', 'frost', 'grape', 'honey', 'ivory', 'jewel',
-  'karma', 'lemon', 'maple', 'noble', 'ocean', 'pearl', 'quartz', 'river', 'storm', 'tiger',
-  'ultra', 'vivid', 'waltz', 'xenon', 'yield', 'zebra', 'amber', 'blaze', 'cedar', 'drift',
-  'ember', 'flint', 'glade', 'haven', 'iris', 'jade', 'knoll', 'lunar', 'mirth', 'nexus',
-  'oasis', 'prism', 'quest', 'ridge', 'solar', 'thorn', 'unity', 'valor', 'winds', 'xenial',
-  'young', 'zephyr', 'acorn', 'birch', 'crest', 'dusk', 'ether', 'forge', 'grove', 'haze',
-  'inlet', 'jest', 'kite', 'lance', 'mango', 'north', 'orbit', 'pike', 'quiet', 'raven',
-  'swift', 'tide', 'urban', 'veil', 'wheat', 'xeric', 'yarn', 'zinc', 'atlas', 'bison',
-  'cliff', 'dune', 'epoch', 'fable', 'giant', 'helix', 'icon', 'joust', 'knave', 'lark',
-  'merit', 'nymph', 'olive', 'plume', 'quirk', 'robin', 'slate', 'trove', 'umbra', 'vortex',
-  'wren', 'exact', 'yoke', 'zonal', 'abyss', 'bloom', 'chrome', 'dawns', 'elbow', 'flair',
-  'guile', 'hyper', 'irony', 'joker', 'kiosk', 'laser', 'magic', 'nerve', 'optic', 'pivot',
-  'quota', 'realm', 'scout', 'tempo', 'utmost', 'vibrant', 'woven', 'xtra', 'yeoman', 'zipper',
-  'arch', 'beam', 'crisp', 'dwell', 'elite', 'flora', 'glyph', 'hoard', 'isle', 'jelly',
-  'kudos', 'lilac', 'marsh', 'notch', 'oven', 'plaza', 'quill', 'reign', 'spare', 'torque',
-  'uncap', 'visor', 'watch', 'xenon2', 'yodel', 'zippy', 'azure', 'blunt', 'cloak', 'decoy',
-  'envoy', 'fluke', 'glint', 'hinge', 'index', 'joust2', 'knelt', 'lyric', 'manor', 'nudge',
-  'onset', 'prowl', 'quake', 'rivet', 'servo', 'tunic', 'ultra2', 'vouch', 'whisk', 'expel',
-  'yearn', 'zesty', 'adept', 'brace', 'crane', 'depot', 'evoke', 'floss', 'gloom', 'hatch',
-  'input', 'jolly', 'knack', 'ledge', 'model', 'notch2', 'onset2', 'pixel', 'query', 'rouge',
-  'synth', 'tryst', 'upend', 'vivid2', 'walrus', 'xylem', 'yawns', 'zonal2', 'abode', 'brush'
-];
-
-function generateSyncPassphrase(): string {
-  const arr = new Uint32Array(8);
-  crypto.getRandomValues(arr);
-  return Array.from(arr).map(n => ZK_WORD_LIST[n % ZK_WORD_LIST.length]).join('-');
-}
-
-async function encryptCredentialsForSync(
-  passphrase: string,
-  creds: object
-): Promise<{ passphrase: string; encrypted_blob: string; wrapped_dek: string; kdf_salt: string; gcm_iv: string }> {
-  const enc = new TextEncoder();
-  const kdfSalt = crypto.getRandomValues(new Uint8Array(16));
-  const gcmIv = crypto.getRandomValues(new Uint8Array(12));
-
-  const keyMat = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
-  const kek = await crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt: kdfSalt, iterations: 600_000, hash: 'SHA-256' },
-    keyMat, { name: 'AES-KW', length: 256 }, false, ['wrapKey']
-  );
-  const dek = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
-  const blob = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: gcmIv }, dek, enc.encode(JSON.stringify(creds))
-  );
-  const wdek = await crypto.subtle.wrapKey('raw', dek, kek, 'AES-KW');
-
-  const b64 = (b: ArrayBuffer | Uint8Array) => btoa(String.fromCharCode(...new Uint8Array(b)));
-  return {
-    passphrase,
-    encrypted_blob: b64(blob),
-    wrapped_dek: b64(wdek),
-    kdf_salt: b64(kdfSalt),
-    gcm_iv: b64(gcmIv),
-  };
-}
-
 function FormatSinceLastSync({ timestamp }: { timestamp: number | null }) {
   const [elapsedSec, setElapsedSec] = useState<number>(() => {
     return timestamp ? Math.max(0, Math.floor((Date.now() - timestamp) / 1000)) : 0;
@@ -127,27 +64,6 @@ function FormatSinceLastSync({ timestamp }: { timestamp: number | null }) {
       Since last sync: {hrs}:{mins}:{secs}
     </span>
   );
-}
-
-async function decryptCredentialsFromSync(
-  payload: { passphrase: string; encrypted_blob: string; wrapped_dek: string; kdf_salt: string; gcm_iv: string }
-): Promise<Record<string, { username?: string; password?: string; totpSeed?: string }>> {
-  const enc = new TextEncoder();
-  const b64d = (s: string) => Uint8Array.from(atob(s), c => c.charCodeAt(0));
-
-  const keyMat = await crypto.subtle.importKey('raw', enc.encode(payload.passphrase), 'PBKDF2', false, ['deriveKey']);
-  const kek = await crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt: b64d(payload.kdf_salt), iterations: 600_000, hash: 'SHA-256' },
-    keyMat, { name: 'AES-KW', length: 256 }, false, ['unwrapKey']
-  );
-  const dek = await crypto.subtle.unwrapKey(
-    'raw', b64d(payload.wrapped_dek), kek, 'AES-KW',
-    { name: 'AES-GCM', length: 256 }, false, ['decrypt']
-  );
-  const plain = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: b64d(payload.gcm_iv) }, dek, b64d(payload.encrypted_blob)
-  );
-  return JSON.parse(new TextDecoder().decode(plain));
 }
 
 interface BankAccount {
@@ -1049,6 +965,61 @@ function App() {
   const [defaultAccountId, setDefaultAccountId] = useState<string>(() => {
     return localStorage.getItem('viri_default_account_id') || '';
   });
+  const [accountShortcuts, setAccountShortcuts] = useState<Record<string, string>>(() => {
+    return safeJsonParse(localStorage.getItem('viri_account_shortcuts'), {});
+  });
+
+  const getAccountShortcut = (accountId: string): string | null => {
+    if (!accountId) return null;
+    // If explicit custom mapping exists for this account, use it
+    if (Object.prototype.hasOwnProperty.call(accountShortcuts, accountId)) {
+      const val = accountShortcuts[accountId];
+      return val && val !== 'none' && val !== '' ? val : null;
+    }
+    // If user has customized ANY shortcuts, unassigned accounts have no shortcut
+    if (Object.keys(accountShortcuts).length > 0) {
+      return null;
+    }
+    // Default fallback: 1-9 for indices 0-8, 0 for index 9
+    const idx = bankAccounts.findIndex(a => a.id.toString() === accountId);
+    if (idx >= 0 && idx < 9) return (idx + 1).toString();
+    if (idx === 9) return '0';
+    return null;
+  };
+
+  const setAccountShortcut = (accountId: string, key: string) => {
+    let current = { ...accountShortcuts };
+    // If no custom shortcuts existed previously, initialize from default 1-10 sequence
+    if (Object.keys(current).length === 0) {
+      bankAccounts.forEach((acc, idx) => {
+        const idStr = acc.id.toString();
+        if (idx < 9) current[idStr] = (idx + 1).toString();
+        else if (idx === 9) current[idStr] = '0';
+        else current[idStr] = '';
+      });
+    }
+
+    const next: Record<string, string> = { ...current };
+    if (key && key !== 'none' && key !== '') {
+      // Remove this shortcut key from any other account to guarantee 1-to-1 uniqueness
+      Object.keys(next).forEach(id => {
+        if (next[id] === key) {
+          next[id] = '';
+        }
+      });
+      next[accountId] = key;
+    } else {
+      next[accountId] = '';
+    }
+
+    setAccountShortcuts(next);
+    localStorage.setItem('viri_account_shortcuts', JSON.stringify(next));
+  };
+
+  const resetAccountShortcuts = () => {
+    localStorage.removeItem('viri_account_shortcuts');
+    setAccountShortcuts({});
+  };
   const [recentTxCache, setRecentTxCache] = useState<Record<string, {
     transactions: {
       date: string;
@@ -1169,7 +1140,7 @@ function App() {
   const [_terminalId, setTerminalId] = useState<number | null>(null);
   const [accountToClear, setAccountToClear] = useState<any | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const LATEST_EXTENSION_VERSION = "1.3.15";
+  const LATEST_EXTENSION_VERSION = "1.4.0";
 
   // ── Port-lifecycle diagnostics (bounded in-memory ring, near-zero load) ──
   // Captures connect/disconnect/response timing + chrome.runtime.lastError so a
@@ -1370,13 +1341,6 @@ function App() {
   const [accountsCreds, setAccountsCreds] = useState<Record<string, { username?: string; password?: string; totpSeed?: string }>>(() => {
     return safeJsonParse(localStorage.getItem('viri_accounts_creds'), {});
   });
-
-
-  // Standalone/On-demand Credential Sync States
-  const [importPending, setImportPending] = useState(false);
-  const [importSyncId, setImportSyncId] = useState<string | null>(null);
-  const [importCountdown, setImportCountdown] = useState<number>(300);
-  const [importStatus, setImportStatus] = useState<'idle' | 'connecting' | 'done' | 'error'>('idle');
 
 
 
@@ -2444,6 +2408,19 @@ function App() {
     }
   }, [selectedLedgerAccountId, activeTab]);
 
+  // Auto-center selected receiving account card in verification view when it changes
+  useEffect(() => {
+    if (activeTab === 'verify' && selectedAccountId) {
+      const timer = setTimeout(() => {
+        const selectedEl = verifyAccountRefs.current[selectedAccountId];
+        if (selectedEl) {
+          selectedEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedAccountId, activeTab]);
+
   const activePortRef = useRef<chrome.runtime.Port | null>(null);
   const [initLoading, setInitLoading] = useState(false);
   const [operationMode, setOperationMode] = useState<string>('Single Terminal');
@@ -2649,133 +2626,6 @@ function App() {
 
   // ---------------------------------------------------------------------------
   // Zero-Knowledge Credential Sync (background, no admin terminal interaction)
-  // ---------------------------------------------------------------------------
-  const [credSyncStatus, setCredSyncStatus] = useState<
-    'idle' | 'exporting' | 'export_done' | 'importing' | 'import_done' | 'error'
-  >('idle');
-  const [credSyncMsg, setCredSyncMsg] = useState<string | null>(null);
-  const credSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const showCredSyncMsg = (status: typeof credSyncStatus, msg: string, autoDismissMs = 8000) => {
-    setCredSyncStatus(status);
-    setCredSyncMsg(msg);
-    if (credSyncTimerRef.current) clearTimeout(credSyncTimerRef.current);
-    credSyncTimerRef.current = setTimeout(() => {
-      setCredSyncStatus('idle');
-      setCredSyncMsg(null);
-    }, autoDismissMs);
-  };
-
-  // Standalone/On-demand Sync Poll (Runs only when settings panel is open)
-  useEffect(() => {
-    if (!hardwareId || !backendUrl || isSetupMode || !showSettings) return;
-
-    const poll = async () => {
-      if (credSyncStatus === 'exporting' || importStatus === 'connecting') return;
-      try {
-        const res = await fetch(`${backendUrl}/terminal/credential-sync/pending?hardware_id=${hardwareId}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!data.sync_id) return;
-
-        if (data.action === 'export') {
-          setCredSyncStatus('exporting');
-          setCredSyncMsg('🔐 Encrypting credentials for sync...');
-          const passphrase = generateSyncPassphrase();
-          const pkg = await encryptCredentialsForSync(passphrase, accountsCreds);
-          const uploadRes = await fetch(`${backendUrl}/terminal/credential-sync/${data.sync_id}/upload`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ hardware_id: hardwareId, ...pkg })
-          });
-          if (!uploadRes.ok) throw new Error('Upload failed');
-          showCredSyncMsg('export_done', '✅ Credentials encrypted and uploaded successfully!', 8000);
-        }
-
-        if (data.action === 'import') {
-          if (importSyncId !== data.sync_id) {
-            setImportPending(true);
-            setImportSyncId(data.sync_id);
-            setImportCountdown(300);
-            setImportStatus('idle');
-          }
-        }
-      } catch (e: any) {
-        showCredSyncMsg('error', `❌ Sync check failed: ${e.message}`, 8000);
-      }
-    };
-
-    poll();
-    const intervalId = setInterval(poll, 5000);
-    return () => clearInterval(intervalId);
-  }, [hardwareId, backendUrl, isSetupMode, showSettings, credSyncStatus, importStatus, accountsCreds, importSyncId]);
-
-  // Countdown timer for pending imports
-  useEffect(() => {
-    if (!importPending || importCountdown <= 0) {
-      if (importCountdown <= 0) {
-        setImportPending(false);
-        setImportSyncId(null);
-      }
-      return;
-    }
-    const timer = setInterval(() => {
-      setImportCountdown(prev => prev - 1);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [importPending, importCountdown]);
-
-  const handleImportCredentials = async () => {
-    if (!importSyncId) return;
-    setImportStatus('connecting');
-    
-    const sseUrl = `${backendUrl}/terminal/credential-sync/sse?hardware_id=${hardwareId}`;
-    const sse = new EventSource(sseUrl);
-
-    sse.addEventListener('import_ready', async (e: any) => {
-      try {
-        const payload = JSON.parse(e.data);
-        const decrypted = await decryptCredentialsFromSync(payload);
-        setAccountsCreds(decrypted);
-        localStorage.setItem('viri_accounts_creds', JSON.stringify(decrypted));
-
-        const confirmRes = await fetch(`${backendUrl}/terminal/credential-sync/${payload.sync_id}/confirm-import`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ hardware_id: hardwareId })
-        });
-        if (!confirmRes.ok) throw new Error('Confirmation failed on server');
-
-        setImportStatus('done');
-        setImportPending(false);
-        setImportSyncId(null);
-        showCredSyncMsg('import_done', '✅ Credentials imported successfully!', 8000);
-      } catch (err: any) {
-        setImportStatus('error');
-        showCredSyncMsg('error', `❌ Decryption or confirmation failed: ${err.message}`, 12000);
-      } finally {
-        sse.close();
-      }
-    });
-
-    sse.addEventListener('not_ready', (e: any) => {
-      setImportStatus('error');
-      try {
-        const d = JSON.parse(e.data);
-        showCredSyncMsg('error', `❌ Sync not ready: ${d.message}`, 8000);
-      } catch {
-        showCredSyncMsg('error', '❌ Sync data not ready. Please try again.', 8000);
-      }
-      sse.close();
-    });
-
-    sse.onerror = () => {
-      setImportStatus('error');
-      showCredSyncMsg('error', '❌ Connection error during import.', 8000);
-      sse.close();
-    };
-  };
-
   // Synchronize isDefault check box with selectedAccountId and defaultAccountId
   useEffect(() => {
     if (!selectedAccountId || bankAccounts.length === 0) return;
@@ -3919,7 +3769,7 @@ function App() {
     const verifyWatchdog = setTimeout(() => {
       if (isVerifyingRef.current) {
         if (port) {
-          try { port.disconnect(); } catch {}
+          try { port.disconnect(); } catch (e) {}
         }
         activePortRef.current = null;
         isVerifyingRef.current = false;
@@ -4809,11 +4659,11 @@ function App() {
       } else if (e.key.toLowerCase() === 'l') {
         e.preventDefault();
         setActiveTab('ledger');
-      } else if (e.key >= '1' && e.key <= '9') {
-        const index = parseInt(e.key) - 1;
-        if (index < bankAccounts.length) {
+      } else if (e.key >= '0' && e.key <= '9') {
+        const targetAcc = bankAccounts.find(acc => getAccountShortcut(acc.id.toString()) === e.key);
+        if (targetAcc) {
           e.preventDefault();
-          const accId = bankAccounts[index].id.toString();
+          const accId = targetAcc.id.toString();
           if (activeTab === 'verify') {
             setSelectedAccountId(accId);
           } else if (activeTab === 'ledger') {
@@ -4826,7 +4676,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab, loading, isCredentialsComplete, creditsExhausted, isSelectedAccountLocked, activeLedgerAcc, isLedgerSyncing, isLockedByVerify, bankAccounts, selectedAccountId, selectedLedgerAccountId]);
+  }, [activeTab, loading, isCredentialsComplete, creditsExhausted, isSelectedAccountLocked, activeLedgerAcc, isLedgerSyncing, isLockedByVerify, bankAccounts, selectedAccountId, selectedLedgerAccountId, accountShortcuts]);
 
 
   if (isSetupMode) {
@@ -5074,7 +4924,7 @@ function App() {
               </div>
               <div className="flex justify-between items-center text-[10px]">
                 <span className="text-zinc-400">Select Bank Account</span>
-                <span className="bg-zinc-800 text-zinc-300 font-mono px-1.5 rounded border border-zinc-700">1-9</span>
+                <span className="bg-zinc-800 text-zinc-300 font-mono px-1.5 rounded border border-zinc-700">1-0 (Custom)</span>
               </div>
               <div className="flex justify-between items-center text-[10px]">
                 <span className="text-zinc-400">Verification Tab</span>
@@ -5154,29 +5004,6 @@ function App() {
         isCompletelyCollapsed ? 'p-3 md:p-5' : 'p-4 md:p-8'
       }`}>
 
-        {/* ── Credential Sync Toast ── */}
-        {credSyncMsg && (
-          <div
-            className={`fixed bottom-6 right-6 z-[9999] max-w-sm px-5 py-4 rounded-2xl shadow-2xl border flex items-start gap-3 transition-all duration-300 ${credSyncStatus === 'error'
-                ? 'bg-red-950/95 border-red-500/60 text-red-200'
-                : credSyncStatus === 'exporting' || credSyncStatus === 'importing'
-                  ? 'bg-zinc-900/95 border-emerald-500/40 text-zinc-100'
-                  : 'bg-emerald-950/95 border-emerald-500/50 text-emerald-200'
-              }`}
-          >
-            {(credSyncStatus === 'exporting' || credSyncStatus === 'importing') && (
-              <span className="mt-0.5 h-4 w-4 rounded-full border-2 border-emerald-400 border-t-transparent animate-spin shrink-0" />
-            )}
-            <span className="text-sm leading-snug">{credSyncMsg}</span>
-            <button
-              onClick={() => { setCredSyncMsg(null); setCredSyncStatus('idle'); }}
-              className="ml-auto shrink-0 text-zinc-400 hover:text-white"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
-            </button>
-          </div>
-        )}
-
         {subscriptionExpired && (
            <div className="w-full max-w-xl lg:max-w-full mb-6 bg-red-955/25 border-2 border-red-500 text-red-300 px-6 py-4 rounded-2xl flex items-center justify-between gap-4 shadow-[0_0_30px_rgba(239,68,68,0.15)]">
             <div className="flex items-center gap-3">
@@ -5223,8 +5050,23 @@ function App() {
 
             {/* Bank Accounts Manager (MOVED TO TOP) */}
             <div className="mb-8 p-5 bg-zinc-950/40 border border-[var(--border-color)] rounded-xl">
-              <h4 className="text-sm font-semibold mb-3 flex items-center gap-1.5 text-white">Managed Bank Accounts</h4>
-              <p className="text-xs text-[var(--text-secondary)] mb-4">Accounts are synced from company dashboard.</p>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <div>
+                  <h4 className="text-sm font-semibold flex items-center gap-1.5 text-white">Managed Bank Accounts</h4>
+                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">Configure bank credentials and assign custom keyboard shortcuts (1–9, 0) to specific accounts.</p>
+                </div>
+                {bankAccounts.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={resetAccountShortcuts}
+                    className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700/80 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95"
+                    title="Reset account shortcuts to default 1-10 sequence"
+                  >
+                    <RotateCcw size={12} className="text-zinc-400" />
+                    Reset Shortcuts (1–10)
+                  </button>
+                )}
+              </div>
 
               <div className="space-y-3 mb-4">
                 {bankAccounts.length === 0 ? (
@@ -5235,6 +5077,7 @@ function App() {
                     const isMibApiManaged = acc.bank_name === 'MIB';
                     const isApiManaged = isBmlApiManaged || isMibApiManaged;
                     const hasCreds = acc.has_api_token || !!(accountsCreds[acc.id.toString()]?.username);
+                    const currentShortcut = getAccountShortcut(acc.id.toString());
 
                     // Sibling detection: accounts sharing the same credential group/profile
                     const siblingGroupId = acc.bml_credential_group_id ?? acc.mib_credential_profile_id ?? null;
@@ -5247,7 +5090,7 @@ function App() {
                     const hasSiblings = siblingCount > 0;
 
                     return (
-                      <div key={acc.id} className="p-4 bg-[var(--bg-canvas)] border border-[var(--border-color)] rounded-xl text-sm flex flex-col gap-4">
+                      <div key={acc.id} className="p-4 bg-[var(--bg-canvas)] border border-[var(--border-color)] rounded-xl text-sm flex flex-col gap-3">
                         <div className="flex flex-wrap items-center justify-between gap-4">
                           <div className="flex items-center gap-3 min-w-0">
                             <div className="w-8 h-8 rounded bg-zinc-950/80 border border-zinc-800 p-1 flex items-center justify-center shrink-0">
@@ -5256,6 +5099,11 @@ function App() {
                             <div className="flex-1 min-w-0">
                               <div className="font-medium text-[var(--text-primary)] flex items-center gap-1.5 flex-wrap">
                                 <span>{acc.bank_name} - {acc.account_name}</span>
+                                {currentShortcut && (
+                                  <kbd className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-500/40 px-1.5 py-0.5 rounded font-mono font-bold shadow-sm" title={`Press '${currentShortcut}' to switch to this account`}>
+                                    Key {currentShortcut}
+                                  </kbd>
+                                )}
                                 {acc.label && (
                                   <span className="text-[10px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium">
                                     {acc.label}
@@ -5267,9 +5115,9 @@ function App() {
                                     Linked ×{siblingCount}
                                   </span>
                                 )}
-                                  <span className="text-[9px] font-bold text-emerald-400 bg-emerald-955/40 border border-emerald-500/30 px-2 py-0.5 rounded uppercase font-sans">
-                                    Secure
-                                  </span>
+                                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-955/40 border border-emerald-500/30 px-2 py-0.5 rounded uppercase font-sans">
+                                  Secure
+                                </span>
                               </div>
                               <div className="text-[var(--text-secondary)] text-xs mt-0.5 font-mono">Account: {acc.account_number}</div>
                             </div>
@@ -5357,6 +5205,41 @@ function App() {
                                 </button>
                               </div>
                             )}
+                          </div>
+                        </div>
+
+                        {/* Custom Shortcut Assignment Row */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 pt-2.5 mt-0.5 border-t border-zinc-800/60 text-xs">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                              <Keyboard size={13} className="text-emerald-400" /> Keyboard Shortcut:
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={currentShortcut || 'none'}
+                                onChange={(e) => setAccountShortcut(acc.id.toString(), e.target.value)}
+                                className="bg-zinc-900 border border-zinc-700/80 text-white text-xs rounded-lg px-2.5 py-1 font-mono focus:border-emerald-500 focus:outline-none cursor-pointer"
+                              >
+                                <option value="none">None (No shortcut)</option>
+                                <option value="1">Key 1</option>
+                                <option value="2">Key 2</option>
+                                <option value="3">Key 3</option>
+                                <option value="4">Key 4</option>
+                                <option value="5">Key 5</option>
+                                <option value="6">Key 6</option>
+                                <option value="7">Key 7</option>
+                                <option value="8">Key 8</option>
+                                <option value="9">Key 9</option>
+                                <option value="0">Key 0</option>
+                              </select>
+                              {currentShortcut ? (
+                                <span className="text-[10px] text-zinc-400 font-medium">
+                                  Press <kbd className="bg-zinc-800 text-emerald-400 px-1.5 py-0.5 rounded font-mono font-bold border border-zinc-700">{currentShortcut}</kbd> anywhere to select
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-zinc-500 italic">No shortcut assigned</span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -5607,40 +5490,6 @@ function App() {
                         All bank login credentials (usernames, passwords, and 2FA seeds) are encrypted locally in your browser storage and never transmitted to Viri servers.
                       </p>
                     </div>
-
-                    {importPending && (
-                      <div className="mt-4 p-5 bg-emerald-950/20 border border-emerald-500/30 rounded-xl text-center space-y-4 animate-pulse">
-                        <KeyRound size={28} className="mx-auto text-emerald-400" />
-                        <div>
-                          <h5 className="text-xs font-bold text-white uppercase tracking-wider mb-1">Credential Sync Ready</h5>
-                          <p className="text-[11px] text-zinc-300">
-                            Another cashier counter's bank credentials are ready to be copied to this machine.
-                          </p>
-                        </div>
-                        <div className="flex items-center justify-center gap-3">
-                          <button
-                            onClick={handleImportCredentials}
-                            disabled={importStatus === 'connecting'}
-                            className="btn btn-success text-black py-2 px-4 text-xs font-bold flex items-center gap-1.5 shadow-md rounded-xl disabled:opacity-50"
-                          >
-                            {importStatus === 'connecting' ? (
-                              <>
-                                <span className="h-3.5 w-3.5 rounded-full border-2 border-black border-t-transparent animate-spin shrink-0"></span>
-                                Importing...
-                              </>
-                            ) : (
-                              <>
-                                <Download size={13} />
-                                Import Credentials
-                              </>
-                            )}
-                          </button>
-                          <span className="text-xs font-mono text-emerald-400 bg-emerald-950/50 border border-emerald-500/20 px-2 py-1 rounded">
-                            {String(Math.floor(importCountdown / 60)).padStart(2, '0')}:{String(importCountdown % 60).padStart(2, '0')}
-                          </span>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
@@ -5760,7 +5609,7 @@ function App() {
                         </div>
                       ) : (
                         <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin">
-                          {bankAccounts.map((acc, idx) => {
+                          {bankAccounts.map((acc) => {
                             const isSelected = selectedAccountId === acc.id.toString();
                             const isBml = acc.bank_name === 'BML';
                             return (
@@ -5786,11 +5635,15 @@ function App() {
                                       }`}>
                                       {acc.bank_name}
                                     </span>
-                                    {idx < 9 && (
-                                      <kbd className="text-[9px] bg-zinc-800 text-zinc-400 border border-zinc-700 px-1.5 py-0.5 rounded shadow-sm flex items-center justify-center font-mono">
-                                        {idx + 1}
-                                      </kbd>
-                                    )}
+                                    {(() => {
+                                      const sc = getAccountShortcut(acc.id.toString());
+                                      if (!sc) return null;
+                                      return (
+                                        <kbd className="text-[9px] bg-zinc-800 text-zinc-300 border border-zinc-700 px-1.5 py-0.5 rounded shadow-sm flex items-center justify-center font-mono font-bold">
+                                          {sc}
+                                        </kbd>
+                                      );
+                                    })()}
                                     {acc.label && (
                                       <span className="text-[10px] bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded font-bold">
                                         {acc.label}
@@ -6688,7 +6541,6 @@ function App() {
                         }
 
                         return filtered.map(acc => {
-                          const originalIndex = bankAccounts.findIndex(a => a.id === acc.id);
                           const isSelected = selectedLedgerAccountId === acc.id.toString();
                           const isBml = acc.bank_name === 'BML';
                           const accCache = ledgerCache[acc.id.toString()] || { balance: 'Not synced' };
@@ -6711,11 +6563,15 @@ function App() {
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">{acc.bank_name} • Active</span>
-                                  {originalIndex < 9 && (
-                                    <kbd className="text-[9px] bg-zinc-800 text-zinc-400 border border-zinc-700 px-1.5 py-0.5 rounded shadow-sm flex items-center justify-center font-mono">
-                                      {originalIndex + 1}
-                                    </kbd>
-                                  )}
+                                  {(() => {
+                                    const sc = getAccountShortcut(acc.id.toString());
+                                    if (!sc) return null;
+                                    return (
+                                      <kbd className="text-[9px] bg-zinc-800 text-zinc-300 border border-zinc-700 px-1.5 py-0.5 rounded shadow-sm flex items-center justify-center font-mono font-bold">
+                                        {sc}
+                                      </kbd>
+                                    );
+                                  })()}
                                   {acc.label && (
                                     <span className="text-[9px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium">
                                       {acc.label}
@@ -6786,27 +6642,6 @@ function App() {
                         <div className="flex items-center gap-3 flex-wrap">
                           <h3 className="text-lg font-bold text-white tracking-tight">Daily Entries</h3>
                           <span className="text-sm font-mono text-zinc-500">({filteredTransactions.length})</span>
-                          <FormatSinceLastSync timestamp={ledgerCache[activeLedgerAcc.id.toString()]?.timestamp || null} />
-                          {/* Shared Sync Badge */}
-                          {(() => {
-                            const cache = ledgerCache[activeLedgerAcc.id.toString()];
-                            if (!cache || !cache.timestamp) return null;
-                            const isFresh = (Date.now() - cache.timestamp) < 10000;
-                            const terminalNameStr = cache.cachedByTerminalName || 'System';
-
-                            return (
-                              <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${isFresh
-                                  ? 'bg-emerald-950/30 border-emerald-500/20 text-emerald-400'
-                                  : 'bg-amber-950/30 border-amber-500/20 text-amber-400'
-                                }`}
-                                title={`Version: ${cache.cacheVersion || 0}`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${isFresh ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-                                <span>Updated by {terminalNameStr} {(() => {
-                                  return <><LiveTimer startTime={cache.timestamp} mode="ago" />s ago</>;
-                                })()}</span>
-                              </div>
-                            );
-                          })()}
                         </div>
 
 
@@ -7027,7 +6862,7 @@ function App() {
                         </div>
                       </div>
 
-                      {/* Sync Progress Bar (Moved under Daily Entries) */}
+                      {/* Sync Progress Card */}
                       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 bg-zinc-900/40 rounded-xl border border-zinc-800">
                         {/* Sync Progress */}
                         <div className="flex items-center gap-3 w-full md:flex-1 min-w-0">
@@ -7047,16 +6882,20 @@ function App() {
                             {isSyncing ? `${progress.percent}%` : '100%'}
                           </span>
                           <span className="font-mono text-zinc-300 text-[11px] font-bold ml-1 truncate flex-1 min-w-0">
-                            {progress.text || (isSyncing ? 'Syncing...' : 'Success')}
+                            {progress.text || (isSyncing ? 'Syncing...' : 'Ready')}
                           </span>
                         </div>
 
                         {/* Sync Info / Metadata */}
-                        <div className="flex flex-wrap items-center gap-3 font-mono text-[11px]">
+                        <div className="flex flex-wrap items-center justify-end gap-3 font-mono text-[11px] min-w-0">
                           <span className="font-mono text-zinc-500 font-bold tabular-nums">
                             {isSyncing && syncStartTimeRef.current
                               ? <><LiveTimer startTime={syncStartTimeRef.current} mode="elapsed" /></>
                               : (syncTimeElapsed !== null ? `${(syncTimeElapsed / 1000).toFixed(1)}s` : '0.0s')}
+                          </span>
+                          <span className="text-zinc-700 hidden xl:inline">|</span>
+                          <span className="text-zinc-500 truncate">
+                            {cache.lastUpdated && cache.lastUpdated !== 'Never' ? cache.lastUpdated : 'Never fetched'}
                           </span>
                         </div>
                       </div>
@@ -7093,13 +6932,13 @@ function App() {
                           <div className="flex flex-col">
                             {/* Desktop Table View */}
                             <div className="hidden md:block overflow-x-auto scrollbar-thin">
-                              <table className="w-full text-left border-collapse table-fixed">
+                              <table className="w-full text-left text-xs border-collapse table-fixed">
                                 <thead>
-                                  <tr className="border-b border-zinc-800 text-[10px] text-zinc-500 uppercase tracking-wider font-bold">
-                                    <th className="py-4 px-3 font-semibold w-[22%] truncate">Date & Time</th>
-                                    <th className="py-4 px-3 font-semibold w-[26%] truncate">Description</th>
-                                    <th className="py-4 px-3 font-semibold w-[30%] truncate">Details / Meta</th>
-                                    <th className="py-4 px-3 font-semibold text-right w-[22%] truncate">Amount ({ledgerCurrency})</th>
+                                  <tr className="border-b border-zinc-800 bg-zinc-900/10 text-zinc-400 uppercase tracking-wider font-semibold text-[10px]">
+                                    <th className="px-2 py-2 font-medium w-[22%] truncate">Date & Time <Tooltip text="The transaction posting date." helpSectionId="transaction-ledger" /></th>
+                                    <th className="px-2 py-2 font-medium w-[28%] truncate">Description <Tooltip text="Primary transaction description/type." helpSectionId="transaction-ledger" /></th>
+                                    <th className="px-2 py-2 font-medium w-[26%] truncate">Details <Tooltip text="Additional transaction info (refs, IDs, card details, sender info)." helpSectionId="transaction-ledger" /></th>
+                                    <th className="px-2 py-2 font-medium text-right w-[24%] truncate">Amount / Balance <Tooltip text="Green indicates credits (+), red indicates debits (-)." helpSectionId="transaction-ledger" /></th>
                                   </tr>
                                 </thead>
                                 <tbody className="divide-y divide-zinc-900/60">

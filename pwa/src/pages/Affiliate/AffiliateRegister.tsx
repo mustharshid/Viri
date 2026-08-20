@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { 
-  DollarSign, TrendingUp, Sparkles, ArrowRight, RefreshCw, AlertCircle, Building, Check 
+  DollarSign, TrendingUp, Sparkles, ArrowRight, RefreshCw, AlertCircle, Check 
 } from 'lucide-react';
 
 export default function AffiliateRegister() {
@@ -10,15 +10,24 @@ export default function AffiliateRegister() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [passwordConfirmation, setPasswordConfirmation] = useState('');
-  const [bankName, setBankName] = useState('BML');
-  const [accountNumber, setAccountNumber] = useState('');
-  const [accountName, setAccountName] = useState('');
   const [customCode, setCustomCode] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [programHeadline, setProgramHeadline] = useState('Earn 15% to 25% recurring monthly commissions.');
 
   const navigate = useNavigate();
+
+  useEffect(() => {
+    fetch('/api/referrals/public-config')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.program_headline) {
+          setProgramHeadline(data.program_headline);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,9 +59,6 @@ export default function AffiliateRegister() {
           phone_number: phoneNumber,
           password,
           password_confirmation: passwordConfirmation,
-          payout_bank_name: bankName,
-          payout_account_number: accountNumber,
-          payout_account_name: accountName,
           custom_referral_code: customCode.trim() || undefined,
         }),
       });
@@ -102,7 +108,7 @@ export default function AffiliateRegister() {
               </div>
 
               <h1 className="text-3xl font-extrabold text-white tracking-tight leading-tight">
-                Earn 15% to 25% recurring monthly commissions.
+                {programHeadline}
               </h1>
 
               <p className="text-zinc-400 text-sm leading-relaxed">
@@ -246,54 +252,8 @@ export default function AffiliateRegister() {
                   </div>
                 </div>
 
-                {/* Bank Payout Details */}
-                <div className="pt-3 border-t border-white/10 flex flex-col gap-3">
-                  <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-                    <Building size={14} /> Payout Bank Account Details (MVR)
-                  </span>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold text-zinc-400">Bank</label>
-                      <select
-                        value={bankName}
-                        onChange={(e) => setBankName(e.target.value)}
-                        className="px-3 py-2 rounded-xl bg-black/60 border border-white/15 text-xs text-white focus:border-emerald-500"
-                      >
-                        <option value="BML">BML (Bank of Maldives)</option>
-                        <option value="MIB">MIB (Maldives Islamic Bank)</option>
-                        <option value="Other">Other Bank</option>
-                      </select>
-                    </div>
-
-                    <div className="flex flex-col gap-1 sm:col-span-2">
-                      <label className="text-[11px] font-semibold text-zinc-400">Account Number</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. 7701111524001"
-                        required
-                        value={accountNumber}
-                        onChange={(e) => setAccountNumber(e.target.value)}
-                        className="px-3 py-2 rounded-xl bg-black/60 border border-white/15 text-xs text-white font-mono focus:border-emerald-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-semibold text-zinc-400">Account Holder Name (as on bank record)</label>
-                    <input
-                      type="text"
-                      placeholder="Exact name registered with bank"
-                      required
-                      value={accountName}
-                      onChange={(e) => setAccountName(e.target.value)}
-                      className="px-3 py-2 rounded-xl bg-black/60 border border-white/15 text-xs text-white focus:border-emerald-500"
-                    />
-                  </div>
-                </div>
-
                 {/* Terms Agreement */}
-                <div className="flex items-start gap-2 pt-2">
+                <div className="flex items-start gap-2 pt-1">
                   <input
                     type="checkbox"
                     id="agree-partner-terms"
@@ -315,6 +275,10 @@ export default function AffiliateRegister() {
                   {loading ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
                   {loading ? 'Creating Partner Account...' : 'Join Viri Partner Program'}
                 </button>
+
+                <p className="text-[11px] text-center text-zinc-500 mt-1">
+                  💡 You can configure your BML or MIB payout bank account anytime inside your partner dashboard.
+                </p>
               </form>
             </div>
           </div>

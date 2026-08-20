@@ -41,7 +41,7 @@
             ]
         },
         "condition": {
-            "urlFilter": "||faisanet.mib.com.mv/faisamobilex_smvc/",
+            "urlFilter": "||faisamobilex-smvc-v2.mib.com.mv/index/",
             "resourceTypes": ["xmlhttprequest", "other"]
         }
     },
@@ -51,26 +51,12 @@
         "action": {
             "type": "modifyHeaders",
             "requestHeaders": [
-                { "header": "User-Agent", "operation": "set", "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" }
+                { "header": "User-Agent", "operation": "set", "value": "Mozilla/5.0 (Linux; Android 14; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/129.0.6668.70 Mobile Safari/537.36" }
             ]
         },
         "condition": {
-            "urlFilter": "||faisanet.mib.com.mv",
+            "urlFilter": "||faisamobilex-wv-v2.mib.com.mv",
             "resourceTypes": ["xmlhttprequest", "other"]
-        }
-    },
-    {
-        "id": 5,
-        "priority": 3,
-        "action": {
-            "type": "modifyHeaders",
-            "requestHeaders": [
-                { "header": "Referer", "operation": "set", "value": "https://faisanet.mib.com.mv/accountDetails" }
-            ]
-        },
-        "condition": {
-            "urlFilter": "||faisanet.mib.com.mv/ajaxAccounts/*",
-            "resourceTypes": ["xmlhttprequest"]
         }
     }
 ]

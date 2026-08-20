@@ -31,7 +31,7 @@ describe('Browser Extension Bridge', () => {
     expect(chrome.declarativeNetRequest.updateDynamicRules).toHaveBeenCalledWith(
       expect.objectContaining({
         addRules: expect.any(Array),
-        removeRuleIds: [1]
+        removeRuleIds: [1, 2, 3]
       })
     );
   });

@@ -1407,14 +1407,14 @@ class SuperadminController extends Controller
             $response = Http::withHeaders($reqHeaders)
                 ->timeout(15)
                 ->asForm()
-                ->post('https://faisanet.mib.com.mv/faisamobilex_smvc/');
+                ->post('https://faisamobilex-smvc-v2.mib.com.mv/index/');
 
             $respBody = $response->body();
             $jsonDecoded = json_decode($respBody, true);
 
             $results['mib_api_reachability'] = [
                 'request' => [
-                    'url' => 'https://faisanet.mib.com.mv/faisamobilex_smvc/',
+                    'url' => 'https://faisamobilex-smvc-v2.mib.com.mv/index/',
                     'method' => 'POST',
                     'headers' => $reqHeaders,
                 ],
@@ -1428,7 +1428,7 @@ class SuperadminController extends Controller
         } catch (\Exception $e) {
             $results['mib_api_reachability'] = [
                 'request' => [
-                    'url' => 'https://faisanet.mib.com.mv/faisamobilex_smvc/',
+                    'url' => 'https://faisamobilex-smvc-v2.mib.com.mv/index/',
                     'method' => 'POST',
                     'headers' => $reqHeaders ?? [],
                 ],

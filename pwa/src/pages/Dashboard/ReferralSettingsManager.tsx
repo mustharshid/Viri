@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { 
   Gift, Users, Award, DollarSign, Sliders, RefreshCw, 
   CheckCircle2, AlertCircle, Plus, Edit, Trash2, 
-  Clock, CreditCard, Zap, Building
+  Clock, CreditCard, Zap, Building, Sparkles
 } from 'lucide-react';
 
 interface ReferralSettingsManagerProps {
@@ -28,6 +28,7 @@ export default function ReferralSettingsManager({
   
   // Config form state
   const [payoutMode, setPayoutMode] = useState<'manual_request' | 'automated_batch'>('manual_request');
+  const [programHeadline, setProgramHeadline] = useState('Earn 15% to 25% recurring monthly commissions.');
   const [minThreshold, setMinThreshold] = useState(500);
   const [autoPayoutDay, setAutoPayoutDay] = useState(1);
   const [discountEnabled, setDiscountEnabled] = useState(true);
@@ -83,6 +84,7 @@ export default function ReferralSettingsManager({
 
       if (data.config) {
         setPayoutMode(data.config.payout_mode || 'manual_request');
+        setProgramHeadline(data.config.program_headline || 'Earn 15% to 25% recurring monthly commissions.');
         setMinThreshold(data.config.min_payout_threshold || 500);
         setAutoPayoutDay(data.config.auto_payout_day_of_month || 1);
         setDiscountEnabled(data.config.customer_discount_enabled ?? true);
@@ -142,6 +144,7 @@ export default function ReferralSettingsManager({
         },
         body: JSON.stringify({
           payout_mode: payoutMode,
+          program_headline: programHeadline,
           min_payout_threshold: Number(minThreshold),
           auto_payout_day_of_month: Number(autoPayoutDay),
           customer_discount_enabled: discountEnabled,
@@ -431,6 +434,26 @@ export default function ReferralSettingsManager({
       {activeSubTab === 'config' && (
         <form onSubmit={handleSaveConfig} className="flex flex-col gap-6">
           
+          {/* Partner Program Headline / Value Proposition */}
+          <div className="p-5 rounded-xl border border-zinc-800 bg-black/30 flex flex-col gap-3">
+            <h4 className="text-sm font-bold text-white flex items-center gap-2">
+              <Sparkles size={16} className="text-yellow-500" /> Partner Program Value Proposition Headline
+            </h4>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-zinc-300">Registration Page Headline Text</label>
+              <input
+                type="text"
+                value={programHeadline}
+                onChange={(e) => setProgramHeadline(e.target.value)}
+                placeholder="e.g. Earn 15% to 25% recurring monthly commissions."
+                className="w-full px-3.5 py-2.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-white focus:border-yellow-500"
+              />
+              <span className="text-[10px] text-zinc-500">
+                This headline is displayed prominently to new partners on the partner signup page (<span className="text-zinc-400 font-mono">/affiliate/register</span>).
+              </span>
+            </div>
+          </div>
+
           {/* Payout Mode Toggle */}
           <div className="p-5 rounded-xl border border-zinc-800 bg-black/30 flex flex-col gap-4">
             <h4 className="text-sm font-bold text-white flex items-center gap-2">

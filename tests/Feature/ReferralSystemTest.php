@@ -166,6 +166,12 @@ class ReferralSystemTest extends TestCase
 
     public function test_standalone_affiliate_registration(): void
     {
+        // 1. Verify public config endpoint returns program headline
+        $configResponse = $this->getJson('/api/referrals/public-config');
+        $configResponse->assertStatus(200);
+        $configResponse->assertJsonStructure(['program_headline', 'customer_discount_enabled']);
+
+        // 2. Register partner without bank details (frictionless sign-up)
         $email = 'standalone_partner' . rand(1000, 9999) . '@test.com';
         $customCode = 'STANDALONE' . rand(100, 999);
         $response = $this->postJson('/api/affiliate/register', [
@@ -174,14 +180,13 @@ class ReferralSystemTest extends TestCase
             'phone_number' => '7991234',
             'password' => 'password123',
             'password_confirmation' => 'password123',
-            'payout_bank_name' => 'BML',
-            'payout_account_number' => '7701234567890',
-            'payout_account_name' => 'Standalone Partner',
             'custom_referral_code' => $customCode,
         ]);
 
         $response->assertStatus(201);
         $response->assertJsonStructure(['access_token', 'user', 'affiliate']);
+
+        $token = $response->json('access_token');
 
         $this->assertDatabaseHas('users', [
             'email' => $email,
@@ -191,8 +196,25 @@ class ReferralSystemTest extends TestCase
         $this->assertDatabaseHas('affiliates', [
             'email' => $email,
             'referral_code' => $customCode,
+            'payout_bank_name' => null,
+            'payout_account_number' => null,
+        ]);
+
+        // 3. Update bank payout details from inside partner dashboard
+        $updateBankRes = $this->withHeader('Authorization', 'Bearer ' . $token)
+            ->putJson('/api/affiliate/bank-details', [
+                'payout_bank_name' => 'BML',
+                'payout_account_number' => '7701234567890',
+                'payout_account_name' => 'Standalone Partner Bank Name',
+            ]);
+
+        $updateBankRes->assertStatus(200);
+
+        $this->assertDatabaseHas('affiliates', [
+            'email' => $email,
             'payout_bank_name' => 'BML',
             'payout_account_number' => '7701234567890',
+            'payout_account_name' => 'Standalone Partner Bank Name',
         ]);
     }
 }

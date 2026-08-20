@@ -1,12 +1,12 @@
-// Extension Version: 1.3.14
+// Extension Version: 1.4.0
 import { 
   generateNonce, blowfishEncrypt, blowfishDecrypt, computePgf03, 
   deriveSessionKey, generateSodium, generateXxid, generateAppId,
-  generateClientSalt, DEFAULT_KEY, computeCmod
+  generateClientSalt, generateKey, DEFAULT_KEY, computeCmod,
+  MIB_API_URL, MIB_WEBVIEW_URL, MIB_MODEL
 } from './utils/mib-crypto.js';
 
 const BASE_URL = "https://www.bankofmaldives.com.mv/internetbanking";
-const MIB_BASE_URL = "https://faisanet.mib.com.mv";
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
 const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 
@@ -166,7 +166,7 @@ let lastActiveBank = null;
 async function sanitizeAccountSession(targetAccount, bank) {
   if (lastActiveAccount && (lastActiveAccount !== targetAccount || lastActiveBank !== bank)) {
     console.log(`[Viri Bridge] Switching account: ${lastActiveAccount} (${lastActiveBank}) -> ${targetAccount} (${bank})`);
-    const domain = bank === 'MIB' ? 'faisamobilex-wv.mib.com.mv' : 'bankofmaldives.com.mv';
+    const domain = bank === 'MIB' ? MIB_WEBVIEW_URL.replace('https://', '') : 'bankofmaldives.com.mv';
     try {
       const cookies = await chrome.cookies.getAll({ domain });
       for (const cookie of cookies) {
@@ -409,9 +409,26 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === 'SUBMIT_MIB_OTP') {
-    submitMibOtp(msg.payload.otp, msg.payload.terminalId, msg.payload.bankAccountId, msg.payload.backendUrl, msg.payload.mibUsername, msg.payload.sanctumToken)
+    submitMibOtp(msg.payload.otp, msg.payload.terminalId, msg.payload.bankAccountId, msg.payload.backendUrl, msg.payload.mibUsername, msg.payload.sanctumToken, msg.payload.otpType)
       .then(res => sendResponse(res))
       .catch(e => sendResponse({ success: false, error: e.message }));
+    return true;
+  }
+
+  if (msg.action === 'SUBMIT_MIB_RESEND') {
+    (async () => {
+      try {
+        const { mibAuthTemp } = await chrome.storage.session.get('mibAuthTemp');
+        const username = msg.payload.mibUsername || mibAuthTemp?.mibUsername;
+        const otpType = msg.payload.otpType || '2'; // send on the selected channel (default SMS)
+        if (!username) throw new Error('No MIB username for OTP resend.');
+        await sendMibOtpResend(username, otpType);
+        if (activePort) emitLog(activePort, `> [MIB-API] Resent OTP via C43 (otpType ${otpType}).`);
+        sendResponse({ success: true });
+      } catch (e) {
+        sendResponse({ success: false, error: e.message });
+      }
+    })();
     return true;
   }
 
@@ -438,7 +455,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       .catch(e => sendResponse({
         success: false,
         error: e.message,
-        needsLogin: /no credentials available|not found|Missing MIB device credentials/i.test(String(e.message)) || undefined
+        needsLogin: /no credentials available|not found|Missing MIB device credentials|session expired/i.test(String(e.message)) || undefined
       }));
     return true;
   }
@@ -476,7 +493,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     const doPing = (session) => {
       if (session) {
         if (activePort) emitLog(activePort, `> [Viri Bridge] Sending keep-alive ping for ${session.bankName}...`);
-        const url = session.bankName === 'MIB' ? "https://faisanet.mib.com.mv/accounts" : "https://www.bankofmaldives.com.mv/internetbanking/api/dashboard";
+        const url = session.bankName === 'MIB' ? MIB_WEBVIEW_URL + "/accounts" : "https://www.bankofmaldives.com.mv/internetbanking/api/dashboard";
         fetch(url, { 
           headers: { 
             'User-Agent': USER_AGENT,
@@ -659,7 +676,7 @@ chrome.runtime.onConnectExternal.addListener((port) => {
       }
       else if (msg.action === 'PING_BANK') {
         if (heldSession) {
-          const url = heldSession.bankName === 'MIB' ? "https://faisanet.mib.com.mv/accounts" : "https://www.bankofmaldives.com.mv/internetbanking/api/dashboard";
+          const url = heldSession.bankName === 'MIB' ? MIB_WEBVIEW_URL + "/accounts" : "https://www.bankofmaldives.com.mv/internetbanking/api/dashboard";
           fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => {});
         }
       }
@@ -914,14 +931,14 @@ chrome.declarativeNetRequest.updateDynamicRules({
       action: {
         type: "modifyHeaders",
         requestHeaders: [
-          { header: "Origin", operation: "set", value: "https://faisanet.mib.com.mv" }
+          { header: "User-Agent", operation: "set", value: "android/1.0" }
         ],
         responseHeaders: [
           { header: "Access-Control-Allow-Origin", operation: "set", value: "*" }
         ]
       },
       condition: {
-        urlFilter: "*faisanet.mib.com.mv*",
+        urlFilter: "*faisamobilex-smvc-v2.mib.com.mv*",
         resourceTypes: ["xmlhttprequest"]
       }
     }
@@ -1995,53 +2012,62 @@ class MibTransientError extends Error {
 // during synchronous crypto operations (Blowfish, BigInt modPow)
 const yieldToEventLoop = () => new Promise(r => setTimeout(r, 0));
 
+/**
+ * Recover base64 ciphertext when the server prepends PHP display_errors HTML to
+ * the response (reference _strip_php_notices, mib_client.py:51).
+ */
+function stripMibNotices(text) {
+  if (!text.includes('<br')) return text.trim();
+  const idx = text.lastIndexOf('<b>');
+  if (idx >= 0) {
+    const end = text.indexOf('<br />', idx);
+    if (end >= 0) text = text.substring(end + 6);
+  }
+  return text.trim();
+}
+
 async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields = {}) {
   // Yield before synchronous encryption to keep service worker responsive
   await yieldToEventLoop();
-  const encrypted = blowfishEncrypt(JSON.stringify(dataPayload), encryptKey);
+
+  // August-2026 transport: sfunc (and key2 for sfunc=i) must live at the TOP level
+  // of the decrypted payload AND in the URL query string. Inject them here so the
+  // 15 sfunc=n + 5 sfunc=i callers keep passing plain inner fields unchanged.
+  const payload = { ...dataPayload };
+  if (sfunc === 'r' || sfunc === 'i') {
+    payload.sfunc = sfunc;
+    if (sfunc === 'i' && extraFormFields.key2) payload.key2 = extraFormFields.key2;
+  }
+
+  const encrypted = blowfishEncrypt(JSON.stringify(payload), encryptKey);
   const uriEncoded = encodeURIComponent(encrypted);
 
-  let url, method, headers, body;
-
-  if (sfunc === 'r' || sfunc === 'i') {
-    const formParts = [];
-    for (const [k, v] of Object.entries(extraFormFields)) {
-      if (k === 'sfunc') continue;
+  // sfunc/key2 go on the URL query string; everything else (xxid) stays in the body.
+  const queryParts = [`sfunc=${sfunc}`];
+  const formParts = [];
+  for (const [k, v] of Object.entries(extraFormFields)) {
+    if (k === 'sfunc' || k === 'key2') {
+      queryParts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+    } else {
       formParts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
     }
-    formParts.push(`sfunc=${sfunc}`);
-    formParts.push(`data=${uriEncoded}`);
-    url = `https://faisanet.mib.com.mv/faisamobilex_smvc/`;
-    method = 'POST';
-    headers = {
-      'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8'
-    };
-    body = formParts.join('&');
-  } else {
-    const formParts = [];
-    for (const [k, v] of Object.entries(extraFormFields)) {
-      formParts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
-    }
-    formParts.push(`data=${uriEncoded}`);
-    url = `https://faisanet.mib.com.mv/faisamobilex_smvc/`;
-    method = 'POST';
-    headers = {
-      'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8'
-    };
-    body = formParts.join('&');
   }
+  formParts.push(`data=${uriEncoded}`);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-  const resp = await fetch(url, {
-    method,
-    headers,
-    body,
+  const resp = await fetch(`${MIB_API_URL}?${queryParts.join('&')}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
+      'User-Agent': 'android/1.0',
+    },
+    body: formParts.join('&'),
     credentials: 'include',
     signal: controller.signal
   });
-  
+
   clearTimeout(timeoutId);
 
   // HTTP 419 = session expired (server signal)
@@ -2049,27 +2075,56 @@ async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields =
     throw new MibSessionExpiredError('HTTP 419 — session expired');
   }
 
-  // Transient errors: server 5xx, rate limiting — NOT stale keys.
-  // MIB may return HTML error pages (WebView errors) on these.
+  const rawBody = await resp.text();
+  if (!rawBody) throw new Error("Empty response from MIB API");
+
+  // Transient errors: server 5xx, rate limiting — NOT stale keys. Include the
+  // response body so a server-side error (e.g. a C42 PHP bug) is visible.
   if (resp.status >= 500 || resp.status === 429) {
-    throw new MibTransientError(`MIB transient: HTTP ${resp.status}`);
+    const detail = rawBody ? rawBody.substring(0, 300) : '(empty)';
+    throw new MibTransientError(`MIB transient: HTTP ${resp.status} — ${detail}`);
   }
 
-  const cipherBody = await resp.text();
-  if (!cipherBody) throw new Error("Empty response from MIB API");
+  // Non-2xx errors. The body may be PLAINTEXT (e.g. 400 "route path is required",
+  // 421 "Invalid session") OR ENCRYPTED — when the server finds the cipher key it
+  // encrypts its error response (observed: HTTP 401 with a Blowfish body). Try
+  // plaintext JSON first, then decrypt with the request key (reference _do_request).
+  if (resp.status >= 400) {
+    let msg = rawBody;
+    let reasonCode = '';
+    try {
+      const j = JSON.parse(rawBody);
+      if (j.reasonText) msg = j.reasonText;
+      else if (j.message) msg = j.message;
+      reasonCode = j.reasonCode || '';
+    } catch (e) {
+      try {
+        await yieldToEventLoop();
+        const decrypted = JSON.parse(blowfishDecrypt(stripMibNotices(rawBody), encryptKey));
+        if (decrypted.reasonText) msg = decrypted.reasonText;
+        else if (decrypted.message) msg = decrypted.message;
+        reasonCode = decrypted.reasonCode || '';
+        console.log(`[MIB] sfunc=${sfunc} HTTP ${resp.status} encrypted error reason=${decrypted.reasonText} code=${decrypted.reasonCode}`);
+      } catch (decErr) {
+        // keep raw body as message — not decryptable
+      }
+    }
+    if (/session|invalid|expired/i.test(msg)) {
+      throw new MibSessionExpiredError(`Session invalid: ${msg}${reasonCode ? ` (${reasonCode})` : ''}`);
+    }
+    throw new Error(`MIB HTTP ${resp.status} — ${msg}${reasonCode ? ` (code ${reasonCode})` : ''}`);
+  }
 
   // Detect HTML / WebView error pages (start with '<').
-  // These are transient server errors incorrectly routed to the API endpoint.
-  if (cipherBody.charCodeAt(0) === 0x3C) {
+  if (rawBody.charCodeAt(0) === 0x3C) {
     throw new MibTransientError(`MIB returned HTML/WebView error page (HTTP ${resp.status})`);
   }
 
   // Detect plaintext JSON error responses (MIB may return plaintext
-  // on HTTP 500, 400, etc. — e.g. "internal Token/Digest fail"). 
-  // These are NOT Blowfish-encrypted, so skip decryption.
-  if (cipherBody.charCodeAt(0) === 0x7B) {
+  // on HTTP 500, 400, etc. — e.g. "internal Token/Digest fail").
+  if (rawBody.charCodeAt(0) === 0x7B) {
     try {
-      const plainErr = JSON.parse(cipherBody);
+      const plainErr = JSON.parse(rawBody);
       if (plainErr.reasonText) {
         throw new Error(`MIB API error: ${plainErr.reasonText} (HTTP ${resp.status}, code ${plainErr.reasonCode})`);
       }
@@ -2082,7 +2137,7 @@ async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields =
   try {
     // Yield before synchronous decryption
     await yieldToEventLoop();
-    const decrypted = JSON.parse(blowfishDecrypt(cipherBody, encryptKey));
+    const decrypted = JSON.parse(blowfishDecrypt(stripMibNotices(rawBody), encryptKey));
     console.log(`[MIB] sfunc=${sfunc} HTTP ${resp.status} OK success=${decrypted.success} code=${decrypted.responseCode} reason=${decrypted.reasonText} keys=${Object.keys(decrypted).join(',')}`);
     
     // reasonCode 505 or error 101 = session expired (within encrypted response)
@@ -2093,7 +2148,7 @@ async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields =
     return decrypted;
   } catch (e) {
     if (e instanceof MibSessionExpiredError) throw e;
-    console.error(`[MIB] sfunc=${sfunc} HTTP ${resp.status} body(200): "${cipherBody.substring(0, 200)}" err=${e.message}`);
+    console.error(`[MIB] sfunc=${sfunc} HTTP ${resp.status} body(200): "${rawBody.substring(0, 200)}" err=${e.message}`);
     throw new Error("Failed to decrypt MIB response. Possible stale keys.");
   }
 }
@@ -2108,14 +2163,60 @@ async function fetchMibUserSalt(sessionState, username) {
     uname: username,
     appId: sessionState.appId,
     nonce: nonce,
-    p_dev_typ: 'A',
-    p_dev_tok: 'test',
   };
   const resp = await executeMibSfunc('n', payload, sessionState.sessionKey, { xxid: sessionState.xxid, sfunc: 'n' });
   if (resp.data && resp.data[0] && resp.data[0].userSalt) {
     return resp.data[0].userSalt;
   }
   throw new Error("Failed to fetch userSalt");
+}
+
+/**
+ * FLAT S40 payload for sfunc=r / sfunc=i (August-2026 protocol). The new server
+ * reads routePath (and key2/sfunc for sfunc=i) at the TOP level of the decrypted
+ * payload — the old nested envelope is rejected with "route path is required".
+ * executeMibSfunc injects sfunc (and key2 for 'i') before encrypting.
+ */
+function buildS40Payload(sfunc, appId, key2) {
+  const payload = {
+    cmod: computeCmod().toString(),
+    appId,
+    routePath: 'S40',
+    sodium: generateSodium(),
+    xxid: generateXxid(),
+  };
+  if (sfunc === 'r' || sfunc === 'i') {
+    payload.sfunc = sfunc;
+    if (sfunc === 'i' && key2) payload.key2 = key2;
+  }
+  return payload;
+}
+
+/**
+ * (Re)send OTP via C43 (August-2026 route; the new app auto-sends on SMS).
+ * Send on the channel's own code (SMS = '2'). Passes session state directly to
+ * avoid re-reading chrome.storage (which could race with the just-stored temp).
+ */
+async function sendMibOtpResend(username, otpType, sessionState = null) {
+  const ss = sessionState || (await chrome.storage.session.get('mibAuthTemp')).mibAuthTemp?.sessionState;
+  if (!ss || !ss.xxid || !ss.sessionKey || !ss.nonceGenerator) {
+    throw new Error('No MIB session state for C43 resend.');
+  }
+  const nonce = generateNonce(ss.nonceGenerator);
+  const payload = {
+    uname: username,
+    otpType: otpType,
+    nonce: nonce,
+    appId: ss.appId,
+    sodium: generateSodium(),
+    routePath: 'C43',
+    xxid: ss.xxid,
+  };
+  const resp = await executeMibSfunc('n', payload, ss.sessionKey, { xxid: ss.xxid, sfunc: 'n' });
+  if (!resp.success) {
+    throw new Error(`C43 failed: ${resp.reasonText || JSON.stringify(resp)}`);
+  }
+  return resp;
 }
 
 /**
@@ -2186,13 +2287,29 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
 
   const doRegistrationFlow = async () => {
     if(port) emitLog(port, '> [MIB-API] Executing first-time device registration (C41)...');
-    sessionState.key1 = DEFAULT_KEY;
-    sessionState.key2 = DEFAULT_KEY;
 
-    // sfunc=r
-    const rSodium = generateSodium();
-    const rXxid = generateXxid();
-    const rPayload = { cmod: computeCmod().toString(), appId: storedAppId, routePath: 'S40', sodium: rSodium, xxid: rXxid };
+    // August-2026 protocol: device keys (key1/key2) are generated CLIENT-SIDE and
+    // sent in a FLAT sfunc=r payload; the server issues the real keys only after
+    // C42. Always use a FRESH appId — reusing a stored IOS-era id is invalid.
+    const clientKey1 = generateKey(40);
+    const clientKey2 = generateKey(40);
+    storedAppId = generateAppId();
+    await chrome.storage.local.set({ mib_appId: storedAppId });
+    sessionState.appId = storedAppId;
+    sessionState.key1 = clientKey1;
+    sessionState.key2 = clientKey2;
+
+    // sfunc=r (flat payload, client keys, encrypted with DEFAULT_KEY)
+    const rPayload = {
+      sfunc: 'r',
+      key1: clientKey1,
+      key2: clientKey2,
+      cmod: computeCmod().toString(),
+      appId: storedAppId,
+      routePath: 'S40',
+      sodium: generateSodium(),
+      xxid: generateXxid(),
+    };
     const rResp = await executeMibSfunc('r', rPayload, DEFAULT_KEY);
     console.log(`[MIB] sfunc=r response success=${rResp.success} code=${rResp.responseCode} reason=${rResp.reasonText} xxid=${rResp.xxid}`);
     if (!rResp.success) {
@@ -2202,7 +2319,8 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
     sessionState.nonceGenerator = rResp.nonceGenerator;
     sessionState.sessionKey = await deriveSessionKey(rResp.smod);
 
-    // If sfunc=r directly returns keys (fast-path optimization for recognized appId)
+    // Some backends return keys directly from sfunc=r (fast-path optimization).
+    // The new server does NOT — the C42 response carries the authoritative keys.
     if (rResp.key1 && rResp.key2) {
       if(port) emitLog(port, '> [MIB-API] Found existing keys via sfunc=r. Checking if valid...');
       if (rResp.appId) {
@@ -2213,16 +2331,15 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
       sessionState.key1 = rResp.key1;
       sessionState.key2 = rResp.key2;
       if (rResp.appId) sessionState.appId = rResp.appId;
-      
+
       try {
-        const iPayload = { cmod: computeCmod().toString(), appId: storedAppId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
-        const iResp = await executeMibSfunc('i', iPayload, sessionState.key1, { key2: sessionState.key2 });
-        
+        const iResp = await executeMibSfunc('i', buildS40Payload('i', storedAppId, sessionState.key2), sessionState.key1, { key2: sessionState.key2 });
+
         // Save new session data
         sessionState.sessionKey = await deriveSessionKey(iResp.smod);
         sessionState.xxid = String(iResp.xxid);
         sessionState.nonceGenerator = iResp.nonceGenerator;
-        
+
         const authSessionKey = 'mibSession_' + (bankAccountId || 'default');
         await chrome.storage.session.set({ [authSessionKey]: sessionState });
         if(port) emitLog(port, '> [MIB-API] Fast-path successful. Keys were valid.');
@@ -2230,8 +2347,8 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
       } catch (e) {
         if (e instanceof MibTransientError) throw e;
         if(port) emitLog(port, '> [MIB-API] Fast-path keys were stale. Falling back to C41...');
-        sessionState.key1 = DEFAULT_KEY;
-        sessionState.key2 = DEFAULT_KEY;
+        sessionState.key1 = clientKey1;
+        sessionState.key2 = clientKey2;
       }
     }
 
@@ -2250,17 +2367,33 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
       pgf03: pgf03,
       nonce: nonce,
       appId: sessionState.appId,
-      p_dev_typ: 'A',
-      p_dev_tok: 'test',
+      otpType: '3',
     };
-    
+
     console.log(`[MIB] A44/C41 payload xxid="${sessionState.xxid}" nonceGen="${sessionState.nonceGenerator?.substring(0, 30)}" sessionKey="${sessionState.sessionKey?.substring(0, 16)}"`);
     const c41Resp = await executeMibSfunc('n', c41Payload, sessionState.sessionKey, { xxid: sessionState.xxid, sfunc: 'n' });
     console.log(`[MIB] C41 success=${c41Resp.success} primaryOTPType=${c41Resp.primaryOTPType} otpTypes=${JSON.stringify(c41Resp.otpTypes)} reason=${c41Resp.reasonText}`);
     if (c41Resp.success) {
       if(port) emitLog(port, '> [MIB-API] C41 successful. OTP required.');
-      await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'C42', primaryOTPType: c41Resp.primaryOTPType, mibPassword: password, mibUsername } });
-      return { success: true, requiresOtp: true };
+      await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'C42', primaryOTPType: c41Resp.primaryOTPType, otpTypes: c41Resp.otpTypes, resendGap: c41Resp.resendGap, mibPassword: password, mibUsername } });
+
+      // Mirror the new app's auto-send (useSmsOtpResend): it only fires when the
+      // PRIMARY OTP type is SMS (isSmsOtpType), NOT merely when SMS is in the channel
+      // list. For a primaryOTPType of '3' (Authenticator) the app shows the TOTP sheet
+      // and sends no SMS — auto-sending here would deliver a code that never verifies.
+      try {
+        const primaryChannel = String(c41Resp.primaryOTPType || '');
+        if (primaryChannel === '2') {
+          await sendMibOtpResend(mibUsername, '2', sessionState);
+          console.log('[MIB] Auto-sent SMS OTP via C43 (SMS primary).');
+          if(port) emitLog(port, '> [MIB-API] Auto-sent SMS OTP via C43.');
+        }
+      } catch (e) {
+        console.log(`[MIB] C43 auto-send skipped: ${e.message}`);
+        if(port) emitLog(port, `> [MIB-API] C43 auto-send skipped: ${e.message}`);
+      }
+
+      return { success: true, requiresOtp: true, otpTypes: c41Resp.otpTypes, primaryOtpType: c41Resp.primaryOTPType };
     } else {
       throw new Error(`C41 failed: ${c41Resp.reasonText || JSON.stringify(c41Resp)}`);
     }
@@ -2272,8 +2405,7 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
     sessionState.key2 = storedKey2;
 
     try {
-      const iPayload = { cmod: computeCmod().toString(), appId: storedAppId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
-      const iResp = await executeMibSfunc('i', iPayload, sessionState.key1, { key2: sessionState.key2 });
+      const iResp = await executeMibSfunc('i', buildS40Payload('i', storedAppId, sessionState.key2), sessionState.key1, { key2: sessionState.key2 });
       sessionState.sessionKey = await deriveSessionKey(iResp.smod);
       sessionState.xxid = String(iResp.xxid);
       sessionState.nonceGenerator = iResp.nonceGenerator;
@@ -2295,6 +2427,7 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
         appId: sessionState.appId,
         pmodTime: 0,
         requireBankData: 1,
+        otpType: '3',
       };
 
       const a41Resp = await executeMibSfunc('n', a41Payload, sessionState.sessionKey, { xxid: sessionState.xxid, sfunc: 'n' });
@@ -2447,30 +2580,49 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
   ]);
 }
 
-async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsername, sanctumToken) {
+async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsername, sanctumToken, otpType = '3') {
   const port = activePort;
   const { mibAuthTemp } = await chrome.storage.session.get('mibAuthTemp');
   if (!mibAuthTemp) throw new Error("No MIB auth session found in storage.");
   
   const { sessionState, flow, primaryOTPType, mibPassword } = mibAuthTemp;
 
-  const sodium = generateSodium();
-  const nonce = generateNonce(sessionState.nonceGenerator);
-  
-  if(port) emitLog(port, `> [MIB-API] Submitting OTP via ${flow}...`);
-  
-  const payload = {
-    sodium: sodium,
-    routePath: flow,
-    xxid: sessionState.xxid,
-    otp: otp,
-    uname: mibUsername,
-    otpType: '3', // otpType "2" (SMS) triggers server-side PHP bug at IndexController.php:423 — use TOTP type "3" always
-    appId: sessionState.appId,
-    nonce: nonce,
-  };
-  
-  const resp = await executeMibSfunc('n', payload, sessionState.sessionKey, { xxid: sessionState.xxid, sfunc: 'n' });
+  // Verify with the SELECTED channel's own code. The old server 500'd on SMS otpType
+  // '2' (PHP bug, HANDOFF §7.4) — so if the '2' attempt hits a 5xx, retry once with '3'
+  // (the established workaround). Authenticator/other channels use their own code.
+  const selectedCode = String(otpType || primaryOTPType || '3');
+  const attempts = selectedCode === '2' ? ['2', '3'] : [selectedCode];
+
+  let resp = null;
+  let lastErr = null;
+  for (const code of attempts) {
+    const sodium = generateSodium();
+    const nonce = generateNonce(sessionState.nonceGenerator);
+    if(port) emitLog(port, `> [MIB-API] Submitting OTP via ${flow} (otpType ${code})...`);
+    const payload = {
+      sodium: sodium,
+      routePath: flow,
+      xxid: sessionState.xxid,
+      otp: otp,
+      uname: mibUsername,
+      otpType: code,
+      appId: sessionState.appId,
+      nonce: nonce,
+    };
+    try {
+      resp = await executeMibSfunc('n', payload, sessionState.sessionKey, { xxid: sessionState.xxid, sfunc: 'n' });
+      lastErr = null;
+      break;
+    } catch (e) {
+      if (e instanceof MibSessionExpiredError) throw e;
+      lastErr = e;
+      const is5xx = e instanceof MibTransientError && /HTTP 5\d\d/.test(e.message);
+      if (!is5xx || code === attempts[attempts.length - 1]) break; // 401/4xx → don't retry same code
+    }
+  }
+  if (!resp) {
+    throw new Error(`OTP verification failed (${lastErr?.message || 'unknown error'}). Check the code is current and from the selected method, resend if needed, then try again.`);
+  }
   
   if (resp.success) {
     if(port) emitLog(port, '> [MIB-API] OTP Verified successfully.');
@@ -2531,8 +2683,7 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
       try {
         if(port) emitLog(port, '> [MIB-API] Establishing web session via A41...');
         // sfunc=i resume with new keys
-        const iPayload = { cmod: computeCmod().toString(), appId: sessionState.appId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
-        const iResp = await executeMibSfunc('i', iPayload, key1ToSave, { key2: key2ToSave });
+        const iResp = await executeMibSfunc('i', buildS40Payload('i', sessionState.appId, key2ToSave), key1ToSave, { key2: key2ToSave });
         const webSessionKey = await deriveSessionKey(iResp.smod);
         const webXxid = String(iResp.xxid);
         const webNonceGen = iResp.nonceGenerator;
@@ -2733,7 +2884,7 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
         if(port) emitLog(port, `> [MIB-API] Retrying sfunc=i (attempt ${attempt + 1}/3, ${delay}ms)...`);
         await new Promise(r => setTimeout(r, delay));
       }
-      const freshPayload = { cmod: computeCmod().toString(), appId: localRes.mib_appId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
+      const freshPayload = buildS40Payload('i', localRes.mib_appId, localRes.mib_key2);
       try {
         iResp = await executeMibSfunc('i', freshPayload, localRes.mib_key1, { key2: localRes.mib_key2 });
         retryCount = attempt;
@@ -2966,127 +3117,17 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
     return mibSession;
   } catch(e) {
     if (e instanceof MibSessionExpiredError || /stale keys/i.test(e.message)) {
-      if(port) emitLog(port, '> [MIB-API] Keys expired. Attempting sfunc=r re-registration...');
-      try {
-        const rSodium = generateSodium();
-        const rXxid = generateXxid();
-        const rAppId = localRes.mib_appId || generateAppId();
-        const rPayload = { cmod: computeCmod().toString(), appId: rAppId, routePath: 'S40', sodium: rSodium, xxid: rXxid };
-        const rResp = await executeMibSfunc('r', rPayload, DEFAULT_KEY);
-        if (!rResp.success || !rResp.key1 || !rResp.key2) {
-          throw new Error(`sfunc=r re-registration failed: ${rResp?.reasonText || 'no keys returned'}`);
-        }
-        if(port) emitLog(port, '> [MIB-API] sfunc=r re-registration succeeded. Got fresh keys.');
-        const freshAppId = rResp.appId || rAppId;
-        await chrome.storage.local.set({ mib_key1: rResp.key1, mib_key2: rResp.key2, mib_appId: freshAppId });
-        // Upload fresh keys to server
-        try {
-          const { sanctumToken, [mibProfileIdKey]: mib_profileId, [mibProfileTypeKey]: mib_profileType } = await chrome.storage.local.get(['sanctumToken', mibProfileIdKey, mibProfileTypeKey]);
-          if (sanctumToken) {
-            const mibUsername = credentials?.username || '';
-            if (!mibUsername) {
-              if(port) emitLog(port, '> [MIB-API] Skipping fresh-key upload: no username known for this account.');
-            } else {
-              const credsHash = await computeCredsHash('MIB', mibUsername);
-              await fetch(`${backendUrl}/mib/keys/store`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${sanctumToken}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  hardware_id: terminalId,
-                  bank_account_id: 0,
-                  mib_username: mibUsername,
-                  key1: rResp.key1,
-                  key2: rResp.key2,
-                  app_id: freshAppId,
-                  profile_id: mib_profileId || 'default_profile',
-                  profile_type: mib_profileType || '0',
-                  profile_name: 'Re-registered Profile',
-                  credentials_hash: credsHash
-                })
-              });
-            }
-          }
-        } catch (uploadErr) {
-          if(port) emitLog(port, `> [MIB-API] Warning: failed to upload fresh keys to server: ${uploadErr.message}`);
-        }
-        // Retry with new keys
-        const iPayloadRe = { cmod: computeCmod().toString(), appId: freshAppId, routePath: 'S40', sodium: generateSodium(), xxid: generateXxid() };
-        const iResp = await executeMibSfunc('i', iPayloadRe, rResp.key1, { key2: rResp.key2 });
-        mibSession = {
-          appId: freshAppId, key1: rResp.key1, key2: rResp.key2,
-          username: serverIdentity?.username || credentials?.username || mibUsername || '',
-          sessionKey: await deriveSessionKey(iResp.smod),
-          xxid: String(iResp.xxid), nonceGenerator: iResp.nonceGenerator
-        };
-        await chrome.storage.session.set({ [mibSessionKey]: mibSession });
-        if(port) emitLog(port, '> [MIB-API] Session re-established with fresh keys.');
-        logSessionEvent('session_renewed', { account: targetAccount || 'unknown' });
-        // Retry profile selection + A40 fallback
-        let profileSelected = false;
-        try {
-          const { [mibProfileIdKey]: mib_profileId, [mibProfileTypeKey]: mib_profileType } = await chrome.storage.local.get([mibProfileIdKey, mibProfileTypeKey]);
-          if (mib_profileId) {
-            const p47 = await attemptP47(port, mibSession, mib_profileId, mib_profileType || '0');
-            profileSelected = p47.selected;
-          }
-        } catch (pe) { /* ignore */ }
-        // Try fallback credentials from session storage if PWA didn't provide them
-        if (!profileSelected && (!credentials?.username?.length || !credentials?.password?.length)) {
-          try {
-            const { mib_stored_creds_map = {} } = await chrome.storage.session.get('mib_stored_creds_map');
-            const storedCreds = mib_stored_creds_map[targetAccount];
-            if (storedCreds?.username?.length > 0 && storedCreds?.password?.length > 0) {
-              if(port) emitLog(port, `> [MIB-API] Using stored fallback credentials for account ${targetAccount} (re-registration path).`);
-              credentials = storedCreds;
-            }
-          } catch(e) {}
-        }
-        if (!profileSelected && credentials?.username?.length > 0 && credentials?.password?.length > 0) {
-          try {
-            const a40Sodium = generateSodium();
-            const a40Nonce = generateNonce(mibSession.nonceGenerator);
-            const a40Payload = {
-              sodium: a40Sodium, routePath: 'A40', xxid: mibSession.xxid,
-              uname: credentials.username, pgf02: credentials.password,
-              pmodTime: 0, requireBankData: 1, nonce: a40Nonce, appId: mibSession.appId,
-            };
-            const a40Resp = await executeMibSfunc('n', a40Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
-            if (a40Resp.success) {
-
-              if (a40Resp.profileSelected) {
-                if(port) emitLog(port, '> [MIB-API] Re-auth A40 fast-path. Profile already selected.');
-                profileSelected = true;
-              // Extract balance for current targetAccount from A40 (removed in favor of dynamic A80 fetch)
-              } else {
-                const a40Profiles = a40Resp.operatingProfiles || [];
-                if (a40Profiles.length > 0) {
-                  const pid = a40Profiles[0].profileId || a40Profiles[0].customerProfileId;
-                  const pt = a40Profiles[0].profileType || '0';
-                  await chrome.storage.local.set({ [mibProfileIdKey]: pid, [mibProfileTypeKey]: pt });
-                  profileSelected = await attemptP47(port, mibSession, pid, pt);
-                } else if (a40Resp.selectedProfileId) {
-                  await chrome.storage.local.set({ [mibProfileIdKey]: a40Resp.selectedProfileId, [mibProfileTypeKey]: a40Resp.selectedProfileType || '0' });
-                  profileSelected = await attemptP47(port, mibSession, a40Resp.selectedProfileId, a40Resp.selectedProfileType || '0');
-                } else {
-                  const a80Payload = { nonce: generateNonce(mibSession.nonceGenerator), appId: mibSession.appId, sodium: generateSodium(), routePath: 'A80', xxid: mibSession.xxid };
-                  const a80Resp = await executeMibSfunc('n', a80Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
-                  if (a80Resp.success) profileSelected = true;
-                }
-              }
-            }
-          } catch (a40e) { if(port) emitLog(port, `> [MIB-API] Re-auth A40 failed: ${a40e.message}`); }
-        }
-        if (!profileSelected) {
-          throw new Error("MIB re-authentication failed: no credentials available or profile could not be selected.");
-        }
-        chrome.cookies.getAll({ domain: 'mib.com.mv' }, (cookies) => {
-          if(port) emitLog(port, `> [MIB-API] Cookies after re-session: ${cookies.map(c => `${c.name}=${c.value.substring(0,30)}`).join(', ')}`);
-        });
-        return mibSession;
-      } catch (rE) {
-        if(port) emitLog(port, `> [MIB-API] Re-registration failed: ${rE.message}`);
-        throw new Error("Missing MIB device credentials. Please link account again.");
-      }
+      // August-2026 protocol: a stale device can no longer be re-registered inline —
+      // sfunc=r returns no keys and the new-bundle device registration requires the
+      // C41→C42 OTP gate, which needs the PWA login screen. Clear the invalid local
+      // device state and surface a clear expiry error so the cashier is routed to the
+      // normal MIB login page (existing valid sessions resume above and never reach
+      // this point).
+      if(port) emitLog(port, '> [MIB-API] Session keys expired. Clearing local device state...');
+      await chrome.storage.local.remove(['mib_key1', 'mib_key2']);
+      await chrome.storage.session.remove(mibSessionKey);
+      logSessionEvent('session_expired', { account: targetAccount || 'unknown' });
+      throw new Error('MIB session expired — no credentials available, please log in again on the MIB connection page.');
     }
     throw e;
   }
@@ -3359,15 +3400,17 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
     }
 
     // The encrypted API (with credentials:'include') should have set session cookies.
-    // Set explicit cookies for the WebView subdomain so the WebView recognizes the session.
-    const wvDomain = 'faisamobilex-wv.mib.com.mv';
+    // Set explicit cookies for the WebView subdomain so any WebView surface recognizes
+    // the session. Transactions now go through the encrypted A84 route, so this is
+    // kept only for legacy WebView surfaces.
+    const wvDomain = MIB_WEBVIEW_URL.replace('https://', '');
     const setMibCookies = (domain) => new Promise((resolve) => {
       let done = 0;
       const cb = () => { if (++done === 5) resolve(); };
       chrome.cookies.set({ url: `https://${domain}/`, name: 'xxid', value: mibSession.xxid, domain, path: '/' }, cb);
       chrome.cookies.set({ url: `https://${domain}/`, name: 'IBSID', value: mibSession.xxid, domain, path: '/' }, cb);
       chrome.cookies.set({ url: `https://${domain}/`, name: 'mbnonce', value: generateNonce(mibSession.nonceGenerator), domain, path: '/' }, cb);
-      chrome.cookies.set({ url: `https://${domain}/`, name: 'mbmodel', value: 'IOS-1.0', domain, path: '/' }, cb);
+      chrome.cookies.set({ url: `https://${domain}/`, name: 'mbmodel', value: MIB_MODEL, domain, path: '/' }, cb);
       chrome.cookies.set({ url: `https://${domain}/`, name: 'time-tracker', value: '597', domain, path: '/' }, cb);
     });
     await setMibCookies(wvDomain);
@@ -3510,68 +3553,32 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
       emitLog(port, `> [MIB-API] Final resolved balance: ${accountBalance}`);
     }
 
-    const detailsUrl = `https://${wvDomain}/accountDetails?trxh=1&dashurl=1&accountNo=${targetAccount}`;
-
-    // Pre-warm account-specific WebView shell to initialize session index
-    try {
-      emitLog(port, `> [MIB-API] Pre-initializing WebView account shell for ${targetAccount}...`);
-      await fetch(detailsUrl, {
-        method: 'GET',
-        credentials: 'include',
-        headers: {
-          'User-Agent': 'android/1.0',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-        }
-      });
-      emitLog(port, `> [MIB-API] WebView account shell initialized.`);
-    } catch (e) {
-      emitLog(port, `> [MIB-API] Account shell pre-init warning: ${e.message}`);
-    }
-
-    emitLog(port, `> [MIB-API] Fetching transactions from ${wvDomain}/ajaxAccounts/trxHistory...`);
+    // Transactions now come from the encrypted A84 route (the WebView
+    // /ajaxAccounts/trxHistory endpoint is gone in the August-2026 bundle).
+    emitLog(port, `> [MIB-API] Fetching transaction history via encrypted A84...`);
     activeFlowStage = 'mib_history';
     logSessionEvent('fetch_request_submitted', { account: targetAccount, mode: mode });
-    const trxRes = await fetch(`https://${wvDomain}/ajaxAccounts/trxHistory`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        'X-Requested-With': 'XMLHttpRequest',
-        'Accept': 'application/json, text/javascript, */*; q=0.01',
-        'Referer': detailsUrl
-      },
-      body: buildFormBody({
-        accountNo: targetAccount,
-        trxNo: '',
-        trxType: '0',
-        sortTrx: 'date',
-        sortDir: 'desc',
-        fromDate: '',
-        toDate: '',
-        start: '0',
-        end: '20',
-        includeCount: '1'
-      })
-    });
+    const a84Nonce = generateNonce(mibSession.nonceGenerator);
+    const a84Payload = {
+      accountNo: targetAccount,
+      start: '0',
+      end: '19',           // inclusive: 20 items (preserves the old 20-item window)
+      includeCount: true,
+      appId: mibSession.appId,
+      sodium: generateSodium(),
+      routePath: 'A84',
+      xxid: mibSession.xxid,
+      nonce: a84Nonce,
+    };
+    const a84Resp = await executeMibSfunc('n', a84Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
 
-    const responseText = await trxRes.text().catch(() => '');
-    if (trxRes.status !== 200) {
-      emitLog(port, `> [MIB-API] WebView API error body: ${responseText.substring(0, 500)}`);
-      throw new Error(`WebView API returned HTTP ${trxRes.status}`);
+    if (!a84Resp.success) {
+      throw new Error(`MIB history failed: ${a84Resp.reasonText || 'unknown error'}`);
     }
 
-    let data;
-    try {
-      data = JSON.parse(responseText);
-    } catch (e) {
-      emitLog(port, `> [MIB-API] Response text: ${responseText.substring(0, 300)}`);
-      throw new Error(`MIB API returned HTML page instead of JSON. Bank session may have expired.`);
-    }
-    if (!data.success) {
-      throw new Error("WebView API response indicated failure.");
-    }
-
-    const allTxs = data.data || [];
+    // Tolerate both containers: live server returns {data: [...], total_count};
+    // older shapes nest as {data: {data: [...]}}.
+    let allTxs = Array.isArray(a84Resp.data) ? a84Resp.data : (a84Resp.data?.data || []);
     emitLog(port, `> [MIB-API] Found ${allTxs.length} transactions.`);
 
     // Normalize MIB WebView transactions
@@ -3624,7 +3631,7 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
         balance: accountBalance || '0.00',
         reservedBalance: accountReservedBalance || '0.00',
         availableBalance: accountAvailableBalance || '0.00',
-        bank_api_endpoints: ['POST https://faisamobilex-wv.mib.com.mv/ajaxAccounts/trxHistory']
+        bank_api_endpoints: ['POST https://faisamobilex-smvc-v2.mib.com.mv/index/?sfunc=n (A84)']
       });
       return;
     }
@@ -3641,8 +3648,8 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
         reservedBalance: accountReservedBalance || '0.00',
         availableBalance: accountAvailableBalance || '0.00',
         login_success: true,
-        bank_api_endpoints: ['POST https://faisamobilex-wv.mib.com.mv/ajaxAccounts/trxHistory'],
-        raw_bank_response: data
+        bank_api_endpoints: ['POST https://faisamobilex-smvc-v2.mib.com.mv/index/?sfunc=n (A84)'],
+        raw_bank_response: a84Resp
       });
       return;
     }

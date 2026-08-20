@@ -5,7 +5,6 @@ use App\Http\Controllers\API\BankAccountLockController;
 use App\Http\Controllers\API\BmlOAuthController;
 use App\Http\Controllers\API\ClaimedSaleController;
 use App\Http\Controllers\API\CompanyController;
-use App\Http\Controllers\API\CredentialSyncController;
 use App\Http\Controllers\API\LedgerReportController;
 use App\Http\Controllers\API\MibKeysController;
 use App\Http\Controllers\API\AffiliatePortalController;
@@ -30,6 +29,7 @@ Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/terminal/pair', [TerminalPairingController::class, 'pair']);
 Route::get('/ref/{code}', [AffiliatePortalController::class, 'validateReferralCode']);
+Route::get('/referrals/public-config', [AffiliatePortalController::class, 'getPublicConfig']);
 Route::post('/affiliate/register', [AffiliatePortalController::class, 'register']);
 
 /*
@@ -121,12 +121,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/company/payments', [CompanyController::class, 'storePayment']);
 
     Route::get('/company/audit-logs', [CompanyController::class, 'getAuditLogs']);
-
-    // Credential Sync (Company Dashboard)
-    Route::post('/company/credential-sync/initiate', [CredentialSyncController::class, 'initiate']);
-    Route::get('/company/credential-sync/{id}/status', [CredentialSyncController::class, 'status']);
-    Route::post('/company/credential-sync/{id}/trigger-import', [CredentialSyncController::class, 'triggerImport']);
-    Route::delete('/company/credential-sync/{id}', [CredentialSyncController::class, 'cancel']);
 });
 
 /*
@@ -244,7 +238,6 @@ Route::post('/verify-terminal', function (Request $request) {
 
     $appConfig = [
         'session_status_poll_interval' => (int) ($settings['session_status_poll_interval'] ?? 12),
-        'credential_sync_poll_interval' => (int) ($settings['credential_sync_poll_interval'] ?? 60),
         'version_check_interval' => (int) ($settings['version_check_interval'] ?? 120),
         'active_session_heartbeat_interval' => (int) ($settings['active_session_heartbeat_interval'] ?? 5),
         'realtime_event_poll_interval' => (int) ($settings['realtime_event_poll_interval'] ?? 3),
@@ -408,12 +401,6 @@ Route::post('/terminal/bank-accounts/increment-failures', [BankAccountLockContro
 Route::post('/terminal/bank-accounts/reset-failures', [BankAccountLockController::class, 'resetFailures']);
 Route::post('/terminal/bank-accounts/clear-api-token', [BankAccountLockController::class, 'clearApiToken']);
 Route::post('/terminal/bank-accounts/map-credentials', [BankAccountLockController::class, 'mapCredentials']);
-
-// Credential Sync (Terminal side — hardware_id auth)
-Route::get('/terminal/credential-sync/sse', [CredentialSyncController::class, 'sseStream']);
-Route::get('/terminal/credential-sync/pending', [CredentialSyncController::class, 'pendingForTerminal']);
-Route::post('/terminal/credential-sync/{id}/upload', [CredentialSyncController::class, 'upload']);
-Route::post('/terminal/credential-sync/{id}/confirm-import', [CredentialSyncController::class, 'confirmImport']);
 
 // Real-Time Signaling Endpoints (non-cache)
 

@@ -22,3 +22,7 @@ yarn-error.log
 
 # BML Login – local-only, not for version control
 /bml-login
+
+# Agent exports and local databases
+.freebuff/
+opencode-export/

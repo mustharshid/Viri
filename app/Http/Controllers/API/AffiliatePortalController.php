@@ -18,6 +18,17 @@ use Illuminate\Support\Str;
 
 class AffiliatePortalController extends Controller
 {
+    public function getPublicConfig()
+    {
+        $config = ReferralSystemConfig::getActiveConfig();
+        return response()->json([
+            'program_headline' => $config->program_headline ?: 'Earn 15% to 25% recurring monthly commissions.',
+            'customer_discount_enabled' => (bool) $config->customer_discount_enabled,
+            'customer_discount_type' => $config->customer_discount_type,
+            'customer_discount_value' => (float) $config->customer_discount_value,
+        ]);
+    }
+
     public function register(Request $request)
     {
         $request->validate([
@@ -25,9 +36,6 @@ class AffiliatePortalController extends Controller
             'email' => 'required|string|email|max:255|unique:users,email',
             'phone_number' => 'required|string|max:255',
             'password' => 'required|string|min:8|confirmed',
-            'payout_bank_name' => 'required|in:BML,MIB,Other',
-            'payout_account_number' => 'required|string|max:50',
-            'payout_account_name' => 'required|string|max:100',
             'custom_referral_code' => 'nullable|string|max:32|unique:affiliates,referral_code',
         ]);
 
@@ -49,7 +57,7 @@ class AffiliatePortalController extends Controller
 
             $baseTier = ReferralPerformanceTier::orderBy('min_monthly_sales', 'asc')->first();
 
-            // 3. Create Affiliate Record
+            // 3. Create Affiliate Record (bank payout details are input inside partner dashboard)
             $affiliate = Affiliate::create([
                 'user_id' => $user->id,
                 'name' => $request->name,
@@ -58,9 +66,9 @@ class AffiliatePortalController extends Controller
                 'referral_code' => $code,
                 'custom_coupon_code' => 'SAVE-' . $code,
                 'current_tier_id' => $baseTier?->id,
-                'payout_bank_name' => $request->payout_bank_name,
-                'payout_account_number' => $request->payout_account_number,
-                'payout_account_name' => $request->payout_account_name,
+                'payout_bank_name' => null,
+                'payout_account_number' => null,
+                'payout_account_name' => null,
                 'status' => 'active',
             ]);
 

@@ -42,6 +42,7 @@ class ReferralAdminController extends Controller
     {
         $validated = $request->validate([
             'payout_mode' => 'required|in:manual_request,automated_batch',
+            'program_headline' => 'nullable|string|max:255',
             'min_payout_threshold' => 'required|numeric|min:0',
             'auto_payout_day_of_month' => 'required|integer|min:1|max:31',
             'customer_discount_enabled' => 'required|boolean',
