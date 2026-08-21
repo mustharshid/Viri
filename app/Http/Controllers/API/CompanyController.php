@@ -726,7 +726,7 @@ class CompanyController extends Controller
     {
         $request->validate([
             'amount' => 'required|numeric|min:0.01',
-            'reference_number' => 'required|string|max:255',
+            'reference_number' => 'nullable|string|max:255',
             'receipt_slip' => 'required|image|mimes:jpeg,png|max:5120',
             'remarks' => 'nullable|string|max:1000',
         ]);
@@ -756,7 +756,7 @@ class CompanyController extends Controller
         $payment = PaymentReceipt::create([
             'tenant_id' => $user->tenant_id,
             'amount' => $request->amount,
-            'reference_number' => $request->reference_number,
+            'reference_number' => $request->reference_number ?? null,
             'receipt_slip_path' => $receiptSlipPath,
             'status' => 'pending',
             'remarks' => $request->remarks,

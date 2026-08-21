@@ -290,6 +290,49 @@ class SuperadminController extends Controller
             $totalEvaluated24h = $success24h + $failed24h;
             $successRateDaily = $totalEvaluated24h > 0 ? round(($success24h / $totalEvaluated24h) * 100, 1) : 100.0;
 
+            // 1-Hour Error Ratio & 60-minute sparkline (6 x 10-minute buckets)
+            $oneHourAgo = $now->copy()->subHour();
+            $counts1h = SessionActivityLog::where('created_at', '>=', $oneHourAgo)
+                ->selectRaw("
+                    count(*) as total_cnt,
+                    SUM(CASE WHEN event_type IN ('fetch_request_failed', 'session_login_failed', 'session_heartbeat_lost', 'extension_port_disconnected') THEN 1 ELSE 0 END) as failed_cnt
+                ")
+                ->first();
+
+            $total1h = (int)($counts1h->total_cnt ?? 0);
+            $failed1h = (int)($counts1h->failed_cnt ?? 0);
+            $errorRatio1h = $total1h > 0 ? round(($failed1h / $total1h) * 100, 1) : 0.0;
+
+            $errorTrend1h = 'stable';
+            $errorDelta1h = round($errorRatio1h - $errorRatio24h, 1);
+            if ($errorDelta1h > 0.3) {
+                $errorTrend1h = 'up';
+            } elseif ($errorDelta1h < -0.3) {
+                $errorTrend1h = 'down';
+            }
+
+            $sparkline1h = [];
+            for ($b = 5; $b >= 0; $b--) {
+                $bucketStart = $now->copy()->subMinutes(($b + 1) * 10);
+                $bucketEnd = $now->copy()->subMinutes($b * 10);
+                $bRow = SessionActivityLog::where('created_at', '>=', $bucketStart)
+                    ->where('created_at', '<', $bucketEnd)
+                    ->selectRaw("
+                        count(*) as total_cnt,
+                        SUM(CASE WHEN event_type IN ('fetch_request_failed', 'session_login_failed', 'session_heartbeat_lost', 'extension_port_disconnected') THEN 1 ELSE 0 END) as failed_cnt
+                    ")
+                    ->first();
+                $bTotal = (int)($bRow->total_cnt ?? 0);
+                $bFailed = (int)($bRow->failed_cnt ?? 0);
+                $bRatio = $bTotal > 0 ? round(($bFailed / $bTotal) * 100, 1) : 0.0;
+                $sparkline1h[] = [
+                    'label' => ($b * 10) === 0 ? 'Now' : ($b * 10) . 'm',
+                    'total' => $bTotal,
+                    'failed' => $bFailed,
+                    'error_ratio' => $bRatio,
+                ];
+            }
+
             $counts30d = SessionActivityLog::where('created_at', '>=', $thirtyDaysAgo)
                 ->selectRaw("
                     SUM(CASE WHEN event_type IN ('fetch_request_failed', 'session_login_failed', 'session_heartbeat_lost') THEN 1 ELSE 0 END) as failed_cnt,
@@ -618,6 +661,10 @@ class SuperadminController extends Controller
                 'rph_current' => count($hourlySpectrum) > 0 ? end($hourlySpectrum)['count'] : 0,
                 'hourly_spectrum' => $hourlySpectrum,
                 'error_ratio_24h' => $errorRatio24h,
+                'error_ratio_1h' => $errorRatio1h,
+                'error_ratio_1h_trend' => $errorTrend1h,
+                'error_ratio_1h_delta' => $errorDelta1h,
+                'error_ratio_1h_sparkline' => $sparkline1h,
                 'success_rate_daily' => $successRateDaily,
                 'success_rate_monthly' => $successRateMonthly,
                 'avg_request_duration_24h' => $latestWeekly['avg_request_duration'] ?? 0.0,

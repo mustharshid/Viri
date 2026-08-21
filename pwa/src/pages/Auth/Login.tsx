@@ -140,10 +140,10 @@ export default function Login() {
         </div>
       </nav>
 
-      <main className="auth-page">
-        <div className="auth-card">
+      <main className="auth-page auth-page-compact">
+        <div className="auth-card auth-card-compact">
           <Link to="/" aria-label="Viri home">
-            <img src="/img/logo_en.png" alt="Viri" className="auth-logo" width="160" height="40" decoding="async" />
+            <img src="/img/logo_en.png" alt="Viri" className="auth-logo" width="130" height="32" decoding="async" />
           </Link>
 
           <div className="auth-header">

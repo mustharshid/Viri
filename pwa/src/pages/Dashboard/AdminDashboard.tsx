@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2, Server, Database, Code, Zap, Activity, Sun, Moon, Briefcase, Sparkles, Clock, AlertTriangle, Search, Key, ArrowLeft, ChevronDown, TrendingUp, Gift } from 'lucide-react';
+import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2, Server, Database, Code, Zap, Activity, Sun, Moon, Briefcase, Sparkles, Clock, AlertTriangle, Search, Key, ArrowLeft, ArrowRight, ChevronDown, TrendingUp, Gift } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import ReferralSettingsManager from './ReferralSettingsManager';
 
@@ -48,13 +48,14 @@ export default function AdminDashboard() {
   const [modalLoading, setModalLoading] = useState(false);
   const [selectedRunIdx, setSelectedRunIdx] = useState<number>(0);
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'companies' | 'archived' | 'tiers' | 'logs' | 'terminalDebug' | 'settings' | 'payments' | 'debug' | 'credentials' | 'referrals'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'companies' | 'archived' | 'tiers' | 'logs' | 'terminalDebug' | 'settings' | 'payments' | 'debug' | 'credentials' | 'referrals'>('logs');
   const [singleCompanyFilterId, setSingleCompanyFilterId] = useState<number | null>(null);
   const [overviewSearch, setOverviewSearch] = useState('');
   const [overviewStatusFilter, setOverviewStatusFilter] = useState('all');
   const [sessionLogs, setSessionLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsPage, setLogsPage] = useState(1);
+  const [logsPerPage, setLogsPerPage] = useState<number>(50);
   const [logsTotalPages, setLogsTotalPages] = useState(1);
   const [logRefreshCountdown, setLogRefreshCountdown] = useState<number | null>(null);
   const [logRefreshInterval, setLogRefreshInterval] = useState<number>(15);
@@ -584,7 +585,7 @@ export default function AdminDashboard() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [activeTab, systemSettings, logsPage, filterEventType, filterCompanyId]);
+  }, [activeTab, systemSettings, logsPage, logsPerPage, filterEventType, filterCompanyId]);
 
   const isFetchingLogsRef = useRef(false);
 
@@ -596,7 +597,7 @@ export default function AdminDashboard() {
       const token = localStorage.getItem('viri_token');
       const headers = { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' };
       
-      let url = `/api/admin/session-logs?page=${logsPage}&per_page=20`;
+      let url = `/api/admin/session-logs?page=${logsPage}&per_page=${logsPerPage}`;
       if (filterEventType) url += `&event_type=${filterEventType}`;
       if (filterCompanyId) url += `&tenant_id=${filterCompanyId}`;
 
@@ -2767,46 +2768,135 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* Card 3: Error Ratio (24h) - Clickable to filter Raw Activity Log Stream by Request Failed */}
+          {/* Card 3: Error Ratio (24h) + Last 1h Trend Overlay Graph */}
           <div
             onClick={() => {
               setSessionLogViewMode('raw');
               setFilterEventType('fetch_request_failed');
               document.getElementById('session-activity-stream')?.scrollIntoView({ behavior: 'smooth' });
             }}
-            className="bg-zinc-900/80 border border-zinc-800/80 p-5 rounded-2xl shadow-xl flex items-center justify-between relative overflow-hidden group hover:border-red-500/50 cursor-pointer transition-all"
+            className="bg-zinc-900/80 border border-zinc-800/80 p-5 rounded-2xl shadow-xl flex flex-col justify-between relative overflow-hidden group hover:border-red-500/50 cursor-pointer transition-all"
             title="Click to view Raw Activity Log Stream filtered by Request Failed"
           >
-            <div className="space-y-1">
-              <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
-                Error Ratio (24h)
-                {telemetryDeltas.error_ratio_24h && (
-                  <span className="animate-pulse bg-rose-500/20 text-rose-400 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border border-rose-500/40">
-                    {telemetryDeltas.error_ratio_24h.dir === 'up' ? '+' : '-'}{telemetryDeltas.error_ratio_24h.delta}%
-                  </span>
-                )}
-              </span>
-              <div className="text-2xl font-extrabold font-mono text-white flex items-baseline gap-1">
-                <span>{telemetry.error_ratio_24h ?? 0.0}%</span>
+            <div className="flex items-start justify-between">
+              <div className="space-y-1">
+                <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+                  Error Ratio (24h)
+                  {telemetryDeltas.error_ratio_24h && (
+                    <span className="animate-pulse bg-rose-500/20 text-rose-400 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border border-rose-500/40">
+                      {telemetryDeltas.error_ratio_24h.dir === 'up' ? '+' : '-'}{telemetryDeltas.error_ratio_24h.delta}%
+                    </span>
+                  )}
+                </span>
+                <div className="text-2xl font-extrabold font-mono text-white flex items-baseline gap-2">
+                  <span>{telemetry.error_ratio_24h ?? 0.0}%</span>
+                  
+                  {/* 1h comparison badge */}
+                  {telemetry.error_ratio_1h !== undefined && (
+                    <span className={`text-[10px] font-bold font-mono px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                      telemetry.error_ratio_1h_trend === 'up'
+                        ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                        : telemetry.error_ratio_1h_trend === 'down'
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                        : 'bg-zinc-800 text-zinc-300 border border-zinc-700'
+                    }`}>
+                      {telemetry.error_ratio_1h_trend === 'up' && '▲'}
+                      {telemetry.error_ratio_1h_trend === 'down' && '▼'}
+                      {telemetry.error_ratio_1h_trend === 'stable' && '—'}
+                      1h: {telemetry.error_ratio_1h}%
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="pt-1">
-                {(telemetry.error_ratio_24h ?? 0) <= 2 ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                    <CheckCircle2 size={11} /> Healthy (&lt; 2%)
-                  </span>
-                ) : (telemetry.error_ratio_24h ?? 0) <= 5 ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                    <AlertTriangle size={11} /> Moderate (2-5%)
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/15 text-red-400 border border-red-500/30">
-                    <AlertTriangle size={11} /> High Error Rate (&gt; 5%)
-                  </span>
-                )}
+              <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                <Activity size={18} />
               </div>
             </div>
-            <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-              <Activity size={22} />
+
+            {/* Sparkline overlay graph of the last 1 hour (60 min) */}
+            <div className="mt-3 pt-2 border-t border-zinc-800/60">
+              <div className="flex items-center justify-between text-[10px] font-mono text-zinc-500 mb-1">
+                <span>Last 60m Trend</span>
+                <span className={`font-bold ${
+                  telemetry.error_ratio_1h_trend === 'up' ? 'text-rose-400' : telemetry.error_ratio_1h_trend === 'down' ? 'text-emerald-400' : 'text-zinc-400'
+                }`}>
+                  {telemetry.error_ratio_1h_trend === 'up' ? 'Trending Up ↗' : telemetry.error_ratio_1h_trend === 'down' ? 'Trending Down ↘' : 'Stable →'}
+                </span>
+              </div>
+              
+              <div className="h-10 w-full relative">
+                {(() => {
+                  const spark = telemetry.error_ratio_1h_sparkline || [];
+                  if (spark.length < 2) {
+                    return (
+                      <div className="h-full flex items-center justify-center text-[10px] text-zinc-600 font-mono italic">
+                        Real-time 1h stream tracking
+                      </div>
+                    );
+                  }
+                  const maxVal = Math.max(5, ...spark.map((s: any) => s.error_ratio || 0));
+                  return (
+                    <svg className="w-full h-full overflow-visible" viewBox="0 0 100 30" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="error1hGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={telemetry.error_ratio_1h_trend === 'up' ? '#f43f5e' : '#10b981'} stopOpacity="0.35" />
+                          <stop offset="100%" stopColor={telemetry.error_ratio_1h_trend === 'up' ? '#f43f5e' : '#10b981'} stopOpacity="0.0" />
+                        </linearGradient>
+                      </defs>
+                      <polygon
+                        fill="url(#error1hGrad)"
+                        points={`0,30 ${spark.map((s: any, idx: number) => {
+                          const x = (idx / (spark.length - 1)) * 100;
+                          const y = 30 - ((s.error_ratio || 0) / maxVal) * 26;
+                          return `${x},${y}`;
+                        }).join(' ')} 100,30`}
+                      />
+                      <polyline
+                        fill="none"
+                        stroke={telemetry.error_ratio_1h_trend === 'up' ? '#f43f5e' : '#10b981'}
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        points={spark.map((s: any, idx: number) => {
+                          const x = (idx / (spark.length - 1)) * 100;
+                          const y = 30 - ((s.error_ratio || 0) / maxVal) * 26;
+                          return `${x},${y}`;
+                        }).join(' ')}
+                      />
+                      {spark.map((s: any, idx: number) => {
+                        const x = (idx / (spark.length - 1)) * 100;
+                        const y = 30 - ((s.error_ratio || 0) / maxVal) * 26;
+                        return (
+                          <circle
+                            key={idx}
+                            cx={x}
+                            cy={y}
+                            r="2"
+                            className={telemetry.error_ratio_1h_trend === 'up' ? 'fill-rose-400 stroke-zinc-950 stroke-1' : 'fill-emerald-400 stroke-zinc-950 stroke-1'}
+                          />
+                        );
+                      })}
+                    </svg>
+                  );
+                })()}
+              </div>
+            </div>
+
+            <div className="pt-2 flex items-center justify-between text-[10px]">
+              {(telemetry.error_ratio_24h ?? 0) <= 2 ? (
+                <span className="inline-flex items-center gap-1 font-bold text-emerald-400">
+                  <CheckCircle2 size={11} /> Healthy (&lt; 2%)
+                </span>
+              ) : (telemetry.error_ratio_24h ?? 0) <= 5 ? (
+                <span className="inline-flex items-center gap-1 font-bold text-amber-400">
+                  <AlertTriangle size={11} /> Moderate (2-5%)
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 font-bold text-red-400">
+                  <AlertTriangle size={11} /> High Error Rate (&gt; 5%)
+                </span>
+              )}
+              <span className="text-zinc-500 font-mono text-[9px]">Click for raw error stream</span>
             </div>
           </div>
 
@@ -3809,6 +3899,24 @@ export default function AdminDashboard() {
               </div>
 
               <div className="flex items-center gap-3 flex-wrap">
+                {/* Page Size / Logs per Page Dropdown Preset */}
+                <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 px-2.5 py-1 rounded-xl">
+                  <span className="text-[11px] text-zinc-500 font-medium">Show:</span>
+                  <select
+                    className="bg-transparent text-xs font-bold text-yellow-400 outline-none cursor-pointer"
+                    value={logsPerPage}
+                    onChange={(e) => {
+                      setLogsPerPage(Number(e.target.value));
+                      setLogsPage(1);
+                    }}
+                  >
+                    <option value={20} className="bg-zinc-900 text-white">20 logs</option>
+                    <option value={50} className="bg-zinc-900 text-white">50 logs</option>
+                    <option value={100} className="bg-zinc-900 text-white">100 logs</option>
+                    <option value={200} className="bg-zinc-900 text-white">200 logs</option>
+                  </select>
+                </div>
+
                 {/* Company Filter */}
                 <select
                   className="input-field text-xs py-1.5 px-3 font-medium bg-zinc-900 border-zinc-800"
@@ -3824,7 +3932,7 @@ export default function AdminDashboard() {
                   ))}
                 </select>
 
-                {/* Event Type Filter */}
+                {/* Revised Event Type Filter (Modern Architecture) */}
                 <select
                   className="input-field text-xs py-1.5 px-3 font-medium bg-zinc-900 border-zinc-800"
                   value={filterEventType}
@@ -3834,20 +3942,18 @@ export default function AdminDashboard() {
                   }}
                 >
                   <option value="">All Events</option>
-                  <option value="session_login_started">Login Started</option>
-                  <option value="session_login_success">Login Success</option>
-                  <option value="session_login_failed">Login Failed</option>
-                  <option value="session_claimed">Session Claimed</option>
-                  <option value="session_heartbeat_lost">Heartbeat Lost</option>
-                  <option value="session_released">Session Released</option>
-                  <option value="session_reused">Session Reused (Cached)</option>
-                  <option value="session_created">Session Created</option>
-                  <option value="session_renewed">Session Renewed</option>
-                  <option value="fetch_request_submitted">Request Submitted</option>
-                  <option value="fetch_request_fulfilled">Request Fulfilled</option>
-                  <option value="fetch_request_failed">Request Failed</option>
+                  <option value="fetch_request_submitted">Request Submitted (Verification / Lookup)</option>
+                  <option value="fetch_request_fulfilled">Request Fulfilled (Success)</option>
+                  <option value="fetch_request_failed">Request Failed (Error)</option>
                   <option value="fetch_request_retried">Request Retried</option>
-                  <option value="pwa_debug_logs">PWA Debug Logs</option>
+                  <option value="search_not_found">Search Not Found</option>
+                  <option value="auto_sync_poll_initiated">Live View / Auto Sync Poll</option>
+                  <option value="pwa_debug_logs">Terminal Console Debug Trace</option>
+                  <option value="extension_liveness_probe">Extension Heartbeat / Liveness</option>
+                  <option value="extension_port_disconnected">Extension Disconnected</option>
+                  <option value="extension_reset_triggered">Extension Reset / Reload</option>
+                  <option value="sale_claimed">Shift / Sale Claimed</option>
+                  <option value="credential_injected">Bank Credential Injected</option>
                 </select>
               </div>
             </div>
@@ -5793,8 +5899,28 @@ export default function AdminDashboard() {
                 <X size={20} />
               </button>
               <h3 className="text-lg font-bold text-white mb-4 text-left">Transfer Slip Receipt Preview</h3>
-              <div className="flex-1 flex justify-center bg-black/40 border border-zinc-800 rounded-xl overflow-hidden max-h-[70vh]">
-                <img src={showSlipPreview} alt="Receipt Slip" className="object-contain max-h-full max-w-full" />
+              <div className="flex-1 flex flex-col items-center justify-center bg-black/40 border border-zinc-800 rounded-xl overflow-hidden min-h-[320px] max-h-[70vh] p-4 relative">
+                <img 
+                  src={showSlipPreview} 
+                  alt="Receipt Slip" 
+                  className="object-contain max-h-[55vh] max-w-full rounded-lg shadow-lg"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    if (!target.src.includes('127.0.0.1:8000') && (window.location.port === '5173' || window.location.hostname === 'localhost')) {
+                      target.src = `http://127.0.0.1:8000${showSlipPreview.startsWith('/') ? '' : '/'}${showSlipPreview}`;
+                    }
+                  }}
+                />
+                <div className="mt-4 flex items-center gap-3">
+                  <a
+                    href={showSlipPreview.startsWith('http') ? showSlipPreview : `http://127.0.0.1:8000${showSlipPreview.startsWith('/') ? '' : '/'}${showSlipPreview}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-emerald-400 hover:text-emerald-300 underline font-semibold flex items-center gap-1.5 bg-emerald-950/40 border border-emerald-500/30 px-3 py-1.5 rounded-lg"
+                  >
+                    Open Full Image in New Tab <ArrowRight size={13} />
+                  </a>
+                </div>
               </div>
             </div>
           </div>

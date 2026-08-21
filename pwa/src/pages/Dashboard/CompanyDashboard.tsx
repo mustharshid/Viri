@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Shield, Plus, Trash2, LogOut, Copy, Check, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound, Lock, Menu, AlertTriangle, Search, FileSpreadsheet, ListFilter, Eye, Activity, Calendar, ChevronRight, User, Briefcase, Sparkles, Gift } from 'lucide-react';
+import { Shield, Plus, Trash2, LogOut, Copy, Check, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound, Lock, Menu, AlertTriangle, Search, FileSpreadsheet, ListFilter, Eye, Activity, Calendar, ChevronRight, User, Briefcase, Sparkles, Gift, Upload, Layers, PhoneCall } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 
 const maskUsername = (username: string | null | undefined): string | null => {
@@ -253,9 +253,9 @@ export default function CompanyDashboard() {
   };
 
   // Billing & Payments States
+  const [billingSubTab, setBillingSubTab] = useState<'overview' | 'plans' | 'support'>('overview');
   const [payments, setPayments] = useState<any[]>([]);
   const [paymentAmount, setPaymentAmount] = useState('');
-  const [paymentRef, setPaymentRef] = useState('');
   const [paymentRemarks, setPaymentRemarks] = useState('');
   const [paymentSlip, setPaymentSlip] = useState<File | null>(null);
   const [paymentLoading, setPaymentLoading] = useState(false);
@@ -312,7 +312,7 @@ export default function CompanyDashboard() {
 
   const getBankAccountLimit = () => {
     const tier = user?.tenant?.subscription_tier;
-    if (tier === '1999') return 20;
+    if (tier === '1999') return 10;
     if (tier === '999') return 4;
     return 2; // free & 499
   };
@@ -454,7 +454,6 @@ export default function CompanyDashboard() {
       const token = localStorage.getItem('viri_token');
       const formData = new FormData();
       formData.append('amount', paymentAmount);
-      formData.append('reference_number', paymentRef);
       formData.append('remarks', paymentRemarks);
       formData.append('receipt_slip', paymentSlip);
 
@@ -471,7 +470,6 @@ export default function CompanyDashboard() {
       if (response.ok) {
         setPaymentSuccess("Payment receipt uploaded successfully! Superadmin will verify it shortly.");
         setPaymentAmount('');
-        setPaymentRef('');
         setPaymentRemarks('');
         setPaymentSlip(null);
         const fileInput = document.getElementById('receipt_slip_file') as HTMLInputElement;
@@ -994,14 +992,8 @@ export default function CompanyDashboard() {
             <button onClick={() => setActiveTab('activity')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'activity' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
               <Clock size={18} /> Activity Logs
             </button>
-            <button onClick={() => setActiveTab('plans')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'plans' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
-              <CreditCard size={18} /> Plans & Pricing
-            </button>
             <button onClick={() => { setActiveTab('billing'); fetchPayments(); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'billing' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
-              <CreditCard size={18} /> Billing & Payments
-            </button>
-            <button onClick={() => setActiveTab('support')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'support' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
-              <LifeBuoy size={18} /> Support
+              <CreditCard size={18} /> Billing & Plans
             </button>
             <button onClick={() => setActiveTab('help')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'help' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
               <Info size={18} /> Help Center
@@ -1066,14 +1058,8 @@ export default function CompanyDashboard() {
             <button onClick={() => { setActiveTab('activity'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'activity' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
               <Clock size={18} /> Activity Logs
             </button>
-            <button onClick={() => { setActiveTab('plans'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'plans' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
-              <CreditCard size={18} /> Plans & Pricing
-            </button>
             <button onClick={() => { setActiveTab('billing'); fetchPayments(); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'billing' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
-              <CreditCard size={18} /> Billing & Payments
-            </button>
-            <button onClick={() => { setActiveTab('support'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'support' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
-              <LifeBuoy size={18} /> Support
+              <CreditCard size={18} /> Billing & Plans
             </button>
             <button onClick={() => { setActiveTab('help'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'help' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
               <Info size={18} /> Help Center
@@ -1091,9 +1077,16 @@ export default function CompanyDashboard() {
         <header className="flex flex-wrap sm:flex-nowrap justify-between items-center gap-4 mb-6 sm:mb-8 bg-[var(--bg-card)] border border-[var(--border-color)] p-4 sm:p-5 rounded-2xl backdrop-blur-md shadow-sm">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-[var(--text-primary)] tracking-tight capitalize flex items-center gap-2">
-              {activeTab === 'dashboard' ? 'Overview' : activeTab}
+              {activeTab === 'dashboard' ? 'Overview' : activeTab === 'billing' ? 'Billing, Plans & Support' : activeTab}
             </h1>
-            <p className="text-[var(--text-secondary)] text-xs mt-0.5">Manage and monitor cashier counters and local banking setups</p>
+            <p className="text-[var(--text-secondary)] text-xs mt-0.5">
+              {activeTab === 'dashboard' && 'Manage and monitor cashier counters and local banking setups'}
+              {activeTab === 'reporting' && 'View store settlements, daily sales, and transaction summaries'}
+              {activeTab === 'activity' && 'Real-time audit log of terminal connections and security events'}
+              {activeTab === 'billing' && 'Manage subscription plans, slip uploads, renewals, and customer support'}
+              {activeTab === 'help' && 'Step-by-step setup guides and operational feature documentation'}
+              {activeTab === 'settings' && 'Account profile settings and subscription warning preferences'}
+            </p>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 ml-auto sm:ml-0">
             <div className="flex items-center gap-2 sm:gap-2.5 bg-[var(--bg-surface)] border border-[var(--border-color)] px-3 sm:px-4 py-2 rounded-xl">
@@ -1267,26 +1260,26 @@ export default function CompanyDashboard() {
               </div>
 
             {/* Horizontal Layout Section 1: Cashier Counters Group Card */}
-            <div id="cashier-counters-section" className="glass-panel p-6 space-y-6 border border-[var(--border-color)]">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--border-color)] pb-4">
+            <div id="cashier-counters-section" className="glass-panel p-5 sm:p-6 space-y-5 border border-[var(--border-color)]">
+              <div className="space-y-3.5 border-b border-[var(--border-color)] pb-4">
                 <div>
                   <h2 className="text-lg font-bold text-[var(--text-primary)] flex items-center gap-2">
                     Cashier Counters
                     <Tooltip text="Create and configure cashier counter device IDs. Edit permissions or allow debugging. Click to learn more." onClick={() => navigateToHelp('help-terminals')} />
                   </h2>
-                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">Register and manage POS terminals paired to this account</p>
+                  <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-relaxed">Register and manage POS terminals paired to this account</p>
                 </div>
 
-                <form onSubmit={handleAddTerminalClick} className="flex gap-2.5 bg-[var(--bg-surface)] p-2 border border-[var(--border-color)] rounded-2xl w-full sm:max-w-md">
+                <form onSubmit={handleAddTerminalClick} className="flex flex-col gap-2 bg-[var(--bg-surface)] p-2.5 border border-[var(--border-color)] rounded-2xl w-full">
                   <input 
                     type="text" 
                     required 
                     placeholder="Counter name (e.g. Counter 1, Shop Front)" 
-                    className="input-field border-transparent bg-transparent focus:ring-0 focus:border-transparent flex-1 py-1.5 text-xs text-[var(--text-primary)] placeholder-[var(--text-secondary)]" 
+                    className="input-field border-transparent bg-transparent focus:ring-0 focus:border-transparent w-full py-2 px-3 text-xs text-[var(--text-primary)] placeholder-[var(--text-secondary)] min-w-0" 
                     value={newTerminalName} 
                     onChange={e => setNewTerminalName(e.target.value)} 
                   />
-                  <button type="submit" className="btn btn-success px-4 py-2 text-xs flex items-center gap-1 shrink-0 font-bold">
+                  <button type="submit" className="btn btn-success w-full py-2 px-4 text-xs flex items-center justify-center gap-1.5 font-bold shadow-sm">
                     <Plus size={14} /> Create
                   </button>
                 </form>
@@ -2404,485 +2397,565 @@ export default function CompanyDashboard() {
             <div className="border-b border-zinc-800 pb-6">
               <h2 className="text-3xl font-bold text-white flex items-center gap-3">
                 <Info size={32} className="text-[var(--color-success)]" />
-                Viri Terminal — Setup Guide
+                Viri Terminal — Setup & Feature Guide
               </h2>
               <p className="text-zinc-400 mt-4 text-sm leading-relaxed max-w-3xl">
-                This guide walks through the full process of setting up a Viri terminal, from registering your company to handing a ready terminal to a cashier. 
-                Steps 1–4 are completed by the admin in the dashboard. Steps 5–8 are completed on the terminal device itself, and should be done by the admin before handing off to an employee.
+                This comprehensive guide explains how to configure and deploy Viri cashier terminals, manage bank connectivity, and utilize advanced interface and reconciliation features.
+                Steps 1–4 are configured by the admin in the dashboard. Steps 5–8 are executed on the cashier device.
               </p>
             </div>
 
             <section id="help-setup-1" className="space-y-3">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2"><div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm">1</div> Register your company</h3>
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm font-bold">1</div>
+                Register your company
+              </h3>
               <p className="text-zinc-300 leading-relaxed pl-8">
-                Go to viri.thinksafe.mv and register your company. This creates your admin account and gives you access to the admin dashboard and panel. Within the admin dashboard, you get access to reports and activity logs of your terminals. Additionally, you can view plans and upgrades, along with the help center. A support number is also provided in case you need extra assistance.
+                Go to viri.thinksafe.mv and register your company. This creates your administrative account with immediate access to the company dashboard. Within the dashboard, you can monitor paired terminals, view audit and activity logs, review settlement reports, manage subscription plans, and configure local banking setups.
               </p>
             </section>
 
             <section id="help-subscription" className="space-y-3">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2"><div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm">2</div> Choose a subscription plan</h3>
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm font-bold">2</div>
+                Choose a subscription plan
+              </h3>
               <p className="text-zinc-300 leading-relaxed pl-8">
-                After registering, you'll automatically receive a live account (with limits) that allows you to test the full functionality of Viri. Once you're ready, select and pay for a subscription plan from the dashboard. Your plan determines how many terminals you can create, how many bank accounts can be linked, and which features are available.
+                Every newly registered company receives an active evaluation tier with full access to test Viri's capabilities. When you are ready to scale, select a plan from the Plans & Pricing tab (Starter, Pro, or Enterprise). Your tier determines your maximum terminal capacity, bank account allocations, and access to premium modules such as the Statement Generator, Reports Suite, and Live Sync streaming.
               </p>
             </section>
 
             <section id="help-banks" className="space-y-3">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2"><div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm">3</div> Add your bank accounts</h3>
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm font-bold">3</div>
+                Add your bank accounts
+              </h3>
               <p className="text-zinc-300 leading-relaxed pl-8">
-                From the admin dashboard select your bank type (BML or MIB), then enter the name associated with the bank account, along with the account number. You may also assign a label (e.g., "Main Store" or "Shop 3") for easy identification. Choose the profile type — Business or Personal — that matches the account you're adding. You can add multiple accounts across both banks, depending on your subscription plan limits. Once added, these accounts become available in your terminals.
+                From the dashboard, select your banking institution (Bank of Maldives or Maldives Islamic Bank), enter the account holder name, and provide the account number. You can assign optional custom labels (e.g. "Main Register", "Front Counter", "Outlet 2") and select whether the profile is Business or Personal. Once saved, these accounts become instantly available on all paired cashier terminals.
               </p>
             </section>
 
             <section id="help-terminals" className="space-y-3">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2"><div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm">4</div> Configure and create a terminal</h3>
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm font-bold">4</div>
+                Configure and create cashier counters
+              </h3>
               <div className="text-zinc-300 leading-relaxed pl-8 space-y-4">
-                <p>In the dashboard, create a new terminal. During creation, you will configure two things:</p>
+                <p>Register new cashier counters and configure granular tool permissions for each device:</p>
                 <ol className="list-decimal pl-5 space-y-3">
                   <li id="help-pin">
-                    <strong>Settings PIN</strong> — Optionally set a 6-digit PIN. This would be required to be granted entry on the terminal's settings.
+                    <strong>Settings PIN (6-digit)</strong> — Optionally set an administrative PIN required to access device settings or modify sensitive parameters on the terminal.
                   </li>
                   <li>
-                    <strong>Terminal Tools & Permissions</strong> — choose which tools are available on this terminal. The options are:
-                    <ul className="list-disc pl-5 mt-2 space-y-1 text-sm text-zinc-400">
-                      <li><strong className="text-zinc-300">Verification Panel</strong> — always enabled on every terminal. This is the core payment verification screen and cannot be turned off.</li>
-                      <li><strong className="text-zinc-300">Transaction Ledger</strong> — optional. When enabled, the terminal can view the transaction history for linked accounts. Enabling this reveals two additional options:
-                        <ul className="list-disc pl-5 mt-1">
-                          <li><strong>Show Account Balance</strong> — displays the current balance for each account in the ledger.</li>
-                          <li><strong>Show Outward Transactions (Debit)</strong> — includes debit/outward transactions in the ledger view. If left off, only inward transactions are shown.</li>
+                    <strong>Terminal Tools & Permissions</strong> — Select the exact features accessible on this specific counter:
+                    <ul className="list-disc pl-5 mt-2 space-y-2 text-sm text-zinc-400">
+                      <li>
+                        <strong className="text-zinc-300">Verification Panel</strong> — Always enabled on every terminal. Provides rapid single-amount search and credit confirmation across all linked accounts.
+                      </li>
+                      <li>
+                        <strong className="text-zinc-300">Transaction Ledger</strong> — Allows cashiers to view recent transaction streams for linked bank accounts. Includes sub-options:
+                        <ul className="list-disc pl-5 mt-1 space-y-1">
+                          <li><strong>Show Account Balance:</strong> Displays real-time live account balances in the ledger.</li>
+                          <li><strong>Show Outward Transactions (Debit):</strong> Includes outgoing transfers alongside incoming credits.</li>
                         </ul>
                       </li>
-                      <li><strong className="text-zinc-300">Reports</strong> — optional. Enabling this adds the Reports section to the terminal. (Coming soon — no report content is available yet.)</li>
+                      <li>
+                        <strong className="text-zinc-300">Enable / Disable Live Balance & Transactions</strong> — Toggle real-time background balance updates and auto-syncing per terminal to optimize bandwidth or restrict live financial visibility.
+                      </li>
+                      <li>
+                        <strong className="text-zinc-300">BML Combined Ledger & Verification View</strong> — Unifies BML account verification searches and transaction ledger statements into a single, cohesive view.
+                      </li>
+                      <li>
+                        <strong className="text-zinc-300">Shift & Transaction Claim Reports</strong> — Enables cashiers to claim received payments, log register opening/closing balances, and generate printable shift handover summaries.
+                      </li>
+                      <li>
+                        <strong className="text-zinc-300">Hide Sidebar When Collapsed</strong> — Maximizes screen space on compact POS screens by completely hiding sidebar icons when collapsed, accessible anytime via the edge toggle.
+                      </li>
                     </ul>
                   </li>
                 </ol>
-                <p>Once configured, click <strong>Create Terminal</strong>. This generates a temporary pairing code for the terminal.</p>
-                <p className="text-sm italic text-zinc-400">Already created a terminal and need to change its tools? You can edit these settings at any time from the terminal's entry in the dashboard. Changes take effect on the terminal immediately.</p>
+                <p>Click <strong>Create Counter</strong> to generate a temporary 6-digit pairing code.</p>
+                <p className="text-sm italic text-zinc-400">Counter permissions can be updated at any time from the dashboard. Changes reflect on active terminals immediately without re-pairing.</p>
               </div>
             </section>
 
             <section id="help-setup-5" className="space-y-3">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2"><div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm">5</div> Open the terminal on the device</h3>
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm font-bold">5</div>
+                Open the terminal on the POS device
+              </h3>
               <p className="text-zinc-300 leading-relaxed pl-8">
-                On the device the terminal will be used on, open a browser and go to <strong>viri.thinksafe.mv/cashier</strong>. When prompted, enter the pairing code generated in Step 4. This links the device to your terminal configuration and opens the terminal interface.
+                On the physical POS computer or tablet, open a modern browser (such as Google Chrome) and navigate to <strong>viri.thinksafe.mv/cashier</strong>. When prompted, enter the 6-digit pairing code generated in Step 4. The device links permanently to that counter profile.
               </p>
             </section>
 
             <section id="help-setup-6" className="space-y-3">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2"><div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm">6</div> Install Viri Bridge</h3>
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm font-bold">6</div>
+                Install Viri Bridge extension
+              </h3>
               <p className="text-zinc-300 leading-relaxed pl-8">
-                On the terminal screen, tap the Help button. This opens a menu with a download link for the Viri Bridge browser extension — this is what connects the terminal to your bank and retrieves live data. Detailed installation and setup instructions are available within that same menu.
+                On the cashier terminal screen, click the <strong>Help</strong> or <strong>Extension</strong> button to download the Viri Bridge browser extension zip package. Follow the in-app instructions to load the unpacked extension in Chrome Developer mode. Viri Bridge operates entirely locally to facilitate high-speed, direct API communications with bank endpoints.
               </p>
             </section>
 
             <section id="help-setup-7" className="space-y-3">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2"><div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm">7</div> Set a terminal PIN</h3>
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm font-bold">7</div>
+                Set a terminal screen lock PIN
+              </h3>
               <p className="text-zinc-300 leading-relaxed pl-8">
-                Next to the Help button, open Settings and set a PIN code. This PIN can be used to lock the terminal when it is left unattended, preventing unauthorised access.
+                In the terminal header, click Settings and define a 4-digit lock PIN. Cashiers can lock the screen during unattended register periods or shift handovers with a single click, preventing unauthorized viewing without logging out of the device.
               </p>
             </section>
 
             <section id="help-setup-8" className="space-y-3">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2"><div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm">8</div> Link bank credentials</h3>
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <div className="w-6 h-6 rounded bg-[var(--color-success)] text-black flex items-center justify-center text-sm font-bold">8</div>
+                Connect bank credentials via Direct API
+              </h3>
               <div className="text-zinc-300 leading-relaxed pl-8 space-y-4">
-                <p>For each bank account linked to this terminal, you will need to establish a secure API connection:</p>
+                <p>Connect your bank accounts securely using Viri's direct API architecture:</p>
                 <ul className="list-disc pl-5 space-y-2">
-                  <li><strong>Bank of Maldives (BML):</strong> Authenticate directly through BML's secure official OAuth portal. Viri will acquire and store API access/refresh tokens. You do <em>not</em> need to manually enter your BML password or OTP seed.</li>
-                  <li><strong>Maldives Islamic Bank (MIB):</strong> Enter the account's credentials: username, password, and MIB Authenticator OTP seed.</li>
+                  <li>
+                    <strong>Bank of Maldives (BML):</strong> Authenticate directly through BML's official OAuth portal. Viri acquires and securely stores encrypted API access and refresh tokens locally. No passwords or seeds are stored.
+                  </li>
+                  <li>
+                    <strong>Maldives Islamic Bank (MIB):</strong> Enter account credentials once via the secure API authentication interface.
+                  </li>
                 </ul>
-                <p>The MIB <strong>OTP seed</strong> is a one-time setup step that allows Viri Bridge to generate login verification codes automatically. It is stored locally on this device only.</p>
-                <div className="bg-blue-900/20 border border-blue-900/50 p-4 rounded-lg">
-                  <strong>Getting your MIB OTP seed:</strong> Retrieving the seed requires a short process in your bank's internet or mobile banking app. If you have not done this before, refer to the <strong><a href="#help-auth-guide" className="text-blue-400 hover:underline" onClick={(e) => { e.preventDefault(); navigateToHelp('help-auth-guide'); }}>Authenticator Seed Setup Guide</a></strong> below for step-by-step MIB instructions, including what to do if you already have an authenticator app connected to your account.
+                <div className="bg-emerald-950/20 border border-emerald-500/30 p-4 rounded-xl text-emerald-300 text-sm">
+                  <strong>Automatic Tenant-Wide Credential Sync:</strong> Once a bank account is authenticated on any single terminal within your company, Viri automatically distributes the secure session credentials across all other paired terminals under your tenant. Cashiers do not need to repeat bank authentication on every counter.
                 </div>
-                <p className="italic text-sm text-zinc-400">This step should be completed by the admin before the terminal is handed to a cashier.</p>
               </div>
             </section>
 
-            <div className="pt-6 border-t border-zinc-800 text-center">
-              <h3 className="text-2xl font-bold text-[var(--color-success)] mb-2">Setup complete</h3>
-              <p className="text-zinc-400">Once credentials are entered, the terminal is ready for use. The cashier will see only the tools that were configured in Step 4.</p>
-            </div>
+            {/* Feature Deep-Dive Section */}
+            <div className="pt-8 border-t-2 border-zinc-800 space-y-8">
+              <div className="border-b border-zinc-800 pb-4">
+                <h3 className="text-2xl font-bold text-white">Feature Guides & Operational Workflows</h3>
+                <p className="text-zinc-400 text-xs mt-1">Detailed breakdown of Viri's core operational capabilities and display settings.</p>
+              </div>
 
-            <div className="mt-16 pt-12 border-t-4 border-zinc-800">
-              <h2 id="help-auth-guide" className="text-3xl font-bold text-white mb-6">Viri Bridge — Authenticator Seed Setup Guide</h2>
-              
-              <div className="bg-zinc-900 border border-zinc-700 p-5 rounded-lg mb-8">
-                <h3 className="text-lg font-bold text-white mb-2">What you're doing and why</h3>
-                <p className="text-sm text-zinc-300">
-                  Viri needs your bank's TOTP (one-time password) seed to generate login codes on your behalf on this device. This seed is the same text key that appears when you set up an authenticator app like Google Authenticator. It never leaves this device.<br/><br/>
-                  You will need to go through your bank's authenticator setup process to reach the screen that shows this key. If you already have an authenticator app connected to your bank account, you will need to reset it first — this disconnects your existing app, so you will need to re-link it after completing this process.
+              <div id="help-sidebar-collapse" className="space-y-3">
+                <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                  <div className="w-6 h-6 rounded bg-zinc-800 text-zinc-300 flex items-center justify-center text-xs font-mono font-bold">A</div>
+                  Hide Sidebar When Collapsed
+                </h4>
+                <p className="text-zinc-300 text-sm leading-relaxed pl-8">
+                  For compact touchscreen registers and tablet displays, you can configure the cashier sidebar to hide completely rather than remaining in icon-only mode. When collapsed, the full width of the screen is dedicated to transaction rows and receipt verifications. Cashiers can open the sidebar instantly whenever needed using the toggle tab located on the left edge of the screen.
                 </p>
               </div>
 
-              <div className="space-y-10">
-                {/* BML Guide */}
-                <div className="space-y-6">
-                  <h3 className="text-2xl font-bold text-red-500 border-b border-zinc-800 pb-2">Bank of Maldives (BML)</h3>
-                  <p className="text-sm text-zinc-400">For visual reference, BML's official setup guide is available as a step-by-step PDF and on their authenticator info page.</p>
-                  
-                  <div className="space-y-4">
-                    <h4 className="text-lg font-semibold text-white">Scenario A — Fresh setup (no authenticator previously enabled)</h4>
-                    
-                    <div className="bg-zinc-900/50 p-4 rounded-lg">
-                      <h5 className="font-bold text-zinc-300 mb-2 text-sm uppercase tracking-wider">Via Internet Banking:</h5>
-                      <ol className="list-decimal pl-5 space-y-2 text-sm text-zinc-300">
-                        <li>Log in to BML Internet Banking at bankofmaldives.com.mv/internetbanking</li>
-                        <li>Go to <strong>Settings</strong></li>
-                        <li>Scroll down and click <strong>Setup Authenticator</strong></li>
-                        <li>Enter your debit card details — select your card from the dropdown, then enter the expiry date and security code</li>
-                        <li>Click <strong>Authorize</strong></li>
-                        <li>A QR code will appear on screen. <em>Do not scan it yet.</em> Instead, click <strong>Can't scan QR?</strong> below the QR code</li>
-                        <li>A text key (a long string of letters and numbers) will be revealed. <strong>This is your seed.</strong> Copy it exactly and paste it into the Viri setup screen</li>
-                        <li>Open your authenticator app, add the account manually using that same key, and generate a 6-digit code</li>
-                        <li>Enter that 6-digit code on the BML screen to confirm and activate</li>
-                      </ol>
-                    </div>
-
-                    <div className="bg-zinc-900/50 p-4 rounded-lg">
-                      <h5 className="font-bold text-zinc-300 mb-2 text-sm uppercase tracking-wider">Via Mobile Banking App:</h5>
-                      <ol className="list-decimal pl-5 space-y-2 text-sm text-zinc-300">
-                        <li>Log in to the BML Mobile Banking app</li>
-                        <li>Tap <strong>More</strong> at the bottom navigation</li>
-                        <li>Go to <strong>Applications → Authenticator Setup</strong></li>
-                        <li>Scroll down and tap <strong>Set-up Authenticator</strong></li>
-                        <li>Enter your debit card details (card, expiry, CVC) and tap <strong>Authorize</strong></li>
-                        <li>On the QR code screen, tap the QR link option and then choose <strong>Enter code manually</strong> — this reveals the text seed</li>
-                        <li>Copy that seed and paste it into the Viri setup screen</li>
-                        <li>In your authenticator app, add the account using the same key and enter the generated 6-digit code back into the BML app to confirm</li>
-                      </ol>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <h4 className="text-lg font-semibold text-white">Scenario B — Authenticator already enabled (reset required)</h4>
-                    <p className="text-sm text-zinc-400">You will need to reset your existing authenticator link before a new seed can be issued. Resetting permanently disconnects your current authenticator app from BML.</p>
-                    <div className="bg-zinc-900/50 p-4 rounded-lg">
-                      <ol className="list-decimal pl-5 space-y-2 text-sm text-zinc-300">
-                        <li>Log in to BML Internet Banking or the Mobile Banking app</li>
-                        <li>Navigate to the same authenticator settings screen (Settings → Authenticator on internet banking, or More → Applications → Authenticator Setup on mobile)</li>
-                        <li>Look for a <strong>Reset or Remove Authenticator</strong> option and confirm the reset — you may need to verify using your current method (SMS or existing authenticator code)</li>
-                        <li>Once reset, follow all steps in Scenario A above from step 3 onwards to complete a fresh setup and retrieve your new seed</li>
-                      </ol>
-                    </div>
-                    <p className="text-xs text-zinc-500 italic">If you cannot locate the reset option, contact BML customer support at 1600 or visit your nearest branch. Their authenticator info page also has further guidance.</p>
-                  </div>
-                </div>
-
-                {/* MIB Guide */}
-                <div className="space-y-6">
-                  <h3 className="text-2xl font-bold text-emerald-500 border-b border-zinc-800 pb-2">Maldives Islamic Bank (MIB)</h3>
-                  <p className="text-sm text-zinc-400">For visual reference, MIB's official authenticator setup guide is available at mib.com.mv/authenticator-set-up-guide, including a video walkthrough.</p>
-                  
-                  <div className="space-y-4">
-                    <h4 className="text-lg font-semibold text-white">Scenario A — Fresh setup (no authenticator previously enabled)</h4>
-                    <p className="text-sm text-zinc-400">MIB's authenticator is managed through their internet banking platform, faisanet.</p>
-                    <div className="bg-zinc-900/50 p-4 rounded-lg">
-                      <ol className="list-decimal pl-5 space-y-2 text-sm text-zinc-300">
-                        <li>Open a browser and log in to faisanet at faisanet.mib.com.mv</li>
-                        <li>Once logged in, go to the menu and select <strong>Personal Profile</strong></li>
-                        <li>In your profile settings, select <strong>Set Authenticator</strong></li>
-                        <li>A prompt will ask you to re-enter your password. Enter it and press Submit</li>
-                        <li>You will be asked to enter your card details. <em>If you do not have an MIB card, use the chat function within faisanet or the faisamobilex app to request that MIB set up the authenticator for you</em></li>
-                        <li>After card verification, a QR code will appear. Look for the option to <strong>enter the code manually</strong> instead of scanning</li>
-                        <li>Copy the text key that is shown. <strong>This is your seed.</strong> Paste it into the Viri setup screen</li>
-                        <li>In your authenticator app, add the account using that key and generate a 6-digit OTP</li>
-                        <li>Enter that OTP on the faisanet screen to validate and complete setup</li>
-                        <li>Lastly, in your settings, select <strong>Authenticator Mobile App</strong> as your default 2FA verification method under "Select your preferred channel to receive OTP"</li>
-                      </ol>
-                    </div>
-                    <p className="text-xs text-zinc-500 italic">MIB supports all standard TOTP apps including Google Authenticator, Microsoft Authenticator, and Authy.</p>
-                  </div>
-
-                  <div className="space-y-4">
-                    <h4 className="text-lg font-semibold text-white">Scenario B — Authenticator already enabled (reset required)</h4>
-                    <div className="bg-zinc-900/50 p-4 rounded-lg">
-                      <ol className="list-decimal pl-5 space-y-2 text-sm text-zinc-300">
-                        <li>Log in to faisanet</li>
-                        <li>Go to Personal Profile → Set Authenticator</li>
-                        <li>If a reset or reconfigure option is available, select it. You will likely be asked to verify using your current SMS OTP before the reset is allowed</li>
-                        <li>Once the existing authenticator is cleared, follow all steps in Scenario A above to complete fresh setup and retrieve your new seed</li>
-                      </ol>
-                    </div>
-                    <p className="text-xs text-zinc-500 italic">If you do not see a reset option, contact MIB customer support via the in-app chat, call 1400, or visit a branch. The official MIB setup guide may also have updated instructions.</p>
-                  </div>
-                </div>
-
-                <div className="bg-yellow-900/20 border border-yellow-700/50 p-5 rounded-lg mt-8">
-                  <h4 className="text-yellow-500 font-bold mb-2 flex items-center gap-2"><Shield size={18} /> A note for admins</h4>
-                  <p className="text-sm text-zinc-300">
-                    This step should be completed by the account owner (typically the business admin) before handing the terminal over to a cashier. The seed is stored locally on this device only and is required for Viri to generate login OTPs automatically. <strong>Keep this process confidential and do not share the seed with anyone outside of this setup flow.</strong>
-                  </p>
-                </div>
+              <div id="help-live-balance" className="space-y-3">
+                <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                  <div className="w-6 h-6 rounded bg-zinc-800 text-zinc-300 flex items-center justify-center text-xs font-mono font-bold">B</div>
+                  Enable / Disable Live Balance & Transactions
+                </h4>
+                <p className="text-zinc-300 text-sm leading-relaxed pl-8">
+                  Viri allows administrators to tailor financial visibility per terminal counter. In settings where cashiers should only verify specific customer transfer slips without seeing current account totals or outgoing debits, simply disable balance visibility in the counter permission settings. When Live Balance is enabled, account balances update continuously as new credits arrive.
+                </p>
               </div>
+
+              <div id="help-bml-combined" className="space-y-3">
+                <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                  <div className="w-6 h-6 rounded bg-zinc-800 text-zinc-300 flex items-center justify-center text-xs font-mono font-bold">C</div>
+                  BML — Combined Transaction Ledger & Verification View
+                </h4>
+                <p className="text-zinc-300 text-sm leading-relaxed pl-8">
+                  The Combined View unifies payment verification search tools and the live transaction ledger into a single comprehensive interface. Cashiers can monitor real-time incoming credits, search by transfer amount, and review transaction metadata without navigating between separate tabs.
+                </p>
+              </div>
+
+              <div id="help-shift-claims" className="space-y-3">
+                <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                  <div className="w-6 h-6 rounded bg-zinc-800 text-zinc-300 flex items-center justify-center text-xs font-mono font-bold">D</div>
+                  Shift Claiming & Daily Register Reports
+                </h4>
+                <p className="text-zinc-300 text-sm leading-relaxed pl-8">
+                  Cashiers can claim individual customer transactions as verified during their shift. At the end of a shift, cashiers generate a comprehensive Shift Claim Report summarizing total verified amounts, transaction counts, and handover totals for store managers.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-6 border-t border-zinc-800 text-center">
+              <h3 className="text-2xl font-bold text-[var(--color-success)] mb-2">Setup Complete & Ready for POS Operations</h3>
+              <p className="text-zinc-400 text-sm">Once credentials and tools are configured, terminals are ready for cashier use with immediate synchronization.</p>
             </div>
           </div>
         )}
 
-        {/* --- TAB: BILLING & PAYMENTS --- */}
+        {/* --- TAB: BILLING & PLANS (COMBINED BILLING, PLANS & PRICING, AND SUPPORT) --- */}
         {activeTab === 'billing' && (
           <div className="space-y-8 animate-fade-in text-left">
-            <div className="grid md:grid-cols-2 gap-8">
-              {/* Current Plan Summary Card */}
-              <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl flex flex-col justify-between shadow-xl">
-                <div>
-                  <div className="flex justify-between items-start mb-4">
-                    <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Plan Status</span>
-                    <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full uppercase">
-                      {user?.tenant?.subscription_tier === 'free' ? 'Free Trial' : `Premium MVR ${user?.tenant?.subscription_tier}`}
-                    </span>
-                  </div>
-                  <h3 className="text-xl font-bold text-white mb-2">Current Active Subscription</h3>
-                  <p className="text-zinc-400 text-xs mb-6 leading-relaxed">
-                    Here are the active features and limits allocated to your business account under your current subscription tier.
-                  </p>
-
-                  <div className="space-y-3.5 border-t border-zinc-800/60 pt-4">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-zinc-500">Monthly Verification Limit</span>
-                      <span className="font-mono font-bold text-white">{getVerificationLimit()} Requests</span>
-                    </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-zinc-500">Maximum Cashier Counters</span>
-                      <span className="font-mono font-bold text-white">{user?.tenant?.max_terminals ?? 1} Counters</span>
-                    </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-zinc-500">Linked Bank Accounts</span>
-                      <span className="font-mono font-bold text-white">{getBankAccountLimit()} Accounts</span>
-                    </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-zinc-500">Subscription Expiration</span>
-                      <span className="font-mono font-bold text-zinc-300">
-                        {user?.tenant?.license_expires_at ? new Date(user.tenant.license_expires_at).toLocaleDateString() : 'Never'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="border-t border-zinc-800/60 pt-4 mt-6">
-                  <button onClick={() => setActiveTab('plans')} className="btn btn-outline border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-xs w-full py-2.5 justify-center font-bold">
-                    View Pricing Plans & Limits
-                  </button>
-                </div>
-              </div>
-
-              {/* Submit Payment Receipt Form */}
-              <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl shadow-xl">
-                <h3 className="text-lg font-bold text-white mb-1">Submit Payment Slip</h3>
-                <p className="text-xs text-zinc-400 mb-6">Send us a bank transfer slip receipt copy to renew or upgrade your plan.</p>
-
-                {paymentError && <div className="p-3 mb-4 bg-red-950/40 border border-red-500/30 rounded-xl text-red-300 text-xs font-semibold">{paymentError}</div>}
-                {paymentSuccess && <div className="p-3 mb-4 bg-green-950/40 border border-green-500/30 rounded-xl text-green-300 text-xs font-semibold">{paymentSuccess}</div>}
-
-                <form onSubmit={handleUploadPaymentReceipt} className="space-y-4">
-                  <div className="input-group">
-                    <label className="input-label">Transfer Amount (MVR)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      required
-                      placeholder="e.g. 499.00"
-                      className="input-field"
-                      value={paymentAmount}
-                      onChange={e => setPaymentAmount(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="input-group">
-                    <label className="input-label">Bank Reference Number</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Enter bank transaction reference ID"
-                      className="input-field"
-                      value={paymentRef}
-                      onChange={e => setPaymentRef(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="input-group">
-                    <label className="input-label">Upload Slip Image (PNG/JPEG)</label>
-                    <input
-                      id="receipt_slip_file"
-                      type="file"
-                      accept="image/png, image/jpeg"
-                      required
-                      className="input-field py-1.5"
-                      onChange={e => {
-                        if (e.target.files && e.target.files.length > 0) {
-                          setPaymentSlip(e.target.files[0]);
-                        }
-                      }}
-                    />
-                  </div>
-
-                  <div className="input-group">
-                    <label className="input-label">Optional Remarks</label>
-                    <textarea
-                      rows={2}
-                      placeholder="Any additional details or comments..."
-                      className="input-field w-full text-xs"
-                      value={paymentRemarks}
-                      onChange={e => setPaymentRemarks(e.target.value)}
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={paymentLoading}
-                    className="btn btn-success w-full py-3 mt-4 justify-center font-bold"
-                  >
-                    {paymentLoading ? 'Uploading...' : 'Submit Payment Receipt'}
-                  </button>
-                </form>
-              </div>
-            </div>
-
-            {/* Payment Submissions History list */}
-            <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl shadow-xl">
-              <h3 className="text-lg font-bold text-white mb-6">Payment Submission History</h3>
-              {payments.length === 0 ? (
-                <div className="text-center text-zinc-500 italic py-8 border border-dashed border-zinc-800/80 rounded-xl">
-                  No payment slip submissions recorded.
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="border-b border-zinc-800/60 text-zinc-400 font-bold uppercase tracking-wider">
-                        <th className="pb-3">Submitted Date</th>
-                        <th className="pb-3">Amount</th>
-                        <th className="pb-3">Reference Number</th>
-                        <th className="pb-3">Receipt Image</th>
-                        <th className="pb-3">Status</th>
-                        <th className="pb-3">Remarks / Superadmin Feedback</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-800/40">
-                      {payments.map((p: any) => (
-                        <tr key={p.id} className="hover:bg-zinc-850/10">
-                          <td className="py-3 text-zinc-400">{new Date(p.created_at).toLocaleString()}</td>
-                          <td className="py-3 font-mono font-bold text-white">MVR {parseFloat(p.amount).toFixed(2)}</td>
-                          <td className="py-3 font-mono text-zinc-300">{p.reference_number}</td>
-                          <td className="py-3">
-                            <a
-                              href={p.receipt_slip_path}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-blue-400 hover:text-blue-300 underline font-semibold flex items-center gap-1"
-                            >
-                              View Slip
-                            </a>
-                          </td>
-                          <td className="py-3">
-                            <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] ${
-                              p.status === 'pending'
-                                ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
-                                : p.status === 'approved'
-                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                            }`}>
-                              {p.status}
-                            </span>
-                          </td>
-                          <td className="py-3 text-zinc-400 max-w-xs truncate" title={p.remarks}>{p.remarks || '-'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* --- TAB: PLANS --- */}
-        {activeTab === 'plans' && (
-          <div className="flex flex-col gap-8">
-            <div className="text-center mb-8">
-              <h2 className="text-3xl font-bold mb-4">Available Subscription Plans</h2>
-              <p className="text-[var(--text-secondary)]">Choose the plan that best fits your business needs.</p>
-            </div>
             
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {/* Free Plan */}
-              <div className="glass-panel p-8 border-t-4 border-t-zinc-500 flex flex-col">
-                <h3 className="text-xl font-bold text-zinc-300">Free Tier</h3>
-                <div className="text-3xl font-bold my-4">MVR 0 <span className="text-base font-normal text-[var(--text-secondary)]">/mo</span></div>
-                <ul className="space-y-3 mb-8 flex-1">
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-zinc-500" /> 20 verifications / month</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-zinc-500" /> 1 Cashier Terminal</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-zinc-500" /> 2 Bank Accounts</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-zinc-500" /> Standard Support</li>
-                </ul>
-                <button disabled={user?.tenant?.subscription_tier === 'free'} className="btn w-full bg-zinc-800 disabled:opacity-50">
-                  {user?.tenant?.subscription_tier === 'free' ? 'Current Plan' : 'Downgrade'}
-                </button>
-              </div>
-
-              {/* Starter Plan */}
-              <div className="glass-panel p-8 border-t-4 border-t-emerald-500 relative flex flex-col shadow-2xl shadow-emerald-900/10">
-                <h3 className="text-xl font-bold text-emerald-400">Starter</h3>
-                <div className="text-3xl font-bold my-4">MVR 349.00 <span className="text-base font-normal text-[var(--text-secondary)]">/mo</span></div>
-                <ul className="space-y-3 mb-8 flex-1 text-sm text-zinc-300">
-                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> Verification Panel – Search transactions by amount, or preview most recent credits.</li>
-                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> See balances and basic transaction lists.</li>
-                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> Per terminal customisation of account balance and debit transaction view.</li>
-                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> Shift &amp; transaction claim function and reports.</li>
-                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> 2 Bank Accounts Total</li>
-                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> 1 Terminal connection.</li>
-                </ul>
-                <button disabled={user?.tenant?.subscription_tier === '499' || user?.tenant?.subscription_tier === '349'} className="btn btn-success w-full disabled:opacity-50 disabled:bg-emerald-900">
-                  {user?.tenant?.subscription_tier === '499' || user?.tenant?.subscription_tier === '349' ? 'Current Plan' : 'Upgrade'}
-                </button>
-              </div>
-
-              {/* Pro Plan */}
-              <div className="glass-panel p-8 border-t-4 border-t-purple-500 flex flex-col">
-                <h3 className="text-xl font-bold text-purple-400">Pro</h3>
-                <div className="text-3xl font-bold my-4">MVR 899.00 <span className="text-base font-normal text-[var(--text-secondary)]">/mo</span></div>
-                <ul className="space-y-3 mb-8 flex-1 text-sm text-zinc-300">
-                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-purple-500 shrink-0 mt-0.5" /> Pro plan includes: everything in starter plan</li>
-                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-purple-500 shrink-0 mt-0.5" /> Full Tool Suite Access – Verification Panel + Unified Ledger + Reports Suite + Statement Generator.</li>
-                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-purple-500 shrink-0 mt-0.5" /> On-Demand Statement Generation. Export to PDF, Excel &amp; CSV.</li>
-                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-purple-500 shrink-0 mt-0.5" /> 4 Bank Accounts (modular – 100.00 per additional bank account).</li>
-                  <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-purple-500 shrink-0 mt-0.5" /> 3 Terminals (modular – 200.00 per additional terminal).</li>
-                </ul>
-                <button disabled={user?.tenant?.subscription_tier === '999' || user?.tenant?.subscription_tier === '899'} className="btn bg-purple-600 hover:bg-purple-500 text-white w-full disabled:opacity-50">
-                  {user?.tenant?.subscription_tier === '999' || user?.tenant?.subscription_tier === '899' ? 'Current Plan' : 'Upgrade'}
-                </button>
-              </div>
-
-              {/* Enterprise Plan */}
-              <div className="glass-panel p-8 border-t-4 border-t-blue-500 flex flex-col">
-                <h3 className="text-xl font-bold text-blue-400">Enterprise</h3>
-                <div className="text-3xl font-bold my-4">MVR 1999 <span className="text-base font-normal text-[var(--text-secondary)]">/mo</span></div>
-                <ul className="space-y-3 mb-8 flex-1">
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-blue-500" /> Unlimited verifications</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-blue-500" /> 2 Cashier Terminals, additional CT at 399/-</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-blue-500" /> 20 Bank Accounts</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-blue-500" /> 24/7 Dedicated Support</li>
-                </ul>
-                <button disabled={user?.tenant?.subscription_tier === '1999'} className="btn bg-blue-600 hover:bg-blue-500 text-white w-full disabled:opacity-50">
-                  {user?.tenant?.subscription_tier === '1999' ? 'Current Plan' : 'Upgrade'}
-                </button>
-              </div>
+            {/* Elegant Sub-navigation Pill Bar */}
+            <div className="flex flex-wrap items-center gap-2 p-1.5 bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-2xl w-full sm:w-fit shadow-sm">
+              <button
+                type="button"
+                onClick={() => setBillingSubTab('overview')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                  billingSubTab === 'overview'
+                    ? 'bg-emerald-500 text-black shadow-md shadow-emerald-500/20'
+                    : 'text-[var(--text-secondary)] hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <CreditCard size={14} /> Subscription & Renewals
+              </button>
+              <button
+                type="button"
+                onClick={() => setBillingSubTab('plans')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                  billingSubTab === 'plans'
+                    ? 'bg-emerald-500 text-black shadow-md shadow-emerald-500/20'
+                    : 'text-[var(--text-secondary)] hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Layers size={14} /> Plans & Pricing
+              </button>
+              <button
+                type="button"
+                onClick={() => setBillingSubTab('support')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                  billingSubTab === 'support'
+                    ? 'bg-emerald-500 text-black shadow-md shadow-emerald-500/20'
+                    : 'text-[var(--text-secondary)] hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <LifeBuoy size={14} /> Support & Help Hotline
+              </button>
             </div>
-          </div>
-        )}
 
-        {/* --- TAB: SUPPORT --- */}
-        {activeTab === 'support' && (
-          <div className="glass-panel p-8 max-w-2xl mx-auto text-center mt-12">
-            <LifeBuoy size={64} className="mx-auto text-[var(--color-success)] mb-6" />
-            <h2 className="text-3xl font-bold mb-4">Need Help?</h2>
-            <p className="text-[var(--text-secondary)] mb-8 text-lg">
-              Our support team is available to assist you with any questions or technical issues you might face while using Viri.
-            </p>
-            <div className="bg-[var(--bg-canvas)] p-6 rounded-lg border border-[var(--border-color)] inline-block">
-              <div className="text-sm text-[var(--text-secondary)] mb-1">Call our support hotline:</div>
-              <a href="tel:7793811" className="text-4xl font-extrabold text-white hover:text-[var(--color-success)] transition-colors">
-                779-3811
-              </a>
-            </div>
+            {/* Sub-tab 1: Subscription & Renewals */}
+            {billingSubTab === 'overview' && (
+              <div className="space-y-8 animate-fade-in">
+                <div className="grid md:grid-cols-2 gap-8">
+                  {/* Current Plan Summary Card */}
+                  <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl flex flex-col justify-between shadow-xl">
+                    <div>
+                      <div className="flex justify-between items-start mb-4">
+                        <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Plan Status</span>
+                        <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full uppercase">
+                          {user?.tenant?.subscription_tier === 'free' ? 'Free Trial' : `Premium MVR ${user?.tenant?.subscription_tier}`}
+                        </span>
+                      </div>
+                      <h3 className="text-xl font-bold text-white mb-2">Current Active Subscription</h3>
+                      <p className="text-zinc-400 text-xs mb-6 leading-relaxed">
+                        Here are the active features and operational limits allocated to your business account under your current subscription tier.
+                      </p>
+
+                      <div className="space-y-3.5 border-t border-zinc-800/60 pt-4">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-zinc-500">Monthly Verification Limit</span>
+                          <span className="font-mono font-bold text-white">{getVerificationLimit()} Requests</span>
+                        </div>
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-zinc-500">Maximum Cashier Counters</span>
+                          <span className="font-mono font-bold text-white">{user?.tenant?.max_terminals ?? 1} Counters</span>
+                        </div>
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-zinc-500">Linked Bank Accounts</span>
+                          <span className="font-mono font-bold text-white">{getBankAccountLimit()} Accounts</span>
+                        </div>
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-zinc-500">Subscription Expiration</span>
+                          <span className="font-mono font-bold text-zinc-300">
+                            {user?.tenant?.license_expires_at ? new Date(user.tenant.license_expires_at).toLocaleDateString() : 'Never'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-zinc-800/60 pt-4 mt-6">
+                      <button onClick={() => setBillingSubTab('plans')} className="btn btn-outline border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-xs w-full py-2.5 justify-center font-bold flex items-center gap-2">
+                        <Layers size={14} /> Compare All Plans & Limits
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Submit Payment Receipt Form */}
+                  <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl shadow-xl flex flex-col justify-between">
+                    <div>
+                      <h3 className="text-lg font-bold text-white mb-1">Submit Payment Slip</h3>
+                      <p className="text-xs text-zinc-400 mb-6">Send us a bank transfer slip receipt copy to renew or upgrade your plan.</p>
+
+                      {paymentError && <div className="p-3 mb-4 bg-red-950/40 border border-red-500/30 rounded-xl text-red-300 text-xs font-semibold">{paymentError}</div>}
+                      {paymentSuccess && <div className="p-3 mb-4 bg-green-950/40 border border-green-500/30 rounded-xl text-green-300 text-xs font-semibold">{paymentSuccess}</div>}
+
+                      <form onSubmit={handleUploadPaymentReceipt} className="space-y-4">
+                        <div className="input-group">
+                          <label className="input-label">Transfer Amount (MVR)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            required
+                            placeholder="e.g. 499.00"
+                            className="input-field"
+                            value={paymentAmount}
+                            onChange={e => setPaymentAmount(e.target.value)}
+                          />
+                        </div>
+
+                        <div className="input-group">
+                          <label className="input-label">Upload Slip Image (PNG/JPEG)</label>
+                          <input
+                            id="receipt_slip_file"
+                            type="file"
+                            accept="image/png, image/jpeg"
+                            required
+                            className="hidden"
+                            onChange={e => {
+                              if (e.target.files && e.target.files.length > 0) {
+                                setPaymentSlip(e.target.files[0]);
+                              }
+                            }}
+                          />
+                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => document.getElementById('receipt_slip_file')?.click()}
+                              className="btn btn-success px-4 py-2.5 text-xs font-bold flex items-center justify-center gap-2 shrink-0 shadow-md hover:scale-[1.01] active:scale-[0.99] transition-all"
+                            >
+                              <Upload size={14} />
+                              {paymentSlip ? 'Change Slip File' : 'Choose Transfer Slip'}
+                            </button>
+                            <div className="flex items-center gap-2 text-xs font-mono bg-[var(--bg-surface)] border border-[var(--border-color)] px-3.5 py-2.5 rounded-xl flex-1 truncate">
+                              {paymentSlip ? (
+                                <>
+                                  <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+                                  <span className="text-white truncate font-medium">{paymentSlip.name}</span>
+                                  <span className="text-[10px] text-zinc-500 shrink-0">({(paymentSlip.size / 1024).toFixed(1)} KB)</span>
+                                </>
+                              ) : (
+                                <span className="text-zinc-500">No file chosen (PNG or JPEG, max 5MB)</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="input-group">
+                          <label className="input-label">Optional Remarks</label>
+                          <textarea
+                            rows={2}
+                            placeholder="Any additional details or comments..."
+                            className="input-field w-full text-xs"
+                            value={paymentRemarks}
+                            onChange={e => setPaymentRemarks(e.target.value)}
+                          />
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={paymentLoading}
+                          className="btn btn-success w-full py-3 mt-4 justify-center font-bold"
+                        >
+                          {paymentLoading ? 'Uploading...' : 'Submit Payment Receipt'}
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Payment Submissions History list */}
+                <div className="glass-panel p-6 border border-zinc-800 bg-black/20 rounded-2xl shadow-xl">
+                  <h3 className="text-lg font-bold text-white mb-6">Payment Submission History</h3>
+                  {payments.length === 0 ? (
+                    <div className="text-center text-zinc-500 italic py-8 border border-dashed border-zinc-800/80 rounded-xl">
+                      No payment slip submissions recorded.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-zinc-800/60 text-zinc-400 font-bold uppercase tracking-wider">
+                            <th className="pb-3">Submitted Date</th>
+                            <th className="pb-3">Amount</th>
+                            <th className="pb-3">Receipt Image</th>
+                            <th className="pb-3">Status</th>
+                            <th className="pb-3">Remarks / Superadmin Feedback</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-800/40">
+                          {payments.map((p: any) => (
+                            <tr key={p.id} className="hover:bg-zinc-850/10">
+                              <td className="py-3 text-zinc-400">{new Date(p.created_at).toLocaleString()}</td>
+                              <td className="py-3 font-mono font-bold text-white">MVR {parseFloat(p.amount).toFixed(2)}</td>
+                              <td className="py-3">
+                                <a
+                                  href={p.receipt_slip_path}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-blue-400 hover:text-blue-300 underline font-semibold flex items-center gap-1"
+                                >
+                                  View Slip
+                                </a>
+                              </td>
+                              <td className="py-3">
+                                <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] ${
+                                  p.status === 'pending'
+                                    ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
+                                    : p.status === 'approved'
+                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                    : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                }`}>
+                                  {p.status}
+                                </span>
+                              </td>
+                              <td className="py-3 text-zinc-400 max-w-xs truncate" title={p.remarks}>{p.remarks || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Sub-tab 2: Plans & Pricing */}
+            {billingSubTab === 'plans' && (
+              <div className="flex flex-col gap-8 animate-fade-in">
+                <div className="text-center mb-4">
+                  <h2 className="text-3xl font-bold mb-3 text-white">Available Subscription Plans</h2>
+                  <p className="text-[var(--text-secondary)] text-sm">Choose the plan that best fits your business needs.</p>
+                </div>
+                
+                <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {/* Free Plan */}
+                  <div className="glass-panel p-8 border-t-4 border-t-zinc-500 flex flex-col justify-between">
+                    <div>
+                      <h3 className="text-xl font-bold text-zinc-300">Free Tier</h3>
+                      <div className="text-3xl font-bold my-4 text-white">MVR 0 <span className="text-base font-normal text-[var(--text-secondary)]">/mo</span></div>
+                      <ul className="space-y-3 mb-8 text-sm text-zinc-300">
+                        <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-zinc-500" /> 20 verifications / month</li>
+                        <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-zinc-500" /> 1 Cashier Terminal</li>
+                        <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-zinc-500" /> 2 Bank Accounts</li>
+                        <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-zinc-500" /> Standard Support</li>
+                      </ul>
+                    </div>
+                    <button disabled={user?.tenant?.subscription_tier === 'free'} className="btn w-full bg-zinc-800 disabled:opacity-50 font-bold">
+                      {user?.tenant?.subscription_tier === 'free' ? 'Current Plan' : 'Downgrade'}
+                    </button>
+                  </div>
+
+                  {/* Starter Plan */}
+                  <div className="glass-panel p-8 border-t-4 border-t-emerald-500 relative flex flex-col justify-between shadow-2xl shadow-emerald-900/10">
+                    <div>
+                      <h3 className="text-xl font-bold text-emerald-400">Starter</h3>
+                      <div className="text-3xl font-bold my-4 text-white">MVR 349.00 <span className="text-base font-normal text-[var(--text-secondary)]">/mo</span></div>
+                      <ul className="space-y-3 mb-8 text-sm text-zinc-300">
+                        <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> Verification Panel – Search transactions by amount, or preview most recent credits.</li>
+                        <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> See balances and basic transaction lists.</li>
+                        <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> Per terminal customisation of account balance and debit transaction view.</li>
+                        <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> Shift &amp; transaction claim function and reports.</li>
+                        <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> 2 Bank Accounts Total</li>
+                        <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> 1 Terminal connection.</li>
+                      </ul>
+                    </div>
+                    <button
+                      disabled={user?.tenant?.subscription_tier === '499' || user?.tenant?.subscription_tier === '349'}
+                      onClick={() => {
+                        setPaymentAmount('349.00');
+                        setBillingSubTab('overview');
+                      }}
+                      className="btn btn-success w-full disabled:opacity-50 disabled:bg-emerald-900 font-bold"
+                    >
+                      {user?.tenant?.subscription_tier === '499' || user?.tenant?.subscription_tier === '349' ? 'Current Plan' : 'Select Starter Plan'}
+                    </button>
+                  </div>
+
+                  {/* Pro Plan */}
+                  <div className="glass-panel p-8 border-t-4 border-t-purple-500 flex flex-col justify-between">
+                    <div>
+                      <h3 className="text-xl font-bold text-purple-400">Pro</h3>
+                      <div className="text-3xl font-bold my-4 text-white">MVR 899.00 <span className="text-base font-normal text-[var(--text-secondary)]">/mo</span></div>
+                      <ul className="space-y-3 mb-8 text-sm text-zinc-300">
+                        <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-purple-500 shrink-0 mt-0.5" /> Pro plan includes: everything in starter plan</li>
+                        <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-purple-500 shrink-0 mt-0.5" /> Full Tool Suite Access – Verification Panel + Unified Ledger + Reports Suite + Statement Generator.</li>
+                        <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-purple-500 shrink-0 mt-0.5" /> On-Demand Statement Generation. Export to PDF, Excel &amp; CSV.</li>
+                        <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-purple-500 shrink-0 mt-0.5" /> 4 Bank Accounts (modular – 100.00 per additional bank account).</li>
+                        <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-purple-500 shrink-0 mt-0.5" /> 3 Terminals (modular – 200.00 per additional terminal).</li>
+                      </ul>
+                    </div>
+                    <button
+                      disabled={user?.tenant?.subscription_tier === '999' || user?.tenant?.subscription_tier === '899'}
+                      onClick={() => {
+                        setPaymentAmount('899.00');
+                        setBillingSubTab('overview');
+                      }}
+                      className="btn bg-purple-600 hover:bg-purple-500 text-white w-full disabled:opacity-50 font-bold"
+                    >
+                      {user?.tenant?.subscription_tier === '999' || user?.tenant?.subscription_tier === '899' ? 'Current Plan' : 'Select Pro Plan'}
+                    </button>
+                  </div>
+
+                  {/* Enterprise Plan */}
+                  <div className="glass-panel p-8 border-t-4 border-t-blue-500 flex flex-col justify-between">
+                    <div>
+                      <h3 className="text-xl font-bold text-blue-400">Enterprise</h3>
+                      <div className="text-3xl font-bold my-4 text-white">MVR 1999+ <span className="text-base font-normal text-[var(--text-secondary)]">/mo</span></div>
+                      <ul className="space-y-3 mb-8 text-sm text-zinc-300">
+                        <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-blue-500 shrink-0 mt-0.5" /> All feature of Pro</li>
+                        <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-blue-500 shrink-0 mt-0.5" /> Unlimited verifications</li>
+                        <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-blue-500 shrink-0 mt-0.5" /> 6 Cashier Terminals, additional CT at 200.00</li>
+                        <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-blue-500 shrink-0 mt-0.5" /> 10 Bank Accounts, additional account at 100.00</li>
+                        <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-blue-500 shrink-0 mt-0.5" /> Live Update (live bank balance and transactions)</li>
+                      </ul>
+                    </div>
+                    <button
+                      disabled={user?.tenant?.subscription_tier === '1999'}
+                      onClick={() => {
+                        setPaymentAmount('1999.00');
+                        setBillingSubTab('overview');
+                      }}
+                      className="btn bg-blue-600 hover:bg-blue-500 text-white w-full disabled:opacity-50 font-bold"
+                    >
+                      {user?.tenant?.subscription_tier === '1999' ? 'Current Plan' : 'Select Enterprise Plan'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Sub-tab 3: Support & Hotline */}
+            {billingSubTab === 'support' && (
+              <div className="glass-panel p-8 sm:p-12 max-w-3xl mx-auto text-center animate-fade-in space-y-6">
+                <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto shadow-lg">
+                  <LifeBuoy size={36} />
+                </div>
+                <div>
+                  <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2">Dedicated Customer Support</h2>
+                  <p className="text-[var(--text-secondary)] text-sm max-w-xl mx-auto leading-relaxed">
+                    Our technical team is available to assist your business with cashier counter setups, bank connectivity, plan customizations, and live transaction troubleshooting.
+                  </p>
+                </div>
+                
+                <div className="bg-[var(--bg-surface)] p-6 rounded-2xl border border-[var(--border-color)] inline-block shadow-md max-w-md w-full">
+                  <div className="text-xs text-[var(--text-secondary)] mb-2 font-medium">Direct Support Hotline:</div>
+                  <a href="tel:7793811" className="text-3xl sm:text-4xl font-extrabold text-emerald-400 hover:text-emerald-300 transition-colors flex items-center justify-center gap-3">
+                    <PhoneCall size={28} className="text-emerald-400" />
+                    779-3811
+                  </a>
+                  <div className="text-[11px] text-zinc-500 mt-2 font-mono">Available 24/7 for urgent register assistance</div>
+                </div>
+
+                <div className="pt-4 flex flex-wrap justify-center gap-4">
+                  <button
+                    onClick={() => setActiveTab('help')}
+                    className="btn btn-outline text-xs px-5 py-2.5 flex items-center gap-2 font-bold"
+                  >
+                    <Info size={14} /> Open Help Center Guide
+                  </button>
+                  <button
+                    onClick={() => setBillingSubTab('plans')}
+                    className="btn btn-success text-xs px-5 py-2.5 flex items-center gap-2 font-bold"
+                  >
+                    <Layers size={14} /> View Subscription Plans
+                  </button>
+                </div>
+              </div>
+            )}
+
           </div>
         )}
 
