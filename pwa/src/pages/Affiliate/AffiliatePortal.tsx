@@ -29,9 +29,10 @@ export default function AffiliatePortal() {
   const [bankSettingsSaved, setBankSettingsSaved] = useState(false);
 
   // Interactive Calculator State
-  const [calcNewSales, setCalcNewSales] = useState(5);
-  const [calcRetention, setCalcRetention] = useState(95);
-  const [calcAvgPrice, setCalcAvgPrice] = useState(1500);
+  const [selectedPackageKey, setSelectedPackageKey] = useState<string>('');
+  const [calcNewSales, setCalcNewSales] = useState(10);
+  const [calcRetention, setCalcRetention] = useState(100);
+  const [calcAvgPrice, setCalcAvgPrice] = useState(349);
   const [projectionData, setProjectionData] = useState<any>(null);
 
   const [salesSearch, setSalesSearch] = useState('');
@@ -46,7 +47,6 @@ export default function AffiliatePortal() {
     }
     fetchOverview();
     fetchSales();
-    fetchProjections();
   }, [token]);
 
   const fetchOverview = async () => {
@@ -63,6 +63,11 @@ export default function AffiliatePortal() {
         setAccountNumber(data.affiliate.payout_account_number || '');
         setAccountName(data.affiliate.payout_account_name || data.affiliate.name || '');
         setCustomCoupon(data.affiliate.custom_coupon_code || '');
+      }
+      if (data.config?.packages && data.config.packages.length > 0 && !selectedPackageKey) {
+        const firstPkg = data.config.packages[0];
+        setSelectedPackageKey(firstPkg.tier_key);
+        setCalcAvgPrice(firstPkg.price);
       }
     } catch (err: any) {
       console.error(err);
@@ -85,7 +90,17 @@ export default function AffiliatePortal() {
 
   const fetchProjections = async () => {
     try {
-      const res = await fetch(`/api/affiliate/projections?new_sales_per_month=${calcNewSales}&retention_rate=${calcRetention / 100}&avg_package_price=${calcAvgPrice}`, {
+      const params = new URLSearchParams({
+        num_clients: String(calcNewSales),
+        retention_rate: String(calcRetention / 100),
+      });
+      if (selectedPackageKey) {
+        params.append('package_key', selectedPackageKey);
+      } else {
+        params.append('avg_package_price', String(calcAvgPrice));
+      }
+
+      const res = await fetch(`/api/affiliate/projections?${params.toString()}`, {
         headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
       });
       if (res.ok) {
@@ -99,7 +114,7 @@ export default function AffiliatePortal() {
     if (token) {
       fetchProjections();
     }
-  }, [calcNewSales, calcRetention, calcAvgPrice]);
+  }, [token, calcNewSales, calcRetention, selectedPackageKey, calcAvgPrice]);
 
   const copyToClipboard = (text: string, type: 'link' | 'coupon') => {
     navigator.clipboard.writeText(text);
@@ -245,10 +260,14 @@ export default function AffiliatePortal() {
                 <Gift size={14} /> Dual-Sided Partner Advantage Active
               </div>
               <h1 className="text-2xl lg:text-3xl font-extrabold text-white tracking-tight">
-                Earn up to 25% recurring monthly commissions
+                {overview?.config?.program_headline || 'Earn 15% to 25% recurring monthly commissions.'}
               </h1>
               <p className="text-zinc-400 text-sm leading-relaxed">
-                Share your unique Viri referral link or coupon. New businesses receive <strong className="text-emerald-300">{overview?.config?.customer_discount_type === 'percentage' ? `${overview?.config?.customer_discount_value}% OFF` : `MVR ${overview?.config?.customer_discount_value} OFF`} their 1st invoice</strong>, and you earn lifetime scaling recurring commissions on every renewal.
+                Share your unique Viri referral link or coupon. {overview?.config?.customer_discount_enabled !== false ? (
+                  <>New businesses receive <strong className="text-emerald-300">{overview?.config?.customer_discount_type === 'percentage' ? `${overview?.config?.customer_discount_value}% OFF` : `MVR ${overview?.config?.customer_discount_value} OFF`} their 1st invoice</strong>, and you earn</>
+                ) : (
+                  <>You earn</>
+                )} recurring monthly commissions on every client renewal.
               </p>
             </div>
 
@@ -650,133 +669,259 @@ export default function AffiliatePortal() {
         )}
 
         {/* TAB 3: PROJECTED INCOME CALCULATOR */}
-        {activeTab === 'calculator' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            {/* Interactive Sliders */}
-            <div className="rounded-2xl border border-white/10 bg-zinc-950/60 p-6 backdrop-blur-xl flex flex-col gap-6">
-              <div>
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <Sliders size={18} className="text-emerald-400" />
-                  Growth Parameters
-                </h3>
-                <p className="text-xs text-zinc-400 mt-1">
-                  Adjust metrics to forecast monthly and 3-year recurring revenue.
-                </p>
-              </div>
+        {activeTab === 'calculator' && (() => {
+          const packages: any[] = overview?.config?.packages || [];
+          const activePkg = packages.find((p: any) => p.tier_key === selectedPackageKey) || packages[0] || null;
+          const pkgPrice = activePkg ? Number(activePkg.price) : calcAvgPrice;
+          const initPct = activePkg ? Number(activePkg.initial_commission_pct) : 50;
+          const initMos = activePkg ? Number(activePkg.initial_duration_months) : 6;
+          const recurPct = activePkg ? Number(activePkg.recurring_commission_pct) : 10;
+          const recurMos = activePkg ? Number(activePkg.recurring_duration_months) : 24;
+          const totalMos = activePkg ? Number(activePkg.total_duration_months) : (initMos + recurMos);
+          const tierBonus = Number(currentTier.bonus_commission_pct || 0);
 
-              {/* Slider 1: New Referrals / Mo */}
-              <div className="flex flex-col gap-2">
-                <div className="flex justify-between text-xs font-bold">
-                  <span className="text-zinc-300">New Clients per Month</span>
-                  <span className="text-emerald-400 font-mono">{calcNewSales} clients</span>
-                </div>
-                <input
-                  type="range"
-                  min="1"
-                  max="50"
-                  value={calcNewSales}
-                  onChange={(e) => setCalcNewSales(Number(e.target.value))}
-                  className="w-full accent-emerald-400 cursor-pointer"
-                />
-                <span className="text-[10px] text-zinc-500">Expected monthly business onboarding volume</span>
-              </div>
+          const initPerClient = (pkgPrice * ((initPct + tierBonus) / 100));
+          const recurPerClient = (pkgPrice * ((recurPct + tierBonus) / 100));
+          const totalPerClient = (initPerClient * initMos) + (recurPerClient * recurMos);
 
-              {/* Slider 2: Retention Rate */}
-              <div className="flex flex-col gap-2">
-                <div className="flex justify-between text-xs font-bold">
-                  <span className="text-zinc-300">Client Retention Rate</span>
-                  <span className="text-cyan-400 font-mono">{calcRetention}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="70"
-                  max="100"
-                  value={calcRetention}
-                  onChange={(e) => setCalcRetention(Number(e.target.value))}
-                  className="w-full accent-cyan-400 cursor-pointer"
-                />
-                <span className="text-[10px] text-zinc-500">SaaS industry average is 92–96%</span>
-              </div>
-
-              {/* Slider 3: Average Plan Value */}
-              <div className="flex flex-col gap-2">
-                <div className="flex justify-between text-xs font-bold">
-                  <span className="text-zinc-300">Avg Monthly Package Price</span>
-                  <span className="text-yellow-400 font-mono">MVR {calcAvgPrice}</span>
-                </div>
-                <input
-                  type="range"
-                  min="800"
-                  max="5000"
-                  step="100"
-                  value={calcAvgPrice}
-                  onChange={(e) => setCalcAvgPrice(Number(e.target.value))}
-                  className="w-full accent-yellow-400 cursor-pointer"
-                />
-                <span className="text-[10px] text-zinc-500">Starter (800) vs Business (2000) vs Enterprise (4500)</span>
-              </div>
-            </div>
-
-            {/* Forecast Projection Display */}
-            <div className="lg:col-span-2 rounded-2xl border border-white/10 bg-zinc-950/60 p-6 backdrop-blur-xl flex flex-col justify-between gap-6">
-              <div>
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <TrendingUp size={18} className="text-cyan-400" />
-                  Forecasted Earnings Timeline
-                </h3>
-                <p className="text-xs text-zinc-400 mt-1">
-                  Compound recurring commissions over 36 months based on your active tier.
-                </p>
-              </div>
-
-              {/* 3 Large Forecast Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="p-4 rounded-xl bg-black/50 border border-white/10">
-                  <span className="text-[10px] uppercase font-bold text-zinc-400">Next Month</span>
-                  <div className="text-xl font-extrabold text-emerald-400 font-mono mt-1">
-                    MVR {Number(projectionData?.next_month || 0).toLocaleString('en-US', { minimumFractionDigits: 0 })}
-                  </div>
-                  <span className="text-[10px] text-zinc-500">Immediate monthly recurring</span>
+          return (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* Interactive Sliders & Package Selector */}
+              <div className="rounded-2xl border border-white/10 bg-zinc-950/60 p-6 backdrop-blur-xl flex flex-col gap-5">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Sliders size={18} className="text-emerald-400" />
+                    Growth Parameters
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-1">
+                    Select a commission package and adjust metrics to forecast recurring revenue.
+                  </p>
                 </div>
 
-                <div className="p-4 rounded-xl bg-black/50 border border-white/10">
-                  <span className="text-[10px] uppercase font-bold text-zinc-400">Year 1 Cumulative</span>
-                  <div className="text-xl font-extrabold text-cyan-300 font-mono mt-1">
-                    MVR {Number(projectionData?.one_year_total || 0).toLocaleString('en-US', { minimumFractionDigits: 0 })}
-                  </div>
-                  <span className="text-[10px] text-zinc-500">First 12 months total</span>
-                </div>
-
-                <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-950/60 to-black border border-emerald-500/30">
-                  <span className="text-[10px] uppercase font-bold text-emerald-300">3-Year Horizon</span>
-                  <div className="text-xl font-extrabold text-emerald-300 font-mono mt-1">
-                    MVR {Number(projectionData?.three_years_total || 0).toLocaleString('en-US', { minimumFractionDigits: 0 })}
-                  </div>
-                  <span className="text-[10px] text-emerald-500/80">36 months compound value</span>
-                </div>
-              </div>
-
-              {/* Projections Visual Curve Bar Preview */}
-              <div className="p-4 rounded-xl bg-black/40 border border-white/10 flex flex-col gap-2">
-                <span className="text-xs font-bold text-zinc-300">36-Month Milestone Progression</span>
-                <div className="grid grid-cols-6 sm:grid-cols-12 gap-1.5 items-end h-24 pt-4">
-                  {projectionData?.timeline?.filter((_: any, idx: number) => idx % 3 === 0).map((m: any, i: number) => (
-                    <div key={i} className="flex flex-col items-center gap-1 h-full justify-end">
-                      <div 
-                        className="w-full bg-emerald-500/40 hover:bg-emerald-400 rounded-t transition-all"
-                        style={{ height: `${Math.min(100, Math.max(10, (m.monthly_commission / (projectionData.next_month * 8 || 1)) * 100))}%` }}
-                        title={`Month ${m.month_number}: MVR ${m.monthly_commission}/mo`}
-                      />
-                      <span className="text-[8px] font-mono text-zinc-500">M{m.month_number}</span>
+                {/* Package Tier Selector */}
+                {packages.length > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <span className="text-xs font-bold text-zinc-300">Target Subscription Package</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {packages.map((pkg: any) => {
+                        const isSelected = (selectedPackageKey || packages[0]?.tier_key) === pkg.tier_key;
+                        return (
+                          <button
+                            key={pkg.tier_key}
+                            type="button"
+                            onClick={() => {
+                              setSelectedPackageKey(pkg.tier_key);
+                              setCalcAvgPrice(pkg.price);
+                            }}
+                            className={`p-2.5 rounded-xl border text-left flex flex-col gap-0.5 transition-all ${
+                              isSelected
+                                ? 'bg-emerald-500/10 border-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.15)] ring-1 ring-emerald-500/50'
+                                : 'bg-black/40 border-white/10 text-zinc-400 hover:border-zinc-700 hover:text-white'
+                            }`}
+                          >
+                            <span className="text-xs font-bold truncate">{pkg.name}</span>
+                            <span className="text-[11px] font-mono text-emerald-400 font-semibold">
+                              MVR {Number(pkg.price).toFixed(2)}/mo
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
-                  ))}
+                  </div>
+                )}
+
+                {/* Multi-Stage Commission Breakdown Card */}
+                {activePkg && (
+                  <div className="p-3.5 rounded-xl bg-black/50 border border-white/10 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase font-bold text-zinc-400">Commission Structure</span>
+                      <span className="text-[10px] font-mono text-emerald-400 font-bold">{totalMos} Mo Lifecycle</span>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5 text-xs font-mono">
+                      <div className="flex items-center justify-between p-2 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
+                        <span className="text-zinc-300">Phase 1 (Initial {initMos} mos):</span>
+                        <span className="text-emerald-400 font-bold">
+                          {initPct}% {tierBonus > 0 ? `(+${tierBonus}% bonus)` : ''} &rarr; MVR {initPerClient.toFixed(2)}/mo
+                        </span>
+                      </div>
+
+                      {recurMos > 0 && (
+                        <div className="flex items-center justify-between p-2 rounded-lg bg-cyan-500/5 border border-cyan-500/20">
+                          <span className="text-zinc-300">Phase 2 (Next {recurMos} mos):</span>
+                          <span className="text-cyan-400 font-bold">
+                            {recurPct}% {tierBonus > 0 ? `(+${tierBonus}% bonus)` : ''} &rarr; MVR {recurPerClient.toFixed(2)}/mo
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-2 border-t border-white/10 flex items-center justify-between text-[11px]">
+                      <span className="text-zinc-400">Yield per Client:</span>
+                      <span className="font-mono font-bold text-yellow-400">MVR {totalPerClient.toFixed(2)}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Slider 1: Total Referred Clients */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex justify-between text-xs font-bold">
+                    <span className="text-zinc-300">Total Referred Clients</span>
+                    <span className="text-emerald-400 font-mono font-bold text-sm">{calcNewSales} clients</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="100"
+                    value={calcNewSales}
+                    onChange={(e) => setCalcNewSales(Number(e.target.value))}
+                    className="w-full accent-emerald-400 cursor-pointer"
+                  />
+                  <span className="text-[10px] text-zinc-500">
+                    Number of clients you refer to this package ({activePkg ? activePkg.name : '349 Plan'})
+                  </span>
+                </div>
+
+                {/* Slider 2: Retention Rate */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex justify-between text-xs font-bold">
+                    <span className="text-zinc-300">Client Retention Rate</span>
+                    <span className="text-cyan-400 font-mono font-bold">{calcRetention}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="70"
+                    max="100"
+                    value={calcRetention}
+                    onChange={(e) => setCalcRetention(Number(e.target.value))}
+                    className="w-full accent-cyan-400 cursor-pointer"
+                  />
+                  <span className="text-[10px] text-zinc-500">100% = full 30 months completed</span>
                 </div>
               </div>
-            </div>
 
-          </div>
-        )}
+              {/* Forecast Projection Display */}
+              <div className="lg:col-span-2 rounded-2xl border border-white/10 bg-zinc-950/60 p-6 backdrop-blur-xl flex flex-col justify-between gap-6">
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-base font-bold text-white flex items-center gap-2">
+                      <TrendingUp size={18} className="text-cyan-400" />
+                      Forecasted Earnings Timeline
+                    </h3>
+                    <span className="text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                      MVR {totalPerClient.toFixed(2)} / client
+                    </span>
+                  </div>
+                  <p className="text-xs text-zinc-400 leading-relaxed">
+                    Total commissions earned over <strong>{projectionData?.total_lifecycle_years || 2.5} years ({projectionData?.total_lifecycle_months || 30} months)</strong> for referring <strong>{calcNewSales} clients</strong> to <strong>{activePkg ? activePkg.name : '349 Plan'}</strong> (MVR {pkgPrice.toFixed(2)}/mo) with your active <strong>{currentTier.name}</strong> {tierBonus > 0 ? `(+${tierBonus}% tier bonus)` : ''}.
+                  </p>
+                </div>
+
+                {/* 3 Large Forecast Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="p-4 rounded-xl bg-black/50 border border-white/10 flex flex-col justify-between">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-zinc-400">Month 1 Earnings</span>
+                      <div className="text-xl font-extrabold text-emerald-400 font-mono mt-1">
+                        MVR {Number(projectionData?.next_month || (calcNewSales * initPerClient)).toLocaleString('en-US', { minimumFractionDigits: 0 })}
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-zinc-500 mt-2">
+                      {calcNewSales} clients &times; MVR {initPerClient.toFixed(2)} ({initPct}% initial)
+                    </span>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-black/50 border border-cyan-500/30 ring-1 ring-cyan-500/20 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] uppercase font-bold text-cyan-400">Year 1 Total (12 Mos)</span>
+                        <span className="text-[9px] font-mono text-zinc-500 font-bold">M1 &rarr; M12</span>
+                      </div>
+                      <div className="text-xl font-extrabold text-cyan-300 font-mono mt-1">
+                        MVR {Number(projectionData?.one_year_total || (calcNewSales * (initPerClient * 6 + recurPerClient * 6))).toLocaleString('en-US', { minimumFractionDigits: 0 })}
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-zinc-400 mt-2">
+                      {calcNewSales} clients &times; 6 mos Phase 1 + 6 mos Phase 2
+                    </span>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-950/60 to-black border border-emerald-500/30 flex flex-col justify-between">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-emerald-300">
+                        2.5-Year Total (30 Mos)
+                      </span>
+                      <div className="text-xl font-extrabold text-emerald-300 font-mono mt-1">
+                        MVR {Number(projectionData?.two_and_half_years_total || (calcNewSales * totalPerClient)).toLocaleString('en-US', { minimumFractionDigits: 0 })}
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-emerald-500/80 mt-2">
+                      {calcNewSales} clients &times; MVR {totalPerClient.toFixed(2)} total yield
+                    </span>
+                  </div>
+                </div>
+
+                {/* Calculation Breakdown & Step-by-Step Logic Box */}
+                <div className="p-4 rounded-xl bg-black/40 border border-white/10 flex flex-col gap-3 text-xs">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 font-bold text-zinc-200">
+                      <Sparkles size={14} className="text-yellow-400" />
+                      <span>Transparent Calculation Breakdown:</span>
+                    </div>
+                    <span className="font-mono text-emerald-400 font-bold text-[11px]">
+                      {calcNewSales} Clients &times; MVR {totalPerClient.toFixed(2)} = MVR {Number(projectionData?.two_and_half_years_total || (calcNewSales * totalPerClient)).toLocaleString('en-US', { minimumFractionDigits: 0 })}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-zinc-300 leading-relaxed font-sans">
+                    <div className="p-3 rounded-lg bg-zinc-900/60 border border-zinc-800/80 flex flex-col gap-1">
+                      <span className="font-bold text-emerald-400 text-[11px]">Phase 1 (First 6 Months @ {initPct}%):</span>
+                      <p className="text-[11px] text-zinc-400">
+                        {calcNewSales} clients &times; MVR {initPerClient.toFixed(2)}/mo &times; 6 mos = <strong className="text-white font-mono font-bold">MVR {(calcNewSales * initPerClient * 6).toFixed(2)}</strong>
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-zinc-900/60 border border-zinc-800/80 flex flex-col gap-1">
+                      <span className="font-bold text-cyan-400 text-[11px]">Phase 2 (Next 24 Months @ {recurPct}%):</span>
+                      <p className="text-[11px] text-zinc-400">
+                        {calcNewSales} clients &times; MVR {recurPerClient.toFixed(2)}/mo &times; 24 mos = <strong className="text-white font-mono font-bold">MVR {(calcNewSales * recurPerClient * 24).toFixed(2)}</strong>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-zinc-950/90 border border-zinc-800/90 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] font-mono text-zinc-400">
+                    <span>
+                      Total 30-Month Commission = MVR {(calcNewSales * initPerClient * 6).toFixed(2)} + MVR {(calcNewSales * recurPerClient * 24).toFixed(2)}
+                    </span>
+                    <span className="text-emerald-400 font-bold">
+                      = MVR {Number(projectionData?.two_and_half_years_total || (calcNewSales * totalPerClient)).toLocaleString('en-US', { minimumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Projections Visual Curve Bar Preview */}
+                <div className="p-4 rounded-xl bg-black/40 border border-white/10 flex flex-col gap-2">
+                  <span className="text-xs font-bold text-zinc-300">
+                    {projectionData?.total_lifecycle_months || 30}-Month Progression
+                  </span>
+                  <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5 items-end h-24 pt-4">
+                    {projectionData?.timeline?.filter((_: any, idx: number) => idx % 3 === 0).map((m: any, i: number) => (
+                      <div key={i} className="flex flex-col items-center gap-1 h-full justify-end">
+                        <div 
+                          className="w-full bg-emerald-500/40 hover:bg-emerald-400 rounded-t transition-all"
+                          style={{ height: `${Math.min(100, Math.max(15, (m.monthly_commission / ((calcNewSales * initPerClient) || 1)) * 100))}%` }}
+                          title={`Month ${m.month_number}: MVR ${m.monthly_commission}/mo`}
+                        />
+                        <span className="text-[8px] font-mono text-zinc-500">M{m.month_number}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          );
+        })()}
 
         {/* TAB 4: PAYOUT SETTINGS */}
         {activeTab === 'settings' && (

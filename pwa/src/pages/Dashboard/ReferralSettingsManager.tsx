@@ -22,6 +22,7 @@ export default function ReferralSettingsManager({
   const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState<any>(null);
   const [tiers, setTiers] = useState<any[]>([]);
+  const [subscriptionPlans, setSubscriptionPlans] = useState<any[]>([]);
   const [metrics, setMetrics] = useState<any>({});
   const [affiliates, setAffiliates] = useState<any[]>([]);
   const [payouts, setPayouts] = useState<any[]>([]);
@@ -35,10 +36,16 @@ export default function ReferralSettingsManager({
   const [discountType, setDiscountType] = useState<'percentage' | 'fixed_amount'>('percentage');
   const [discountValue, setDiscountValue] = useState(10);
   const [gracePeriodDays, setGracePeriodDays] = useState(14);
-  const [packageRules, setPackageRules] = useState<Record<string, { commission_pct: number; duration_months: number }>>({
-    starter: { commission_pct: 15, duration_months: 12 },
-    business: { commission_pct: 20, duration_months: 12 },
-    enterprise: { commission_pct: 25, duration_months: 12 },
+  const [packageRules, setPackageRules] = useState<Record<string, {
+    enabled?: boolean;
+    initial_commission_pct: number;
+    initial_duration_months: number;
+    recurring_commission_pct: number;
+    recurring_duration_months: number;
+  }>>({
+    '349': { enabled: true, initial_commission_pct: 50, initial_duration_months: 6, recurring_commission_pct: 10, recurring_duration_months: 24 },
+    '499': { enabled: true, initial_commission_pct: 50, initial_duration_months: 6, recurring_commission_pct: 10, recurring_duration_months: 24 },
+    '999': { enabled: true, initial_commission_pct: 50, initial_duration_months: 6, recurring_commission_pct: 10, recurring_duration_months: 24 },
   });
   const [savingConfig, setSavingConfig] = useState(false);
 
@@ -80,6 +87,7 @@ export default function ReferralSettingsManager({
       
       setConfig(data.config);
       setTiers(data.tiers || []);
+      setSubscriptionPlans(data.subscription_plans || []);
       setMetrics(data.metrics || {});
 
       if (data.config) {
@@ -600,64 +608,199 @@ export default function ReferralSettingsManager({
           </div>
 
           {/* Package Rules */}
-          <div className="p-5 rounded-xl border border-zinc-800 bg-black/30 flex flex-col gap-4">
-            <h4 className="text-sm font-bold text-white flex items-center gap-2">
-              <Building size={16} className="text-cyan-400" /> Package Commission Rules & Payout Duration
-            </h4>
-            <p className="text-xs text-zinc-400">
-              Set base commission % and maximum payout duration (in months) per Viri package tier.
-            </p>
+          <div className="p-5 rounded-xl border border-zinc-800 bg-black/30 flex flex-col gap-5">
+            <div>
+              <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                <Building size={16} className="text-cyan-400" /> Package Commission Rules & Multi-Stage Duration
+              </h4>
+              <p className="text-xs text-zinc-400 mt-1">
+                Configure tiered commission packages for each Subscription Tier. Set initial high-incentive rates (e.g. 50% for 6 months) and long-term recurring rates (e.g. 10% for 2 years).
+              </p>
+            </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-zinc-800 text-zinc-500 uppercase text-[10px] font-bold">
-                    <th className="pb-2.5">Package Key</th>
-                    <th className="pb-2.5">Base Commission (%)</th>
-                    <th className="pb-2.5">Payout Duration Limit (Months)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800/60 font-mono">
-                  {['starter', 'business', 'enterprise'].map((pkg) => (
-                    <tr key={pkg}>
-                      <td className="py-2.5 font-bold font-sans text-white uppercase">{pkg}</td>
-                      <td className="py-2.5">
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.5"
-                          value={packageRules[pkg]?.commission_pct || 15}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setPackageRules(prev => ({
-                              ...prev,
-                              [pkg]: { ...prev[pkg], commission_pct: val }
-                            }));
-                          }}
-                          className="w-24 px-2 py-1 rounded bg-zinc-900 border border-zinc-800 text-xs font-mono text-emerald-400 font-bold focus:border-yellow-500"
-                        /> %
-                      </td>
-                      <td className="py-2.5">
-                        <input
-                          type="number"
-                          min="0"
-                          max="120"
-                          value={packageRules[pkg]?.duration_months || 12}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setPackageRules(prev => ({
-                              ...prev,
-                              [pkg]: { ...prev[pkg], duration_months: val }
-                            }));
-                          }}
-                          className="w-24 px-2 py-1 rounded bg-zinc-900 border border-zinc-800 text-xs font-mono text-white focus:border-yellow-500"
-                        /> months (0 = Lifetime)
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="flex flex-col gap-4">
+              {(() => {
+                const planList = subscriptionPlans.length > 0 
+                  ? subscriptionPlans 
+                  : Object.keys(packageRules).map(k => ({
+                      tier_key: k,
+                      name: isNaN(Number(k)) ? `${k.toUpperCase()} Plan` : `${k} Plan`,
+                      price: isNaN(Number(k)) ? (k === 'starter' ? 349 : k === 'business' ? 499 : 999) : Number(k)
+                    }));
+
+                return planList.map((plan) => {
+                  const key = plan.tier_key;
+                  const currentRule = packageRules[key] || {
+                    enabled: plan.price > 0,
+                    initial_commission_pct: (packageRules[key] as any)?.commission_pct || 50,
+                    initial_duration_months: (packageRules[key] as any)?.duration_months || 6,
+                    recurring_commission_pct: 10,
+                    recurring_duration_months: 24,
+                  };
+
+                  const isEnabled = currentRule.enabled !== false;
+                  const initPct = currentRule.initial_commission_pct ?? (currentRule as any).commission_pct ?? 50;
+                  const initMos = currentRule.initial_duration_months ?? (currentRule as any).duration_months ?? 6;
+                  const recurPct = currentRule.recurring_commission_pct ?? 10;
+                  const recurMos = currentRule.recurring_duration_months ?? 24;
+                  const totalMos = initMos + recurMos;
+
+                  const price = Number(plan.price || 0);
+                  const initMonthlyAmt = (price * (initPct / 100));
+                  const initTotalAmt = initMonthlyAmt * initMos;
+                  const recurMonthlyAmt = (price * (recurPct / 100));
+                  const recurTotalAmt = recurMonthlyAmt * recurMos;
+                  const grandTotalEarnings = initTotalAmt + recurTotalAmt;
+
+                  const updateField = (field: string, val: any) => {
+                    setPackageRules(prev => ({
+                      ...prev,
+                      [key]: {
+                        ...currentRule,
+                        [field]: val,
+                      }
+                    }));
+                  };
+
+                  return (
+                    <div 
+                      key={key} 
+                      className={`p-4 rounded-xl border transition-all ${
+                        isEnabled 
+                          ? 'border-zinc-800 bg-zinc-950/70' 
+                          : 'border-zinc-900 bg-zinc-950/30 opacity-60'
+                      }`}
+                    >
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-3 border-b border-zinc-800/80">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-lg bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center text-yellow-400 font-mono font-bold text-xs shrink-0">
+                            {plan.name.charAt(0)}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-bold text-white">{plan.name}</span>
+                              <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400">
+                                key: {key}
+                              </span>
+                            </div>
+                            <div className="text-xs font-mono text-emerald-400 font-semibold mt-0.5">
+                              Package Price: MVR {price.toFixed(2)} / month
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-2 text-xs font-semibold text-zinc-300 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={isEnabled}
+                              onChange={(e) => updateField('enabled', e.target.checked)}
+                              className="accent-yellow-500 rounded cursor-pointer"
+                            />
+                            <span>Active in Affiliate Program</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {isEnabled && (
+                        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                          {/* Phase 1: Initial Commission */}
+                          <div className="p-3 bg-black/40 border border-zinc-800 rounded-lg flex flex-col gap-1.5">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Phase 1: Initial Rate (%)</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.5"
+                                value={initPct}
+                                onChange={(e) => updateField('initial_commission_pct', Number(e.target.value))}
+                                className="w-full px-2.5 py-1.5 rounded bg-zinc-900 border border-zinc-800 text-xs font-mono font-bold text-emerald-400 focus:border-yellow-500"
+                              />
+                              <span className="text-xs font-bold text-zinc-400">%</span>
+                            </div>
+                            <span className="text-[10px] text-zinc-500">
+                              e.g. 50% = MVR {initMonthlyAmt.toFixed(2)}/mo
+                            </span>
+                          </div>
+
+                          {/* Phase 1 Duration */}
+                          <div className="p-3 bg-black/40 border border-zinc-800 rounded-lg flex flex-col gap-1.5">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Phase 1: Duration (Months)</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="1"
+                                max="60"
+                                value={initMos}
+                                onChange={(e) => updateField('initial_duration_months', Number(e.target.value))}
+                                className="w-full px-2.5 py-1.5 rounded bg-zinc-900 border border-zinc-800 text-xs font-mono font-bold text-white focus:border-yellow-500"
+                              />
+                              <span className="text-xs text-zinc-400 whitespace-nowrap">mos</span>
+                            </div>
+                            <span className="text-[10px] text-zinc-500">
+                              First {initMos} months of client lifecycle
+                            </span>
+                          </div>
+
+                          {/* Phase 2: Recurring Commission */}
+                          <div className="p-3 bg-black/40 border border-zinc-800 rounded-lg flex flex-col gap-1.5">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400">Phase 2: Recurring Rate (%)</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.5"
+                                value={recurPct}
+                                onChange={(e) => updateField('recurring_commission_pct', Number(e.target.value))}
+                                className="w-full px-2.5 py-1.5 rounded bg-zinc-900 border border-zinc-800 text-xs font-mono font-bold text-cyan-400 focus:border-yellow-500"
+                              />
+                              <span className="text-xs font-bold text-zinc-400">%</span>
+                            </div>
+                            <span className="text-[10px] text-zinc-500">
+                              e.g. 10% = MVR {recurMonthlyAmt.toFixed(2)}/mo
+                            </span>
+                          </div>
+
+                          {/* Phase 2 Duration */}
+                          <div className="p-3 bg-black/40 border border-zinc-800 rounded-lg flex flex-col gap-1.5">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400">Phase 2: Duration (Months)</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="0"
+                                max="120"
+                                value={recurMos}
+                                onChange={(e) => updateField('recurring_duration_months', Number(e.target.value))}
+                                className="w-full px-2.5 py-1.5 rounded bg-zinc-900 border border-zinc-800 text-xs font-mono font-bold text-white focus:border-yellow-500"
+                              />
+                              <span className="text-xs text-zinc-400 whitespace-nowrap">mos</span>
+                            </div>
+                            <span className="text-[10px] text-zinc-500">
+                              {recurMos > 0 ? `Next ${recurMos} months (${(recurMos / 12).toFixed(1)} yrs)` : '0 = No recurring phase'}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {isEnabled && (
+                        <div className="mt-3 p-3 rounded-lg bg-zinc-900/60 border border-zinc-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                          <div className="flex items-center gap-2 text-zinc-300">
+                            <Sparkles size={14} className="text-yellow-400 shrink-0" />
+                            <span>
+                              <strong>Lifecycle Forecast:</strong> {initPct}% (MVR {initMonthlyAmt.toFixed(2)}) for {initMos} mos &rarr; {recurPct}% (MVR {recurMonthlyAmt.toFixed(2)}) for {recurMos} mos.
+                            </span>
+                          </div>
+                          <div className="text-right font-mono text-emerald-400 font-bold shrink-0">
+                            Total Yield: MVR {grandTotalEarnings.toFixed(2)} / client ({totalMos} mos)
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
 

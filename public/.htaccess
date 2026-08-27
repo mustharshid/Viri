@@ -16,8 +16,9 @@
     RewriteCond %{REQUEST_URI} (.+)/$
     RewriteRule ^ %1 [L,R=301]
 
-    # 1. Route API requests to Laravel's Front Controller
+    # 1. Route API and Downloads requests to Laravel's Front Controller
     RewriteRule ^api/(.*)$ index.php [L]
+    RewriteRule ^downloads/(.*)$ index.php [L]
 
     # 2. Transparently route PWA assets to the /viri/ subfolder
     RewriteRule ^assets/(.*)$ viri/assets/$1 [L]

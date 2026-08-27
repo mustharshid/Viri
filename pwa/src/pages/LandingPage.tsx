@@ -16,11 +16,83 @@ const CAROUSEL_SUBTITLES = [
   'Generate official bank statements on demand — no waiting for the bank to process requests.',
 ];
 
+const DEFAULT_PLANS = [
+  {
+    id: 1,
+    tier_key: 'free',
+    name: 'Free',
+    price: 0,
+    max_terminals: 1,
+    max_bank_accounts: 1,
+    max_transaction_checks: 90,
+    features: {
+      verification_enabled: true,
+      ledger_enabled: true,
+      ledger_show_balance: true,
+      ledger_show_debit: true,
+      reports_enabled: false,
+      shift_claim_report_enabled: true,
+      statement_enabled: false
+    }
+  },
+  {
+    id: 2,
+    tier_key: '499',
+    name: 'Starter',
+    price: 349,
+    max_terminals: 1,
+    max_bank_accounts: 2,
+    max_transaction_checks: 0,
+    features: {
+      verification_enabled: true,
+      ledger_enabled: false,
+      shift_claim_report_enabled: true
+    }
+  },
+  {
+    id: 3,
+    tier_key: '999',
+    name: 'Pro',
+    price: 890,
+    max_terminals: 3,
+    max_bank_accounts: 5,
+    max_transaction_checks: 0,
+    features: {
+      verification_enabled: true,
+      ledger_enabled: true,
+      ledger_show_balance: true,
+      ledger_show_debit: true,
+      shift_claim_report_enabled: true,
+      statement_enabled: true
+    }
+  },
+  {
+    id: 4,
+    tier_key: '1999',
+    name: 'Enterprise',
+    price: 1999,
+    max_terminals: 6,
+    max_bank_accounts: 10,
+    max_transaction_checks: 0,
+    features: {
+      verification_enabled: true,
+      ledger_enabled: true,
+      ledger_show_balance: true,
+      ledger_show_debit: true,
+      reports_enabled: true,
+      shift_claim_report_enabled: true,
+      statement_enabled: true,
+      auto_sync_enabled: true
+    }
+  }
+];
+
 export default function LandingPage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [currentPanel, setCurrentPanel] = useState(0);
   const [isNavScrolled, setIsNavScrolled] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [plans, setPlans] = useState<any[]>(DEFAULT_PLANS);
 
   // Morphing text state
   const [text1, setText1] = useState(CAROUSEL_TITLES[0]);
@@ -33,6 +105,18 @@ export default function LandingPage() {
   const subtext1Ref = useRef<HTMLSpanElement>(null);
   const subtext2Ref = useRef<HTMLSpanElement>(null);
   const morphAnimIdRef = useRef<number | null>(null);
+
+  // --- Fetch dynamic plans from API ---
+  useEffect(() => {
+    fetch('/api/public-plans')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setPlans(data);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // --- Scroll listener for nav ---
   useEffect(() => {
@@ -1012,82 +1096,206 @@ export default function LandingPage() {
           </div>
 
           <div className="pricing-grid">
-            {/* Starter */}
-            <div className="pricing-card">
-              <div className="pricing-card-head">
-                <h3 className="pricing-plan-name">Starter</h3>
-                <p className="pricing-plan-desc">For small stores and sole traders getting started.</p>
+            {plans.map((plan: any) => {
+              const isFree = parseFloat(plan.price) === 0;
+              const isFeatured = plan.tier_key === '999' || parseFloat(plan.price) === 890;
+              
+              // Plan Display Name - clean short name (no brackets)
+              let planDisplayName = (plan.name || '').replace(/\s*\(.*?\)/g, '').replace(/\s+plan$/i, '').trim();
+              if (plan.tier_key === 'free' || plan.name?.toLowerCase() === 'free plan') {
+                planDisplayName = 'Free';
+              } else if (plan.tier_key === '499' || plan.name?.toLowerCase().includes('starter') || plan.name?.includes('349')) {
+                planDisplayName = 'Starter';
+              } else if (plan.tier_key === '999' || plan.name?.toLowerCase().includes('pro') || plan.name?.includes('890')) {
+                planDisplayName = 'Pro';
+              } else if (plan.tier_key === '1999' || plan.name?.toLowerCase().includes('enterprise')) {
+                planDisplayName = 'Enterprise';
+              }
+
+              // Description
+              let planDesc = 'For small retail counters and sole traders.';
+              if (isFree) {
+                planDesc = 'For testing out Viri with zero commitment.';
+              } else if (isFeatured) {
+                planDesc = 'For growing businesses that need full financial control.';
+              } else if (parseFloat(plan.price) >= 1500 || plan.tier_key === '1999') {
+                planDesc = 'For multi-branch companies & high-volume operations.';
+              }
+
+              return (
+                <div key={plan.id || plan.tier_key} className={`pricing-card ${isFeatured ? 'featured' : ''}`}>
+                  <div className="pricing-card-head">
+                    <h3 className="pricing-plan-name">
+                      {planDisplayName}
+                      {isFeatured && (
+                        <span className="pricing-plan-badge">Most Popular</span>
+                      )}
+                    </h3>
+                    <p className="pricing-plan-desc">{planDesc}</p>
+                    {isFeatured && (
+                      <div style={{ marginTop: '8px' }}>
+                        <span className="pricing-trial-pill">Free Trial Available</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pricing-amount">
+                    <span className="pricing-currency">MVR</span>
+                    <span className="pricing-value">{parseFloat(plan.price).toFixed(2)}</span>
+                    <span className="pricing-period">/mo</span>
+                  </div>
+
+                  <ul className="pricing-features">
+                    {/* Verification Panel */}
+                    <li>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                      <span>Verification Panel – Search transactions by amount, or preview most recent credits.</span>
+                    </li>
+
+                    {/* Transaction Checks Limit */}
+                    {plan.max_transaction_checks && Number(plan.max_transaction_checks) > 0 ? (
+                      <li>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                        <span>Up to {plan.max_transaction_checks} Transaction Checks / month.</span>
+                      </li>
+                    ) : (
+                      <li>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                        <span>Unlimited transaction checks &amp; verification queries.</span>
+                      </li>
+                    )}
+
+                    {/* Quotas */}
+                    <li>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                      <span>{plan.max_bank_accounts || 1} Connected Bank Account{(plan.max_bank_accounts || 1) > 1 ? 's' : ''} Total.</span>
+                    </li>
+                    <li>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                      <span>{plan.max_terminals || 1} POS Terminal Connection{(plan.max_terminals || 1) > 1 ? 's' : ''}.</span>
+                    </li>
+
+                    {/* Ledger / Balances */}
+                    <li>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                      <span>
+                        {plan.features?.ledger_enabled
+                          ? 'Full Unified Ledger Access with real-time balance & debit transaction view.'
+                          : 'Live account balances & basic transaction lists.'}
+                      </span>
+                    </li>
+
+                    {/* Shift Claim / Audit */}
+                    {plan.features?.shift_claim_report_enabled !== false && (
+                      <li>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                        <span>Shift &amp; transaction claim function and cashier reports.</span>
+                      </li>
+                    )}
+
+                    {/* Statement Generator */}
+                    {plan.features?.statement_enabled && (
+                      <li>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                        <span>On-Demand Bank Statement Generator with PDF, CSV &amp; Excel export.</span>
+                      </li>
+                    )}
+
+                    {/* Reports Suite */}
+                    {plan.features?.reports_enabled && (
+                      <li>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                        <span>Reports Suite – Cash flow summary, trends &amp; period comparisons.</span>
+                      </li>
+                    )}
+
+                    {/* Multi-counter Sync */}
+                    {plan.features?.auto_sync_enabled && (
+                      <li>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                        <span>Automated Multi-Terminal Live Sync Engine.</span>
+                      </li>
+                    )}
+                  </ul>
+
+                  <Link
+                    to={`/register?plan=${plan.tier_key}`}
+                    className={`pricing-btn ${isFeatured ? 'pricing-btn-primary' : 'pricing-btn-outline'}`}
+                    style={isFeatured ? { color: '#041d13' } : undefined}
+                  >
+                    {isFree ? 'Get Started for Free' : isFeatured ? 'Try Pro for Free' : 'Get Started Now'}
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* Download Native Cashier Apps Section */}
+      <section className="download-section" id="download-app">
+        <div className="container">
+          <div className="download-header">
+            <p className="label">Native Applications</p>
+            <h2 className="display-lg">Download Viri Standalone App</h2>
+            <p className="body-md" style={{ maxWidth: '640px', margin: '0 auto' }}>
+              Run Viri natively on Windows, macOS, or Android POS tablets. The banking automation engine is built-in without requiring separate browser extensions.
+            </p>
+          </div>
+
+          <div className="download-grid">
+            {/* Windows */}
+            <div className="download-card">
+              <div>
+                <h3 className="download-card-title">Windows App</h3>
+                <p className="download-card-desc">Windows 10 / 11 (.exe installer)</p>
               </div>
-              <div className="pricing-amount">
-                <span className="pricing-currency">MVR</span>
-                <span className="pricing-value">349.00</span>
-                <span className="pricing-period">/mo</span>
-              </div>
-              <ul className="pricing-features">
-                <li>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-                  Verification Panel – Search transactions by amount, or preview most recent credits.
-                </li>
-                <li>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-                  See balances and basic transaction lists.
-                </li>
-                <li>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-                  Per terminal customisation of account balance and debit transaction view.
-                </li>
-                <li>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-                  Shift &amp; transaction claim function and reports.
-                </li>
-                <li>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-                  2 Bank Accounts Total
-                </li>
-                <li>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-                  1 Terminal connection.
-                </li>
-              </ul>
-              <Link to="/register" className="pricing-btn pricing-btn-outline">Get Started Now</Link>
+              <a
+                href="/downloads/viri-cashier-setup.exe"
+                download="viri-cashier-setup.exe"
+                className="download-btn"
+              >
+                <span>Download for Windows</span>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
+              </a>
             </div>
 
-            {/* Pro (Featured) */}
-            <div className="pricing-card featured">
-              <div className="pricing-card-head">
-                <h3 className="pricing-plan-name">Pro <span className="pricing-plan-badge">Most Popular</span> <span className="pricing-trial-pill">Free Trial Available</span></h3>
-                <p className="pricing-plan-desc">For growing businesses that need full financial control.</p>
+            {/* macOS */}
+            <div className="download-card">
+              <div>
+                <h3 className="download-card-title">macOS App</h3>
+                <p className="download-card-desc">Apple Silicon &amp; Intel (.dmg)</p>
               </div>
-              <div className="pricing-amount">
-                <span className="pricing-currency">MVR</span>
-                <span className="pricing-value">899.00</span>
-                <span className="pricing-period">/mo</span>
+              <a
+                href="/downloads/viri-cashier.dmg"
+                download="viri-cashier.dmg"
+                className="download-btn"
+              >
+                <span>Download for macOS</span>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
+              </a>
+            </div>
+
+            {/* Android POS / Tablets */}
+            <div className="download-card">
+              <div>
+                <h3 className="download-card-title">Android POS &amp; Tablets</h3>
+                <p className="download-card-desc">Counter tablets &amp; terminals (.apk)</p>
               </div>
-              <ul className="pricing-features">
-                <li>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-                  Pro plan includes: everything in starter plan
-                </li>
-                <li>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-                  Full Tool Suite Access – Verification Panel + Unified Ledger + Reports Suite + Statement Generator.
-                </li>
-                <li>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-                  On-Demand Statement Generation. Export to PDF, Excel &amp; CSV.
-                </li>
-                <li>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-                  4 Bank Accounts (modular – 100.00 per additional bank account).
-                </li>
-                <li>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-                  3 Terminals (modular – 200.00 per additional terminal).
-                </li>
-              </ul>
-              <Link to="/register" className="pricing-btn pricing-btn-primary" style={{ color: '#041d13' }}>Try Pro for Free</Link>
+              <a
+                href="/downloads/viri-cashier.apk"
+                download="viri-cashier.apk"
+                className="download-btn"
+              >
+                <span>Download for Android</span>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
+              </a>
             </div>
           </div>
+
+          <p className="download-footer-note">
+            Prefer using Google Chrome? You can also <a href="/downloads/viri-bridge.zip" download="viri-bridge.zip">download the Chrome Extension</a>.
+          </p>
         </div>
       </section>
 

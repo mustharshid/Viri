@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Shield, Plus, Trash2, LogOut, Copy, Check, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound, Lock, Menu, AlertTriangle, Search, FileSpreadsheet, ListFilter, Eye, Activity, Calendar, ChevronRight, User, Briefcase, Sparkles, Gift, Upload, Layers, PhoneCall } from 'lucide-react';
+import { Shield, Plus, Trash2, LogOut, Copy, Check, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound, Lock, Menu, AlertTriangle, Search, FileSpreadsheet, ListFilter, Eye, Activity, Calendar, ChevronRight, User, Briefcase, Sparkles, Gift, Upload, Layers, PhoneCall, Monitor, Laptop, Tablet, Puzzle } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 
 const maskUsername = (username: string | null | undefined): string | null => {
@@ -262,6 +262,18 @@ export default function CompanyDashboard() {
   const [paymentSuccess, setPaymentSuccess] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
+  // Direct Plan Change Request States
+  const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
+  const [selectedPlanForUpgrade, setSelectedPlanForUpgrade] = useState<any | null>(null);
+  const [planChangeSlip, setPlanChangeSlip] = useState<File | null>(null);
+  const [planChangeRemarks, setPlanChangeRemarks] = useState('');
+  const [planChangeLoading, setPlanChangeLoading] = useState(false);
+  const [planChangeSuccess, setPlanChangeSuccess] = useState<string | null>(null);
+  const [planChangeError, setPlanChangeError] = useState<string | null>(null);
+  const [showAppDownloadModal, setShowAppDownloadModal] = useState(false);
+
+  const pendingPlanChange = payments.find((p: any) => p.status === 'pending');
+
   const fetchPayments = async () => {
     try {
       const token = localStorage.getItem('viri_token');
@@ -304,6 +316,12 @@ export default function CompanyDashboard() {
   const navigate = useNavigate();
 
   const getVerificationLimit = () => {
+    if (user?.tenant?.custom_verifications_limit !== null && user?.tenant?.custom_verifications_limit !== undefined) {
+      return String(user.tenant.custom_verifications_limit);
+    }
+    if (user?.tenant?.max_transaction_checks !== undefined && user?.tenant?.max_transaction_checks !== null) {
+      return user.tenant.max_transaction_checks > 0 ? String(user.tenant.max_transaction_checks) : 'Unlimited';
+    }
     const tier = user?.tenant?.subscription_tier;
     if (tier === 'free') return '20';
     if (tier === '499') return '300';
@@ -483,6 +501,48 @@ export default function CompanyDashboard() {
       setPaymentError(err.message || "Network error uploading receipt");
     } finally {
       setPaymentLoading(false);
+    }
+  };
+
+  const handleRequestPlanChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedPlanForUpgrade) return;
+    setPlanChangeLoading(true);
+    setPlanChangeError(null);
+    setPlanChangeSuccess(null);
+
+    try {
+      const token = localStorage.getItem('viri_token');
+      const formData = new FormData();
+      formData.append('requested_tier', selectedPlanForUpgrade.tier_key);
+      formData.append('amount', selectedPlanForUpgrade.price !== undefined ? String(selectedPlanForUpgrade.price) : '0');
+      if (planChangeRemarks.trim()) formData.append('remarks', planChangeRemarks);
+      if (planChangeSlip) formData.append('receipt_slip', planChangeSlip);
+
+      const res = await fetch('/api/company/request-plan-change', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        },
+        body: formData
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setPlanChangeSuccess(`Plan change request to "${selectedPlanForUpgrade.name}" submitted! Superadmin has been notified in Overview & Expiries.`);
+        setIsPlanModalOpen(false);
+        setPlanChangeSlip(null);
+        setPlanChangeRemarks('');
+        fetchPayments();
+        fetchData();
+      } else {
+        setPlanChangeError(data.message || data.error || "Failed to submit plan change request.");
+      }
+    } catch (err: any) {
+      setPlanChangeError(err.message || "Network error submitting plan change request.");
+    } finally {
+      setPlanChangeLoading(false);
     }
   };
 
@@ -1206,9 +1266,12 @@ export default function CompanyDashboard() {
                 </div>
                 
                 <div className="pt-3 border-t border-[var(--border-color)] mt-4 flex justify-between items-center text-xs">
-                  <a href={`/viri/viri-bridge-${LATEST_EXTENSION_VERSION}.zip`} download className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1 hover:underline">
-                    <Download size={13} /> Download Extension
-                  </a>
+                  <button 
+                    onClick={() => setShowAppDownloadModal(true)}
+                    className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1 hover:underline font-semibold"
+                  >
+                    <Download size={13} /> Download Viri App
+                  </button>
                   <button 
                     onClick={() => {
                       const el = document.getElementById('cashier-counters-section');
@@ -2781,14 +2844,18 @@ export default function CompanyDashboard() {
                               <td className="py-3 text-zinc-400">{new Date(p.created_at).toLocaleString()}</td>
                               <td className="py-3 font-mono font-bold text-white">MVR {parseFloat(p.amount).toFixed(2)}</td>
                               <td className="py-3">
-                                <a
-                                  href={p.receipt_slip_path}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="text-blue-400 hover:text-blue-300 underline font-semibold flex items-center gap-1"
-                                >
-                                  View Slip
-                                </a>
+                                {p.receipt_slip_path ? (
+                                  <a
+                                    href={p.receipt_slip_path}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-blue-400 hover:text-blue-300 underline font-semibold flex items-center gap-1"
+                                  >
+                                    View Slip
+                                  </a>
+                                ) : (
+                                  <span className="text-zinc-500 italic text-xs">No Slip</span>
+                                )}
                               </td>
                               <td className="py-3">
                                 <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] ${
@@ -2815,10 +2882,38 @@ export default function CompanyDashboard() {
             {/* Sub-tab 2: Plans & Pricing */}
             {billingSubTab === 'plans' && (
               <div className="flex flex-col gap-8 animate-fade-in">
-                <div className="text-center mb-4">
+                <div className="text-center mb-2">
                   <h2 className="text-3xl font-bold mb-3 text-white">Available Subscription Plans</h2>
                   <p className="text-[var(--text-secondary)] text-sm">Choose the plan that best fits your business needs.</p>
                 </div>
+
+                {/* Plan Change Success / Error alerts */}
+                {planChangeSuccess && (
+                  <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-medium flex items-center gap-2">
+                    <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+                    <span>{planChangeSuccess}</span>
+                  </div>
+                )}
+
+                {/* Pending Plan Change Notice Banner */}
+                {pendingPlanChange && (
+                  <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xl animate-fade-in">
+                    <div className="flex items-start sm:items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0 mt-0.5 sm:mt-0">
+                        <Clock size={16} />
+                      </div>
+                      <div>
+                        <strong className="block text-amber-200 text-sm font-bold">Plan Change Request Pending Superadmin Approval</strong>
+                        <span className="text-zinc-400">
+                          You submitted a request for <strong>{pendingPlanChange.requested_tier?.toUpperCase() || 'NEW TIER'}</strong> on {new Date(pendingPlanChange.created_at).toLocaleDateString()}. Superadmin has been notified in Overview &amp; Expiries.
+                        </span>
+                      </div>
+                    </div>
+                    <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase font-mono tracking-wider shrink-0">
+                      Pending Approval
+                    </span>
+                  </div>
+                )}
                 
                 <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
                   {/* Free Plan */}
@@ -2833,8 +2928,22 @@ export default function CompanyDashboard() {
                         <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-zinc-500" /> Standard Support</li>
                       </ul>
                     </div>
-                    <button disabled={user?.tenant?.subscription_tier === 'free'} className="btn w-full bg-zinc-800 disabled:opacity-50 font-bold">
-                      {user?.tenant?.subscription_tier === 'free' ? 'Current Plan' : 'Downgrade'}
+                    <button
+                      disabled={user?.tenant?.subscription_tier === 'free'}
+                      onClick={() => {
+                        setSelectedPlanForUpgrade({
+                          tier_key: 'free',
+                          name: 'Free Tier',
+                          price: 0,
+                          terminals: 1,
+                          accounts: 2,
+                          checks: 20
+                        });
+                        setIsPlanModalOpen(true);
+                      }}
+                      className="btn w-full bg-zinc-800 disabled:opacity-50 font-bold"
+                    >
+                      {user?.tenant?.subscription_tier === 'free' ? 'Current Plan' : 'Downgrade to Free'}
                     </button>
                   </div>
 
@@ -2855,8 +2964,15 @@ export default function CompanyDashboard() {
                     <button
                       disabled={user?.tenant?.subscription_tier === '499' || user?.tenant?.subscription_tier === '349'}
                       onClick={() => {
-                        setPaymentAmount('349.00');
-                        setBillingSubTab('overview');
+                        setSelectedPlanForUpgrade({
+                          tier_key: '349',
+                          name: 'Starter Plan',
+                          price: 349.00,
+                          terminals: 1,
+                          accounts: 2,
+                          checks: 300
+                        });
+                        setIsPlanModalOpen(true);
                       }}
                       className="btn btn-success w-full disabled:opacity-50 disabled:bg-emerald-900 font-bold"
                     >
@@ -2880,8 +2996,15 @@ export default function CompanyDashboard() {
                     <button
                       disabled={user?.tenant?.subscription_tier === '999' || user?.tenant?.subscription_tier === '899'}
                       onClick={() => {
-                        setPaymentAmount('899.00');
-                        setBillingSubTab('overview');
+                        setSelectedPlanForUpgrade({
+                          tier_key: '899',
+                          name: 'Pro Plan',
+                          price: 899.00,
+                          terminals: 3,
+                          accounts: 4,
+                          checks: 'Unlimited'
+                        });
+                        setIsPlanModalOpen(true);
                       }}
                       className="btn bg-purple-600 hover:bg-purple-500 text-white w-full disabled:opacity-50 font-bold"
                     >
@@ -2905,8 +3028,15 @@ export default function CompanyDashboard() {
                     <button
                       disabled={user?.tenant?.subscription_tier === '1999'}
                       onClick={() => {
-                        setPaymentAmount('1999.00');
-                        setBillingSubTab('overview');
+                        setSelectedPlanForUpgrade({
+                          tier_key: '1999',
+                          name: 'Enterprise Plan',
+                          price: 1999.00,
+                          terminals: 6,
+                          accounts: 10,
+                          checks: 'Unlimited'
+                        });
+                        setIsPlanModalOpen(true);
                       }}
                       className="btn bg-blue-600 hover:bg-blue-500 text-white w-full disabled:opacity-50 font-bold"
                     >
@@ -3758,6 +3888,240 @@ export default function CompanyDashboard() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Plan Change Request Modal */}
+      {isPlanModalOpen && selectedPlanForUpgrade && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 sm:p-8 max-w-lg w-full relative shadow-2xl text-left">
+            <button 
+              onClick={() => {
+                setIsPlanModalOpen(false);
+                setSelectedPlanForUpgrade(null);
+                setPlanChangeSlip(null);
+                setPlanChangeRemarks('');
+                setPlanChangeError(null);
+              }} 
+              className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors"
+              title="Close"
+            >
+              <X size={20} />
+            </button>
+
+            <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+              <Layers className="text-emerald-400" size={22} />
+              Request Subscription Plan Change
+            </h3>
+            <p className="text-xs text-zinc-400 mb-6">
+              Confirm your upgrade or switch to <strong>{selectedPlanForUpgrade.name}</strong>.
+            </p>
+
+            {planChangeError && (
+              <div className="p-3 mb-4 bg-red-950/40 border border-red-500/30 rounded-xl text-red-300 text-xs font-semibold">
+                {planChangeError}
+              </div>
+            )}
+
+            <form onSubmit={handleRequestPlanChange} className="space-y-4">
+              <div className="bg-black/30 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-zinc-500 block">Selected Tier</span>
+                  <span className="text-base font-bold text-white">{selectedPlanForUpgrade.name}</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] uppercase font-bold text-zinc-500 block">Price</span>
+                  <span className="text-base font-mono font-bold text-emerald-400">
+                    {selectedPlanForUpgrade.price === 0 ? 'Free' : `MVR ${selectedPlanForUpgrade.price.toFixed(2)}/mo`}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 mb-1.5">
+                  Optional Remarks / Note
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="e.g. Requesting plan upgrade for next billing cycle..."
+                  className="input-field w-full text-xs"
+                  value={planChangeRemarks}
+                  onChange={e => setPlanChangeRemarks(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 mb-1.5">
+                  Attach Transfer Slip <span className="text-zinc-500 font-normal">(Optional)</span>
+                </label>
+                <input
+                  id="plan_change_slip_file"
+                  type="file"
+                  accept="image/png, image/jpeg"
+                  className="hidden"
+                  onChange={e => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      setPlanChangeSlip(e.target.files[0]);
+                    }
+                  }}
+                />
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById('plan_change_slip_file')?.click()}
+                    className="btn btn-outline text-xs border-zinc-700 hover:bg-zinc-800 text-zinc-200 px-3 py-2 shrink-0 font-bold flex items-center gap-1.5"
+                  >
+                    <Upload size={13} /> {planChangeSlip ? 'Change Slip' : 'Choose Slip Image'}
+                  </button>
+                  <span className="text-xs text-zinc-400 font-mono truncate">
+                    {planChangeSlip ? planChangeSlip.name : 'No slip file attached'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-3 bg-zinc-950/40 rounded-xl border border-zinc-800 text-[11px] text-zinc-400">
+                ⚡ <strong>Instant Notification:</strong> Submitting will alert the Superadmin in <strong>Overview &amp; Expiries</strong>. Your company's limits will activate once approved.
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="submit"
+                  disabled={planChangeLoading}
+                  className="btn btn-success flex-1 py-2.5 font-bold justify-center"
+                >
+                  {planChangeLoading ? 'Submitting Request...' : 'Submit Plan Change Request'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPlanModalOpen(false);
+                    setSelectedPlanForUpgrade(null);
+                    setPlanChangeSlip(null);
+                    setPlanChangeRemarks('');
+                    setPlanChangeError(null);
+                  }}
+                  className="btn btn-outline border-zinc-800 py-2.5 px-4"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Standalone App & Extension Download Modal */}
+      {showAppDownloadModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 sm:p-8 max-w-xl w-full relative shadow-2xl text-left">
+            <button 
+              onClick={() => setShowAppDownloadModal(false)} 
+              className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors"
+              title="Close"
+            >
+              <X size={20} />
+            </button>
+
+            <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+              <Download className="text-emerald-400" size={22} />
+              Download Viri App &amp; Extensions
+            </h3>
+            <p className="text-xs text-zinc-400 mb-6">
+              Choose your platform installer. The Standalone App embeds the banking engine directly — cashiers never need to install or configure browser extensions.
+            </p>
+
+            <div className="space-y-3">
+              {/* Windows */}
+              <a
+                href="/downloads/viri-cashier-setup.exe"
+                download="viri-cashier-setup.exe"
+                className="p-4 rounded-xl bg-black/40 hover:bg-zinc-800/80 border border-zinc-800 hover:border-emerald-500/40 transition-all flex items-center justify-between group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+                    <Monitor size={20} />
+                  </div>
+                  <div>
+                    <div className="font-bold text-white text-sm group-hover:text-emerald-400 transition-colors">
+                      Windows Standalone Installer (.exe)
+                    </div>
+                    <div className="text-[11px] text-zinc-400">For POS counter PCs &amp; Windows laptops (Zero extension setup)</div>
+                  </div>
+                </div>
+                <div className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-bold shrink-0">
+                  Download .exe
+                </div>
+              </a>
+
+              {/* Mac */}
+              <a
+                href="/downloads/viri-cashier.dmg"
+                download="viri-cashier.dmg"
+                className="p-4 rounded-xl bg-black/40 hover:bg-zinc-800/80 border border-zinc-800 hover:border-emerald-500/40 transition-all flex items-center justify-between group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-zinc-700/20 border border-zinc-600/30 flex items-center justify-center text-zinc-300 shrink-0">
+                    <Laptop size={20} />
+                  </div>
+                  <div>
+                    <div className="font-bold text-white text-sm group-hover:text-emerald-400 transition-colors">
+                      macOS Standalone App (.dmg)
+                    </div>
+                    <div className="text-[11px] text-zinc-400">For Apple Silicon (M1/M2/M3) &amp; Intel Macs</div>
+                  </div>
+                </div>
+                <div className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-bold shrink-0">
+                  Download .dmg
+                </div>
+              </a>
+
+              {/* Android */}
+              <a
+                href="/downloads/viri-cashier.apk"
+                download="viri-cashier.apk"
+                className="p-4 rounded-xl bg-black/40 hover:bg-zinc-800/80 border border-zinc-800 hover:border-emerald-500/40 transition-all flex items-center justify-between group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+                    <Tablet size={20} />
+                  </div>
+                  <div>
+                    <div className="font-bold text-white text-sm group-hover:text-emerald-400 transition-colors">
+                      Android POS &amp; Tablet App (.apk)
+                    </div>
+                    <div className="text-[11px] text-zinc-400">For Android counter tablets, Sunmi, and handheld POS</div>
+                  </div>
+                </div>
+                <div className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-bold shrink-0">
+                  Download .apk
+                </div>
+              </a>
+
+              {/* Chrome Extension */}
+              <a
+                href="/downloads/viri-bridge.zip"
+                download="viri-bridge.zip"
+                className="p-3.5 rounded-xl bg-zinc-950/40 hover:bg-zinc-900 border border-zinc-850 transition-all flex items-center justify-between group text-xs mt-3"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Puzzle size={16} className="text-zinc-400" />
+                  <span className="text-zinc-300">Chrome Browser Extension ZIP (v{LATEST_EXTENSION_VERSION})</span>
+                </div>
+                <span className="text-zinc-500 group-hover:text-zinc-300 underline font-mono text-[11px]">
+                  Download .zip
+                </span>
+              </a>
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-zinc-800 text-right">
+              <button
+                onClick={() => setShowAppDownloadModal(false)}
+                className="btn btn-outline border-zinc-800 py-2 px-5 text-xs font-bold"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

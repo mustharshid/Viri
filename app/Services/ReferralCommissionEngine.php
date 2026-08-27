@@ -36,8 +36,8 @@ class ReferralCommissionEngine
         }
 
         $config = ReferralSystemConfig::getActiveConfig();
-        $packageRules = $config->package_commission_rules[$planKey] ?? ['commission_pct' => 15.00, 'duration_months' => 12];
-        $durationMonths = (int) ($packageRules['duration_months'] ?? 12);
+        $packageRule = $config->getRuleForPlan($planKey);
+        $durationMonths = (int) $packageRule['total_duration_months'];
 
         return ReferralAttribution::create([
             'affiliate_id' => $affiliate->id,
@@ -88,13 +88,26 @@ class ReferralCommissionEngine
 
         // 1. Resolve current plan (Dynamic Upgrade check)
         $currentPlanKey = $tenant->features['tier_key'] ?? $attribution->initial_plan_key ?? 'starter';
-        $packageRules = $config->package_commission_rules[$currentPlanKey] ?? [
-            'commission_pct' => 15.00,
-            'duration_months' => 12,
-        ];
+        $packageRule = $config->getRuleForPlan($currentPlanKey);
 
-        // 2. Base Rate + Performance Tier Bonus Rate
-        $baseCommissionPct = (float) ($packageRules['commission_pct'] ?? 15.00);
+        if (! ($packageRule['enabled'] ?? true)) {
+            return null;
+        }
+
+        $nextMonthIndex = $attribution->invoices_commissioned_count + 1;
+        $maxMonths = (int) $packageRule['total_duration_months'];
+
+        if ($maxMonths > 0 && $nextMonthIndex > $maxMonths) {
+            $attribution->update(['status' => 'completed']);
+            return null;
+        }
+
+        // 2. Multi-Stage Base Rate + Performance Tier Bonus Rate
+        $baseCommissionPct = $config->getBaseRateForMonth($currentPlanKey, $nextMonthIndex);
+        if ($baseCommissionPct <= 0) {
+            return null;
+        }
+
         $tierBonusPct = 0.00;
         if ($affiliate->currentTier) {
             $tierBonusPct = (float) $affiliate->currentTier->bonus_commission_pct;
@@ -105,8 +118,6 @@ class ReferralCommissionEngine
         $actualInvoiceAmount = (float) $invoice->amount;
         $commissionAmount = round($actualInvoiceAmount * ($effectiveCommissionPct / 100), 2);
 
-        $nextMonthIndex = $attribution->invoices_commissioned_count + 1;
-        $maxMonths = (int) ($packageRules['duration_months'] ?? 12);
         $graceDays = (int) ($config->commission_grace_period_days ?? 14);
 
         return DB::transaction(function () use (

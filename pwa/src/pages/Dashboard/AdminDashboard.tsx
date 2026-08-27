@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2, Server, Database, Code, Zap, Activity, Sun, Moon, Briefcase, Sparkles, Clock, AlertTriangle, Search, Key, ArrowLeft, ArrowRight, ChevronDown, TrendingUp, Gift } from 'lucide-react';
+import { LogOut, Terminal, X, Copy, Lock, Info, MonitorSmartphone, Shield, Trash2, Plus, Edit, Building2, Archive, Layers, ClipboardList, Settings, RefreshCw, CreditCard, CheckCircle2, Server, Database, Code, Zap, Activity, Sun, Moon, Briefcase, Sparkles, Clock, AlertTriangle, Search, Key, ArrowLeft, ArrowRight, ChevronDown, TrendingUp, Gift, FileText } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import ReferralSettingsManager from './ReferralSettingsManager';
 
@@ -341,6 +341,22 @@ export default function AdminDashboard() {
   const [actionRemarks, setActionRemarks] = useState('');
   const [showSlipPreview, setShowSlipPreview] = useState<string | null>(null);
 
+  const openApprovalModal = (pay: any) => {
+    setSelectedPayment(pay);
+    setApproveTier(pay.requested_tier || pay.tenant?.subscription_tier || '499');
+    const defaultExpiry = new Date();
+    defaultExpiry.setDate(defaultExpiry.getDate() + 30);
+    setApproveExpiry(defaultExpiry.toISOString().split('T')[0]);
+    setActionRemarks('');
+    setShowApprovalModal(true);
+  };
+
+  const openRejectionModal = (pay: any) => {
+    setSelectedPayment(pay);
+    setActionRemarks('');
+    setShowRejectionModal(true);
+  };
+
   // System Settings State
   const [systemSettings, setSystemSettings] = useState<any[]>([]);
   const [serverInfo, setServerInfo] = useState<any | null>(null);
@@ -525,6 +541,7 @@ export default function AdminDashboard() {
     price: 0,
     max_terminals: 1,
     max_bank_accounts: 1,
+    max_transaction_checks: 0,
     lock_timeout: 20,
     features: {
       verification_enabled: true,
@@ -986,6 +1003,7 @@ export default function AdminDashboard() {
           price: 0,
           max_terminals: 1,
           max_bank_accounts: 1,
+          max_transaction_checks: 0,
           lock_timeout: 20,
           features: {
             verification_enabled: true,
@@ -1592,6 +1610,21 @@ export default function AdminDashboard() {
                 onChange={e => setPlanForm(prev => ({ ...prev, max_bank_accounts: parseInt(e.target.value) || 1 }))}
               />
             </div>
+            <div className="input-group">
+              <label className="input-label flex items-center justify-between">
+                <span>Transaction Checks Limit</span>
+                <span className="text-[10px] text-zinc-500 font-normal">0 = Unlimited</span>
+              </label>
+              <input
+                type="number"
+                min="0"
+                required
+                placeholder="e.g. 300 (0 = Unlimited)"
+                className="input-field text-sm font-mono"
+                value={planForm.max_transaction_checks ?? 0}
+                onChange={e => setPlanForm(prev => ({ ...prev, max_transaction_checks: parseInt(e.target.value) || 0 }))}
+              />
+            </div>
             <div className="input-group col-span-1">
               <label className="input-label">Lock Timeout (seconds)</label>
               <input
@@ -1607,7 +1640,12 @@ export default function AdminDashboard() {
 
             {/* Default Features Checkboxes */}
             <div className="col-span-full border-t border-zinc-800/80 pt-4 mt-2">
-              <h4 className="text-xs font-bold text-zinc-400 mb-3">Default Enabled Functions/Modules</h4>
+              <div className="flex flex-col gap-1 mb-3">
+                <h4 className="text-xs font-bold text-zinc-400">Default Enabled Functions/Modules</h4>
+                <p className="text-[11px] text-zinc-500">
+                  Note: View History, Verify Transfer, and Sync History actions all count toward the monthly Transaction Checks Limit configured above.
+                </p>
+              </div>
               <div className="flex flex-wrap gap-x-6 gap-y-3">
                 {[
                   { key: 'verification_enabled', label: 'Verification Module' },
@@ -1670,6 +1708,7 @@ export default function AdminDashboard() {
                       price: 0,
                       max_terminals: 1,
                       max_bank_accounts: 1,
+                      max_transaction_checks: 0,
                       lock_timeout: 20,
                       features: {
                         verification_enabled: true,
@@ -1725,6 +1764,12 @@ export default function AdminDashboard() {
                   <strong className="text-white font-mono">{plan.max_bank_accounts ?? 1}</strong>
                 </div>
                 <div className="flex justify-between text-xs text-zinc-400">
+                  <span>Transaction Checks:</span>
+                  <strong className="text-emerald-400 font-mono">
+                    {plan.max_transaction_checks && plan.max_transaction_checks > 0 ? `${plan.max_transaction_checks.toLocaleString()} / mo` : 'Unlimited'}
+                  </strong>
+                </div>
+                <div className="flex justify-between text-xs text-zinc-400">
                   <span>Auto-Lock Timeout:</span>
                   <strong className="text-white font-mono">{plan.lock_timeout}s</strong>
                 </div>
@@ -1768,6 +1813,7 @@ export default function AdminDashboard() {
                       price: plan.price,
                       max_terminals: plan.max_terminals,
                       max_bank_accounts: plan.max_bank_accounts ?? 1,
+                      max_transaction_checks: plan.max_transaction_checks ?? 0,
                       lock_timeout: plan.lock_timeout,
                       features: {
                         verification_enabled: plan.features?.verification_enabled ?? true,
@@ -1847,12 +1893,16 @@ export default function AdminDashboard() {
                         <td className="py-3 text-zinc-500">{new Date(pay.created_at).toLocaleString()}</td>
                         <td className="py-3 text-zinc-400 max-w-xs truncate" title={pay.remarks}>{pay.remarks || '-'}</td>
                         <td className="py-3">
-                          <button
-                            onClick={() => setShowSlipPreview(pay.receipt_slip_path)}
-                            className="text-blue-400 hover:text-blue-300 underline font-semibold flex items-center gap-1.5"
-                          >
-                            View Slip Image
-                          </button>
+                          {pay.receipt_slip_path ? (
+                            <button
+                              onClick={() => setShowSlipPreview(pay.receipt_slip_path)}
+                              className="text-blue-400 hover:text-blue-300 underline font-semibold flex items-center gap-1.5"
+                            >
+                              View Slip Image
+                            </button>
+                          ) : (
+                            <span className="text-zinc-500 italic text-xs">No Slip Attached</span>
+                          )}
                         </td>
                         <td className="py-3 text-right">
                           <div className="flex items-center justify-end gap-2">
@@ -1902,12 +1952,16 @@ export default function AdminDashboard() {
                     </div>
 
                     <div className="pt-1 flex items-center justify-between gap-2 flex-wrap">
-                      <button
-                        onClick={() => setShowSlipPreview(pay.receipt_slip_path)}
-                        className="text-blue-400 hover:text-blue-300 underline font-semibold text-xs flex items-center gap-1"
-                      >
-                        View Slip Image
-                      </button>
+                      {pay.receipt_slip_path ? (
+                        <button
+                          onClick={() => setShowSlipPreview(pay.receipt_slip_path)}
+                          className="text-blue-400 hover:text-blue-300 underline font-semibold text-xs flex items-center gap-1"
+                        >
+                          View Slip Image
+                        </button>
+                      ) : (
+                        <span className="text-zinc-500 italic text-xs">No Slip Attached</span>
+                      )}
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => {
@@ -1974,12 +2028,16 @@ export default function AdminDashboard() {
                         <td className="py-3 font-mono text-zinc-400">{pay.reference_number}</td>
                         <td className="py-3 text-zinc-500">{new Date(pay.created_at).toLocaleDateString()}</td>
                         <td className="py-3">
-                          <button
-                            onClick={() => setShowSlipPreview(pay.receipt_slip_path)}
-                            className="text-blue-400 hover:text-blue-300 underline font-semibold flex items-center gap-1"
-                          >
-                            View Receipt
-                          </button>
+                          {pay.receipt_slip_path ? (
+                            <button
+                              onClick={() => setShowSlipPreview(pay.receipt_slip_path)}
+                              className="text-blue-400 hover:text-blue-300 underline font-semibold flex items-center gap-1"
+                            >
+                              View Receipt
+                            </button>
+                          ) : (
+                            <span className="text-zinc-500 italic text-xs">No Receipt</span>
+                          )}
                         </td>
                         <td className="py-3">
                           <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] ${
@@ -4524,6 +4582,108 @@ export default function AdminDashboard() {
           </div>
         </div>
 
+        {/* Pending Plan Change & Renewal Requests Alert Queue */}
+        {payments.filter((p: any) => p.status === 'pending').length > 0 && (
+          <div className="glass-panel p-5 rounded-2xl border border-yellow-500/40 bg-gradient-to-r from-yellow-950/30 via-zinc-950/60 to-black shadow-2xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-yellow-500/20">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-yellow-500/20 border border-yellow-500/40 flex items-center justify-center text-yellow-400 shrink-0">
+                  <Layers size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    Pending Plan Change &amp; Upgrade Requests
+                    <span className="px-2 py-0.5 text-[10px] font-extrabold bg-yellow-500 text-black rounded-full animate-pulse font-mono">
+                      {payments.filter((p: any) => p.status === 'pending').length} PENDING
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-zinc-400">
+                    Review and approve incoming plan upgrades requested from company billing portals.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveTab('payments')}
+                className="btn btn-outline text-xs border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/10 font-bold px-3 py-1.5 shrink-0 self-start sm:self-auto"
+              >
+                View Payments Tab
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {payments.filter((p: any) => p.status === 'pending').map((req: any) => {
+                const targetTier = req.requested_tier || 'custom';
+                const requestedPlan = subscriptionPlans.find((p: any) => p.tier_key === targetTier);
+                const currentTier = req.tenant?.subscription_tier;
+                return (
+                  <div key={req.id} className="bg-zinc-900/90 border border-zinc-800 rounded-xl p-4 flex flex-col justify-between gap-3 hover:border-yellow-500/40 transition-all shadow-md">
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-zinc-500 block font-mono">Company</span>
+                          <strong className="text-sm text-white font-bold block">{req.tenant?.name || `Tenant #${req.tenant_id}`}</strong>
+                        </div>
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 uppercase font-mono">
+                          Plan Change
+                        </span>
+                      </div>
+
+                      <div className="bg-black/40 border border-zinc-800/80 rounded-lg p-2.5 my-2 text-xs space-y-1">
+                        <div className="flex justify-between items-center">
+                          <span className="text-zinc-400">Current:</span>
+                          <span className="font-mono text-zinc-300 uppercase font-semibold">{currentTier || 'Free'}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-zinc-400">Requested:</span>
+                          <span className="font-mono text-emerald-400 font-bold uppercase">{requestedPlan ? requestedPlan.name : targetTier}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-zinc-400">Amount:</span>
+                          <span className="font-mono font-bold text-white">MVR {parseFloat(req.amount).toFixed(2)}</span>
+                        </div>
+                      </div>
+
+                      {req.remarks && (
+                        <p className="text-[11px] text-zinc-400 italic mb-2 line-clamp-2" title={req.remarks}>
+                          "{req.remarks}"
+                        </p>
+                      )}
+
+                      <div className="flex items-center justify-between text-[10px] text-zinc-500 pt-1 border-t border-zinc-800/60">
+                        <span>{new Date(req.created_at).toLocaleString()}</span>
+                        {req.receipt_slip_path && (
+                          <button
+                            type="button"
+                            onClick={() => setShowSlipPreview(req.receipt_slip_path)}
+                            className="text-blue-400 hover:text-blue-300 font-bold underline flex items-center gap-1"
+                          >
+                            <FileText size={11} /> View Slip
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2 border-t border-zinc-800">
+                      <button
+                        onClick={() => openApprovalModal(req)}
+                        className="btn btn-success flex-1 py-1.5 text-xs font-bold justify-center shadow-md hover:scale-[1.02] active:scale-[0.98] transition-all"
+                      >
+                        <CheckCircle2 size={13} /> Approve Plan
+                      </button>
+                      <button
+                        onClick={() => openRejectionModal(req)}
+                        className="btn btn-outline border-zinc-700 hover:border-red-500/50 hover:bg-red-500/10 text-zinc-400 hover:text-red-400 py-1.5 px-3 text-xs"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Filter Controls Bar */}
         <div className="glass-panel p-4 rounded-2xl border border-white/10 flex flex-col sm:flex-row gap-4 items-center justify-between bg-white/5">
           <div className="relative flex-1 max-w-md w-full">
@@ -4593,12 +4753,13 @@ export default function AdminDashboard() {
                     const daysRemaining = hasExpiry ? Math.ceil((expiryTime - Date.now()) / (1000 * 3600 * 24)) : null;
                     const isExpired = daysRemaining !== null && daysRemaining < 0;
                     const isExpiringSoon = daysRemaining !== null && daysRemaining >= 0 && daysRemaining <= 7;
+                    const companyPendingPayment = payments.find((p: any) => p.status === 'pending' && p.tenant_id === company.id);
 
                     return (
                       <tr 
                         key={company.id} 
                         className={`transition-colors ${
-                          isPending ? 'bg-amber-500/10 hover:bg-amber-500/15' : 'hover:bg-white/5'
+                          isPending || companyPendingPayment ? 'bg-amber-500/10 hover:bg-amber-500/15' : 'hover:bg-white/5'
                         }`}
                       >
                         {/* Company Details */}
@@ -4632,10 +4793,11 @@ export default function AdminDashboard() {
                             </span>
                           ) : company.status === 'suspended' ? (
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-red-500/15 text-red-400 border border-red-500/30 text-xs font-semibold">
+                              <X size={13} />
                               Suspended
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-800 text-zinc-400 border border-zinc-700 text-xs font-semibold">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-700/30 text-zinc-300 border border-zinc-600/30 text-xs">
                               {company.status}
                             </span>
                           )}
@@ -4643,38 +4805,27 @@ export default function AdminDashboard() {
 
                         {/* Verifications Used */}
                         <td className="py-3.5 px-4 whitespace-nowrap font-mono text-xs">
-                          <div className="flex items-center gap-1.5 text-zinc-200 font-bold" title="A Verification is counted when a cashier verifies a bank transfer or claims a deposit sale on a terminal.">
-                            <CheckCircle2 size={13} className="text-emerald-400" />
-                            <span>{company.verifications_count ?? company.verifications_used ?? 0}</span>
-                            {company.custom_verifications_limit ? (
-                              <span className="text-zinc-500 text-[10px]">/ {company.custom_verifications_limit}</span>
-                            ) : (
-                              <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-sans font-normal">Unlimited</span>
-                            )}
-                          </div>
+                          <span className="font-bold text-white">{company.verifications_count ?? 0}</span>
+                          <span className="text-zinc-500"> / {company.max_verifications_monthly ? company.max_verifications_monthly : '∞'}</span>
                         </td>
 
                         {/* Last Activity */}
-                        <td className="py-3.5 px-4 whitespace-nowrap font-mono text-xs">
-                          {company.last_activity_at ? (
-                            <div className="flex flex-col">
-                              <span className="text-zinc-200 font-medium">
-                                {new Date(company.last_activity_at).toLocaleDateString()}
-                              </span>
-                              <span className="text-[10px] text-zinc-400">
-                                {new Date(company.last_activity_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-zinc-500 italic">No activity yet</span>
-                          )}
+                        <td className="py-3.5 px-4 whitespace-nowrap text-zinc-400 text-xs">
+                          {company.last_activity_at ? new Date(company.last_activity_at).toLocaleDateString() : '—'}
                         </td>
 
                         {/* Subscription Plan */}
                         <td className="py-3.5 px-4 whitespace-nowrap">
-                          <span className="px-2.5 py-1 rounded-lg bg-zinc-800 text-zinc-200 border border-zinc-700 text-xs font-medium uppercase font-mono">
-                            {company.subscription_tier || 'free'}
-                          </span>
+                          <div className="flex flex-col gap-1">
+                            <span className="px-2.5 py-1 rounded-lg bg-zinc-800 text-zinc-200 border border-zinc-700 text-xs font-medium uppercase font-mono inline-block w-fit">
+                              {company.subscription_tier || 'free'}
+                            </span>
+                            {companyPendingPayment && (
+                              <span className="px-2 py-0.5 rounded-md bg-yellow-500/20 text-yellow-300 border border-yellow-500/40 text-[9px] font-extrabold flex items-center gap-1 animate-pulse w-fit">
+                                <Layers size={10} /> Req: {companyPendingPayment.requested_tier?.toUpperCase() || 'UPGRADE'}
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         {/* Plan Expiry Date & Countdown */}
@@ -4700,18 +4851,28 @@ export default function AdminDashboard() {
                           )}
                         </td>
 
-                        {/* Edit Settings Action */}
+                        {/* Actions */}
                         <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                          <button
-                            onClick={() => {
-                              setSingleCompanyFilterId(company.id);
-                              setActiveTab('companies');
-                            }}
-                            className="btn btn-outline text-xs px-3 py-1.5 flex items-center gap-1.5 text-yellow-500 border-yellow-500/30 hover:bg-yellow-500/10 font-bold ml-auto"
-                          >
-                            <Edit size={13} />
-                            Edit Settings
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            {companyPendingPayment && (
+                              <button
+                                onClick={() => openApprovalModal(companyPendingPayment)}
+                                className="btn btn-success text-xs px-2.5 py-1.5 flex items-center gap-1 font-bold shadow-md hover:scale-105 active:scale-95 transition-all"
+                              >
+                                <CheckCircle2 size={13} /> Approve Plan
+                              </button>
+                            )}
+                            <button
+                              onClick={() => {
+                                setSingleCompanyFilterId(company.id);
+                                setActiveTab('companies');
+                              }}
+                              className="btn btn-outline text-xs px-3 py-1.5 flex items-center gap-1.5 text-yellow-500 border-yellow-500/30 hover:bg-yellow-500/10 font-bold"
+                            >
+                              <Edit size={13} />
+                              Edit Settings
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -4906,7 +5067,7 @@ export default function AdminDashboard() {
               className="w-full bg-zinc-900 border border-zinc-700 text-white font-bold text-sm px-4 py-3 rounded-xl appearance-none focus:outline-none focus:border-yellow-500 shadow-lg pr-10"
             >
               <option value="overview">
-                ⚡ Overview & Expiries {companies.filter(c => c.status === 'pending').length > 0 ? `(${companies.filter(c => c.status === 'pending').length} PENDING)` : ''}
+                ⚡ Overview & Expiries {(companies.filter(c => c.status === 'pending').length + pendingPaymentsCount) > 0 ? `(${companies.filter(c => c.status === 'pending').length + pendingPaymentsCount} PENDING)` : ''}
               </option>
               <option value="companies">
                 🏢 Registered Companies ({companies.filter(c => c.status !== 'archived').length})
@@ -4949,9 +5110,9 @@ export default function AdminDashboard() {
           >
             <Activity size={15} className="shrink-0" />
             <span>Overview & Expiries</span>
-            {companies.filter(c => c.status === 'pending').length > 0 && (
-              <span className="px-1.5 py-0.5 text-[9px] font-bold bg-amber-500 text-black rounded-full leading-none shrink-0 animate-pulse">
-                {companies.filter(c => c.status === 'pending').length} PENDING
+            {(companies.filter(c => c.status === 'pending').length + pendingPaymentsCount) > 0 && (
+              <span className="px-1.5 py-0.5 text-[9px] font-bold bg-amber-500 text-black rounded-full leading-none shrink-0 animate-pulse font-mono">
+                {companies.filter(c => c.status === 'pending').length + pendingPaymentsCount} PENDING
               </span>
             )}
           </button>

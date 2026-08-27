@@ -12,6 +12,7 @@ class SubscriptionPlan extends Model
         'price',
         'max_terminals',
         'max_bank_accounts',
+        'max_transaction_checks',
         'lock_timeout',
         'features',
     ];
@@ -20,6 +21,7 @@ class SubscriptionPlan extends Model
         'price' => 'float',
         'max_terminals' => 'integer',
         'max_bank_accounts' => 'integer',
+        'max_transaction_checks' => 'integer',
         'lock_timeout' => 'integer',
         'features' => 'array',
     ];

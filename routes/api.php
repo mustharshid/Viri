@@ -27,6 +27,21 @@ use Illuminate\Support\Facades\Route;
 */
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
+Route::get('/public-plans', [AuthController::class, 'getPublicPlans']);
+Route::get('/app-version', function () {
+    return response()->json([
+        'version' => '1.4.0',
+        'release_date' => '2026-08-24',
+        'mandatory' => false,
+        'changelog' => 'Embedded banking automation engine, zero extension setup, and performance improvements.',
+        'downloads' => [
+            'windows' => url('/downloads/viri-cashier-setup.exe'),
+            'mac' => url('/downloads/viri-cashier.dmg'),
+            'android' => url('/downloads/viri-cashier.apk'),
+            'extension' => url('/viri-bridge.zip'),
+        ]
+    ]);
+});
 Route::post('/terminal/pair', [TerminalPairingController::class, 'pair']);
 Route::get('/ref/{code}', [AffiliatePortalController::class, 'validateReferralCode']);
 Route::get('/referrals/public-config', [AffiliatePortalController::class, 'getPublicConfig']);
@@ -119,6 +134,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/company/profile', [CompanyController::class, 'updateProfile']);
     Route::get('/company/payments', [CompanyController::class, 'getPayments']);
     Route::post('/company/payments', [CompanyController::class, 'storePayment']);
+    Route::post('/company/request-plan-change', [CompanyController::class, 'requestPlanChange']);
 
     Route::get('/company/audit-logs', [CompanyController::class, 'getAuditLogs']);
 });
@@ -213,7 +229,17 @@ Route::post('/verify-terminal', function (Request $request) {
         '1999' => PHP_INT_MAX,
     ];
     $tier = $tenant->subscription_tier ?? 'free';
-    $limit = $tenant->custom_verifications_limit ?? ($limits[$tier] ?? 20);
+    $plan = \App\Models\SubscriptionPlan::where('tier_key', $tier)->first();
+
+    if ($tenant->custom_verifications_limit !== null) {
+        $limit = (int) $tenant->custom_verifications_limit;
+    } elseif ($plan) {
+        $limit = ($plan->max_transaction_checks !== null && $plan->max_transaction_checks > 0)
+            ? (int) $plan->max_transaction_checks
+            : ($plan->max_transaction_checks === 0 ? PHP_INT_MAX : ($limits[$tier] ?? 20));
+    } else {
+        $limit = $limits[$tier] ?? 20;
+    }
 
     $creditsExhausted = ($tenant->verifications_count >= $limit);
 
@@ -222,7 +248,7 @@ Route::post('/verify-terminal', function (Request $request) {
         $subscriptionExpired = true;
     }
 
-    if (! $creditsExhausted && ! $subscriptionExpired && $request->input('action') === 'verify') {
+    if (! $creditsExhausted && ! $subscriptionExpired && in_array($request->input('action'), ['verify', 'view_history', 'sync_history'])) {
         // Increment count
         $tenant->increment('verifications_count');
     }
@@ -332,6 +358,7 @@ Route::post('/verify-terminal', function (Request $request) {
             'tier' => $tier,
             'lock_timeout' => $tenant->lock_timeout ?? 20,
             'verifications_used' => $tenant->verifications_count,
+            'max_transaction_checks' => ($limit === PHP_INT_MAX ? 0 : $limit),
             'extension_id' => env('VIRI_EXTENSION_ID', 'viri_default_extension_id'),
             'bank_accounts' => $tenant->bankAccounts->map(function ($account) {
                 return [

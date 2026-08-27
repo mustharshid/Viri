@@ -11,6 +11,22 @@ use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
 {
+    public function getPublicPlans()
+    {
+        $plans = \App\Models\SubscriptionPlan::orderBy('price', 'asc')->get([
+            'id',
+            'tier_key',
+            'name',
+            'price',
+            'max_terminals',
+            'max_bank_accounts',
+            'max_transaction_checks',
+            'features',
+        ]);
+
+        return response()->json($plans);
+    }
+
     public function register(Request $request)
     {
         $request->validate([
@@ -19,19 +35,32 @@ class AuthController extends Controller
             'email' => 'required|string|email|max:255|unique:users',
             'phone_number' => 'required|string|max:255',
             'password' => 'required|string|min:8|confirmed',
+            'subscription_tier' => 'nullable|string',
         ]);
+
+        $selectedTier = $request->input('subscription_tier', 'free');
+        $plan = \App\Models\SubscriptionPlan::where('tier_key', $selectedTier)->first();
+
+        $features = $plan ? ($plan->features ?? []) : [];
+        $maxTerminals = $plan ? (int) $plan->max_terminals : 1;
+        $maxBankAccounts = $plan ? (int) $plan->max_bank_accounts : 1;
+        $lockTimeout = $plan ? (int) $plan->lock_timeout : 20;
 
         // 1. Create the tenant (Company)
         $tenant = Tenant::create([
             'name' => $request->company_name,
             'status' => 'pending', // Requires Superadmin approval
-            'subscription_tier' => 'free',
+            'subscription_tier' => $selectedTier,
+            'max_terminals' => $maxTerminals,
+            'max_bank_accounts' => $maxBankAccounts,
+            'lock_timeout' => $lockTimeout,
+            'features' => $features,
         ]);
 
         // 1.5 Register referral attribution if referral code is provided
         if ($request->filled('referral_code')) {
             $engine = new \App\Services\ReferralCommissionEngine();
-            $engine->registerAttribution($tenant, $request->referral_code, $request->input('plan_key', 'starter'));
+            $engine->registerAttribution($tenant, $request->referral_code, $selectedTier);
         }
 
         // 2. Create the user

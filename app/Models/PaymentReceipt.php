@@ -12,6 +12,7 @@ class PaymentReceipt extends Model
         'reference_number',
         'receipt_slip_path',
         'status',
+        'requested_tier',
         'remarks',
         'previous_license_expires_at',
     ];

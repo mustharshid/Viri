@@ -139,17 +139,57 @@ class AffiliatePortalController extends Controller
 
         $referralBaseUrl = 'https://viri.thinksafe.mv';
 
+        // Load active subscription plans & their commission packages
+        $subscriptionPlans = \App\Models\SubscriptionPlan::orderBy('price', 'asc')->get();
+        $packages = [];
+        foreach ($subscriptionPlans as $plan) {
+            $rule = $config->getRuleForPlan($plan->tier_key);
+            if ($rule['enabled'] && $plan->price > 0) {
+                $packages[] = [
+                    'tier_key' => $plan->tier_key,
+                    'name' => $plan->name,
+                    'price' => (float) $plan->price,
+                    'initial_commission_pct' => (float) $rule['initial_commission_pct'],
+                    'initial_duration_months' => (int) $rule['initial_duration_months'],
+                    'recurring_commission_pct' => (float) $rule['recurring_commission_pct'],
+                    'recurring_duration_months' => (int) $rule['recurring_duration_months'],
+                    'total_duration_months' => (int) $rule['total_duration_months'],
+                ];
+            }
+        }
+
+        // If no paid subscription plans found, fallback to configured rules
+        if (empty($packages)) {
+            foreach (($config->package_commission_rules ?? []) as $key => $r) {
+                $rule = $config->getRuleForPlan($key);
+                if ($rule['enabled']) {
+                    $packages[] = [
+                        'tier_key' => $key,
+                        'name' => ucfirst($key) . ' Package',
+                        'price' => is_numeric($key) ? (float) $key : 349.00,
+                        'initial_commission_pct' => (float) $rule['initial_commission_pct'],
+                        'initial_duration_months' => (int) $rule['initial_duration_months'],
+                        'recurring_commission_pct' => (float) $rule['recurring_commission_pct'],
+                        'recurring_duration_months' => (int) $rule['recurring_duration_months'],
+                        'total_duration_months' => (int) $rule['total_duration_months'],
+                    ];
+                }
+            }
+        }
+
         return response()->json([
             'affiliate' => $affiliate,
             'referral_link' => "{$referralBaseUrl}/register?ref={$affiliate->referral_code}",
             'direct_ref_url' => "{$referralBaseUrl}/ref/{$affiliate->referral_code}",
             'config' => [
+                'program_headline' => $config->program_headline,
                 'payout_mode' => $config->payout_mode,
                 'min_payout_threshold' => (float) $config->min_payout_threshold,
                 'customer_discount_enabled' => $config->customer_discount_enabled,
                 'customer_discount_type' => $config->customer_discount_type,
                 'customer_discount_value' => (float) $config->customer_discount_value,
                 'grace_period_days' => $config->commission_grace_period_days,
+                'packages' => $packages,
             ],
             'metrics' => [
                 'total_conversions' => $conversionsCount,
@@ -313,38 +353,73 @@ class AffiliatePortalController extends Controller
             ->where('status', 'active')
             ->count();
 
-        $newSalesPerMonth = (int) $request->input('new_sales_per_month', 5);
-        $retentionRate = (float) $request->input('retention_rate', 0.95); // 95%
-        $avgPackagePrice = (float) $request->input('avg_package_price', 1500.00); // MVR 1,500
+        $numClients = max(1, (int) $request->input('num_clients', $request->input('new_sales_per_month', 10)));
+        $retentionRate = min(1.0, max(0.1, (float) $request->input('retention_rate', 1.0))); // Default 100% or user-adjusted
         
-        $basePct = 15.00;
-        $tierBonusPct = $affiliate->currentTier ? (float) $affiliate->currentTier->bonus_commission_pct : 0.00;
-        $effectiveRate = ($basePct + $tierBonusPct) / 100;
+        $packageKey = $request->input('package_key');
+        $rule = $config->getRuleForPlan($packageKey);
+        
+        // Resolve package price from subscription plans or fallback
+        $packagePrice = (float) $request->input('avg_package_price', 0);
+        if ($packagePrice <= 0 && $packageKey) {
+            $plan = \App\Models\SubscriptionPlan::where('tier_key', $packageKey)->first();
+            if ($plan && $plan->price > 0) {
+                $packagePrice = (float) $plan->price;
+            } elseif (is_numeric($packageKey)) {
+                $packagePrice = (float) $packageKey;
+            }
+        }
+        if ($packagePrice <= 0) {
+            $packagePrice = 349.00;
+        }
 
-        // Forecast month-by-month for 36 months (3 years)
+        $initMos = (int) ($rule['initial_duration_months'] ?? 6);
+        $recurMos = (int) ($rule['recurring_duration_months'] ?? 24);
+        $totalSimMonths = $initMos + $recurMos; // 30 months = 2.5 years
+
+        $tierBonusPct = $affiliate->currentTier ? (float) $affiliate->currentTier->bonus_commission_pct : 0.00;
+        $initEffectivePct = (float) ($rule['initial_commission_pct'] ?? 50.0) + $tierBonusPct;
+        $recurEffectivePct = (float) ($rule['recurring_commission_pct'] ?? 10.0) + $tierBonusPct;
+
+        $initMonthlyPerClient = round($packagePrice * ($initEffectivePct / 100), 2);
+        $recurMonthlyPerClient = round($packagePrice * ($recurEffectivePct / 100), 2);
+
+        $yieldPerClient = ($initMonthlyPerClient * $initMos) + ($recurMonthlyPerClient * $recurMos);
+
+        // Calculate Month-by-Month Projection for N Referred Clients
         $months = [];
-        $runningClients = $activeClientsCount;
         $cumulativeEarnings = 0;
 
-        for ($m = 1; $m <= 36; $m++) {
-            $runningClients = ($runningClients * $retentionRate) + $newSalesPerMonth;
-            $monthlyGross = $runningClients * $avgPackagePrice;
-            $monthlyCommission = round($monthlyGross * $effectiveRate, 2);
+        for ($m = 1; $m <= $totalSimMonths; $m++) {
+            // Number of surviving clients in month m (retention applied monthly)
+            $survivingClients = $numClients * pow($retentionRate, $m - 1);
+            
+            $monthlyRatePerClient = ($m <= $initMos) ? $initMonthlyPerClient : $recurMonthlyPerClient;
+            $monthlyCommission = round($survivingClients * $monthlyRatePerClient, 2);
             $cumulativeEarnings += $monthlyCommission;
 
             $months[] = [
                 'month_number' => $m,
-                'active_clients' => round($runningClients),
+                'active_clients' => round($survivingClients, 1),
                 'monthly_commission' => $monthlyCommission,
-                'cumulative_earnings' => $cumulativeEarnings,
+                'cumulative_earnings' => round($cumulativeEarnings, 2),
             ];
         }
 
+        $lastIdx = count($months) - 1;
+
         return response()->json([
+            'num_clients' => $numClients,
+            'package_price' => $packagePrice,
+            'package_rule' => $rule,
+            'yield_per_client' => $yieldPerClient,
+            'total_lifecycle_months' => $totalSimMonths,
+            'total_lifecycle_years' => round($totalSimMonths / 12, 1),
             'next_month' => $months[0]['monthly_commission'] ?? 0,
-            'six_months_total' => $months[5]['cumulative_earnings'] ?? 0,
-            'one_year_total' => $months[11]['cumulative_earnings'] ?? 0,
-            'three_years_total' => $months[35]['cumulative_earnings'] ?? 0,
+            'six_months_total' => $months[min(5, $lastIdx)]['cumulative_earnings'] ?? 0,
+            'one_year_total' => $months[min(11, $lastIdx)]['cumulative_earnings'] ?? 0,
+            'two_and_half_years_total' => $months[$lastIdx]['cumulative_earnings'] ?? 0,
+            'three_years_total' => $months[$lastIdx]['cumulative_earnings'] ?? 0,
             'timeline' => $months,
         ]);
     }

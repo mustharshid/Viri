@@ -840,6 +840,7 @@ class SuperadminController extends Controller
             'price' => 'required|numeric|min:0',
             'max_terminals' => 'required|integer|min:1',
             'max_bank_accounts' => 'required|integer|min:1',
+            'max_transaction_checks' => 'nullable|integer|min:0',
             'lock_timeout' => 'required|integer|min:5|max:300',
             'features' => 'required|array',
         ]);
@@ -857,6 +858,7 @@ class SuperadminController extends Controller
             'price' => 'required|numeric|min:0',
             'max_terminals' => 'required|integer|min:1',
             'max_bank_accounts' => 'required|integer|min:1',
+            'max_transaction_checks' => 'nullable|integer|min:0',
             'lock_timeout' => 'required|integer|min:5|max:300',
             'features' => 'required|array',
         ]);
@@ -986,8 +988,18 @@ class SuperadminController extends Controller
         ]);
 
         $tenant = $payment->tenant;
+        $plan = \App\Models\SubscriptionPlan::where('tier_key', $request->subscription_tier)->first();
+        $features = $plan ? ($plan->features ?? []) : ($tenant->features ?? []);
+        $maxTerminals = $plan ? $plan->max_terminals : ($tenant->max_terminals ?? 1);
+        $maxBankAccounts = $plan ? $plan->max_bank_accounts : ($tenant->max_bank_accounts ?? 1);
+        $lockTimeout = $plan ? $plan->lock_timeout : ($tenant->lock_timeout ?? 20);
+
         $tenant->update([
             'subscription_tier' => $request->subscription_tier,
+            'max_terminals' => $maxTerminals,
+            'max_bank_accounts' => $maxBankAccounts,
+            'lock_timeout' => $lockTimeout,
+            'features' => $features,
             'license_expires_at' => Carbon::parse($request->license_expires_at),
             'verifications_count' => 0,
         ]);

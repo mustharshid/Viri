@@ -1,0 +1,52 @@
+{
+  "name": "viri-cashier-app",
+  "version": "1.4.0",
+  "description": "Viri Cashier Standalone Desktop Container",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:all": "electron-builder --win --mac"
+  },
+  "build": {
+    "appId": "mv.thinksafe.viri.cashier",
+    "productName": "Viri Cashier",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "main.js",
+      "preload.js"
+    ],
+    "extraResources": [
+      {
+        "from": "../extension",
+        "to": "extension",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": ["nsis", "portable"],
+      "icon": "../public/img/logo_en.png"
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.finance",
+      "icon": "../public/img/logo_en.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "keywords": ["viri", "cashier", "pos", "banking", "finance"],
+  "author": "ThinkSafe Maldives",
+  "license": "Proprietary",
+  "devDependencies": {
+    "electron": "^31.3.1",
+    "electron-builder": "^24.13.3"
+  }
+}

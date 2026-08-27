@@ -28,6 +28,23 @@ class Tenant extends Model
         'custom_verifications_limit' => 'integer',
     ];
 
+    protected $appends = [
+        'max_transaction_checks',
+    ];
+
+    public function getMaxTransactionChecksAttribute(): ?int
+    {
+        if ($this->custom_verifications_limit !== null) {
+            return (int) $this->custom_verifications_limit;
+        }
+        $plan = SubscriptionPlan::where('tier_key', $this->subscription_tier ?? 'free')->first();
+        if ($plan && $plan->max_transaction_checks !== null) {
+            return (int) $plan->max_transaction_checks;
+        }
+
+        return $this->subscription_tier === 'free' ? 20 : ($this->subscription_tier === '499' ? 300 : 0);
+    }
+
     public function terminals(): HasMany
     {
         return $this->hasMany(Terminal::class);

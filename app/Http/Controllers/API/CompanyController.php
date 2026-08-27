@@ -728,6 +728,7 @@ class CompanyController extends Controller
             'amount' => 'required|numeric|min:0.01',
             'reference_number' => 'nullable|string|max:255',
             'receipt_slip' => 'required|image|mimes:jpeg,png|max:5120',
+            'requested_tier' => 'nullable|string|max:100',
             'remarks' => 'nullable|string|max:1000',
         ]);
 
@@ -759,6 +760,7 @@ class CompanyController extends Controller
             'reference_number' => $request->reference_number ?? null,
             'receipt_slip_path' => $receiptSlipPath,
             'status' => 'pending',
+            'requested_tier' => $request->requested_tier ?? null,
             'remarks' => $request->remarks,
             // Store previous expiry for potential rollback on rejection
             'previous_license_expires_at' => $previousExpiry,
@@ -766,6 +768,42 @@ class CompanyController extends Controller
 
         return response()->json([
             'message' => 'Payment receipt uploaded successfully. Awaiting superadmin verification.',
+            'payment' => $payment,
+        ]);
+    }
+
+    public function requestPlanChange(Request $request)
+    {
+        $request->validate([
+            'requested_tier' => 'required|string|max:100',
+            'amount' => 'nullable|numeric|min:0',
+            'remarks' => 'nullable|string|max:1000',
+            'receipt_slip' => 'nullable|image|mimes:jpeg,png|max:5120',
+        ]);
+
+        $user = $request->user();
+        $plan = \App\Models\SubscriptionPlan::where('tier_key', $request->requested_tier)->first();
+        $amount = $request->filled('amount') ? (float) $request->amount : ($plan ? (float) $plan->price : 0.00);
+
+        $receiptSlipPath = null;
+        if ($request->hasFile('receipt_slip')) {
+            $path = $request->file('receipt_slip')->store('receipts', 'public');
+            $receiptSlipPath = '/storage/'.$path;
+        }
+
+        $payment = PaymentReceipt::create([
+            'tenant_id' => $user->tenant_id,
+            'amount' => $amount,
+            'reference_number' => $request->reference_number ?? ('REQ-'.strtoupper(substr(uniqid(), -6))),
+            'receipt_slip_path' => $receiptSlipPath,
+            'status' => 'pending',
+            'requested_tier' => $request->requested_tier,
+            'remarks' => $request->remarks ?: ("Plan change requested to ".($plan ? $plan->name : $request->requested_tier)),
+            'previous_license_expires_at' => $user->tenant->license_expires_at,
+        ]);
+
+        return response()->json([
+            'message' => 'Plan change request submitted successfully. Superadmin has been notified for approval.',
             'payment' => $payment,
         ]);
     }

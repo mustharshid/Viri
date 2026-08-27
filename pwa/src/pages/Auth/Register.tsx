@@ -10,11 +10,28 @@ export default function Register() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [passwordConfirmation, setPasswordConfirmation] = useState('');
+  const [plans, setPlans] = useState<any[]>([]);
+  const [selectedPlan, setSelectedPlan] = useState<string>(searchParams.get('plan') || 'free');
   const [referralCode, setReferralCode] = useState(searchParams.get('ref') || '');
   const [referralDiscount, setReferralDiscount] = useState<any>(null);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/public-plans')
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setPlans(data);
+          const paramPlan = searchParams.get('plan');
+          if (paramPlan && data.some((p: any) => p.tier_key === paramPlan)) {
+            setSelectedPlan(paramPlan);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [searchParams]);
 
   useEffect(() => {
     const code = searchParams.get('ref');
@@ -158,6 +175,7 @@ export default function Register() {
           phone_number: phoneNumber,
           password,
           password_confirmation: passwordConfirmation,
+          subscription_tier: selectedPlan,
           referral_code: referralCode.trim() || undefined,
         }),
       });
@@ -177,6 +195,8 @@ export default function Register() {
     }
   };
 
+  const selectedPlanObj = plans.find((p) => p.tier_key === selectedPlan);
+
   return (
     <div className="viri-landing-root">
       <canvas id="particle-canvas" ref={canvasRef}></canvas>
@@ -192,10 +212,10 @@ export default function Register() {
         </div>
       </nav>
 
-      <main className="auth-page">
-        <div className="auth-card">
+      <main className="auth-page auth-page-compact">
+        <div className="auth-card auth-card-compact auth-card-register">
           <Link to="/" aria-label="Viri home">
-            <img src="/img/logo_en.png" alt="Viri" className="auth-logo" width="160" height="40" decoding="async" />
+            <img src="/img/logo_en.png" alt="Viri" className="auth-logo" width="130" height="32" decoding="async" />
           </Link>
 
           <div className="auth-header">
@@ -204,86 +224,131 @@ export default function Register() {
           </div>
 
           <form className="auth-form" onSubmit={handleRegister}>
-            <div className="form-group">
-              <label className="form-label" htmlFor="company-name">Company Name</label>
-              <input
-                className="form-input"
-                type="text"
-                id="company-name"
-                required
-                value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
-              />
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label" htmlFor="company-name">Company Name</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  id="company-name"
+                  required
+                  placeholder="e.g. Acme Maldives"
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="admin-name">Admin Name</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  id="admin-name"
+                  required
+                  placeholder="e.g. Ahmed Ali"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </div>
             </div>
 
-            <div className="form-group">
-              <label className="form-label" htmlFor="admin-name">Admin Name</label>
-              <input
-                className="form-input"
-                type="text"
-                id="admin-name"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label" htmlFor="admin-email">Email</label>
+                <input
+                  className="form-input"
+                  type="email"
+                  id="admin-email"
+                  required
+                  placeholder="name@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="admin-phone">Phone</label>
+                <input
+                  className="form-input"
+                  type="tel"
+                  id="admin-phone"
+                  required
+                  placeholder="7700000"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                />
+              </div>
             </div>
 
+            {/* Plan Selector */}
             <div className="form-group">
-              <label className="form-label" htmlFor="admin-email">Admin Email</label>
-              <input
-                className="form-input"
-                type="email"
-                id="admin-email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
+              <div className="flex items-center justify-between">
+                <label className="form-label" htmlFor="plan-select">Subscription Plan</label>
+                {selectedPlanObj && (
+                  <span className="text-[10px] text-emerald-400 font-mono font-bold">
+                    {selectedPlanObj.price === 0 ? 'Free Trial' : `MVR ${parseFloat(selectedPlanObj.price).toLocaleString()}/mo`}
+                  </span>
+                )}
+              </div>
+              <select
+                id="plan-select"
+                className="form-select"
+                value={selectedPlan}
+                onChange={(e) => setSelectedPlan(e.target.value)}
+              >
+                {plans.length > 0 ? (
+                  plans.map((p) => (
+                    <option key={p.tier_key} value={p.tier_key}>
+                      {p.name} — {p.price === 0 ? 'Free' : `MVR ${parseFloat(p.price).toLocaleString()}/mo`} ({p.max_terminals} {p.max_terminals === 1 ? 'Terminal' : 'Terminals'})
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option value="free">Free Trial — MVR 0 (1 Terminal, 20 Checks)</option>
+                    <option value="499">Starter Plan — MVR 499/mo (1 Terminal, 300 Checks)</option>
+                    <option value="999">Growth Plan — MVR 999/mo (3 Terminals, Unlimited)</option>
+                    <option value="1999">Enterprise Plan — MVR 1,999/mo (10 Terminals, Unlimited)</option>
+                  </>
+                )}
+              </select>
             </div>
 
-            <div className="form-group">
-              <label className="form-label" htmlFor="admin-phone">Admin Phone Number</label>
-              <input
-                className="form-input"
-                type="tel"
-                id="admin-phone"
-                required
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-              />
-            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label" htmlFor="password">Password</label>
+                <input
+                  className="form-input"
+                  type="password"
+                  id="password"
+                  required
+                  minLength={8}
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
 
-            <div className="form-group">
-              <label className="form-label" htmlFor="password">Password</label>
-              <input
-                className="form-input"
-                type="password"
-                id="password"
-                required
-                minLength={8}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label" htmlFor="confirm-password">Confirm Password</label>
-              <input
-                className="form-input"
-                type="password"
-                id="confirm-password"
-                required
-                minLength={8}
-                value={passwordConfirmation}
-                onChange={(e) => setPasswordConfirmation(e.target.value)}
-              />
+              <div className="form-group">
+                <label className="form-label" htmlFor="confirm-password">Confirm</label>
+                <input
+                  className="form-input"
+                  type="password"
+                  id="confirm-password"
+                  required
+                  minLength={8}
+                  placeholder="••••••••"
+                  value={passwordConfirmation}
+                  onChange={(e) => setPasswordConfirmation(e.target.value)}
+                />
+              </div>
             </div>
 
             {/* Referral / Partner Discount */}
             <div className="form-group">
               <div className="flex items-center justify-between">
-                <label className="form-label" htmlFor="referral-code">Referral / Promo Code (Optional)</label>
+                <label className="form-label" htmlFor="referral-code">Referral / Promo Code</label>
                 {referralDiscount?.valid && (
-                  <span className="text-[11px] font-bold text-emerald-400 font-mono">
+                  <span className="text-[10px] font-bold text-emerald-400 font-mono">
                     ✓ {referralDiscount.discount_badge}
                   </span>
                 )}
@@ -292,7 +357,7 @@ export default function Register() {
                 className={`form-input font-mono uppercase ${referralDiscount?.valid ? 'border-emerald-500 bg-emerald-950/20' : ''}`}
                 type="text"
                 id="referral-code"
-                placeholder="e.g. AHMED20"
+                placeholder="OPTIONAL PROMO CODE"
                 value={referralCode}
                 onChange={(e) => {
                   const val = e.target.value;
@@ -301,8 +366,8 @@ export default function Register() {
                 }}
               />
               {referralDiscount?.valid && (
-                <p className="text-[11px] text-emerald-300 mt-1">
-                  Referred by <strong>{referralDiscount.partner_name}</strong>. Discount will apply to your first invoice!
+                <p className="text-[10px] text-emerald-300 mt-0.5">
+                  Referred by <strong>{referralDiscount.partner_name}</strong>. Discount applies to 1st invoice!
                 </p>
               )}
             </div>
@@ -320,22 +385,19 @@ export default function Register() {
                 I agree to the{' '}
                 <button
                   type="button"
-                  className="modal-link"
                   onClick={() => setActiveModal('terms')}
                   style={{ background: 'none', border: 'none', padding: 0, textDecoration: 'underline', color: 'inherit', cursor: 'pointer' }}
                 >
-                  Terms of Service
+                  Terms
                 </button>{' '}
                 and{' '}
                 <button
                   type="button"
-                  className="modal-link"
                   onClick={() => setActiveModal('privacy')}
                   style={{ background: 'none', border: 'none', padding: 0, textDecoration: 'underline', color: 'inherit', cursor: 'pointer' }}
                 >
                   Privacy Policy
-                </button>
-                , and confirm I'm authorised to connect the accounts I'd like to link.
+                </button>.
               </label>
             </div>
 

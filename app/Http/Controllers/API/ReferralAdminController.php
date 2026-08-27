@@ -10,6 +10,7 @@ use App\Models\ReferralAttribution;
 use App\Models\ReferralPerformanceTier;
 use App\Models\ReferralSystemConfig;
 use App\Services\ReferralCommissionEngine;
+use App\Models\SubscriptionPlan;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +21,7 @@ class ReferralAdminController extends Controller
     {
         $config = ReferralSystemConfig::getActiveConfig();
         $tiers = ReferralPerformanceTier::orderBy('min_monthly_sales', 'asc')->get();
+        $subscriptionPlans = SubscriptionPlan::orderBy('price', 'asc')->get();
 
         $metrics = [
             'total_affiliates' => Affiliate::count(),
@@ -34,6 +36,7 @@ class ReferralAdminController extends Controller
         return response()->json([
             'config' => $config,
             'tiers' => $tiers,
+            'subscription_plans' => $subscriptionPlans,
             'metrics' => $metrics,
         ]);
     }

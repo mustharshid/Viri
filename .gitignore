@@ -26,3 +26,19 @@ yarn-error.log
 # Agent exports and local databases
 .freebuff/
 opencode-export/
+
+# Desktop container
+/desktop/node_modules
+/desktop/dist-electron
+.DS_Store
+
+# Compiled desktop installer binaries
+*.dmg
+*.exe
+*.blockmap
+/public/downloads/*.dmg
+/public/downloads/*.exe
+/pwa/public/downloads/*.dmg
+/pwa/public/downloads/*.exe
+/public/viri/downloads/*.dmg
+/public/viri/downloads/*.exe
