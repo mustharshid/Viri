@@ -30,15 +30,11 @@ Route::get('/downloads/{filename}', function ($filename) {
     }
 
     $path = public_path('downloads/' . $filename);
-    if (file_exists($path)) {
+    if (file_exists($path) && filesize($path) > 100000) {
         return response()->download($path);
     }
 
-    // If file is not yet uploaded/generated, return an informative fallback
-    return response()->json([
-        'message' => 'The standalone app installer for ' . $filename . ' is currently being compiled for version 1.4.0. Please check back shortly.',
-        'version' => '1.4.0',
-        'file' => $filename
-    ], 200);
+    // Redirect to GitHub release CDN if not stored directly on production web server
+    return redirect('https://github.com/mustharshid/Viri/releases/download/v1.4.0/' . $filename);
 })->where('filename', '[a-zA-Z0-9\-_.]+');
 
