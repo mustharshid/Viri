@@ -278,6 +278,22 @@ class BankAccountLockController extends Controller
                     MibCredentialGroup::destroy($groupId);
                 }
             }
+        } elseif ($bankAccount->mib_username || $bankAccount->login_credentials_hash) {
+            // Unlinked account that is still identity-known (admin username or a
+            // credentials hash). Resolve its group and revoke it — deleting the
+            // server-side device keys so the next re-auth genuinely requires a
+            // fresh C41/C42 + OTP — but only when no sibling account would be
+            // affected by the revocation.
+            $unlinkedGroup = $this->resolveGroupForAccount($bankAccount);
+            if ($unlinkedGroup) {
+                $profileIds = MibCredentialProfile::where('credential_group_id', $unlinkedGroup->id)->pluck('id');
+                $stillReferenced = BankAccount::whereIn('mib_credential_profile_id', $profileIds)->exists();
+                $keepForSibling = $this->retainGroupForSibling($bankAccount);
+                if (! $stillReferenced && ! $keepForSibling) {
+                    MibCredentialProfile::where('credential_group_id', $unlinkedGroup->id)->delete();
+                    MibCredentialGroup::destroy($unlinkedGroup->id);
+                }
+            }
         }
 
         // 3. Legacy fallbacks
@@ -395,5 +411,33 @@ class BankAccountLockController extends Controller
         }
 
         return false;
+    }
+
+    /**
+     * Resolve the MIB credential group an identity-known (but profile-unlinked)
+     * account belongs to — by stored username, or by matching its credentials
+     * hash to a group username. Returns null when no group can be matched.
+     */
+    private function resolveGroupForAccount(BankAccount $bankAccount): ?MibCredentialGroup
+    {
+        if ($bankAccount->mib_username) {
+            $group = MibCredentialGroup::where('tenant_id', $bankAccount->tenant_id)
+                ->whereRaw('LOWER(mib_username) = ?', [mb_strtolower(trim((string) $bankAccount->mib_username))])
+                ->first();
+            if ($group) {
+                return $group;
+            }
+        }
+
+        if ($bankAccount->login_credentials_hash) {
+            foreach (MibCredentialGroup::where('tenant_id', $bankAccount->tenant_id)->get(['id', 'mib_username']) as $group) {
+                if ($group->mib_username
+                    && hash_equals(hash('sha256', 'MIB_'.mb_strtolower(trim($group->mib_username))), $bankAccount->login_credentials_hash)) {
+                    return $group;
+                }
+            }
+        }
+
+        return null;
     }
 }

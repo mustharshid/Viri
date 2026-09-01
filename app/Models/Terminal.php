@@ -50,6 +50,7 @@ class Terminal extends Model
             'ledger_show_debit' => true,
             'reports_enabled' => false,
             'statement_enabled' => false,
+            'kyc_enabled' => false,
             'show_vbtl' => false,
             'sales_claiming_enabled' => true,
             'show_sale_reference_popover' => false,

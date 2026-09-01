@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Shield, RefreshCw, Settings, AlertTriangle, Lock, Unlock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, ChevronDown, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, Download, FileText, Check, Briefcase, Sparkles, Tag, Printer, FileSpreadsheet, X, RotateCcw, Keyboard } from 'lucide-react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, Unlock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, ChevronDown, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, Download, FileText, Check, Briefcase, Sparkles, Tag, Printer, FileSpreadsheet, X, RotateCcw, Keyboard, DollarSign } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import CryptoJS from 'crypto-js';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
+import { SalesScreen } from './SalesScreen';
 
 const Tooltip = ({ text, helpSectionId, onHelpNavigate }: { text: string; helpSectionId?: string; onHelpNavigate?: (sectionId: string) => void }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -855,6 +856,7 @@ function App() {
     ledger_show_debit: true,
     reports_enabled: false,
     statement_enabled: false,
+    kyc_enabled: false,
     show_vbtl: false,
     recent_tx_limit: 3,
     sales_claiming_enabled: true,
@@ -1140,7 +1142,7 @@ function App() {
   const [_terminalId, setTerminalId] = useState<number | null>(null);
   const [accountToClear, setAccountToClear] = useState<any | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const LATEST_EXTENSION_VERSION = "1.4.0";
+  const LATEST_EXTENSION_VERSION = "1.4.1";
 
   // ── Port-lifecycle diagnostics (bounded in-memory ring, near-zero load) ──
   // Captures connect/disconnect/response timing + chrome.runtime.lastError so a
@@ -1454,7 +1456,10 @@ function App() {
       try {
         const acc = bankAccounts.find(a => a.id.toString() === accId);
         if (acc?.bank_name === 'MIB') {
-          chrome.runtime.sendMessage(extensionId, { action: 'CLEAR_MIB_CREDENTIALS' })
+          chrome.runtime.sendMessage(extensionId, {
+            action: 'CLEAR_MIB_CREDENTIALS',
+            payload: { accountId: accId, accountNumber: acc.account_number || '' }
+          })
             .catch(() => console.log("Extension not available for MIB credential clearing"));
         }
       } catch (e) {
@@ -1477,7 +1482,7 @@ function App() {
     }
   }, [loading]);
 
-  const [activeTab, setActiveTab] = useState<'verify' | 'ledger' | 'reports' | 'checklist' | 'help' | 'statements'>('verify');
+  const [activeTab, setActiveTab] = useState<'verify' | 'sales' | 'ledger' | 'reports' | 'checklist' | 'help' | 'statements' | 'kyc'>('verify');
   const [helpSearchQuery, setHelpSearchQuery] = useState('');
   const [bankSearchQuery, setBankSearchQuery] = useState('');
   const verifyAccountRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
@@ -2728,6 +2733,7 @@ function App() {
             ledger_show_debit: data.permissions.ledger_show_debit ?? true,
             reports_enabled: data.permissions.reports_enabled ?? false,
             statement_enabled: data.permissions.statement_enabled ?? false,
+            kyc_enabled: data.permissions.kyc_enabled ?? false,
             show_vbtl: data.permissions.show_vbtl ?? false,
             recent_tx_limit: data.permissions.recent_tx_limit ?? 3,
             sales_claiming_enabled: data.permissions.sales_claiming_enabled ?? true,
@@ -4827,6 +4833,19 @@ function App() {
           <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Verification</span>
         </button>
 
+        <button
+          onClick={() => { setShowSettings(false); setActiveTab('sales'); }}
+          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+            } ${activeTab === 'sales' && !showSettings
+              ? 'bg-emerald-500 text-black font-bold shadow-md shadow-emerald-500/20'
+              : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
+            }`}
+          title="Sales & Currency Exchange"
+        >
+          <DollarSign size={16} className="shrink-0" />
+          <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Sales & Exchange</span>
+        </button>
+
         {permissions.ledger_enabled && (
           <button
             onClick={() => { setShowSettings(false); setActiveTab('ledger'); }}
@@ -4896,6 +4915,20 @@ function App() {
           <HelpCircle size={16} className="shrink-0" />
           <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Help & Support</span>
         </button>
+        {permissions.kyc_enabled && (
+          <button
+            onClick={() => { setShowSettings(false); setActiveTab('kyc'); }}
+            className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+              } ${activeTab === 'kyc' && !showSettings
+                ? 'bg-amber-500 text-black font-bold'
+                : 'hover:bg-amber-500/10 text-amber-400/70 hover:text-amber-400'
+              }`}
+            title="KYC / AML"
+          >
+            <Shield size={16} className="shrink-0" />
+            <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>KYC / AML</span>
+          </button>
+        )}
       </nav>
 
       {/* Bottom section: Settings & Locking */}
@@ -8062,6 +8095,22 @@ function App() {
               </div>
             )}
 
+
+            {activeTab === 'sales' && (
+              <SalesScreen
+                backendUrl={backendUrl}
+                hardwareId={hardwareId}
+                bankAccounts={bankAccounts}
+                ledgerCache={ledgerCache}
+                terminalName={terminalName}
+                onRefreshLedger={(accId) => syncLedger(accId)}
+              />
+            )}
+
+            {activeTab === 'kyc' && permissions.kyc_enabled && (
+              <KycCashierView backendUrl={backendUrl} />
+            )}
+
             {activeTab === 'help' && (
               <div ref={helpContentRef} className="flex-1 w-full max-w-4xl mx-auto flex flex-col items-center justify-start p-4 md:p-8 animate-fade-in overflow-y-auto space-y-6">
                 <div className="w-full text-center space-y-2 mb-2">
@@ -8468,6 +8517,472 @@ function App() {
       </main>
     </div>
     </ErrorBoundary>
+  );
+}
+
+function KycCashierView({ backendUrl }: { backendUrl: string }) {
+  // ── KYC customer index (local autocomplete) ──────────────────
+  const [kycIndex, setKycIndex] = useState<Array<{ id: number; nic_number: string | null; passport_number: string | null; full_name: string }>>([]);
+  const [kycStep, setKycStep] = useState<'search' | 'form' | 'submitted'>('search');
+  const [kycIdQuery, setKycIdQuery] = useState('');
+  const [kycSuggestions, setKycSuggestions] = useState<typeof kycIndex>([]);
+  const [kycSavingRecord, setKycSavingRecord] = useState(false);
+  const [kycRecordSaved, setKycRecordSaved] = useState<any>(null);
+  const [kycCustomer, setKycCustomer] = useState<any>(null);
+  const [kycIsNewCustomer, setKycIsNewCustomer] = useState(false);
+  const [kycForm, setKycForm] = useState({
+    nic_number: '', passport_number: '', customer_type: 'individual', full_name: '',
+    nationality: '', dob: '', address: '', contact_number: '', email: '',
+    is_pep: false,
+    transaction_type: 'money_changing', transaction_amount: '', transaction_currency: 'MVR',
+    transaction_reference: '', transaction_purpose: '',
+    cdd_type: 'standard',
+    is_not_physically_present: false,
+    rep_name: '', rep_id_type: 'nic', rep_id_number: '',
+    transfer_direction: 'domestic', beneficiary_name: '', beneficiary_institution: '',
+    originator_name: '', originator_id_number: '',
+    edd_source_of_wealth: '', edd_source_of_funds: '',
+    is_suspicious: false, str_notes: '',
+  });
+
+  // Download the lightweight customer index on first load (ETag-cached)
+  useEffect(() => {
+    const bUrl = backendUrl || localStorage.getItem('viri_backend_url') || (typeof window !== 'undefined' ? `${window.location.origin}/api` : '');
+    const token = localStorage.getItem('viri_token') || '';
+    const cached = sessionStorage.getItem('kyc_index');
+    const cachedEtag = sessionStorage.getItem('kyc_index_etag') || '';
+    if (cached) {
+      setKycIndex(JSON.parse(cached));
+    }
+    fetch(`${bUrl}/kyc/customers/index`, {
+      headers: { Authorization: `Bearer ${token}`, 'If-None-Match': cachedEtag }
+    }).then(async res => {
+      if (res.status === 304) return; // Nothing changed
+      if (!res.ok) return;
+      const etag = res.headers.get('ETag') || '';
+      const data = await res.json();
+      setKycIndex(data);
+      sessionStorage.setItem('kyc_index', JSON.stringify(data));
+      sessionStorage.setItem('kyc_index_etag', etag);
+    }).catch(() => {});
+  }, [backendUrl]);
+
+  // Filter suggestions as user types
+  useEffect(() => {
+    if (!kycIdQuery.trim()) { setKycSuggestions([]); return; }
+    const q = kycIdQuery.toLowerCase();
+    setKycSuggestions(kycIndex.filter(c =>
+      c.nic_number?.toLowerCase().startsWith(q) ||
+      c.passport_number?.toLowerCase().startsWith(q) ||
+      c.full_name?.toLowerCase().includes(q)
+    ).slice(0, 8));
+  }, [kycIdQuery, kycIndex]);
+
+  const selectExistingCustomer = async (item: typeof kycIndex[0]) => {
+    const bUrl = backendUrl || localStorage.getItem('viri_backend_url') || (typeof window !== 'undefined' ? `${window.location.origin}/api` : '');
+    const token = localStorage.getItem('viri_token') || '';
+    setKycIdQuery(item.nic_number || item.passport_number || item.full_name);
+    setKycSuggestions([]);
+    try {
+      const res = await fetch(`${bUrl}/kyc/customers/${item.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const c = await res.json();
+        setKycCustomer(c);
+        setKycIsNewCustomer(false);
+        setKycForm(f => ({ ...f,
+          nic_number: c.nic_number || '',
+          passport_number: c.passport_number || '',
+          customer_type: c.customer_type || 'individual',
+          full_name: c.full_name || '',
+          nationality: c.nationality || '',
+          dob: c.dob || '',
+          address: c.address || '',
+          contact_number: c.contact_number || '',
+          email: c.email || '',
+          is_pep: c.is_pep || false,
+        }));
+        setKycStep('form');
+      }
+    } catch {}
+  };
+
+  const startNewCustomer = () => {
+    setKycCustomer(null);
+    setKycIsNewCustomer(true);
+    setKycForm(f => ({ ...f, nic_number: kycIdQuery.match(/^[A-Z]/) ? '' : kycIdQuery, passport_number: kycIdQuery.match(/^[A-Z]/) ? kycIdQuery : '' }));
+    setKycSuggestions([]);
+    setKycStep('form');
+  };
+
+  const submitKyc = async () => {
+    const bUrl = backendUrl || localStorage.getItem('viri_backend_url') || (typeof window !== 'undefined' ? `${window.location.origin}/api` : '');
+    const token = localStorage.getItem('viri_token') || '';
+    setKycSavingRecord(true);
+    try {
+      let customerId = kycCustomer?.id;
+      if (kycIsNewCustomer) {
+        const cRes = await fetch(`${bUrl}/kyc/customers`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nic_number: kycForm.nic_number || undefined,
+            passport_number: kycForm.passport_number || undefined,
+            customer_type: kycForm.customer_type,
+            full_name: kycForm.full_name,
+            nationality: kycForm.nationality,
+            dob: kycForm.dob || undefined,
+            address: kycForm.address,
+            contact_number: kycForm.contact_number,
+            email: kycForm.email || undefined,
+            is_pep: kycForm.is_pep,
+          })
+        });
+        if (!cRes.ok) { alert('Failed to save customer.'); setKycSavingRecord(false); return; }
+        const newC = await cRes.json();
+        customerId = newC.id;
+        // Bust the local index cache so the new customer appears next time
+        sessionStorage.removeItem('kyc_index');
+        sessionStorage.removeItem('kyc_index_etag');
+      }
+      const rRes = await fetch(`${bUrl}/kyc/records`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kyc_customer_id: customerId,
+          transaction_type: kycForm.transaction_type,
+          transaction_amount: parseFloat(kycForm.transaction_amount) || 0,
+          transaction_currency: kycForm.transaction_currency,
+          transaction_reference: kycForm.transaction_reference || undefined,
+          transaction_purpose: kycForm.transaction_purpose || undefined,
+          cdd_type: kycForm.cdd_type,
+          is_not_physically_present: kycForm.is_not_physically_present,
+          rep_name: kycForm.rep_name || undefined,
+          rep_id_type: kycForm.rep_id_type || undefined,
+          rep_id_number: kycForm.rep_id_number || undefined,
+          transfer_direction: kycForm.transaction_type === 'money_transfer' ? kycForm.transfer_direction : undefined,
+          originator_name: kycForm.originator_name || undefined,
+          originator_id_number: kycForm.originator_id_number || undefined,
+          beneficiary_name: kycForm.beneficiary_name || undefined,
+          beneficiary_institution: kycForm.beneficiary_institution || undefined,
+          edd_source_of_wealth: kycForm.edd_source_of_wealth || undefined,
+          edd_source_of_funds: kycForm.edd_source_of_funds || undefined,
+          edd_status: (kycForm.edd_source_of_wealth || kycForm.edd_source_of_funds) ? 'pending_approval' : 'not_required',
+          is_suspicious: kycForm.is_suspicious,
+          str_notes: kycForm.str_notes || undefined,
+        })
+      });
+      if (!rRes.ok) { alert('Failed to save KYC record.'); setKycSavingRecord(false); return; }
+      const saved = await rRes.json();
+      setKycRecordSaved(saved);
+      setKycStep('submitted');
+    } catch (e) {
+      alert('Error submitting KYC form.');
+    } finally {
+      setKycSavingRecord(false);
+    }
+  };
+
+  const amountNum = parseFloat(kycForm.transaction_amount) || 0;
+  const isHighRisk = kycCustomer?.is_high_risk_country || kycCustomer?.is_pep || kycForm.is_pep;
+  const requiresEdd = isHighRisk || amountNum >= 50000;
+  const requiresCtr = kycForm.transaction_currency === 'MVR' && amountNum >= 200000;
+
+  return (
+    <div className="flex-1 w-full max-w-2xl mx-auto flex flex-col items-center justify-start p-4 md:p-8 animate-fade-in overflow-y-auto">
+      <div className="w-full space-y-2 mb-6 text-center">
+        <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-amber-500/10 mb-2">
+          <Shield size={28} className="text-amber-400" />
+        </div>
+        <h2 className="text-2xl font-bold text-white">KYC / AML Form</h2>
+        <p className="text-xs text-[var(--text-secondary)]">Required for all money changing & transfer transactions under MMA regulations.</p>
+      </div>
+
+      {/* Step: Search / Autocomplete */}
+      {kycStep === 'search' && (
+        <div className="w-full space-y-4">
+          <div className="glass-panel p-5 rounded-2xl border border-amber-500/20 space-y-3">
+            <label className="text-xs font-bold text-[var(--text-primary)]">Enter NIC or Passport Number</label>
+            <div className="relative">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
+              <input
+                type="text"
+                autoFocus
+                placeholder="Type NIC or Passport to search…"
+                value={kycIdQuery}
+                onChange={e => setKycIdQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-3 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] text-sm text-white focus:outline-none focus:border-amber-500/60 placeholder:text-zinc-600"
+              />
+            </div>
+            {kycSuggestions.length > 0 && (
+              <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+                {kycSuggestions.map(s => (
+                  <button key={s.id} onClick={() => selectExistingCustomer(s)}
+                    className="w-full text-left px-4 py-3 text-xs hover:bg-zinc-800 transition-colors flex items-center justify-between border-b border-zinc-800 last:border-0">
+                    <span className="font-bold text-white">{s.full_name}</span>
+                    <span className="font-mono text-zinc-400">{s.nic_number || s.passport_number}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {kycIdQuery.trim() && kycSuggestions.length === 0 && (
+              <div className="text-xs text-zinc-500 text-center py-2">No existing customer found for "{kycIdQuery}"</div>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <button onClick={startNewCustomer} disabled={!kycIdQuery.trim()}
+              className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-sm font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+              Register New Customer
+            </button>
+          </div>
+          <p className="text-[10px] text-zinc-600 text-center">If customer already exists, select from the list above to auto-fill their profile. No data is transferred unless you select or submit.</p>
+        </div>
+      )}
+
+      {/* Step: Form */}
+      {kycStep === 'form' && (
+        <div className="w-full space-y-5">
+          {/* Customer Profile Section */}
+          <div className="glass-panel p-5 rounded-2xl border border-[var(--border-color)] space-y-4">
+            <h3 className="text-sm font-bold text-amber-400 flex items-center gap-2"><Shield size={14} /> Customer Identity</h3>
+            {!kycIsNewCustomer && (
+              <div className="px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-bold flex items-center gap-2">
+                <Check size={13} /> Returning customer — profile pre-filled from database.
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="input-label">NIC Number</label>
+                <input type="text" value={kycForm.nic_number} onChange={e => setKycForm(f => ({...f, nic_number: e.target.value}))}
+                  disabled={!kycIsNewCustomer} placeholder="A123456"
+                  className="input-field text-sm disabled:opacity-60" />
+              </div>
+              <div>
+                <label className="input-label">Passport Number</label>
+                <input type="text" value={kycForm.passport_number} onChange={e => setKycForm(f => ({...f, passport_number: e.target.value}))}
+                  disabled={!kycIsNewCustomer} placeholder="AB1234567"
+                  className="input-field text-sm disabled:opacity-60" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="input-label">Full Name *</label>
+                <input type="text" value={kycForm.full_name} onChange={e => setKycForm(f => ({...f, full_name: e.target.value}))}
+                  disabled={!kycIsNewCustomer} placeholder="Full legal name"
+                  className="input-field text-sm disabled:opacity-60" />
+              </div>
+              <div>
+                <label className="input-label">Nationality *</label>
+                <input type="text" value={kycForm.nationality} onChange={e => setKycForm(f => ({...f, nationality: e.target.value}))}
+                  disabled={!kycIsNewCustomer} placeholder="e.g. Maldivian"
+                  className="input-field text-sm disabled:opacity-60" />
+              </div>
+              <div>
+                <label className="input-label">Date of Birth</label>
+                <input type="date" value={kycForm.dob} onChange={e => setKycForm(f => ({...f, dob: e.target.value}))}
+                  disabled={!kycIsNewCustomer}
+                  className="input-field text-sm disabled:opacity-60" />
+              </div>
+              <div className="col-span-2">
+                <label className="input-label">Address *</label>
+                <input type="text" value={kycForm.address} onChange={e => setKycForm(f => ({...f, address: e.target.value}))}
+                  disabled={!kycIsNewCustomer} placeholder="Permanent residential address"
+                  className="input-field text-sm disabled:opacity-60" />
+              </div>
+              <div>
+                <label className="input-label">Contact *</label>
+                <input type="text" value={kycForm.contact_number} onChange={e => setKycForm(f => ({...f, contact_number: e.target.value}))}
+                  disabled={!kycIsNewCustomer}
+                  className="input-field text-sm disabled:opacity-60" />
+              </div>
+              <div>
+                <label className="input-label">Email</label>
+                <input type="email" value={kycForm.email} onChange={e => setKycForm(f => ({...f, email: e.target.value}))}
+                  disabled={!kycIsNewCustomer}
+                  className="input-field text-sm disabled:opacity-60" />
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input type="checkbox" checked={kycForm.is_pep} onChange={e => setKycForm(f => ({...f, is_pep: e.target.checked}))}
+                disabled={!kycIsNewCustomer} className="rounded" />
+              <span className={kycForm.is_pep ? 'text-red-400 font-bold' : 'text-[var(--text-secondary)]'}>
+                Politically Exposed Person (PEP)
+              </span>
+            </label>
+            {kycCustomer?.is_high_risk_country && (
+              <div className="px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-bold flex items-center gap-2">
+                <AlertTriangle size={13} /> High-risk country nationality — EDD required
+              </div>
+            )}
+          </div>
+
+          {/* Transaction Details Section */}
+          <div className="glass-panel p-5 rounded-2xl border border-[var(--border-color)] space-y-4">
+            <h3 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2"><Briefcase size={14} className="text-amber-400" /> Transaction Details</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="input-label">Transaction Type *</label>
+                <select value={kycForm.transaction_type} onChange={e => setKycForm(f => ({...f, transaction_type: e.target.value}))}
+                  className="input-field text-sm">
+                  <option value="money_changing">Money Changing</option>
+                  <option value="money_transfer">Money Transfer</option>
+                </select>
+              </div>
+              <div>
+                <label className="input-label">CDD Level *</label>
+                <select value={kycForm.cdd_type} onChange={e => setKycForm(f => ({...f, cdd_type: e.target.value}))}
+                  className="input-field text-sm">
+                  <option value="simplified">Simplified</option>
+                  <option value="standard">Standard</option>
+                  <option value="enhanced">Enhanced (EDD)</option>
+                </select>
+              </div>
+              <div>
+                <label className="input-label">Amount *</label>
+                <input type="number" min="0" step="0.01" value={kycForm.transaction_amount} onChange={e => setKycForm(f => ({...f, transaction_amount: e.target.value}))}
+                  placeholder="0.00" className="input-field text-sm" />
+              </div>
+              <div>
+                <label className="input-label">Currency</label>
+                <input type="text" value={kycForm.transaction_currency} onChange={e => setKycForm(f => ({...f, transaction_currency: e.target.value.toUpperCase()}))}
+                  maxLength={5} className="input-field text-sm" />
+              </div>
+              <div className="col-span-2">
+                <label className="input-label">Purpose of Transaction</label>
+                <input type="text" value={kycForm.transaction_purpose} onChange={e => setKycForm(f => ({...f, transaction_purpose: e.target.value}))}
+                  placeholder="e.g. Family remittance, tourism, trade" className="input-field text-sm" />
+              </div>
+              <div className="col-span-2">
+                <label className="input-label">Reference</label>
+                <input type="text" value={kycForm.transaction_reference} onChange={e => setKycForm(f => ({...f, transaction_reference: e.target.value}))}
+                  className="input-field text-sm" />
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input type="checkbox" checked={kycForm.is_not_physically_present} onChange={e => setKycForm(f => ({...f, is_not_physically_present: e.target.checked}))} className="rounded" />
+              <span className="text-[var(--text-secondary)]">Customer not physically present</span>
+            </label>
+          </div>
+
+          {/* Money Transfer — Beneficiary Details */}
+          {kycForm.transaction_type === 'money_transfer' && (
+            <div className="glass-panel p-5 rounded-2xl border border-blue-500/20 space-y-4">
+              <h3 className="text-sm font-bold text-blue-400">Wire Transfer Details (§7d)</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="input-label">Direction</label>
+                  <select value={kycForm.transfer_direction} onChange={e => setKycForm(f => ({...f, transfer_direction: e.target.value}))} className="input-field text-sm">
+                    <option value="domestic">Domestic</option>
+                    <option value="outbound">Outbound</option>
+                    <option value="inbound">Inbound</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">Originator Name</label>
+                  <input type="text" value={kycForm.originator_name} onChange={e => setKycForm(f => ({...f, originator_name: e.target.value}))} className="input-field text-sm" />
+                </div>
+                <div>
+                  <label className="input-label">Originator ID</label>
+                  <input type="text" value={kycForm.originator_id_number} onChange={e => setKycForm(f => ({...f, originator_id_number: e.target.value}))} className="input-field text-sm" />
+                </div>
+                <div>
+                  <label className="input-label">Beneficiary Name</label>
+                  <input type="text" value={kycForm.beneficiary_name} onChange={e => setKycForm(f => ({...f, beneficiary_name: e.target.value}))} className="input-field text-sm" />
+                </div>
+                <div className="col-span-2">
+                  <label className="input-label">Beneficiary Institution</label>
+                  <input type="text" value={kycForm.beneficiary_institution} onChange={e => setKycForm(f => ({...f, beneficiary_institution: e.target.value}))} className="input-field text-sm" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* EDD Section — shown when risk flags trigger */}
+          {requiresEdd && (
+            <div className="glass-panel p-5 rounded-2xl border border-amber-500/30 space-y-4 bg-amber-500/5">
+              <h3 className="text-sm font-bold text-amber-400 flex items-center gap-2"><AlertTriangle size={14} /> Enhanced Due Diligence Required (§12)</h3>
+              <p className="text-[10px] text-amber-300/70">This customer/transaction requires EDD. Source of wealth and funds must be documented and approved by senior management.</p>
+              <div>
+                <label className="input-label">Source of Wealth *</label>
+                <input type="text" value={kycForm.edd_source_of_wealth} onChange={e => setKycForm(f => ({...f, edd_source_of_wealth: e.target.value}))}
+                  placeholder="e.g. Business income, employment, inheritance" className="input-field text-sm" />
+              </div>
+              <div>
+                <label className="input-label">Source of Funds *</label>
+                <input type="text" value={kycForm.edd_source_of_funds} onChange={e => setKycForm(f => ({...f, edd_source_of_funds: e.target.value}))}
+                  placeholder="e.g. Salary, savings, business revenue" className="input-field text-sm" />
+              </div>
+            </div>
+          )}
+
+          {/* CTR Notice */}
+          {requiresCtr && (
+            <div className="px-4 py-3 rounded-xl bg-orange-500/10 border border-orange-500/30 text-orange-400 text-xs font-bold flex items-center gap-2">
+              <AlertTriangle size={14} /> CTR Required — Cash transaction ≥ MVR 200,000 will be flagged for reporting to FIU (§18-19).
+            </div>
+          )}
+
+          {/* STR Flag */}
+          <div className="glass-panel p-5 rounded-2xl border border-[var(--border-color)] space-y-3">
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input type="checkbox" checked={kycForm.is_suspicious} onChange={e => setKycForm(f => ({...f, is_suspicious: e.target.checked}))} className="rounded" />
+              <span className={kycForm.is_suspicious ? 'text-red-400 font-bold' : 'text-[var(--text-secondary)]'}>
+                Flag as Suspicious Transaction (STR) (§17)
+              </span>
+            </label>
+            {kycForm.is_suspicious && (
+              <div>
+                <label className="input-label">Grounds for Suspicion *</label>
+                <textarea value={kycForm.str_notes} onChange={e => setKycForm(f => ({...f, str_notes: e.target.value}))}
+                  rows={3} placeholder="Describe the suspicious behaviour or inconsistency observed…"
+                  className="input-field text-sm resize-none" />
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-3">
+            <button onClick={() => setKycStep('search')} className="px-5 py-3 rounded-xl bg-zinc-800 text-zinc-300 text-sm font-semibold hover:bg-zinc-700 transition-colors">
+              Back
+            </button>
+            <button
+              onClick={submitKyc}
+              disabled={kycSavingRecord || !kycForm.full_name || !kycForm.nationality || !kycForm.address || !kycForm.contact_number || !kycForm.transaction_amount || (!kycForm.nic_number && !kycForm.passport_number)}
+              className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-sm font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {kycSavingRecord ? <><Loader2 size={16} className="animate-spin" /> Saving…</> : 'Submit KYC Record'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Step: Submitted */}
+      {kycStep === 'submitted' && kycRecordSaved && (
+        <div className="w-full space-y-5 text-center">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-500/10 border border-green-500/20 mb-2">
+            <Check size={28} className="text-green-400" />
+          </div>
+          <h3 className="text-xl font-bold text-white">KYC Record Submitted</h3>
+          <p className="text-xs text-zinc-400">Record ID: <span className="font-mono text-amber-400">KYC-{kycRecordSaved.id}</span></p>
+          <div className="glass-panel p-5 rounded-2xl border border-[var(--border-color)] text-left space-y-2 text-xs">
+            {kycRecordSaved.requires_ctr && (
+              <div className="flex items-center gap-2 text-orange-400 font-bold"><AlertTriangle size={13} /> CTR required — report this transaction to FIU</div>
+            )}
+            {kycRecordSaved.is_suspicious && (
+              <div className="flex items-center gap-2 text-red-400 font-bold"><AlertTriangle size={13} /> STR flagged — submit to FIU within 3 working days</div>
+            )}
+            {kycRecordSaved.edd_status === 'pending_approval' && (
+              <div className="flex items-center gap-2 text-amber-400 font-bold"><Shield size={13} /> EDD pending — awaiting senior management approval</div>
+            )}
+            {!kycRecordSaved.requires_ctr && !kycRecordSaved.is_suspicious && kycRecordSaved.edd_status !== 'pending_approval' && (
+              <div className="flex items-center gap-2 text-green-400"><Check size={13} /> All compliance checks passed</div>
+            )}
+          </div>
+          <button onClick={() => { setKycStep('search'); setKycIdQuery(''); setKycForm(f => ({ ...f, transaction_amount: '', transaction_reference: '', transaction_purpose: '', is_suspicious: false, str_notes: '', edd_source_of_wealth: '', edd_source_of_funds: '' })); setKycRecordSaved(null); setKycCustomer(null); setKycIsNewCustomer(false); }}
+            className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-sm font-bold transition-colors">
+            New Transaction
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

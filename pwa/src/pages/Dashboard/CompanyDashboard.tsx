@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Shield, Plus, Trash2, LogOut, Copy, Check, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound, Lock, Menu, AlertTriangle, Search, FileSpreadsheet, ListFilter, Eye, Activity, Calendar, ChevronRight, User, Briefcase, Sparkles, Gift, Upload, Layers, PhoneCall, Monitor, Laptop, Tablet, Puzzle } from 'lucide-react';
+import { Shield, Plus, Trash2, LogOut, Copy, Check, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound, Lock, Menu, AlertTriangle, Search, FileSpreadsheet, ListFilter, Eye, Activity, Calendar, ChevronRight, User, Briefcase, Sparkles, Gift, Upload, Layers, PhoneCall, Monitor, Laptop, Tablet, Puzzle, Coins } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 
 const maskUsername = (username: string | null | undefined): string | null => {
@@ -74,7 +74,7 @@ const DeleteConfirmModal = ({ isOpen, onClose, onConfirm, title, message, itemNa
 };
 
 export default function CompanyDashboard() {
-  const LATEST_EXTENSION_VERSION = "1.4.0";
+  const LATEST_EXTENSION_VERSION = "1.4.1";
   const [theme, toggleTheme] = useTheme();
   const [user, setUser] = useState<any>(null);
   const [terminals, setTerminals] = useState<any[]>([]);
@@ -157,6 +157,7 @@ export default function CompanyDashboard() {
     ledger_show_debit: false,
     reports_enabled: false,
     statement_enabled: false,
+    kyc_enabled: false,
     show_vbtl: false,
     share_pwa_logs: true,
     sales_claiming_enabled: true,
@@ -586,6 +587,7 @@ export default function CompanyDashboard() {
         ledger_show_debit: (isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_debit')) ? false : true,
         reports_enabled: isFeatureDisabledByPlan('reports_enabled') ? false : true,
         statement_enabled: isFeatureDisabledByPlan('statement_enabled') ? false : true,
+        kyc_enabled: isFeatureDisabledByPlan('kyc_enabled') ? false : false,
         show_vbtl: false,
         share_pwa_logs: true,
         sales_claiming_enabled: true,
@@ -622,6 +624,7 @@ export default function CompanyDashboard() {
       ledger_show_debit: (isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_debit')) ? false : (term.permissions?.ledger_show_debit ?? true),
       reports_enabled: isFeatureDisabledByPlan('reports_enabled') ? false : (term.permissions?.reports_enabled ?? false),
       statement_enabled: isFeatureDisabledByPlan('statement_enabled') ? false : (term.permissions?.statement_enabled ?? false),
+      kyc_enabled: isFeatureDisabledByPlan('kyc_enabled') ? false : (term.permissions?.kyc_enabled ?? false),
       show_vbtl: term.permissions?.show_vbtl ?? false,
       share_pwa_logs: term.permissions?.share_pwa_logs ?? true,
       sales_claiming_enabled: term.permissions?.sales_claiming_enabled ?? true,
@@ -1058,6 +1061,16 @@ export default function CompanyDashboard() {
             <button onClick={() => setActiveTab('help')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'help' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
               <Info size={18} /> Help Center
             </button>
+            {!isFeatureDisabledByPlan('kyc_enabled') && (
+              <>
+                <button onClick={() => setActiveTab('kyc')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'kyc' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
+                  <Shield size={18} /> KYC / AML
+                </button>
+                <button onClick={() => setActiveTab('currencies')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'currencies' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
+                  <Coins size={18} /> Currencies & Rates
+                </button>
+              </>
+            )}
           </nav>
         </div>
         <div className="flex flex-col gap-2">
@@ -1124,6 +1137,16 @@ export default function CompanyDashboard() {
             <button onClick={() => { setActiveTab('help'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'help' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
               <Info size={18} /> Help Center
             </button>
+            {!isFeatureDisabledByPlan('kyc_enabled') && (
+              <>
+                <button onClick={() => { setActiveTab('kyc'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'kyc' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
+                  <Shield size={18} /> KYC / AML
+                </button>
+                <button onClick={() => { setActiveTab('currencies'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'currencies' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
+                  <Coins size={18} /> Currencies & Rates
+                </button>
+              </>
+            )}
             <button onClick={() => { setActiveTab('settings'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'settings' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
               <Settings size={18} /> Settings
             </button>
@@ -3166,6 +3189,16 @@ export default function CompanyDashboard() {
           </div>
         )}
 
+        {/* --- TAB: KYC / AML --- */}
+        {activeTab === 'kyc' && (
+          <KycDashboardView />
+        )}
+
+        {/* --- TAB: Currencies --- */}
+        {activeTab === 'currencies' && (
+          <CurrenciesDashboardView />
+        )}
+
       </main>
 
 
@@ -3408,6 +3441,30 @@ export default function CompanyDashboard() {
                           )}
                         </label>
                         <p className="text-[10px] text-[var(--text-secondary)] mt-1 leading-relaxed">Allows cashier to generate and export bank account statements.</p>
+                      </div>
+                    </div>
+
+                    {/* KYC / AML Module */}
+                    <div className="flex items-start gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl hover:border-amber-500/40 transition-colors">
+                      <label htmlFor="perm-kyc" className={`relative inline-flex items-center shrink-0 mt-0.5 select-none ${isFeatureDisabledByPlan('kyc_enabled') ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <input 
+                          type="checkbox" 
+                          id="perm-kyc"
+                          checked={permissionsForm.kyc_enabled} 
+                          onChange={e => setPermissionsForm(prev => ({ ...prev, kyc_enabled: e.target.checked }))}
+                          disabled={isFeatureDisabledByPlan('kyc_enabled')}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-zinc-700/70 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500 border border-white/10 peer-checked:border-amber-500 peer-disabled:opacity-40"></div>
+                      </label>
+                      <div>
+                        <label htmlFor="perm-kyc" className={`text-xs font-bold flex items-center gap-1.5 ${isFeatureDisabledByPlan('kyc_enabled') ? 'text-[var(--text-secondary)] cursor-not-allowed opacity-60' : 'text-[var(--text-primary)] cursor-pointer'}`}>
+                          KYC / AML Module
+                          {isFeatureDisabledByPlan('kyc_enabled') && (
+                            <span className="text-[9px] bg-amber-500/15 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono font-bold">DISABLED BY PLAN</span>
+                          )}
+                        </label>
+                        <p className="text-[10px] text-[var(--text-secondary)] mt-1 leading-relaxed">Enables the KYC form for customer identity verification on qualifying transactions (MMA AML/CFT regulation).</p>
                       </div>
                     </div>
 
@@ -4122,6 +4179,635 @@ export default function CompanyDashboard() {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KycDashboardView() {
+  const [kycAlerts, setKycAlerts] = useState<any>({ pending_str: 0, pending_edd: 0, pending_ctr: 0, expiring_soon: 0 });
+  const [kycRecords, setKycRecords] = useState<any[]>([]);
+  const [kycCustomers, setKycCustomers] = useState<any[]>([]);
+  const [kycLoading, setKycLoading] = useState(true);
+  const [kycSubTab, setKycSubTab] = useState<'alerts' | 'records' | 'customers' | 'reports'>('alerts');
+  const [kycFilter, setKycFilter] = useState({ suspicious_only: false, pending_edd: false, search: '' });
+  const [ctrFrom, setCtrFrom] = useState('');
+  const [ctrTo, setCtrTo] = useState('');
+  const [weekStart, setWeekStart] = useState('');
+  const token = localStorage.getItem('viri_token');
+
+  useEffect(() => {
+    const load = async () => {
+      setKycLoading(true);
+      try {
+        const [alertsRes, recordsRes, customersRes] = await Promise.all([
+          fetch('/api/kyc/alerts', { headers: { Authorization: `Bearer ${token}` } }),
+          fetch('/api/kyc/records?per_page=50', { headers: { Authorization: `Bearer ${token}` } }),
+          fetch('/api/kyc/customers/index', { headers: { Authorization: `Bearer ${token}` } }),
+        ]);
+        if (alertsRes.ok) setKycAlerts(await alertsRes.json());
+        if (recordsRes.ok) setKycRecords((await recordsRes.json()).data || []);
+        if (customersRes.ok) setKycCustomers(await customersRes.json());
+      } catch (e) { /* ignore */ }
+      setKycLoading(false);
+    };
+    load();
+  }, [token]);
+
+  const riskColor = (level: string) => level === 'high' ? 'text-red-400' : level === 'low' ? 'text-green-400' : 'text-zinc-400';
+  const eddColor = (s: string) => s === 'approved' ? 'text-green-400' : s === 'pending_approval' ? 'text-amber-400' : 'text-zinc-500';
+
+  const filteredRecords = kycRecords.filter(r => {
+    if (kycFilter.suspicious_only && !r.is_suspicious) return false;
+    if (kycFilter.pending_edd && r.edd_status !== 'pending_approval') return false;
+    if (kycFilter.search) {
+      const q = kycFilter.search.toLowerCase();
+      return r.customer?.full_name?.toLowerCase().includes(q) ||
+        r.customer?.nic_number?.includes(q) ||
+        r.customer?.passport_number?.includes(q);
+    }
+    return true;
+  });
+
+  const downloadReport = async (url: string, filename: string) => {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return alert('Failed to generate report.');
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+  };
+
+  const approveEdd = async (id: number) => {
+    await fetch(`/api/kyc/records/${id}/approve-edd`, { method: 'PUT', headers: { Authorization: `Bearer ${token}` } });
+    setKycRecords(prev => prev.map(r => r.id === id ? { ...r, edd_status: 'approved' } : r));
+  };
+
+  const markStrSubmitted = async (id: number) => {
+    await fetch(`/api/kyc/records/${id}/mark-str-submitted`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+    setKycRecords(prev => prev.map(r => r.id === id ? { ...r, str_submitted_at: new Date().toISOString() } : r));
+    setKycAlerts((prev: any) => ({ ...prev, pending_str: Math.max(0, prev.pending_str - 1) }));
+  };
+
+  return (
+    <div className="animate-fade-in space-y-6">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+          <Shield size={20} className="text-amber-400" />
+        </div>
+        <div>
+          <h2 className="text-xl font-bold text-white">KYC / AML Compliance</h2>
+          <p className="text-xs text-[var(--text-secondary)]">MMA Regulation on Prevention of Money Laundering and Financing of Terrorism</p>
+        </div>
+      </div>
+
+      {/* Sub-tab nav */}
+      <div className="flex gap-2 border-b border-[var(--border-color)] pb-0">
+        {(['alerts', 'records', 'customers', 'reports'] as const).map(tab => (
+          <button key={tab} onClick={() => setKycSubTab(tab)}
+            className={`px-4 py-2.5 text-xs font-semibold rounded-t-lg border-b-2 transition-colors capitalize ${kycSubTab === tab ? 'border-amber-400 text-amber-400 bg-amber-500/5' : 'border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
+            {tab === 'alerts' ? `Alerts${kycAlerts.pending_str + kycAlerts.pending_edd + kycAlerts.pending_ctr > 0 ? ` (${kycAlerts.pending_str + kycAlerts.pending_edd + kycAlerts.pending_ctr})` : ''}` : tab.charAt(0).toUpperCase() + tab.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {kycLoading ? (
+        <div className="flex items-center justify-center py-16 text-[var(--text-secondary)]">
+          <Loader2 size={24} className="animate-spin mr-2" /> Loading compliance data...
+        </div>
+      ) : (
+        <>
+          {/* Alerts Sub-tab */}
+          {kycSubTab === 'alerts' && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  { label: 'Pending STR', count: kycAlerts.pending_str, color: 'red', desc: 'Suspicious transactions not yet reported to FIU (3-day deadline)' },
+                  { label: 'Pending EDD Approval', count: kycAlerts.pending_edd, color: 'amber', desc: 'High-risk transactions awaiting senior management approval' },
+                  { label: 'Pending CTR', count: kycAlerts.pending_ctr, color: 'orange', desc: 'Cash transactions ≥ MVR 200,000 not yet reported' },
+                  { label: 'Expiring Soon', count: kycAlerts.expiring_soon, color: 'blue', desc: 'Records within 30 days of 5-year retention deadline' },
+                ].map(alert => (
+                  <div key={alert.label} className={`glass-panel p-5 rounded-2xl border ${alert.count > 0 ? `border-${alert.color}-500/30 bg-${alert.color}-500/5` : 'border-[var(--border-color)]'}`}>
+                    <div className={`text-3xl font-black ${alert.count > 0 ? `text-${alert.color}-400` : 'text-zinc-600'}`}>{alert.count}</div>
+                    <div className="text-xs font-bold text-[var(--text-primary)] mt-1">{alert.label}</div>
+                    <div className="text-[10px] text-[var(--text-secondary)] mt-1 leading-relaxed">{alert.desc}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Pending STR list */}
+              {kycRecords.filter(r => r.is_suspicious && !r.str_submitted_at).length > 0 && (
+                <div className="glass-panel p-5 rounded-2xl border border-red-500/20">
+                  <h3 className="text-sm font-bold text-red-400 mb-4 flex items-center gap-2"><AlertTriangle size={16} /> Suspicious Transactions — Action Required</h3>
+                  <div className="space-y-2">
+                    {kycRecords.filter(r => r.is_suspicious && !r.str_submitted_at).map(r => (
+                      <div key={r.id} className="flex items-center justify-between p-3 bg-red-500/5 border border-red-500/15 rounded-xl text-xs">
+                        <div>
+                          <div className="font-bold text-white">KYC-{r.id} — {r.customer?.full_name}</div>
+                          <div className="text-[var(--text-secondary)]">{r.customer?.nic_number || r.customer?.passport_number} · {r.transaction_currency} {Number(r.transaction_amount).toLocaleString()} · {new Date(r.created_at).toLocaleDateString()}</div>
+                          <div className="text-red-300 mt-0.5 italic">{r.str_notes}</div>
+                        </div>
+                        <div className="flex gap-2 shrink-0 ml-4">
+                          <button onClick={() => downloadReport(`/api/kyc/reports/generate-str-pdf/${r.id}`, `STR-${r.id}.pdf`)}
+                            className="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 text-[10px] font-bold flex items-center gap-1">
+                            <Download size={12} /> STR PDF
+                          </button>
+                          <button onClick={() => markStrSubmitted(r.id)}
+                            className="px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 text-[10px] font-bold flex items-center gap-1">
+                            <Check size={12} /> Mark Submitted
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Pending EDD list */}
+              {kycRecords.filter(r => r.edd_status === 'pending_approval').length > 0 && (
+                <div className="glass-panel p-5 rounded-2xl border border-amber-500/20">
+                  <h3 className="text-sm font-bold text-amber-400 mb-4 flex items-center gap-2"><Shield size={16} /> EDD Pending Approval</h3>
+                  <div className="space-y-2">
+                    {kycRecords.filter(r => r.edd_status === 'pending_approval').map(r => (
+                      <div key={r.id} className="flex items-center justify-between p-3 bg-amber-500/5 border border-amber-500/15 rounded-xl text-xs">
+                        <div>
+                          <div className="font-bold text-white">KYC-{r.id} — {r.customer?.full_name}</div>
+                          <div className="text-[var(--text-secondary)]">{r.transaction_currency} {Number(r.transaction_amount).toLocaleString()} · {r.customer?.is_pep ? '🔴 PEP' : ''} {r.customer?.is_high_risk_country ? '🟠 High-Risk Country' : ''}</div>
+                        </div>
+                        <button onClick={() => approveEdd(r.id)}
+                          className="px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 text-[10px] font-bold flex items-center gap-1 shrink-0 ml-4">
+                          <Check size={12} /> Approve EDD
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Records Sub-tab */}
+          {kycSubTab === 'records' && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-3 items-center">
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
+                  <input type="text" placeholder="Search by name or ID…" value={kycFilter.search}
+                    onChange={e => setKycFilter(p => ({ ...p, search: e.target.value }))}
+                    className="pl-9 pr-3 py-2 rounded-lg bg-[var(--bg-card)] border border-[var(--border-color)] text-xs text-white w-56 focus:outline-none focus:border-amber-500/50" />
+                </div>
+                <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer">
+                  <input type="checkbox" checked={kycFilter.suspicious_only} onChange={e => setKycFilter(p => ({ ...p, suspicious_only: e.target.checked }))} className="rounded" />
+                  Suspicious only
+                </label>
+                <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer">
+                  <input type="checkbox" checked={kycFilter.pending_edd} onChange={e => setKycFilter(p => ({ ...p, pending_edd: e.target.checked }))} className="rounded" />
+                  Pending EDD
+                </label>
+                <span className="text-xs text-[var(--text-secondary)] ml-auto">{filteredRecords.length} records</span>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border border-[var(--border-color)]">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-[var(--bg-surface)] text-[var(--text-secondary)] border-b border-[var(--border-color)]">
+                      <th className="text-left px-4 py-3 font-semibold">ID</th>
+                      <th className="text-left px-4 py-3 font-semibold">Date</th>
+                      <th className="text-left px-4 py-3 font-semibold">Customer</th>
+                      <th className="text-left px-4 py-3 font-semibold">NIC / Passport</th>
+                      <th className="text-left px-4 py-3 font-semibold">Type</th>
+                      <th className="text-left px-4 py-3 font-semibold">Amount</th>
+                      <th className="text-left px-4 py-3 font-semibold">Risk</th>
+                      <th className="text-left px-4 py-3 font-semibold">EDD</th>
+                      <th className="text-left px-4 py-3 font-semibold">Flags</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredRecords.length === 0 ? (
+                      <tr><td colSpan={9} className="text-center py-10 text-[var(--text-secondary)]">No KYC records found.</td></tr>
+                    ) : filteredRecords.map(r => (
+                      <tr key={r.id} className="border-b border-[var(--border-color)] hover:bg-[var(--bg-surface)]/50 transition-colors">
+                        <td className="px-4 py-3 font-mono text-amber-400">KYC-{r.id}</td>
+                        <td className="px-4 py-3 text-[var(--text-secondary)]">{new Date(r.created_at).toLocaleDateString()}</td>
+                        <td className="px-4 py-3 font-medium text-white">{r.customer?.full_name}</td>
+                        <td className="px-4 py-3 font-mono text-zinc-400">{r.customer?.nic_number || r.customer?.passport_number}</td>
+                        <td className="px-4 py-3 capitalize text-[var(--text-secondary)]">{(r.transaction_type || '').replace('_', ' ')}</td>
+                        <td className="px-4 py-3 font-medium">{r.transaction_currency} {Number(r.transaction_amount).toLocaleString()}</td>
+                        <td className={`px-4 py-3 font-bold capitalize ${riskColor(r.customer?.risk_level)}`}>{r.customer?.risk_level}</td>
+                        <td className={`px-4 py-3 capitalize ${eddColor(r.edd_status)}`}>{(r.edd_status || 'N/A').replace('_', ' ')}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-1 flex-wrap">
+                            {r.customer?.is_pep && <span className="px-1.5 py-0.5 rounded bg-red-500/15 text-red-400 text-[9px] font-bold border border-red-500/20">PEP</span>}
+                            {r.is_suspicious && <span className="px-1.5 py-0.5 rounded bg-red-500/15 text-red-400 text-[9px] font-bold border border-red-500/20">STR</span>}
+                            {r.requires_ctr && <span className="px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-400 text-[9px] font-bold border border-orange-500/20">CTR</span>}
+                            {r.customer?.is_high_risk_country && <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 text-[9px] font-bold border border-amber-500/20">HIGH-RISK</span>}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Customers Sub-tab */}
+          {kycSubTab === 'customers' && (
+            <div className="space-y-4">
+              <div className="text-xs text-[var(--text-secondary)]">{kycCustomers.length} customers in database</div>
+              <div className="overflow-x-auto rounded-xl border border-[var(--border-color)]">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-[var(--bg-surface)] text-[var(--text-secondary)] border-b border-[var(--border-color)]">
+                      <th className="text-left px-4 py-3 font-semibold">Full Name</th>
+                      <th className="text-left px-4 py-3 font-semibold">NIC</th>
+                      <th className="text-left px-4 py-3 font-semibold">Passport</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {kycCustomers.length === 0 ? (
+                      <tr><td colSpan={3} className="text-center py-10 text-[var(--text-secondary)]">No customers yet.</td></tr>
+                    ) : kycCustomers.map((c: any) => (
+                      <tr key={c.id} className="border-b border-[var(--border-color)] hover:bg-[var(--bg-surface)]/50">
+                        <td className="px-4 py-3 font-medium text-white">{c.full_name}</td>
+                        <td className="px-4 py-3 font-mono text-zinc-400">{c.nic_number || '—'}</td>
+                        <td className="px-4 py-3 font-mono text-zinc-400">{c.passport_number || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Reports Sub-tab */}
+          {kycSubTab === 'reports' && (
+            <div className="space-y-6 max-w-2xl">
+              <div className="glass-panel p-6 rounded-2xl border border-[var(--border-color)] space-y-4">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2"><FileSpreadsheet size={16} className="text-amber-400" /> Cash Transaction Report (CTR)</h3>
+                <p className="text-xs text-[var(--text-secondary)]">MMA §18-19 — Transactions of MVR 200,000 or more. Submit to FIU.</p>
+                <div className="flex gap-3 items-end flex-wrap">
+                  <div>
+                    <label className="input-label">From</label>
+                    <input type="date" value={ctrFrom} onChange={e => setCtrFrom(e.target.value)} className="input-field py-2 text-xs" />
+                  </div>
+                  <div>
+                    <label className="input-label">To</label>
+                    <input type="date" value={ctrTo} onChange={e => setCtrTo(e.target.value)} className="input-field py-2 text-xs" />
+                  </div>
+                  <button onClick={() => downloadReport(`/api/kyc/reports/ctr?date_from=${ctrFrom}&date_to=${ctrTo}`, `CTR-${ctrFrom}-${ctrTo}.pdf`)}
+                    disabled={!ctrFrom || !ctrTo}
+                    className="btn btn-outline border-amber-500/30 text-amber-400 hover:bg-amber-500/10 py-2 px-4 text-xs flex items-center gap-2 disabled:opacity-40">
+                    <Download size={14} /> Generate PDF
+                  </button>
+                </div>
+              </div>
+
+              <div className="glass-panel p-6 rounded-2xl border border-[var(--border-color)] space-y-4">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2"><FileSpreadsheet size={16} className="text-amber-400" /> Weekly Fund Transfer Report</h3>
+                <p className="text-xs text-[var(--text-secondary)]">MMA §20 — All domestic and international transfers. Submit weekly to FIU.</p>
+                <div className="flex gap-3 items-end flex-wrap">
+                  <div>
+                    <label className="input-label">Week Starting</label>
+                    <input type="date" value={weekStart} onChange={e => setWeekStart(e.target.value)} className="input-field py-2 text-xs" />
+                  </div>
+                  <button onClick={() => downloadReport(`/api/kyc/reports/weekly-transfers?week_start=${weekStart}`, `Weekly-Transfers-${weekStart}.pdf`)}
+                    disabled={!weekStart}
+                    className="btn btn-outline border-amber-500/30 text-amber-400 hover:bg-amber-500/10 py-2 px-4 text-xs flex items-center gap-2 disabled:opacity-40">
+                    <Download size={14} /> Generate PDF
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function CurrenciesDashboardView() {
+  const [currencies, setCurrencies] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingCurrency, setEditingCurrency] = useState<any | null>(null);
+  const [formData, setFormData] = useState({
+    code: '',
+    name: '',
+    symbol: '$',
+    buy_rate: '',
+    sell_rate: '',
+    is_active: true,
+  });
+  const [saving, setSaving] = useState(false);
+  const token = localStorage.getItem('viri_token');
+
+  const fetchCurrencies = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/company/currencies', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setCurrencies(await res.json());
+      }
+    } catch (e) {
+      console.error('Error fetching currencies:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCurrencies();
+  }, []);
+
+  const openAddModal = () => {
+    setEditingCurrency(null);
+    setFormData({ code: '', name: '', symbol: '$', buy_rate: '', sell_rate: '', is_active: true });
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (c: any) => {
+    setEditingCurrency(c);
+    setFormData({
+      code: c.code,
+      name: c.name,
+      symbol: c.symbol || '$',
+      buy_rate: c.buy_rate !== null ? String(c.buy_rate) : '',
+      sell_rate: c.sell_rate !== null ? String(c.sell_rate) : '',
+      is_active: c.is_active,
+    });
+    setIsModalOpen(true);
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.code.trim() || !formData.name.trim()) return;
+    setSaving(true);
+    try {
+      const url = editingCurrency ? `/api/company/currencies/${editingCurrency.id}` : '/api/company/currencies';
+      const method = editingCurrency ? 'PUT' : 'POST';
+      const payload: any = {
+        code: formData.code.toUpperCase().trim(),
+        name: formData.name.trim(),
+        symbol: formData.symbol.trim() || '$',
+        buy_rate: formData.buy_rate ? parseFloat(formData.buy_rate) : null,
+        sell_rate: formData.sell_rate ? parseFloat(formData.sell_rate) : null,
+        is_active: formData.is_active,
+      };
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        setIsModalOpen(false);
+        fetchCurrencies();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Failed to save currency');
+      }
+    } catch (e) {
+      alert('Network error saving currency');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Are you sure you want to remove this currency?')) return;
+    try {
+      const res = await fetch(`/api/company/currencies/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        fetchCurrencies();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Failed to delete currency');
+      }
+    } catch (e) {
+      alert('Error deleting currency');
+    }
+  };
+
+  return (
+    <div className="animate-fade-in space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+            <Coins size={20} className="text-amber-400" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-white">Currencies & Reference Rates</h2>
+            <p className="text-xs text-[var(--text-secondary)]">Manage supported exchange currencies and default rates for cashiers.</p>
+          </div>
+        </div>
+        <button
+          onClick={openAddModal}
+          className="btn btn-primary bg-amber-500 hover:bg-amber-400 text-black font-bold py-2.5 px-4 rounded-xl text-xs flex items-center gap-2"
+        >
+          <Plus size={16} /> Add Currency
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-16 text-[var(--text-secondary)]">
+          <Loader2 size={24} className="animate-spin mr-2" /> Loading currencies...
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)]">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-[var(--bg-surface)] text-[var(--text-secondary)] border-b border-[var(--border-color)]">
+                <th className="text-left px-5 py-3.5 font-semibold">Code</th>
+                <th className="text-left px-5 py-3.5 font-semibold">Currency Name</th>
+                <th className="text-left px-5 py-3.5 font-semibold">Symbol</th>
+                <th className="text-left px-5 py-3.5 font-semibold">Reference Buy Rate</th>
+                <th className="text-left px-5 py-3.5 font-semibold">Reference Sell Rate</th>
+                <th className="text-left px-5 py-3.5 font-semibold">Status</th>
+                <th className="text-right px-5 py-3.5 font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {currencies.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="text-center py-12 text-[var(--text-secondary)]">
+                    No currencies configured yet.
+                  </td>
+                </tr>
+              ) : (
+                currencies.map(c => (
+                  <tr key={c.id} className="border-b border-[var(--border-color)] hover:bg-[var(--bg-surface)]/50 transition-colors">
+                    <td className="px-5 py-4 font-bold text-white font-mono flex items-center gap-2">
+                      <span className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center text-xs">
+                        {c.code}
+                      </span>
+                      {c.is_default && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold">
+                          Base
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-5 py-4 font-medium text-white">{c.name}</td>
+                    <td className="px-5 py-4 font-mono text-zinc-400">{c.symbol || '—'}</td>
+                    <td className="px-5 py-4 font-mono font-bold text-emerald-400">
+                      {c.buy_rate !== null ? Number(c.buy_rate).toFixed(4) : '—'}
+                    </td>
+                    <td className="px-5 py-4 font-mono font-bold text-amber-400">
+                      {c.sell_rate !== null ? Number(c.sell_rate).toFixed(4) : '—'}
+                    </td>
+                    <td className="px-5 py-4">
+                      <span className={`px-2 py-1 rounded-md text-[10px] font-bold ${c.is_active ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}>
+                        {c.is_active ? 'Active' : 'Disabled'}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => openEditModal(c)}
+                          className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition-colors"
+                          title="Edit Currency"
+                        >
+                          <Edit size={14} />
+                        </button>
+                        {!c.is_default && (
+                          <button
+                            onClick={() => handleDelete(c.id)}
+                            className="p-1.5 rounded-lg hover:bg-red-500/20 text-zinc-400 hover:text-red-400 transition-colors"
+                            title="Delete Currency"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Add / Edit Currency Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in duration-150">
+            <div className="flex items-center justify-between border-b border-[var(--border-color)] pb-3">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Coins size={18} className="text-amber-400" />
+                {editingCurrency ? `Edit Currency (${editingCurrency.code})` : 'Add Supported Currency'}
+              </h3>
+              <button onClick={() => setIsModalOpen(false)} className="text-zinc-400 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSave} className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="input-label">Currency Code *</label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={10}
+                    placeholder="e.g. USD, EUR, INR"
+                    value={formData.code}
+                    disabled={!!editingCurrency}
+                    onChange={e => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
+                    className="input-field py-2.5 text-xs font-mono uppercase disabled:opacity-60"
+                  />
+                </div>
+                <div>
+                  <label className="input-label">Symbol</label>
+                  <input
+                    type="text"
+                    maxLength={10}
+                    placeholder="e.g. $, €, ₹, Rf"
+                    value={formData.symbol}
+                    onChange={e => setFormData({ ...formData, symbol: e.target.value })}
+                    className="input-field py-2.5 text-xs font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="input-label">Currency Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. US Dollar, Euro, Indian Rupee"
+                  value={formData.name}
+                  onChange={e => setFormData({ ...formData, name: e.target.value })}
+                  className="input-field py-2.5 text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="input-label">Default Buy Rate</label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    min="0"
+                    placeholder="e.g. 15.42"
+                    value={formData.buy_rate}
+                    onChange={e => setFormData({ ...formData, buy_rate: e.target.value })}
+                    className="input-field py-2.5 text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="input-label">Default Sell Rate</label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    min="0"
+                    placeholder="e.g. 17.50"
+                    value={formData.sell_rate}
+                    onChange={e => setFormData({ ...formData, sell_rate: e.target.value })}
+                    className="input-field py-2.5 text-xs font-mono"
+                  />
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={formData.is_active}
+                  onChange={e => setFormData({ ...formData, is_active: e.target.checked })}
+                  className="rounded"
+                />
+                <span>Active (available for cashiers on Sales screen)</span>
+              </label>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-zinc-800 text-zinc-300 font-bold hover:bg-zinc-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {saving ? <Loader2 size={14} className="animate-spin" /> : editingCurrency ? 'Save Changes' : 'Add Currency'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

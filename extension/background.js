@@ -5,6 +5,7 @@ import {
   generateClientSalt, generateKey, DEFAULT_KEY, computeCmod,
   MIB_API_URL, MIB_WEBVIEW_URL, MIB_MODEL
 } from './utils/mib-crypto.js';
+import { mibAccountKey, clearMibCredentials } from './utils/mib-storage.js';
 
 const BASE_URL = "https://www.bankofmaldives.com.mv/internetbanking";
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
@@ -401,7 +402,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       } catch (e) {
         // Best-effort: any failure falls through to the normal auth flow.
       }
-      startMibAuthFlow(msg.payload.terminalId, msg.payload.bankAccountId, msg.payload.backendUrl, msg.payload.mibUsername, msg.payload.sanctumToken, msg.payload.password, msg.payload.hardwareId)
+      startMibAuthFlow(msg.payload.terminalId, msg.payload.bankAccountId, msg.payload.backendUrl, msg.payload.mibUsername, msg.payload.sanctumToken, msg.payload.password, msg.payload.hardwareId, msg.payload.accountNumber || '')
         .then(res => sendResponse(res))
         .catch(e => sendResponse({ success: false, error: e.message }));
     })();
@@ -409,7 +410,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === 'SUBMIT_MIB_OTP') {
-    submitMibOtp(msg.payload.otp, msg.payload.terminalId, msg.payload.bankAccountId, msg.payload.backendUrl, msg.payload.mibUsername, msg.payload.sanctumToken, msg.payload.otpType)
+    submitMibOtp(msg.payload.otp, msg.payload.terminalId, msg.payload.bankAccountId, msg.payload.backendUrl, msg.payload.mibUsername, msg.payload.sanctumToken, msg.payload.otpType, msg.payload.accountNumber || '')
       .then(res => sendResponse(res))
       .catch(e => sendResponse({ success: false, error: e.message }));
     return true;
@@ -463,10 +464,14 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'CLEAR_MIB_CREDENTIALS') {
     (async () => {
       try {
-        // Clear MIB device keys from local storage
-        await chrome.storage.local.remove(['mib_key1', 'mib_key2', 'mib_appId', 'mib_profileId', 'mib_profileType']);
-        // Clear cached session
-        await chrome.storage.session.remove('mibSession');
+        // Scoped clear: removes the account's device keys, per-account session /
+        // profile / balance keys and its credential-map entries (full clear when
+        // no account context is provided).
+        const p = msg.payload || {};
+        await clearMibCredentials({
+          accountNumber: p.accountNumber || '',
+          bankAccountId: p.accountId || p.bankAccountId || ''
+        });
         // Clear MIB cookies
         const mibCookies = await chrome.cookies.getAll({ domain: 'mib.com.mv' });
         for (const cookie of mibCookies) {
@@ -2261,13 +2266,19 @@ async function seedServerKeysIfCacheMissing(terminalId, bankAccountId, backendUr
   return true;
 }
 
-async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUsername, sanctumToken, password, hardwareId) {
+async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUsername, sanctumToken, password, hardwareId, accountNumber = '') {
   return Promise.race([
     new Promise((_, reject) => setTimeout(() => reject(new Error("Extension Auth Flow internal timeout after 20s")), 20000)),
     (async () => {
       const port = activePort;
       if(port) emitLog(port, '> [MIB-API] Starting MIB API auth flow...');
-  
+
+  // Canonical session key — account number preferred, DB id fallback. Must match
+  // ensureMibSession/runMibApiFlow so a session created here is found on sync.
+  const authSessionKey = 'mibSession_' + mibAccountKey(accountNumber, bankAccountId);
+  const authProfileIdKey = 'mib_profileId_' + mibAccountKey(accountNumber, bankAccountId);
+  const authProfileTypeKey = 'mib_profileType_' + mibAccountKey(accountNumber, bankAccountId);
+
   // 1. Get or Generate AppId
   let storedAppId = null;
   let storedKey1 = null;
@@ -2340,7 +2351,7 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
         sessionState.xxid = String(iResp.xxid);
         sessionState.nonceGenerator = iResp.nonceGenerator;
 
-        const authSessionKey = 'mibSession_' + (bankAccountId || 'default');
+        sessionState.username = mibUsername;
         await chrome.storage.session.set({ [authSessionKey]: sessionState });
         if(port) emitLog(port, '> [MIB-API] Fast-path successful. Keys were valid.');
         return { success: true, skipOtp: true };
@@ -2375,7 +2386,7 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
     console.log(`[MIB] C41 success=${c41Resp.success} primaryOTPType=${c41Resp.primaryOTPType} otpTypes=${JSON.stringify(c41Resp.otpTypes)} reason=${c41Resp.reasonText}`);
     if (c41Resp.success) {
       if(port) emitLog(port, '> [MIB-API] C41 successful. OTP required.');
-      await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'C42', primaryOTPType: c41Resp.primaryOTPType, otpTypes: c41Resp.otpTypes, resendGap: c41Resp.resendGap, mibPassword: password, mibUsername } });
+      await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'C42', primaryOTPType: c41Resp.primaryOTPType, otpTypes: c41Resp.otpTypes, resendGap: c41Resp.resendGap, mibPassword: password, mibUsername, accountNumber } });
 
       // Mirror the new app's auto-send (useSmsOtpResend): it only fires when the
       // PRIMARY OTP type is SMS (isSmsOtpType), NOT merely when SMS is in the channel
@@ -2454,7 +2465,8 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
               terminalId,
               bankAccountId,
               backendUrl,
-              sanctumToken
+              sanctumToken,
+              accountNumber
             }
           });
 
@@ -2471,11 +2483,10 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
           const spProfileName = firstProfile.profileName || a41Resp.selectedProfileName || 'Legacy Profile';
           const credsHash = await computeCredsHash('MIB', mibUsername);
           if (spProfileId) {
-            const authProfileIdKey = 'mib_profileId_' + (bankAccountId || 'default');
-            const authProfileTypeKey = 'mib_profileType_' + (bankAccountId || 'default');
             await chrome.storage.local.set({ [authProfileIdKey]: spProfileId, [authProfileTypeKey]: spProfileType });
             if(port) emitLog(port, `> [MIB-API] Saved profile ${spProfileId} (type ${spProfileType}).`);
           }
+          sessionState.username = mibUsername;
           await chrome.storage.session.set({ [authSessionKey]: sessionState });
           
           try {
@@ -2515,7 +2526,7 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
         if (needsOtp) {
           if(port) emitLog(port, '> [MIB-API] A41 successful. OTP required.');
           const spProfileName = firstProfile.profileName || 'Legacy Profile';
-          await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'C42', primaryOTPType: a41Resp.primaryOTPType || '3', mibPassword: password, mibUsername, mibProfileId: a41ProfileId, mibProfileType: a41ProfileType, mibProfileName: spProfileName } });
+          await chrome.storage.session.set({ mibAuthTemp: { sessionState, clientSalt, userSalt, pgf03, flow: 'C42', primaryOTPType: a41Resp.primaryOTPType || '3', mibPassword: password, mibUsername, mibProfileId: a41ProfileId, mibProfileType: a41ProfileType, mibProfileName: spProfileName, accountNumber } });
           return { success: true, requiresOtp: true };
         } else {
           // Fast path, no OTP needed. Save profile and session.
@@ -2524,11 +2535,10 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
           const spProfileName = firstProfile.profileName || 'Legacy Profile';
           const credsHash = await computeCredsHash('MIB', mibUsername);
           if (a41ProfileId) {
-            const authProfileIdKey = 'mib_profileId_' + (bankAccountId || 'default');
-            const authProfileTypeKey = 'mib_profileType_' + (bankAccountId || 'default');
             await chrome.storage.local.set({ [authProfileIdKey]: a41ProfileId, [authProfileTypeKey]: a41ProfileType });
             if(port) emitLog(port, `> [MIB-API] Saved profile ${a41ProfileId} (type ${a41ProfileType}).`);
           }
+          sessionState.username = mibUsername;
           await chrome.storage.session.set({ [authSessionKey]: sessionState });
           
           try {
@@ -2580,11 +2590,17 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
   ]);
 }
 
-async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsername, sanctumToken, otpType = '3') {
+async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsername, sanctumToken, otpType = '3', accountNumber = '') {
   const port = activePort;
   const { mibAuthTemp } = await chrome.storage.session.get('mibAuthTemp');
   if (!mibAuthTemp) throw new Error("No MIB auth session found in storage.");
-  
+
+  // Canonical session key — same precedence as startMibAuthFlow/ensureMibSession.
+  const acctKey = mibAccountKey(accountNumber || mibAuthTemp?.accountNumber || '', bankAccountId);
+  const authSessionKey = 'mibSession_' + acctKey;
+  const authProfileIdKey = 'mib_profileId_' + acctKey;
+  const authProfileTypeKey = 'mib_profileType_' + acctKey;
+
   const { sessionState, flow, primaryOTPType, mibPassword } = mibAuthTemp;
 
   // Verify with the SELECTED channel's own code. The old server 500'd on SMS otpType
@@ -2645,8 +2661,6 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
         const spProfileName = mibProfileName || 'Legacy Profile';
         const credsHash = await computeCredsHash('MIB', mibUsername);
             if (mibProfileId) {
-              const authProfileIdKey = 'mib_profileId_' + (bankAccountId || 'default');
-              const authProfileTypeKey = 'mib_profileType_' + (bankAccountId || 'default');
               await chrome.storage.local.set({ [authProfileIdKey]: mibProfileId, [authProfileTypeKey]: mibProfileType || '0' });
             }
         // Store in backend
@@ -2730,17 +2744,19 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
                     terminalId,
                     bankAccountId,
                     backendUrl,
-                    sanctumToken
+                    sanctumToken,
+                    accountNumber
                   }
                 });
-                await chrome.storage.session.set({ ['mibSession_' + (bankAccountId || 'default')]: sessionState });
+                sessionState.username = mibUsername;
+                await chrome.storage.session.set({ [authSessionKey]: sessionState });
                 return { success: true, needProfile: true, profiles: c42Profiles };
               }
 
               // Single-profile: save as before
               const c42First = c42Profiles[0] || {};
               if (c42First.profileId) {
-                await chrome.storage.local.set({ ['mib_profileId_' + (bankAccountId || 'default')]: c42First.profileId, ['mib_profileType_' + (bankAccountId || 'default')]: c42First.profileType || '0' });
+                await chrome.storage.local.set({ [authProfileIdKey]: c42First.profileId, [authProfileTypeKey]: c42First.profileType || '0' });
               }
             }
           }
@@ -2750,7 +2766,8 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
       }
     }
 
-    await chrome.storage.session.set({ ['mibSession_' + (bankAccountId || 'default')]: sessionState });
+    sessionState.username = mibUsername;
+    await chrome.storage.session.set({ [authSessionKey]: sessionState });
     await chrome.storage.session.remove('mibAuthTemp');
     return { success: true };
   } else {
@@ -2759,9 +2776,12 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
 }
 
 async function ensureMibSession(port, terminalId, backendUrl, credentials, targetAccount, sanctumTokenParam = '') {
-  const mibSessionKey = 'mibSession_' + (targetAccount || 'default');
-  const mibProfileIdKey = 'mib_profileId_' + (targetAccount || 'default');
-  const mibProfileTypeKey = 'mib_profileType_' + (targetAccount || 'default');
+  // Canonical keys — same helper/precedence as the auth flow writers, so a
+  // session created during re-authentication is found here on sync.
+  const acctKey = mibAccountKey(targetAccount, '');
+  const mibSessionKey = 'mibSession_' + acctKey;
+  const mibProfileIdKey = 'mib_profileId_' + acctKey;
+  const mibProfileTypeKey = 'mib_profileType_' + acctKey;
   // ── Hoisted server identity fetch (single round-trip, throw-proof) ──
   // Replaces the two downstream server-fetch blocks. It (a) resolves the token via
   // the full sanctumToken -> sanctumTokenParam -> credentials.token chain, (b) keeps
@@ -2950,10 +2970,27 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
           if (a41Resp.success) {
             const a41Profiles = a41Resp.operatingProfiles || [];
             const sp = a41Resp.profileSelected;
-            if (sp && Array.isArray(a41Resp.accountBalance) && a41Resp.accountBalance.length > 0) {
+            // Resume mirrors the auth fast-path (:2467): profileSelected alone is
+            // enough to consider the profile selected. accountBalance is only needed
+            // to cache balances, and we persist the selected profile so the P47
+            // balance fallback still works when the resumed session returns none.
+            if (sp) {
               profileSelected = true;
-              await chrome.storage.session.set({ ['mib_accountBalance_' + targetAccount]: a41Resp.accountBalance });
-              if(port) emitLog(port, `> [MIB-API] A41 fast-path: ${a41Resp.accountBalance.length} accounts.`);
+              const resumeProfileId = a41Resp.selectedProfileId || (a41Profiles[0] && (a41Profiles[0].profileId || a41Profiles[0].customerProfileId)) || mib_profileId;
+              const resumeProfileType = a41Resp.selectedProfileType || (a41Profiles[0] && a41Profiles[0].profileType) || mib_profileType || '0';
+              if (resumeProfileId) {
+                await chrome.storage.local.set({ [mibProfileIdKey]: resumeProfileId, [mibProfileTypeKey]: resumeProfileType });
+              }
+              if (Array.isArray(a41Resp.accountBalance) && a41Resp.accountBalance.length > 0) {
+                await chrome.storage.session.set({ ['mib_accountBalance_' + targetAccount]: a41Resp.accountBalance });
+                if(port) emitLog(port, `> [MIB-API] A41 fast-path: ${a41Resp.accountBalance.length} accounts.`);
+              } else if (resumeProfileId) {
+                const p47Result = await attemptP47(port, mibSession, resumeProfileId, resumeProfileType);
+                if (p47Result.accountBalance.length > 0) {
+                  await chrome.storage.session.set({ ['mib_accountBalance_' + targetAccount]: p47Result.accountBalance });
+                  if(port) emitLog(port, `> [MIB-API] Cached ${p47Result.accountBalance.length} account balance(s) from P47.`);
+                }
+              }
             } else if (mib_profileId) {
               const p47Result = await attemptP47(port, mibSession, mib_profileId, mib_profileType || '0');
               profileSelected = p47Result.selected;
@@ -3168,7 +3205,14 @@ async function selectMibProfile(profileId, profileType) {
     throw new Error("No pending MIB auth session for profile selection.");
   }
 
-  const { sessionState, profiles, mibUsername, key1ToSave, key2ToSave, terminalId, bankAccountId, backendUrl, sanctumToken } = mibAuthTemp;
+  const { sessionState, profiles, mibUsername, key1ToSave, key2ToSave, terminalId, bankAccountId, backendUrl, sanctumToken, accountNumber } = mibAuthTemp;
+
+  // Canonical per-account keys — must match the resume flow (account number
+  // preferred, DB id fallback).
+  const acctKey = mibAccountKey(accountNumber || '', bankAccountId);
+  const authSessionKey = 'mibSession_' + acctKey;
+  const authProfileIdKey = 'mib_profileId_' + acctKey;
+  const authProfileTypeKey = 'mib_profileType_' + acctKey;
 
   // Find selected profile name from profiles list
   const selectedProfile = (profiles || []).find(p =>
@@ -3184,8 +3228,18 @@ async function selectMibProfile(profileId, profileType) {
     throw new Error("P47 profile selection failed.");
   }
 
-  // Save profile to storage
-  await chrome.storage.local.set({ mib_profileId: profileId, mib_profileType: profileType });
+  // Save profile to storage (global + per-account)
+  await chrome.storage.local.set({
+    mib_profileId: profileId,
+    mib_profileType: profileType,
+    [authProfileIdKey]: profileId,
+    [authProfileTypeKey]: profileType,
+  });
+  // Persist the live session so the next sync reuses it (A80) instead of a
+  // full resume. The username field is required by ensureMibSession's identity
+  // guard; P47 on the resumed session is the profile-selected session.
+  sessionState.username = sessionState.username || mibUsername;
+  await chrome.storage.session.set({ [authSessionKey]: sessionState });
 
   // Save keys and profile to backend
   const credsHash = await computeCredsHash('MIB', mibUsername);

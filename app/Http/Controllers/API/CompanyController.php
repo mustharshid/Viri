@@ -11,6 +11,7 @@ use App\Models\MibCredentialProfile;
 use App\Models\PaymentReceipt;
 use App\Models\Terminal;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
@@ -85,6 +86,7 @@ class CompanyController extends Controller
             'ledger_show_debit' => $hasFeature('ledger_show_debit') && filter_var($permissions['ledger_show_debit'] ?? false, FILTER_VALIDATE_BOOLEAN),
             'reports_enabled' => $hasFeature('reports_enabled') && filter_var($permissions['reports_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
             'statement_enabled' => $hasFeature('statement_enabled') && filter_var($permissions['statement_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
+            'kyc_enabled' => $hasFeature('kyc_enabled') && filter_var($permissions['kyc_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
             'show_vbtl' => filter_var($permissions['show_vbtl'] ?? false, FILTER_VALIDATE_BOOLEAN),
             'share_pwa_logs' => filter_var($permissions['share_pwa_logs'] ?? true, FILTER_VALIDATE_BOOLEAN),
             'bml_combined_ledger' => $hasFeature('bml_combined_ledger') && filter_var($permissions['bml_combined_ledger'] ?? false, FILTER_VALIDATE_BOOLEAN),
@@ -149,6 +151,7 @@ class CompanyController extends Controller
                 'ledger_show_debit' => $hasFeature('ledger_show_debit') && filter_var($permissions['ledger_show_debit'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'reports_enabled' => $hasFeature('reports_enabled') && filter_var($permissions['reports_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'statement_enabled' => $hasFeature('statement_enabled') && filter_var($permissions['statement_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'kyc_enabled' => $hasFeature('kyc_enabled') && filter_var($permissions['kyc_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'show_vbtl' => filter_var($permissions['show_vbtl'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'share_pwa_logs' => filter_var($permissions['share_pwa_logs'] ?? true, FILTER_VALIDATE_BOOLEAN),
                 'sales_claiming_enabled' => filter_var($permissions['sales_claiming_enabled'] ?? true, FILTER_VALIDATE_BOOLEAN),
@@ -311,10 +314,72 @@ class CompanyController extends Controller
 
     public function deleteBankAccount(Request $request, $id)
     {
-        $account = BankAccount::where('tenant_id', $request->user()->tenant_id)->findOrFail($id);
-        $account->delete();
+        $tenantId = $request->user()->tenant_id;
+        $account = BankAccount::where('tenant_id', $tenantId)->findOrFail($id);
+
+        DB::transaction(function () use ($account) {
+            // Capture credential linkages BEFORE the delete: mib_device_credentials
+            // cascade, but mib_credential_profiles / *_credential_groups have no FK
+            // to bank_accounts and would otherwise be orphaned — a re-added account
+            // could then silently inherit the stale device keys (OTP-free re-auth).
+            $mibProfileId = $account->mib_credential_profile_id;
+            $mibGroup = null;
+            if ($mibProfileId) {
+                $mibGroup = MibCredentialProfile::find($mibProfileId)?->credentialGroup;
+            }
+            $bmlGroupId = $account->bml_credential_group_id;
+
+            $account->delete();
+
+            // MIB: remove the orphaned profile and, if the group is now unused,
+            // the orphaned group too — unless a sibling account still belongs to
+            // the same MIB user (username or credentials-hash match).
+            if ($mibProfileId) {
+                $profileStillReferenced = BankAccount::where('mib_credential_profile_id', $mibProfileId)->exists();
+                if (! $profileStillReferenced) {
+                    MibCredentialProfile::where('id', $mibProfileId)->delete();
+                }
+                if ($mibGroup && ! $this->mibGroupStillNeeded($account->tenant_id, $account->id, $mibGroup)) {
+                    $groupStillHasProfiles = MibCredentialProfile::where('credential_group_id', $mibGroup->id)->exists();
+                    if (! $groupStillHasProfiles) {
+                        MibCredentialGroup::where('id', $mibGroup->id)->delete();
+                    }
+                }
+            }
+
+            // BML: remove the orphaned group when no other account references it.
+            if ($bmlGroupId) {
+                $groupStillReferenced = BankAccount::where('bml_credential_group_id', $bmlGroupId)->exists();
+                if (! $groupStillReferenced) {
+                    BmlCredentialGroup::where('id', $bmlGroupId)->delete();
+                }
+            }
+        });
 
         return response()->json(['message' => 'Bank account deleted']);
+    }
+
+    /**
+     * Whether a MIB credential group is still needed after the given account is
+     * removed — true when a sibling account in the tenant belongs to the same
+     * MIB user (matched by stored username or credentials hash). Preserves the
+     * shared (tenant, username) group across the delete of one of its accounts.
+     */
+    private function mibGroupStillNeeded(int $tenantId, int $excludedAccountId, MibCredentialGroup $group): bool
+    {
+        $username = trim((string) $group->mib_username);
+        if ($username === '') {
+            return false;
+        }
+        $expectedHash = hash('sha256', 'MIB_'.mb_strtolower($username));
+
+        return BankAccount::where('tenant_id', $tenantId)
+            ->where('id', '!=', $excludedAccountId)
+            ->where(function ($q) use ($username, $expectedHash) {
+                $q->where('mib_username', $username)
+                  ->orWhere('login_credentials_hash', $expectedHash);
+            })
+            ->exists();
     }
 
     public function updateBankAccount(Request $request, $id)

@@ -11,6 +11,9 @@ use App\Http\Controllers\API\AffiliatePortalController;
 use App\Http\Controllers\API\ReferralAdminController;
 use App\Http\Controllers\API\SessionController;
 use App\Http\Controllers\API\SuperadminController;
+use App\Http\Controllers\API\KycController;
+use App\Http\Controllers\API\CurrencyController;
+use App\Http\Controllers\API\ExchangeSaleController;
 use App\Http\Controllers\API\TerminalPairingController;
 use App\Models\SessionFetchRequest;
 use App\Models\Terminal;
@@ -114,6 +117,32 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/affiliate/bank-details', [AffiliatePortalController::class, 'updateBankDetails']);
     Route::get('/affiliate/projections', [AffiliatePortalController::class, 'calculateProjections']);
 
+    // KYC / AML Routes
+    Route::prefix('kyc')->group(function () {
+        // Customer lightweight index for autocomplete (minimal data transfer)
+        Route::get('/customers/index', [KycController::class, 'customerIndex']);
+        // Customer CRUD
+        Route::post('/customers', [KycController::class, 'createCustomer']);
+        Route::get('/customers/{id}', [KycController::class, 'showCustomer']);
+        Route::put('/customers/{id}', [KycController::class, 'updateCustomer']);
+        // Transaction Records
+        Route::get('/records', [KycController::class, 'listRecords']);
+        Route::post('/records', [KycController::class, 'createRecord']);
+        Route::get('/records/{id}', [KycController::class, 'showRecord']);
+        // Compliance Actions
+        Route::put('/records/{id}/approve-edd', [KycController::class, 'approveEdd']);
+        Route::post('/records/{id}/flag-suspicious', [KycController::class, 'flagSuspicious']);
+        Route::post('/records/{id}/mark-str-submitted', [KycController::class, 'markStrSubmitted']);
+        Route::post('/records/{id}/mark-ctr-submitted', [KycController::class, 'markCtrSubmitted']);
+        // PDF Reports
+        Route::post('/reports/generate-str-pdf/{id}', [KycController::class, 'generateStrPdf']);
+        Route::get('/reports/ctr', [KycController::class, 'generateCtrReport']);
+        Route::get('/reports/weekly-transfers', [KycController::class, 'generateWeeklyTransferReport']);
+        // Watchlist & Alerts
+        Route::get('/countries', [KycController::class, 'listCountries']);
+        Route::get('/alerts', [KycController::class, 'alertsSummary']);
+    });
+
     // Company Routes
     Route::get('/company/terminals', [CompanyController::class, 'getTerminals']);
     Route::post('/company/terminals', [CompanyController::class, 'createTerminal']);
@@ -137,6 +166,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/company/request-plan-change', [CompanyController::class, 'requestPlanChange']);
 
     Route::get('/company/audit-logs', [CompanyController::class, 'getAuditLogs']);
+
+    // Currency Management
+    Route::get('/company/currencies', [CurrencyController::class, 'index']);
+    Route::post('/company/currencies', [CurrencyController::class, 'store']);
+    Route::put('/company/currencies/{id}', [CurrencyController::class, 'update']);
+    Route::delete('/company/currencies/{id}', [CurrencyController::class, 'destroy']);
 });
 
 /*
@@ -145,6 +180,15 @@ Route::middleware('auth:sanctum')->group(function () {
 |--------------------------------------------------------------------------
 |
 */
+
+// Terminal Currency Endpoints
+Route::get('/terminal/currencies', [CurrencyController::class, 'index']);
+
+// Terminal Currency Exchange Sales Endpoints
+Route::get('/terminal/exchange-sales', [ExchangeSaleController::class, 'index']);
+Route::post('/terminal/exchange-sales', [ExchangeSaleController::class, 'store']);
+Route::get('/terminal/exchange-sales/claimed-tx-keys', [ExchangeSaleController::class, 'getClaimedTransactions']);
+Route::post('/terminal/exchange-sales/{id}/void', [ExchangeSaleController::class, 'void']);
 
 // Real-Time Signaling Endpoints (non-cache)
 Route::post('/terminal/session/acknowledge', function (Request $request) {
@@ -396,6 +440,7 @@ Route::post('/verify-terminal', function (Request $request) {
             'ledger_show_debit' => (bool) (($tenantFeatures['ledger_show_debit'] ?? ! $isFreeOr499) && ($terminalPermissions['ledger_show_debit'] ?? true)),
             'reports_enabled' => (bool) (($tenantFeatures['reports_enabled'] ?? ! $isFreeOr499) && ($terminalPermissions['reports_enabled'] ?? false)),
             'statement_enabled' => (bool) (($tenantFeatures['statement_enabled'] ?? ! $isFreeOr499) && ($terminalPermissions['statement_enabled'] ?? false)),
+            'kyc_enabled' => (bool) (($tenantFeatures['kyc_enabled'] ?? ! $isFreeOr499) && ($terminalPermissions['kyc_enabled'] ?? false)),
             'share_pwa_logs' => (bool) ($terminalPermissions['share_pwa_logs'] ?? true),
             'show_vbtl' => (bool) ($terminalPermissions['show_vbtl'] ?? false),
             'sales_claiming_enabled' => (bool) ($terminalPermissions['sales_claiming_enabled'] ?? true),

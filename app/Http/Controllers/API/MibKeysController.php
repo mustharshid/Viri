@@ -126,6 +126,25 @@ class MibKeysController extends Controller
             ->first();
 
         if ($account) {
+            // Persist the login identity on the account so (a) the getKeys password-
+            // disclosure guard and sibling checks can match against a concrete username
+            // instead of being bypassed by NULL, and (b) future single-group fallbacks
+            // can confirm this account really belongs to the group's user. Only written
+            // when the account is not already bound to a different identity (H2/H3 —
+            // an admin-entered username/linkage stays authoritative).
+            $accountChanges = [];
+            if (($account->mib_username === null || $account->mib_username === '')
+                && isset($validated['mib_username']) && $validated['mib_username'] !== '') {
+                $accountChanges['mib_username'] = $validated['mib_username'];
+            }
+            if ($account->login_credentials_hash === null
+                && ! empty($validated['credentials_hash'])) {
+                $accountChanges['login_credentials_hash'] = $validated['credentials_hash'];
+            }
+            if (! empty($accountChanges)) {
+                $account->update($accountChanges);
+            }
+
             // If the account already has an admin-assigned profile, prefer it over re-linking.
             if ($account->mib_credential_profile_id === null) {
                 $account->update(['mib_credential_profile_id' => $profile->id]);
@@ -216,7 +235,15 @@ class MibKeysController extends Controller
         if (! $group) {
             $tenantGroups = MibCredentialGroup::where('tenant_id', $terminal->tenant_id)->get();
             if ($tenantGroups->count() === 1) {
-                $group = $tenantGroups->first();
+                $candidate = $tenantGroups->first();
+                // H5: a bare single-group fallback must never silently adopt a group
+                // the account cannot be confirmed to belong to. The account must carry
+                // a matching mib_username or a login_credentials_hash that hashes to the
+                // group's username; an account with neither is ambiguous and must go
+                // through a fresh sign-in (forces OTP) instead of inheriting keys.
+                if (! $account || $this->accountConfirmedForGroup($account, $candidate)) {
+                    $group = $candidate;
+                }
             }
         }
 
@@ -326,6 +353,30 @@ class MibKeysController extends Controller
             'profiles' => $allProfiles,
             'obtained_at' => $resolvedObtainedAt ? $resolvedObtainedAt->toIso8601String() : null,
         ]);
+    }
+
+    /**
+     * Whether the account is confirmed to belong to the given credential group's
+     * MIB user. Used to gate the tenant single-group fallback so an unlinked or
+     * re-added account can never inherit another user's device keys/password.
+     * An account with no stored username AND no credentials hash is ambiguous and
+     * returns false — it must sign in fresh (C41/C42 + OTP) before any resume.
+     */
+    private function accountConfirmedForGroup(BankAccount $account, MibCredentialGroup $group): bool
+    {
+        if ($account->mib_username !== null && $account->mib_username !== '') {
+            return mb_strtolower(trim((string) $account->mib_username))
+                === mb_strtolower(trim((string) $group->mib_username));
+        }
+
+        if ($account->login_credentials_hash) {
+            return hash_equals(
+                hash('sha256', 'MIB_'.mb_strtolower(trim((string) $group->mib_username))),
+                $account->login_credentials_hash
+            );
+        }
+
+        return false;
     }
 
     public function getSiblingCheck(Request $request)

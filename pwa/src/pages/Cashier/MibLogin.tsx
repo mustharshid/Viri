@@ -258,6 +258,7 @@ export default function MibLogin() {
           password: password.trim(),
           terminalId: terminalId,
           bankAccountId: accountId,
+          accountNumber: accountNumber || '',
           backendUrl: backendUrl,
           sanctumToken: localStorage.getItem('viri_token') || '',
           hardwareId: terminalId
@@ -307,6 +308,7 @@ export default function MibLogin() {
           otp: otp,
           terminalId: terminalId,
           bankAccountId: accountId,
+          accountNumber: accountNumber || '',
           backendUrl: backendUrl,
           mibUsername: username.trim(),
           sanctumToken: localStorage.getItem('viri_token') || '',

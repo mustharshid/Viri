@@ -1410,6 +1410,7 @@ export default function AdminDashboard() {
                 { key: 'shift_claim_report_enabled', label: 'Shift & Claim Report', required: true },
                 { key: 'statement_enabled', label: 'Bank Statements Generator' },
                 { key: 'bml_combined_ledger', label: 'BML Combined Ledger & Verification View' },
+                { key: 'kyc_enabled', label: 'KYC / AML Module' },
                 { key: 'auto_sync_enabled', label: 'Auto-Sync Live Balance & Transactions' },
                 { key: 'custom_recent_tx_limit', label: 'Configurable Recent Tx Count' }
               ].map(f => {
@@ -1656,6 +1657,7 @@ export default function AdminDashboard() {
                   { key: 'shift_claim_report_enabled', label: 'Shift & Claim Report', required: true },
                   { key: 'statement_enabled', label: 'Bank Statements Generator' },
                   { key: 'bml_combined_ledger', label: 'BML Combined Ledger & Verification View' },
+                  { key: 'kyc_enabled', label: 'KYC / AML Module' },
                   { key: 'auto_sync_enabled', label: 'Auto-Sync Live Balance & Transactions' },
                   { key: 'custom_recent_tx_limit', label: 'Configurable Recent Tx Count' }
                 ].map(f => {
