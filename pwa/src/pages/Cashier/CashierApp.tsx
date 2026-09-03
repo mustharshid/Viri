@@ -4,6 +4,7 @@ import { useTheme } from '../../hooks/useTheme';
 import CryptoJS from 'crypto-js';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { SalesScreen } from './SalesScreen';
+import { SalesReportsView } from './SalesReportsView';
 
 const Tooltip = ({ text, helpSectionId, onHelpNavigate }: { text: string; helpSectionId?: string; onHelpNavigate?: (sectionId: string) => void }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -856,6 +857,7 @@ function App() {
     ledger_show_debit: true,
     reports_enabled: false,
     statement_enabled: false,
+    sales_exchange_enabled: false,
     kyc_enabled: false,
     show_vbtl: false,
     recent_tx_limit: 3,
@@ -1482,7 +1484,7 @@ function App() {
     }
   }, [loading]);
 
-  const [activeTab, setActiveTab] = useState<'verify' | 'sales' | 'ledger' | 'reports' | 'checklist' | 'help' | 'statements' | 'kyc'>('verify');
+  const [activeTab, setActiveTab] = useState<'verify' | 'sales' | 'sales_reports' | 'ledger' | 'reports' | 'checklist' | 'help' | 'statements' | 'kyc'>('verify');
   const [helpSearchQuery, setHelpSearchQuery] = useState('');
   const [bankSearchQuery, setBankSearchQuery] = useState('');
   const verifyAccountRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
@@ -2280,6 +2282,13 @@ function App() {
               }
             }
           }
+        } else {
+          const errData = await response.json().catch(() => ({}));
+          if (errData.error_code === 'TENANT_SUSPENDED' || errData.subscription_expired) {
+            setSubscriptionExpired(true);
+          } else if (errData.error_code === 'TERMINAL_REVOKED') {
+            clearTerminalData();
+          }
         }
       } catch (e) {
         console.error("Session status poll failed:", e);
@@ -2733,7 +2742,8 @@ function App() {
             ledger_show_debit: data.permissions.ledger_show_debit ?? true,
             reports_enabled: data.permissions.reports_enabled ?? false,
             statement_enabled: data.permissions.statement_enabled ?? false,
-            kyc_enabled: data.permissions.kyc_enabled ?? false,
+            sales_exchange_enabled: data.permissions.sales_exchange_enabled ?? data.permissions.kyc_enabled ?? false,
+            kyc_enabled: data.permissions.sales_exchange_enabled ?? data.permissions.kyc_enabled ?? false,
             show_vbtl: data.permissions.show_vbtl ?? false,
             recent_tx_limit: data.permissions.recent_tx_limit ?? 3,
             sales_claiming_enabled: data.permissions.sales_claiming_enabled ?? true,
@@ -2795,7 +2805,13 @@ function App() {
           });
         }
       } else {
-        // We do not clear terminal credentials immediately on 403 or 404 to protect local credentials
+        const errData = await response.json().catch(() => ({}));
+        if (errData.error_code === 'TENANT_SUSPENDED' || errData.subscription_expired) {
+          setSubscriptionExpired(true);
+        } else if (errData.error_code === 'TERMINAL_REVOKED') {
+          clearTerminalData();
+        }
+        // We do not clear terminal credentials immediately on general non-ok status to protect local credentials
         // from being wiped due to transient network issues, reboots, or temporary server status codes.
         console.error(`Verification server returned non-ok status during loading: ${response.status}`);
       }
@@ -3711,8 +3727,11 @@ function App() {
         const errData = await response.json().catch(() => ({}));
         setErrorAndLog(`License check failed: ${errData.error || response.statusText} (${response.status})`);
 
-        if (response.status === 403 || response.status === 404) {
+        if (errData.error_code === 'TERMINAL_REVOKED' || errData.error === 'Terminal unauthorized or revoked') {
           clearTerminalData();
+        } else if (errData.error_code === 'TENANT_SUSPENDED' || errData.subscription_expired) {
+          setSubscriptionExpired(true);
+          setErrorAndLog("Company account suspended or subscription expired - please contact your admin!");
         }
 
         setLoading(false);
@@ -4098,6 +4117,11 @@ function App() {
 
         if (!verifyRes.ok) {
           const errData = await verifyRes.json().catch(() => ({}));
+          if (errData.error_code === 'TERMINAL_REVOKED' || errData.error === 'Terminal unauthorized or revoked') {
+            clearTerminalData();
+          } else if (errData.error_code === 'TENANT_SUSPENDED' || errData.subscription_expired) {
+            setSubscriptionExpired(true);
+          }
           setErrorAndLog(`License check failed: ${errData.error || verifyRes.statusText} (${verifyRes.status})`, targetAccountId);
           setLoading(false);
           isVerifyingRef.current = false;
@@ -4833,18 +4857,52 @@ function App() {
           <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Verification</span>
         </button>
 
-        <button
-          onClick={() => { setShowSettings(false); setActiveTab('sales'); }}
-          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
-            } ${activeTab === 'sales' && !showSettings
-              ? 'bg-emerald-500 text-black font-bold shadow-md shadow-emerald-500/20'
-              : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
-            }`}
-          title="Sales & Currency Exchange"
-        >
-          <DollarSign size={16} className="shrink-0" />
-          <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Sales & Exchange</span>
-        </button>
+        {/* Sales & Exchange Module Package */}
+        {(permissions.sales_exchange_enabled || permissions.kyc_enabled) && (
+          <div className="w-full space-y-1">
+            <button
+              onClick={() => { setShowSettings(false); setActiveTab('sales'); }}
+              className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+                } ${activeTab === 'sales' && !showSettings
+                  ? 'bg-[var(--color-success)] text-black font-bold'
+                  : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
+                }`}
+              title="Sales & Currency Exchange"
+            >
+              <DollarSign size={16} className="shrink-0" />
+              <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Sales & Exchange</span>
+            </button>
+
+            {/* Sub-menu items under Sales & Exchange */}
+            <div className={`space-y-1 ${isSidebarCollapsed ? '' : 'md:pl-3'}`}>
+              <button
+                onClick={() => { setShowSettings(false); setActiveTab('kyc'); }}
+                className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-2.5 px-3 py-2'
+                  } ${activeTab === 'kyc' && !showSettings
+                    ? 'bg-[var(--color-success)] text-black font-bold'
+                    : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
+                  }`}
+                title="KYC / AML"
+              >
+                <Shield size={14} className="shrink-0" />
+                <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>KYC / AML</span>
+              </button>
+
+              <button
+                onClick={() => { setShowSettings(false); setActiveTab('sales_reports'); }}
+                className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-2.5 px-3 py-2'
+                  } ${activeTab === 'sales_reports' && !showSettings
+                    ? 'bg-[var(--color-success)] text-black font-bold'
+                    : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
+                  }`}
+                title="Sales Reports"
+              >
+                <BarChart3 size={14} className="shrink-0" />
+                <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Sales Reports</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {permissions.ledger_enabled && (
           <button
@@ -4915,20 +4973,6 @@ function App() {
           <HelpCircle size={16} className="shrink-0" />
           <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Help & Support</span>
         </button>
-        {permissions.kyc_enabled && (
-          <button
-            onClick={() => { setShowSettings(false); setActiveTab('kyc'); }}
-            className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
-              } ${activeTab === 'kyc' && !showSettings
-                ? 'bg-amber-500 text-black font-bold'
-                : 'hover:bg-amber-500/10 text-amber-400/70 hover:text-amber-400'
-              }`}
-            title="KYC / AML"
-          >
-            <Shield size={16} className="shrink-0" />
-            <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>KYC / AML</span>
-          </button>
-        )}
       </nav>
 
       {/* Bottom section: Settings & Locking */}
@@ -8096,7 +8140,7 @@ function App() {
             )}
 
 
-            {activeTab === 'sales' && (
+            {activeTab === 'sales' && (permissions.sales_exchange_enabled || permissions.kyc_enabled) && (
               <SalesScreen
                 backendUrl={backendUrl}
                 hardwareId={hardwareId}
@@ -8107,8 +8151,16 @@ function App() {
               />
             )}
 
-            {activeTab === 'kyc' && permissions.kyc_enabled && (
+            {activeTab === 'kyc' && (permissions.sales_exchange_enabled || permissions.kyc_enabled) && (
               <KycCashierView backendUrl={backendUrl} />
+            )}
+
+            {activeTab === 'sales_reports' && (permissions.sales_exchange_enabled || permissions.kyc_enabled) && (
+              <SalesReportsView
+                backendUrl={backendUrl}
+                hardwareId={hardwareId}
+                terminalName={terminalName}
+              />
             )}
 
             {activeTab === 'help' && (

@@ -284,7 +284,7 @@ function _postSessionEvent(session, event_type, detail, pwa_logs) {
   _flushPayloadBuffer(session, logs, (finalLogs) => {
     if (finalLogs.length > 0) body.pwa_logs = finalLogs;
 
-    fetch(`${session.backendUrl}/terminal/session/log`, {
+    fetchWithBlockedDiagnostics(`Viri backend ${session.backendUrl}/terminal/session/log`, `${session.backendUrl}/terminal/session/log`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -2013,6 +2013,51 @@ class MibTransientError extends Error {
   constructor(message) { super(message); this.name = 'MibTransientError'; }
 }
 
+class MibNetworkError extends Error {
+  constructor(message, cause) {
+    super(message);
+    this.name = 'MibNetworkError';
+    if (cause !== undefined) this.cause = cause;
+  }
+}
+
+// Transport-level failures that are safe to retry: MIB timeouts/5xx/429
+// (MibTransientError), blocked/unreachable requests (MibNetworkError), and the
+// raw AbortError/TypeError names produced by the fetch API before classification.
+function isMibTransientError(err) {
+  return !!err && (
+    err instanceof MibTransientError ||
+    err instanceof MibNetworkError ||
+    err.name === 'AbortError' ||
+    err.name === 'TypeError'
+  );
+}
+
+// "Failed to fetch" is a transport-level rejection: the request never completed.
+// In an MV3 service worker this is almost always a missing host-permission grant
+// (extension "Site access" ≠ "On all sites") or a dead network. Turn the cryptic
+// message into actionable guidance instead of surfacing the raw TypeError.
+function mibFetchBlockedMessage(target, err) {
+  const reason = (err && err.message) || 'Failed to fetch';
+  return `${target} — network request failed: ${reason}. ` +
+    'Verify the Viri Bridge extension has site access (chrome://extensions → Viri Bridge → Details → Site access = "On all sites") and that this device is online.';
+}
+
+// fetch wrapper that converts transport rejections into a MibNetworkError with
+// actionable guidance. HTTP-level responses (even 4xx/5xx) pass through untouched.
+async function fetchWithBlockedDiagnostics(label, url, options = {}) {
+  try {
+    return await fetch(url, options);
+  } catch (err) {
+    if (err && err.name === 'AbortError') throw err;
+    throw new MibNetworkError(mibFetchBlockedMessage(label, err), err);
+  }
+}
+
+// Default per-sfunc request timeout. Heavy first-of-session calls (A84 history)
+// may override to a longer budget via the `options` argument of executeMibSfunc.
+const MIB_SFUNC_TIMEOUT_MS = 10000;
+
 // Yield control back to the event loop to prevent service worker blockage
 // during synchronous crypto operations (Blowfish, BigInt modPow)
 const yieldToEventLoop = () => new Promise(r => setTimeout(r, 0));
@@ -2031,7 +2076,8 @@ function stripMibNotices(text) {
   return text.trim();
 }
 
-async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields = {}) {
+async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields = {}, options = {}) {
+  const { timeoutMs = MIB_SFUNC_TIMEOUT_MS } = options;
   // Yield before synchronous encryption to keep service worker responsive
   await yieldToEventLoop();
 
@@ -2060,19 +2106,27 @@ async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields =
   formParts.push(`data=${uriEncoded}`);
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  const resp = await fetch(`${MIB_API_URL}?${queryParts.join('&')}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
-      'User-Agent': 'android/1.0',
-    },
-    body: formParts.join('&'),
-    credentials: 'include',
-    signal: controller.signal
-  });
-
+  let resp;
+  try {
+    resp = await fetch(`${MIB_API_URL}?${queryParts.join('&')}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
+        'User-Agent': 'android/1.0',
+      },
+      body: formParts.join('&'),
+      credentials: 'include',
+      signal: controller.signal
+    });
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err && err.name === 'AbortError') {
+      throw new MibTransientError(`MIB request timed out after ${timeoutMs}ms (sfunc=${sfunc}).`);
+    }
+    throw new MibNetworkError(mibFetchBlockedMessage(`MIB API (sfunc=${sfunc})`, err), err);
+  }
   clearTimeout(timeoutId);
 
   // HTTP 419 = session expired (server signal)
@@ -2156,6 +2210,43 @@ async function executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields =
     console.error(`[MIB] sfunc=${sfunc} HTTP ${resp.status} body(200): "${rawBody.substring(0, 200)}" err=${e.message}`);
     throw new Error("Failed to decrypt MIB response. Possible stale keys.");
   }
+}
+
+/**
+ * Run executeMibSfunc with bounded retries for transient failures (timeouts,
+ * HTTP 5xx/429, transport/network rejections). Permanent errors — session
+ * expiry / stale keys, HTTP 4xx, decryption failures — abort immediately.
+ *
+ * Callers that already implement their own retry loop (e.g. the sfunc=i resume
+ * path) should keep calling executeMibSfunc directly to avoid double retries.
+ */
+async function executeMibSfuncWithRetry(sfunc, dataPayload, encryptKey, extraFormFields = {}, options = {}) {
+  const attempts = Math.max(1, options.attempts || 1);
+  const baseDelayMs = options.baseDelayMs || 1000;
+  const port = options.port || null;
+  const label = options.label ? ` (${options.label})` : '';
+  let lastErr;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (attempt > 0) {
+      const delay = baseDelayMs * Math.pow(2, attempt - 1);
+      if (port) emitLog(port, `> [MIB-API] Retrying sfunc=${sfunc}${label} (attempt ${attempt + 1}/${attempts}, ${delay}ms)...`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+    try {
+      return await executeMibSfunc(sfunc, dataPayload, encryptKey, extraFormFields, { timeoutMs: options.timeoutMs });
+    } catch (err) {
+      lastErr = err;
+      if (err instanceof MibSessionExpiredError || /stale keys/i.test(err.message)) {
+        throw err; // permanent — retrying cannot help
+      }
+      if (!isMibTransientError(err)) {
+        throw err; // unexpected — don't retry
+      }
+      // transient — loop again unless attempts are exhausted
+    }
+  }
+  if (port && attempts > 1) emitLog(port, `> [MIB-API] sfunc=${sfunc}${label} failed after ${attempts} attempt(s): ${lastErr ? lastErr.message : 'unknown error'}`);
+  throw lastErr;
 }
 
 async function fetchMibUserSalt(sessionState, username) {
@@ -2245,7 +2336,7 @@ async function seedServerKeysIfCacheMissing(terminalId, bankAccountId, backendUr
     mib_username: mibUsername || '',
   });
   const resp = await fetch(`${backendUrl}/mib/keys?${params}`, {
-    headers: { 'Authorization': `Bearer ${sanctumToken}` }
+    headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${sanctumToken}` }
   });
   if (!resp.ok) return false;
   let data;
@@ -2495,6 +2586,7 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
+                'Accept': 'application/json',
                 'Authorization': `Bearer ${sanctumToken}`
               },
               body: JSON.stringify({
@@ -2547,6 +2639,7 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
+                'Accept': 'application/json',
                 'Authorization': `Bearer ${sanctumToken}`
               },
               body: JSON.stringify({
@@ -2594,6 +2687,13 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
   const port = activePort;
   const { mibAuthTemp } = await chrome.storage.session.get('mibAuthTemp');
   if (!mibAuthTemp) throw new Error("No MIB auth session found in storage.");
+
+  // Resolve the backend auth token the same way the resume path does, so a store
+  // that runs with an empty popup localStorage token still authenticates.
+  if (!sanctumToken) {
+    const t = await chrome.storage.local.get('sanctumToken');
+    sanctumToken = t.sanctumToken || '';
+  }
 
   // Canonical session key — same precedence as startMibAuthFlow/ensureMibSession.
   const acctKey = mibAccountKey(accountNumber || mibAuthTemp?.accountNumber || '', bankAccountId);
@@ -2669,6 +2769,7 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'Accept': 'application/json',
             'Authorization': `Bearer ${sanctumToken}`
           },
           body: JSON.stringify({
@@ -2796,8 +2897,8 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
     if (token) {
       const params = new URLSearchParams({ hardware_id: terminalId });
       if (targetAccount) params.append('account_number', targetAccount);
-      const keysResp = await fetch(`${backendUrl}/mib/keys?${params}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+      const keysResp = await fetchWithBlockedDiagnostics(`Viri backend ${backendUrl}/mib/keys`, `${backendUrl}/mib/keys?${params}`, {
+        headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }
       });
       if (keysResp.ok) {
         const keysData = await keysResp.json();
@@ -2913,7 +3014,7 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
         if (err instanceof MibSessionExpiredError || /stale keys/i.test(err.message)) {
           throw err; // permanent — let outer catch handle with sfunc=r
         }
-        if (err instanceof MibTransientError || err.name === 'AbortError' || err.name === 'TypeError') {
+        if (isMibTransientError(err)) {
           if (attempt === 2) throw err; // exhausted retries
           continue;
         }
@@ -3207,6 +3308,13 @@ async function selectMibProfile(profileId, profileType) {
 
   const { sessionState, profiles, mibUsername, key1ToSave, key2ToSave, terminalId, bankAccountId, backendUrl, sanctumToken, accountNumber } = mibAuthTemp;
 
+  // Resolve the backend auth token the same way the resume path does.
+  let effectiveSanctumToken = sanctumToken;
+  if (!effectiveSanctumToken) {
+    const t = await chrome.storage.local.get('sanctumToken');
+    effectiveSanctumToken = t.sanctumToken || '';
+  }
+
   // Canonical per-account keys — must match the resume flow (account number
   // preferred, DB id fallback).
   const acctKey = mibAccountKey(accountNumber || '', bankAccountId);
@@ -3271,7 +3379,8 @@ async function selectMibProfile(profileId, profileType) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${sanctumToken}`
+      'Accept': 'application/json',
+      'Authorization': `Bearer ${effectiveSanctumToken}`
     },
     body: JSON.stringify(storeBody)
   });
@@ -3309,8 +3418,8 @@ async function fetchMibGroupForProfile(port, terminalId, backendUrl, targetAccou
   else if (targetAccount) params.append('account_number', targetAccount);
 
   try {
-    const resp = await fetch(`${backendUrl}/mib/keys?${params}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
+    const resp = await fetchWithBlockedDiagnostics(`Viri backend ${backendUrl}/mib/keys`, `${backendUrl}/mib/keys?${params}`, {
+      headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }
     });
     if (!resp.ok) {
       if (resp.status === 404) return { ok: false, needsLogin: true };
@@ -3507,8 +3616,8 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
             const tokenRes = await chrome.storage.local.get('sanctumToken');
             if (tokenRes.sanctumToken && hardwareId && backendUrl) {
               const params = new URLSearchParams({ hardware_id: hardwareId, account_number: targetAccount });
-              const keysResp = await fetch(`${backendUrl}/mib/keys?${params}`, {
-                headers: { 'Authorization': `Bearer ${tokenRes.sanctumToken}` }
+              const keysResp = await fetchWithBlockedDiagnostics(`Viri backend ${backendUrl}/mib/keys`, `${backendUrl}/mib/keys?${params}`, {
+                headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${tokenRes.sanctumToken}` }
               });
               if (keysResp.ok) {
                 const keysData = await keysResp.json();
@@ -3624,7 +3733,16 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
       xxid: mibSession.xxid,
       nonce: a84Nonce,
     };
-    const a84Resp = await executeMibSfunc('n', a84Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' });
+    // A84 is the first heavy encrypted call after a fresh session resume; MIB can
+    // take well over the default 10s to answer a cold call (observed: 10s abort
+    // on the first attempt, success on a warm retry). Give it a longer first
+    // timeout plus one retry. The 45s flow watchdog still bounds total time.
+    const a84Resp = await executeMibSfuncWithRetry('n', a84Payload, mibSession.sessionKey, { xxid: mibSession.xxid, sfunc: 'n' }, {
+      attempts: 2,
+      timeoutMs: 20000,
+      label: 'A84 history',
+      port
+    });
 
     if (!a84Resp.success) {
       throw new Error(`MIB history failed: ${a84Resp.reasonText || 'unknown error'}`);

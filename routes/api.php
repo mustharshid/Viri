@@ -257,13 +257,20 @@ Route::post('/verify-terminal', function (Request $request) {
         ->first();
 
     if (! $terminal || $terminal->status !== 'active') {
-        return response()->json(['error' => 'Terminal unauthorized or revoked'], 403);
+        return response()->json([
+            'error' => 'Terminal unauthorized or revoked',
+            'error_code' => 'TERMINAL_REVOKED',
+        ], 403);
     }
 
     $tenant = $terminal->tenant;
 
     if ($tenant->status !== 'active') {
-        return response()->json(['error' => 'Company account pending approval or suspended'], 403);
+        return response()->json([
+            'error' => 'Company account pending approval or suspended',
+            'error_code' => 'TENANT_SUSPENDED',
+            'subscription_expired' => true,
+        ], 403);
     }
 
     $limits = [
@@ -440,7 +447,8 @@ Route::post('/verify-terminal', function (Request $request) {
             'ledger_show_debit' => (bool) (($tenantFeatures['ledger_show_debit'] ?? ! $isFreeOr499) && ($terminalPermissions['ledger_show_debit'] ?? true)),
             'reports_enabled' => (bool) (($tenantFeatures['reports_enabled'] ?? ! $isFreeOr499) && ($terminalPermissions['reports_enabled'] ?? false)),
             'statement_enabled' => (bool) (($tenantFeatures['statement_enabled'] ?? ! $isFreeOr499) && ($terminalPermissions['statement_enabled'] ?? false)),
-            'kyc_enabled' => (bool) (($tenantFeatures['kyc_enabled'] ?? ! $isFreeOr499) && ($terminalPermissions['kyc_enabled'] ?? false)),
+            'sales_exchange_enabled' => (bool) (($tenantFeatures['sales_exchange_enabled'] ?? $tenantFeatures['kyc_enabled'] ?? false) && ($terminalPermissions['sales_exchange_enabled'] ?? $terminalPermissions['kyc_enabled'] ?? false)),
+            'kyc_enabled' => (bool) (($tenantFeatures['sales_exchange_enabled'] ?? $tenantFeatures['kyc_enabled'] ?? false) && ($terminalPermissions['sales_exchange_enabled'] ?? $terminalPermissions['kyc_enabled'] ?? false)),
             'share_pwa_logs' => (bool) ($terminalPermissions['share_pwa_logs'] ?? true),
             'show_vbtl' => (bool) ($terminalPermissions['show_vbtl'] ?? false),
             'sales_claiming_enabled' => (bool) ($terminalPermissions['sales_claiming_enabled'] ?? true),

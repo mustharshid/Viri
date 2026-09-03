@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Shield, Plus, Trash2, LogOut, Copy, Check, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound, Lock, Menu, AlertTriangle, Search, FileSpreadsheet, ListFilter, Eye, Activity, Calendar, ChevronRight, User, Briefcase, Sparkles, Gift, Upload, Layers, PhoneCall, Monitor, Laptop, Tablet, Puzzle, Coins } from 'lucide-react';
+import { Shield, Plus, Trash2, LogOut, Copy, Check, MonitorSmartphone, LayoutDashboard, BarChart3, CreditCard, LifeBuoy, CheckCircle2, Info, Download, Bug, Clock, Edit, X, RefreshCw, Settings, Sun, Moon, ArrowRight, Loader2, KeyRound, Lock, Menu, AlertTriangle, Search, FileSpreadsheet, ListFilter, Eye, Activity, Calendar, ChevronRight, User, Briefcase, Sparkles, Gift, Upload, Layers, PhoneCall, Monitor, Laptop, Tablet, Puzzle, Coins, Landmark } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 
 const maskUsername = (username: string | null | undefined): string | null => {
@@ -157,6 +157,7 @@ export default function CompanyDashboard() {
     ledger_show_debit: false,
     reports_enabled: false,
     statement_enabled: false,
+    sales_exchange_enabled: false,
     kyc_enabled: false,
     show_vbtl: false,
     share_pwa_logs: true,
@@ -587,7 +588,8 @@ export default function CompanyDashboard() {
         ledger_show_debit: (isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_debit')) ? false : true,
         reports_enabled: isFeatureDisabledByPlan('reports_enabled') ? false : true,
         statement_enabled: isFeatureDisabledByPlan('statement_enabled') ? false : true,
-        kyc_enabled: isFeatureDisabledByPlan('kyc_enabled') ? false : false,
+        sales_exchange_enabled: isFeatureDisabledByPlan('sales_exchange_enabled') ? false : false,
+        kyc_enabled: isFeatureDisabledByPlan('sales_exchange_enabled') ? false : false,
         show_vbtl: false,
         share_pwa_logs: true,
         sales_claiming_enabled: true,
@@ -604,6 +606,18 @@ export default function CompanyDashboard() {
     const isFreeOr499 = tier === 'free' || tier === '499';
     const features = user?.tenant?.features;
 
+    if (featureKey === 'sales_exchange_enabled' || featureKey === 'kyc_enabled') {
+      if (features && typeof features === 'object') {
+        if (features['sales_exchange_enabled'] !== undefined) {
+          return !Boolean(features['sales_exchange_enabled']);
+        }
+        if (features['kyc_enabled'] !== undefined) {
+          return !Boolean(features['kyc_enabled']);
+        }
+      }
+      return true; // Default is OFF for sales & exchange module unless explicitly enabled by plan/tenant
+    }
+
     if (features && typeof features === 'object' && features[featureKey] !== undefined) {
       return !Boolean(features[featureKey]);
     }
@@ -617,6 +631,8 @@ export default function CompanyDashboard() {
     setTerminalSettingsPin('');
     setHasTerminalSettingsPin(term.has_settings_pin ?? false);
     setTerminalLockPin(term.permissions?.terminal_pin || '');
+    const isSalesExchangeAllowed = !isFeatureDisabledByPlan('sales_exchange_enabled');
+    const hasSalesExchangePerm = term.permissions?.sales_exchange_enabled ?? term.permissions?.kyc_enabled ?? false;
     setPermissionsForm({
       verification_enabled: term.permissions?.verification_enabled ?? true,
       ledger_enabled: isFeatureDisabledByPlan('ledger_enabled') ? false : (term.permissions?.ledger_enabled ?? true),
@@ -624,7 +640,8 @@ export default function CompanyDashboard() {
       ledger_show_debit: (isFeatureDisabledByPlan('ledger_enabled') || isFeatureDisabledByPlan('ledger_show_debit')) ? false : (term.permissions?.ledger_show_debit ?? true),
       reports_enabled: isFeatureDisabledByPlan('reports_enabled') ? false : (term.permissions?.reports_enabled ?? false),
       statement_enabled: isFeatureDisabledByPlan('statement_enabled') ? false : (term.permissions?.statement_enabled ?? false),
-      kyc_enabled: isFeatureDisabledByPlan('kyc_enabled') ? false : (term.permissions?.kyc_enabled ?? false),
+      sales_exchange_enabled: isSalesExchangeAllowed ? hasSalesExchangePerm : false,
+      kyc_enabled: isSalesExchangeAllowed ? hasSalesExchangePerm : false,
       show_vbtl: term.permissions?.show_vbtl ?? false,
       share_pwa_logs: term.permissions?.share_pwa_logs ?? true,
       sales_claiming_enabled: term.permissions?.sales_claiming_enabled ?? true,
@@ -1049,6 +1066,12 @@ export default function CompanyDashboard() {
             <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'dashboard' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
               <LayoutDashboard size={18} /> Dashboard
             </button>
+            <button onClick={() => setActiveTab('counters')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'counters' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
+              <MonitorSmartphone size={18} /> Cash Counters
+            </button>
+            <button onClick={() => setActiveTab('accounts')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'accounts' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
+              <Landmark size={18} /> Linked Accounts
+            </button>
             <button onClick={() => setActiveTab('reporting')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'reporting' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
               <BarChart3 size={18} /> Reporting
             </button>
@@ -1061,7 +1084,7 @@ export default function CompanyDashboard() {
             <button onClick={() => setActiveTab('help')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'help' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
               <Info size={18} /> Help Center
             </button>
-            {!isFeatureDisabledByPlan('kyc_enabled') && (
+            {!isFeatureDisabledByPlan('sales_exchange_enabled') && (
               <>
                 <button onClick={() => setActiveTab('kyc')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'kyc' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
                   <Shield size={18} /> KYC / AML
@@ -1125,6 +1148,12 @@ export default function CompanyDashboard() {
             <button onClick={() => { setActiveTab('dashboard'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'dashboard' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
               <LayoutDashboard size={18} /> Dashboard
             </button>
+            <button onClick={() => { setActiveTab('counters'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'counters' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
+              <MonitorSmartphone size={18} /> Cash Counters
+            </button>
+            <button onClick={() => { setActiveTab('accounts'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'accounts' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
+              <Landmark size={18} /> Linked Accounts
+            </button>
             <button onClick={() => { setActiveTab('reporting'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'reporting' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
               <BarChart3 size={18} /> Reporting
             </button>
@@ -1137,7 +1166,7 @@ export default function CompanyDashboard() {
             <button onClick={() => { setActiveTab('help'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'help' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
               <Info size={18} /> Help Center
             </button>
-            {!isFeatureDisabledByPlan('kyc_enabled') && (
+            {!isFeatureDisabledByPlan('sales_exchange_enabled') && (
               <>
                 <button onClick={() => { setActiveTab('kyc'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'kyc' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
                   <Shield size={18} /> KYC / AML
@@ -1160,10 +1189,12 @@ export default function CompanyDashboard() {
         <header className="flex flex-wrap sm:flex-nowrap justify-between items-center gap-4 mb-6 sm:mb-8 bg-[var(--bg-card)] border border-[var(--border-color)] p-4 sm:p-5 rounded-2xl backdrop-blur-md shadow-sm">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-[var(--text-primary)] tracking-tight capitalize flex items-center gap-2">
-              {activeTab === 'dashboard' ? 'Overview' : activeTab === 'billing' ? 'Billing, Plans & Support' : activeTab}
+              {activeTab === 'dashboard' ? 'Overview' : activeTab === 'counters' ? 'Cashier Counters' : activeTab === 'accounts' ? 'Linked Accounts' : activeTab === 'billing' ? 'Billing, Plans & Support' : activeTab}
             </h1>
             <p className="text-[var(--text-secondary)] text-xs mt-0.5">
               {activeTab === 'dashboard' && 'Manage and monitor cashier counters and local banking setups'}
+              {activeTab === 'counters' && 'Register, pair, and configure cashier counter device IDs'}
+              {activeTab === 'accounts' && 'Configure bank credentials and profile types for transfer verification'}
               {activeTab === 'reporting' && 'View store settlements, daily sales, and transaction summaries'}
               {activeTab === 'activity' && 'Real-time audit log of terminal connections and security events'}
               {activeTab === 'billing' && 'Manage subscription plans, slip uploads, renewals, and customer support'}
@@ -1215,7 +1246,8 @@ export default function CompanyDashboard() {
 
         {/* ─── TAB: DASHBOARD ─── */}
         {activeTab === 'dashboard' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 items-start animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 items-start">
               
               {/* Subscription card with dynamic usage metrics */}
               <div className="glass-panel p-6 flex flex-col justify-between min-h-[220px] border border-[var(--border-color)]">
@@ -1296,15 +1328,10 @@ export default function CompanyDashboard() {
                     <Download size={13} /> Download Viri App
                   </button>
                   <button 
-                    onClick={() => {
-                      const el = document.getElementById('cashier-counters-section');
-                      if (el) {
-                        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                      }
-                    }} 
-                    className="text-blue-400 hover:text-blue-300 flex items-center gap-0.5 hover:underline"
+                    onClick={() => setActiveTab('counters')} 
+                    className="text-blue-400 hover:text-blue-300 flex items-center gap-0.5 hover:underline font-semibold"
                   >
-                    Setup <ArrowRight size={12} />
+                    Manage <ArrowRight size={12} />
                   </button>
                 </div>
               </div>
@@ -1340,38 +1367,90 @@ export default function CompanyDashboard() {
                   })()}
                 </div>
                 
-                <div className="pt-3 border-t border-[var(--border-color)] mt-4 text-xs text-[var(--text-secondary)]">
-                  Secure local browser vault storage
+                <div className="pt-3 border-t border-[var(--border-color)] mt-4 flex justify-between items-center text-xs text-[var(--text-secondary)]">
+                  <span>Secure local browser vault storage</span>
+                  <button 
+                    onClick={() => setActiveTab('accounts')} 
+                    className="text-blue-400 hover:text-blue-300 flex items-center gap-0.5 hover:underline font-semibold"
+                  >
+                    Manage <ArrowRight size={12} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Action Navigation Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+              <div 
+                onClick={() => setActiveTab('counters')}
+                className="glass-panel p-5 border border-[var(--border-color)] hover:border-emerald-500/40 transition-all cursor-pointer group flex items-center justify-between"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm group-hover:text-emerald-300">
+                    <MonitorSmartphone size={18} />
+                    <span>Cashier Counters</span>
+                    <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                      {terminals.length} / {user?.tenant?.max_terminals ?? 1}
+                    </span>
+                  </div>
+                  <p className="text-xs text-[var(--text-secondary)]">Register, pair, and configure counter permissions</p>
+                </div>
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 group-hover:translate-x-1 transition-transform">
+                  <ArrowRight size={15} />
                 </div>
               </div>
 
-            {/* Horizontal Layout Section 1: Cashier Counters Group Card */}
+              <div 
+                onClick={() => setActiveTab('accounts')}
+                className="glass-panel p-5 border border-[var(--border-color)] hover:border-emerald-500/40 transition-all cursor-pointer group flex items-center justify-between"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm group-hover:text-emerald-300">
+                    <Landmark size={18} />
+                    <span>Linked Accounts</span>
+                    <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                      {bankAccounts.length} / {getBankAccountLimit()}
+                    </span>
+                  </div>
+                  <p className="text-xs text-[var(--text-secondary)]">Manage BML and MIB bank profiles and credentials</p>
+                </div>
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 group-hover:translate-x-1 transition-transform">
+                  <ArrowRight size={15} />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ─── TAB: CASH COUNTERS ─── */}
+        {activeTab === 'counters' && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div id="cashier-counters-section" className="glass-panel p-5 sm:p-6 space-y-5 border border-[var(--border-color)]">
-              <div className="space-y-3.5 border-b border-[var(--border-color)] pb-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--border-color)] pb-4">
                 <div>
                   <h2 className="text-lg font-bold text-[var(--text-primary)] flex items-center gap-2">
                     Cashier Counters
                     <Tooltip text="Create and configure cashier counter device IDs. Edit permissions or allow debugging. Click to learn more." onClick={() => navigateToHelp('help-terminals')} />
                   </h2>
-                  <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-relaxed">Register and manage POS terminals paired to this account</p>
+                  <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-relaxed">Register and manage POS terminals paired to this account ({terminals.length} / {user?.tenant?.max_terminals ?? 1} used)</p>
                 </div>
 
-                <form onSubmit={handleAddTerminalClick} className="flex flex-col gap-2 bg-[var(--bg-surface)] p-2.5 border border-[var(--border-color)] rounded-2xl w-full">
+                <form onSubmit={handleAddTerminalClick} className="flex items-center gap-2 bg-[var(--bg-surface)] p-1.5 border border-[var(--border-color)] rounded-2xl sm:w-auto w-full">
                   <input 
                     type="text" 
                     required 
                     placeholder="Counter name (e.g. Counter 1, Shop Front)" 
-                    className="input-field border-transparent bg-transparent focus:ring-0 focus:border-transparent w-full py-2 px-3 text-xs text-[var(--text-primary)] placeholder-[var(--text-secondary)] min-w-0" 
+                    className="input-field border-transparent bg-transparent focus:ring-0 focus:border-transparent py-2 px-3 text-xs text-[var(--text-primary)] placeholder-[var(--text-secondary)] sm:w-64 w-full min-w-0" 
                     value={newTerminalName} 
                     onChange={e => setNewTerminalName(e.target.value)} 
                   />
-                  <button type="submit" className="btn btn-success w-full py-2 px-4 text-xs flex items-center justify-center gap-1.5 font-bold shadow-sm">
+                  <button type="submit" className="btn btn-success py-2 px-4 text-xs flex items-center justify-center gap-1.5 font-bold shadow-sm shrink-0">
                     <Plus size={14} /> Create
                   </button>
                 </form>
               </div>
 
-              <div className="grid grid-cols-1 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {terminals.map(term => {
                   const isExpired = term.pairing_code_expires_at ? new Date(term.pairing_code_expires_at).getTime() < now : true;
                   const minutesLeft = term.pairing_code_expires_at ? Math.max(0, Math.floor((new Date(term.pairing_code_expires_at).getTime() - now) / 60000)) : 0;
@@ -1611,15 +1690,19 @@ export default function CompanyDashboard() {
                 )}
               </div>
             </div>
+          </div>
+        )}
 
-            {/* Horizontal Layout Section 2: Linked Bank Accounts & Select Bank Group Card */}
-            <div className="glass-panel p-6 space-y-6 border border-[var(--border-color)] lg:col-span-2">
+        {/* ─── TAB: LINKED ACCOUNTS ─── */}
+        {activeTab === 'accounts' && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="glass-panel p-6 space-y-6 border border-[var(--border-color)]">
               <div className="border-b border-[var(--border-color)] pb-4">
                 <h2 className="text-lg font-bold text-[var(--text-primary)] flex items-center gap-2">
                   Linked Accounts
                   <Tooltip text="Link bank accounts here. The cashier counters use these to scan bank transaction statements dynamically." onClick={() => navigateToHelp('help-banks')} />
                 </h2>
-                <p className="text-xs text-[var(--text-secondary)] mt-0.5">Configure bank credentials and profile types for transfer verification</p>
+                <p className="text-xs text-[var(--text-secondary)] mt-0.5">Configure bank credentials and profile types for transfer verification ({bankAccounts.length} / {getBankAccountLimit()} linked)</p>
               </div>
 
               {/* Form Card for Select Bank & Add Account */}
@@ -1751,7 +1834,7 @@ export default function CompanyDashboard() {
                 {/* Account Details Inputs Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end pt-1">
                   <div>
-                    <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-1">Account Holder Name</label>
+                    <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest block mb-1">Account Name</label>
                     <input type="text" required placeholder="Name on account" className="input-field text-sm" value={accountName} onChange={e => setAccountName(e.target.value)} />
                   </div>
 
@@ -3848,7 +3931,7 @@ export default function CompanyDashboard() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-[var(--text-secondary)] mb-2">
-                    Account Holder Name
+                    Account Name
                   </label>
                   <input 
                     type="text" 

@@ -995,6 +995,7 @@ class SuperadminController extends Controller
         $lockTimeout = $plan ? $plan->lock_timeout : ($tenant->lock_timeout ?? 20);
 
         $tenant->update([
+            'status' => 'active',
             'subscription_tier' => $request->subscription_tier,
             'max_terminals' => $maxTerminals,
             'max_bank_accounts' => $maxBankAccounts,
@@ -1003,6 +1004,8 @@ class SuperadminController extends Controller
             'license_expires_at' => Carbon::parse($request->license_expires_at),
             'verifications_count' => 0,
         ]);
+
+        User::where('tenant_id', $tenant->id)->whereIn('status', ['pending', 'suspended'])->update(['status' => 'approved']);
 
         $invoice = \App\Models\Invoice::create([
             'tenant_id' => $tenant->id,

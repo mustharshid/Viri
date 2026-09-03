@@ -88,7 +88,7 @@ Following layout indicators found inside the Dribbble Core layout, the internal 
 
 ## 5. Core Technical Workflows & Specifications
 
-### 5.1 Zero-Knowledge Local Credential Provisioning
+### 5.1 Zero-Knowledge Local Credential Provisioning - THIS IS INVALID NOW SINCE WE ARE USING API CALLS.
 1. The Merchant Admin logs into the installed Viri PWA and opens the local hardware settings node on their specific terminal device.
 2. The Admin inputs bank credentials (Username, Password) and the **TOTP Secret Text Key (Seed)** obtained by turning on the "Authenticator App" 2FA setting within BML Internet Banking or MIB FaisaNet.
 3. The PWA executes local-only client-side encryption via the browser's native `crypto.subtle` (**AES-256-GCM**).
@@ -137,7 +137,6 @@ Following layout indicators found inside the Dribbble Core layout, the internal 
 
 ### 7.2 User Experience & Trust Visibility
 The Viri interface must proactively reinforce system security to the end-user through explicitly visible cues:
-* **The "Zero-Knowledge" Trust Badge:** A persistent graphic element displayed across the header stating: `"Viri Zero-Knowledge Architecture: Financial passwords are fully encrypted and stored strictly on this local terminal machine."`
 * **Local Crypto Metrics:** When modifying setups, display explicit notifications detailing cryptographic isolation: `"Viri: Encrypting fields using local hardware parameters via AES-256 GCM..."`
 * **Encrypted State Feedback:** During validation, display status messages tracking data insulation: `"Viri: Opening Direct, Local-to-Bank Secured Connection..."`
 

@@ -81,7 +81,7 @@ class SyncHealthAggregationJob implements ShouldQueue
                     'bank_name' => $account->bank_name,
                     'event_type' => 'fetch_lock_expired',
                     'event_summary' => "Watchdog cleared expired lock for {$account->bank_name}",
-                    'created_at' => DB::raw('CURRENT_TIMESTAMP'),
+                    'created_at' => now(),
                 ]);
             })->afterResponse();
         }

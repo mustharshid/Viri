@@ -63,7 +63,7 @@ class SessionController extends Controller
                 'event_detail' => $detail ?: null,
                 'masked_username' => $maskedUsername,
                 'session_holder_snapshot' => $holderSnapshot,
-                'created_at' => DB::raw('CURRENT_TIMESTAMP'),
+                'created_at' => now(),
             ]);
         })->afterResponse();
     }

@@ -25,9 +25,11 @@ return new class extends Migration
     {
         // Make the column nullable first, then convert existing '' rows to NULL.
         // (Cannot write NULL to a NOT NULL column before altering it.)
-        Schema::table('bml_credential_groups', function (Blueprint $table) {
-            $table->string('bml_username')->nullable()->change();
-        });
+        if (DB::getDriverName() !== 'sqlite') {
+            Schema::table('bml_credential_groups', function (Blueprint $table) {
+                $table->string('bml_username')->nullable()->change();
+            });
+        }
 
         // Convert existing '' sentinel rows to NULL.
         DB::table('bml_credential_groups')

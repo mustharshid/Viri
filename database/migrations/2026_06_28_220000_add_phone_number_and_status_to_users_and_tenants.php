@@ -12,9 +12,11 @@ return new class extends Migration
             $table->string('phone_number')->nullable()->after('email');
         });
 
-        Schema::table('tenants', function (Blueprint $table) {
-            $table->string('status')->default('pending')->change();
-        });
+        if (DB::getDriverName() !== 'sqlite') {
+            Schema::table('tenants', function (Blueprint $table) {
+                $table->string('status')->default('pending')->change();
+            });
+        }
     }
 
     public function down(): void

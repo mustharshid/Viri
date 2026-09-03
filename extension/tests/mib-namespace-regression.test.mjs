@@ -61,3 +61,36 @@ test('CashierApp sends account context with CLEAR_MIB_CREDENTIALS', () => {
   assert.match(cashierApp, /action: 'CLEAR_MIB_CREDENTIALS'/);
   assert.match(cashierApp, /payload: \{ accountId: accId, accountNumber: acc\.account_number \|\| '' \}/);
 });
+
+test('executeMibSfunc accepts a per-call timeout and classifies transport failures', () => {
+  assert.match(bg, /async function executeMibSfunc\(sfunc, dataPayload, encryptKey, extraFormFields = \{\}, options = \{\}\)/);
+  assert.match(bg, /const \{ timeoutMs = MIB_SFUNC_TIMEOUT_MS \} = options;/);
+  assert.match(bg, /MIB_SFUNC_TIMEOUT_MS = 10000/);
+  assert.match(bg, /class MibNetworkError extends Error/);
+  // timeouts become transient errors; raw network rejections become actionable MibNetworkError
+  assert.match(bg, /throw new MibTransientError\(`MIB request timed out after \$\{timeoutMs\}ms \(sfunc=\$\{sfunc\}\)\.`\)/);
+  assert.match(bg, /throw new MibNetworkError\(mibFetchBlockedMessage\(`MIB API \(sfunc=\$\{sfunc\}\)`, err\), err\)/);
+});
+
+test('blocked-fetch guidance surfaces the site-access requirement', () => {
+  assert.match(bg, /Site access = "On all sites"/);
+  assert.match(bg, /function fetchWithBlockedDiagnostics\(label, url, options = \{\}\)/);
+  assert.match(bg, /throw new MibNetworkError\(mibFetchBlockedMessage\(label, err\), err\)/);
+});
+
+test('sfunc retry predicate uses the shared transient classifier', () => {
+  assert.match(bg, /function isMibTransientError\(err\)/);
+  // the sfunc=i resume loop must no longer enumerate raw error names
+  assert.doesNotMatch(bg, /if \(err instanceof MibTransientError \|\| err\.name === 'AbortError' \|\| err\.name === 'TypeError'\)/);
+  const usages = (bg.match(/isMibTransientError\(err\)/g) || []).length;
+  assert.ok(usages >= 2, `expected >=2 isMibTransientError usages, found ${usages}`);
+});
+
+test('A84 history fetch gets a retry wrapper with a longer first timeout', () => {
+  assert.match(bg, /async function executeMibSfuncWithRetry\(sfunc, dataPayload, encryptKey, extraFormFields = \{\}, options = \{\}\)/);
+  const a84Call = bg.slice(bg.indexOf('Fetching transaction history via encrypted A84'), bg.indexOf('MIB history failed:'));
+  assert.match(a84Call, /executeMibSfuncWithRetry\('n', a84Payload, mibSession\.sessionKey/);
+  assert.match(a84Call, /attempts: 2/);
+  assert.match(a84Call, /timeoutMs: 20000/);
+  assert.match(a84Call, /label: 'A84 history'/);
+});

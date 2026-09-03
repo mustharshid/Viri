@@ -68,18 +68,20 @@ return new class extends Migration
         // MySQL treats the unique index (terminal_id, mib_username) as the backing index for the
         // terminal_id FK, so we must drop the FK before we can drop the index.
         // Strategy: drop FK → drop old index → restore FK (the new tenant index provides coverage).
-        Schema::table('mib_credential_groups', function (Blueprint $table) {
-            // Create the new tenant-scoped index if not already present (idempotent).
-            if (! collect(DB::select('SHOW INDEX FROM mib_credential_groups'))->pluck('Key_name')->contains('unique_mib_credential_group_tenant')) {
-                $table->unique(['tenant_id', 'mib_username'], 'unique_mib_credential_group_tenant');
-            }
-        });
-        Schema::table('mib_credential_groups', function (Blueprint $table) {
-            $table->dropForeign('mib_credential_groups_terminal_id_foreign');
-            $table->dropUnique('unique_mib_credential_group'); // was (terminal_id, mib_username)
-            // Restore the terminal_id FK (terminal_id column is kept as a tracked value)
-            $table->foreign('terminal_id')->references('id')->on('terminals')->onDelete('cascade');
-        });
+        if (DB::getDriverName() !== 'sqlite') {
+            Schema::table('mib_credential_groups', function (Blueprint $table) {
+                // Create the new tenant-scoped index if not already present (idempotent).
+                if (! collect(DB::select('SHOW INDEX FROM mib_credential_groups'))->pluck('Key_name')->contains('unique_mib_credential_group_tenant')) {
+                    $table->unique(['tenant_id', 'mib_username'], 'unique_mib_credential_group_tenant');
+                }
+            });
+            Schema::table('mib_credential_groups', function (Blueprint $table) {
+                $table->dropForeign('mib_credential_groups_terminal_id_foreign');
+                $table->dropUnique('unique_mib_credential_group'); // was (terminal_id, mib_username)
+                // Restore the terminal_id FK (terminal_id column is kept as a tracked value)
+                $table->foreign('terminal_id')->references('id')->on('terminals')->onDelete('cascade');
+            });
+        }
 
         // -----------------------------------------------------------------------
         // 3. De-duplicate bml_credential_groups
@@ -121,16 +123,18 @@ return new class extends Migration
         }
 
         // Same pattern for BML: drop FK → drop old index → restore FK.
-        Schema::table('bml_credential_groups', function (Blueprint $table) {
-            if (! collect(DB::select('SHOW INDEX FROM bml_credential_groups'))->pluck('Key_name')->contains('unique_bml_credential_group_tenant')) {
-                $table->unique(['tenant_id', 'bml_username', 'profile_type'], 'unique_bml_credential_group_tenant');
-            }
-        });
-        Schema::table('bml_credential_groups', function (Blueprint $table) {
-            $table->dropForeign('bml_credential_groups_terminal_id_foreign');
-            $table->dropUnique('unique_bml_credential_group'); // was (terminal_id, bml_username, profile_type)
-            $table->foreign('terminal_id')->references('id')->on('terminals')->onDelete('cascade');
-        });
+        if (DB::getDriverName() !== 'sqlite') {
+            Schema::table('bml_credential_groups', function (Blueprint $table) {
+                if (! collect(DB::select('SHOW INDEX FROM bml_credential_groups'))->pluck('Key_name')->contains('unique_bml_credential_group_tenant')) {
+                    $table->unique(['tenant_id', 'bml_username', 'profile_type'], 'unique_bml_credential_group_tenant');
+                }
+            });
+            Schema::table('bml_credential_groups', function (Blueprint $table) {
+                $table->dropForeign('bml_credential_groups_terminal_id_foreign');
+                $table->dropUnique('unique_bml_credential_group'); // was (terminal_id, bml_username, profile_type)
+                $table->foreign('terminal_id')->references('id')->on('terminals')->onDelete('cascade');
+            });
+        }
     }
 
     /**
