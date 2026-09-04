@@ -1144,7 +1144,7 @@ function App() {
   const [_terminalId, setTerminalId] = useState<number | null>(null);
   const [accountToClear, setAccountToClear] = useState<any | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const LATEST_EXTENSION_VERSION = "1.4.2";
+  const LATEST_EXTENSION_VERSION = "1.4.3";
 
   // ── Port-lifecycle diagnostics (bounded in-memory ring, near-zero load) ──
   // Captures connect/disconnect/response timing + chrome.runtime.lastError so a
@@ -1154,6 +1154,8 @@ function App() {
     portTelemetryRef.current = [{ ...entry, ts: Date.now() }, ...portTelemetryRef.current].slice(0, 30);
   };
   const lastPortTelemetry = (n = 5) => portTelemetryRef.current.slice(0, n);
+  // Cache last *successful* probe — a dead SW cannot attach its own counters, so the PWA carries the prior health signal forward to failure rows.
+  const lastSuccessfulProbeRef = useRef<any>(null);
 
   // SW-liveness probe. GET_VERSION answers on every shipped extension (1.3.11+);
   // v1.3.14+ also returns restartCount/swStartedAt/lastError for correlation.
@@ -1166,6 +1168,9 @@ function App() {
       if (settled) return;
       settled = true;
       pushPortTelemetry({ outcome: 'probe', trigger, ...result, probe_ms: Date.now() - probeTs });
+      if (result.sw_alive) {
+        lastSuccessfulProbeRef.current = { ...result, probe_at: Date.now(), trigger };
+      }
       try {
         logSessionActivity(
           'extension_liveness_probe',
@@ -1195,9 +1200,9 @@ function App() {
     setTimeout(() => { finish({ sw_alive: false, probe_timeout: true }); }, 3000);
   };
 
-  const setErrorAndLog = (errorMsg: string, accountId?: string) => {
+  const setErrorAndLog = (errorMsg: string, accountId?: string, extraDetail?: Record<string, any>) => {
     setError(errorMsg);
-    logSessionActivity('fetch_request_failed', errorMsg, { error: errorMsg }, accountId);
+    logSessionActivity('fetch_request_failed', errorMsg, { error: errorMsg, ...(extraDetail || {}) }, accountId);
   };
 
   const handleResetExtension = (source: 'error_banner' | 'settings_modal' = 'error_banner') => {
@@ -3781,7 +3786,7 @@ function App() {
     } catch (e: any) {
       pushPortTelemetry({ outcome: 'connect_error', action: 'VERIFY_TRANSFER', lastError: String(e?.message || e) });
       probeExtensionLiveness('verify_connect_error', selectedAccountId);
-      setErrorAndLog(`Extension connection failed: ${e.message}. Is the Extension ID correct?`, selectedAccountId);
+      setErrorAndLog(`Extension connection failed: ${e.message}. Is the Extension ID correct?`, selectedAccountId, { pwa_port_events: lastPortTelemetry(5), elapsed_ms: Date.now() - verifyStartTs, last_successful_probe: lastSuccessfulProbeRef.current });
       setLoading(false);
       releaseLock();
       isVerifyingRef.current = false;
@@ -3801,11 +3806,11 @@ function App() {
         setLoading(false);
         releaseLock();
         setProgress({ stage: 'error', text: 'Verification timed out (60s)', percent: 100, isIndeterminate: false });
-        setErrorAndLog('Verification operation timed out after 60s without response from extension.', selectedAccountId);
+        setErrorAndLog('Verification operation timed out after 60s without response from extension.', selectedAccountId, { pwa_port_events: lastPortTelemetry(5), elapsed_ms: Date.now() - verifyStartTs, last_successful_probe: lastSuccessfulProbeRef.current, mode, account_id: selectedAccountId });
         logSessionActivity(
           'fetch_request_failed',
           `Verification timed out after 60s for account ${selectedAccount?.account_number || selectedAccountId}`,
-          { error: 'Client-side watchdog timeout (60s)', mode, account_id: selectedAccountId },
+          { error: 'Client-side watchdog timeout (60s)', mode, account_id: selectedAccountId, pwa_port_events: lastPortTelemetry(5), elapsed_ms: Date.now() - verifyStartTs, last_successful_probe: lastSuccessfulProbeRef.current },
           selectedAccountId
         );
       }
@@ -3821,11 +3826,11 @@ function App() {
       logSessionActivity(
         'extension_port_disconnected',
         `Extension connection severed: ${errorMsg}`,
-        { error: errorMsg, account_id: selectedAccountId, sync_elapsed_ms: syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0, pwa_port_events: lastPortTelemetry(5), elapsed_ms: Date.now() - verifyStartTs },
+        { error: errorMsg, account_id: selectedAccountId, sync_elapsed_ms: syncStartTimeRef.current ? Date.now() - syncStartTimeRef.current : 0, pwa_port_events: lastPortTelemetry(5), elapsed_ms: Date.now() - verifyStartTs, last_successful_probe: lastSuccessfulProbeRef.current },
         selectedAccountId
       );
 
-      setErrorAndLog(`Extension connection failed: ${errorMsg}`, selectedAccountId);
+      setErrorAndLog(`Extension connection failed: ${errorMsg}`, selectedAccountId, { pwa_port_events: lastPortTelemetry(5), elapsed_ms: Date.now() - verifyStartTs, last_successful_probe: lastSuccessfulProbeRef.current });
       probeExtensionLiveness('verify_port_died', selectedAccountId);
       setProgress({ stage: 'error', text: 'Connection lost', percent: 100, isIndeterminate: false });
       setLoading(false);
