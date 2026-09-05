@@ -185,6 +185,9 @@ class SuperadminController extends Controller
                 \Illuminate\Support\Facades\DB::raw("JSON_UNQUOTE(JSON_EXTRACT(event_detail, '$.error')) as diag_error"),
                 \Illuminate\Support\Facades\DB::raw("JSON_UNQUOTE(JSON_EXTRACT(event_detail, '$.sw_restart_count')) as diag_sw_restart_count"),
                 \Illuminate\Support\Facades\DB::raw("JSON_UNQUOTE(JSON_EXTRACT(event_detail, '$.sw_started_at')) as diag_sw_started_at"),
+                \Illuminate\Support\Facades\DB::raw("JSON_UNQUOTE(JSON_EXTRACT(event_detail, '$.elapsed_ms')) as diag_elapsed_ms"),
+                \Illuminate\Support\Facades\DB::raw("JSON_EXTRACT(event_detail, '$.pwa_port_events') as diag_pwa_port_events"),
+                \Illuminate\Support\Facades\DB::raw("JSON_EXTRACT(event_detail, '$.last_successful_probe') as diag_last_probe"),
             ])
             ->orderBy('created_at', 'desc');
 

@@ -4109,7 +4109,7 @@ export default function AdminDashboard() {
                                     </span>
                                   )}
                                 </div>
-                                {(log.diag_response_ms !== null || log.diag_sw_alive !== null || log.diag_last_error !== null || log.diag_error !== null || log.diag_sw_restart_count !== null || log.diag_sw_started_at !== null) && (
+                                {(log.diag_response_ms !== null || log.diag_sw_alive !== null || log.diag_last_error !== null || log.diag_error !== null || log.diag_sw_restart_count !== null || log.diag_sw_started_at !== null || (log as any).diag_elapsed_ms !== null || (log as any).diag_pwa_port_events !== null || (log as any).diag_last_probe !== null) && (
                                   <div className="flex flex-wrap gap-1.5 mt-1.5">
                                     {log.diag_sw_alive !== null && (
                                       <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${log.diag_sw_alive === 'true' ? 'bg-emerald-950/40 text-emerald-300 border-emerald-500/30' : 'bg-red-950/40 text-red-300 border-red-500/40'}`}>
@@ -4119,11 +4119,26 @@ export default function AdminDashboard() {
                                     {log.diag_response_ms !== null && (
                                       <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">{log.diag_response_ms}ms</span>
                                     )}
+                                    {(log as any).diag_elapsed_ms !== null && (log as any).diag_elapsed_ms !== undefined && (
+                                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-950/40 text-cyan-300 border border-cyan-500/30" title={`Elapsed since verifyStart: ${(log as any).diag_elapsed_ms}ms`}>elapsed {(log as any).diag_elapsed_ms}ms</span>
+                                    )}
                                     {log.diag_sw_restart_count !== null && (
                                       <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-violet-950/40 text-violet-300 border border-violet-500/30">SW restart #{log.diag_sw_restart_count}</span>
                                     )}
                                     {log.diag_sw_started_at !== null && (
                                       <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-violet-950/20 text-violet-400 border border-violet-500/20" title={log.diag_sw_started_at}>SW started {log.diag_sw_started_at}</span>
+                                    )}
+                                    {(log as any).diag_pwa_port_events !== null && (log as any).diag_pwa_port_events !== undefined && (
+                                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-sky-300 border border-sky-500/30 max-w-[220px] truncate" title={typeof (log as any).diag_pwa_port_events === 'string' ? (log as any).diag_pwa_port_events : JSON.stringify((log as any).diag_pwa_port_events)}>
+                                        port events ({(() => { try { const v = (log as any).diag_pwa_port_events; const arr = typeof v === 'string' ? JSON.parse(v) : v; return Array.isArray(arr) ? arr.length : '?'; } catch { return '?'; }})()})
+                                      </span>
+                                    )}
+                                    {(log as any).diag_last_probe !== null && (log as any).diag_last_probe !== undefined ? (
+                                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-950/30 text-emerald-300 border border-emerald-500/20 max-w-[220px] truncate" title={typeof (log as any).diag_last_probe === 'string' ? (log as any).diag_last_probe : JSON.stringify((log as any).diag_last_probe)}>
+                                        last probe: {(() => { try { const v = (log as any).diag_last_probe; const o = typeof v === 'string' ? JSON.parse(v) : v; return o?.sw_restart_count ? `#${o.sw_restart_count}` : o?.sw_alive ? 'alive' : 'cached'; } catch { return 'cached'; }})()}
+                                      </span>
+                                    ) : ((log as any).diag_elapsed_ms !== null || (log as any).diag_pwa_port_events !== null) && (
+                                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800/50 text-zinc-500 border border-zinc-700 border-dashed">last probe: none</span>
                                     )}
                                     {log.diag_last_error !== null && (
                                       <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-950/40 text-amber-300 border border-amber-500/40 max-w-[320px] truncate" title={log.diag_last_error}>lastError: {log.diag_last_error}</span>
@@ -4215,7 +4230,7 @@ export default function AdminDashboard() {
                         <div className="text-zinc-300 bg-black/40 p-2 rounded-lg border border-zinc-800/50 text-[11px] leading-relaxed">
                           {log.event_summary}
                         </div>
-                        {(log.diag_response_ms !== null || log.diag_sw_alive !== null || log.diag_last_error !== null || log.diag_error !== null || log.diag_sw_restart_count !== null || log.diag_sw_started_at !== null) && (
+                        {(log.diag_response_ms !== null || log.diag_sw_alive !== null || log.diag_last_error !== null || log.diag_error !== null || log.diag_sw_restart_count !== null || log.diag_sw_started_at !== null || (log as any).diag_elapsed_ms !== null || (log as any).diag_pwa_port_events !== null || (log as any).diag_last_probe !== null) && (
                           <div className="flex flex-wrap gap-1.5">
                             {log.diag_sw_alive !== null && (
                               <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${log.diag_sw_alive === 'true' ? 'bg-emerald-950/40 text-emerald-300 border-emerald-500/30' : 'bg-red-950/40 text-red-300 border-red-500/40'}`}>
@@ -4225,11 +4240,26 @@ export default function AdminDashboard() {
                             {log.diag_response_ms !== null && (
                               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">{log.diag_response_ms}ms</span>
                             )}
+                            {(log as any).diag_elapsed_ms !== null && (log as any).diag_elapsed_ms !== undefined && (
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-950/40 text-cyan-300 border border-cyan-500/30">elapsed {(log as any).diag_elapsed_ms}ms</span>
+                            )}
                             {log.diag_sw_restart_count !== null && (
                               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-violet-950/40 text-violet-300 border border-violet-500/30">SW restart #{log.diag_sw_restart_count}</span>
                             )}
                             {log.diag_sw_started_at !== null && (
                               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-violet-950/20 text-violet-400 border border-violet-500/20" title={log.diag_sw_started_at}>SW started {log.diag_sw_started_at}</span>
+                            )}
+                            {(log as any).diag_pwa_port_events !== null && (log as any).diag_pwa_port_events !== undefined && (
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-sky-300 border border-sky-500/30 max-w-[220px] truncate" title={typeof (log as any).diag_pwa_port_events === 'string' ? (log as any).diag_pwa_port_events : JSON.stringify((log as any).diag_pwa_port_events)}>
+                                port events ({(() => { try { const v = (log as any).diag_pwa_port_events; const arr = typeof v === 'string' ? JSON.parse(v) : v; return Array.isArray(arr) ? arr.length : '?'; } catch { return '?'; }})()})
+                              </span>
+                            )}
+                            {(log as any).diag_last_probe !== null && (log as any).diag_last_probe !== undefined ? (
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-950/30 text-emerald-300 border border-emerald-500/20 max-w-[220px] truncate" title={typeof (log as any).diag_last_probe === 'string' ? (log as any).diag_last_probe : JSON.stringify((log as any).diag_last_probe)}>
+                                last probe: {(() => { try { const v = (log as any).diag_last_probe; const o = typeof v === 'string' ? JSON.parse(v) : v; return o?.sw_restart_count ? `#${o.sw_restart_count}` : o?.sw_alive ? 'alive' : 'cached'; } catch { return 'cached'; }})()}
+                              </span>
+                            ) : ((log as any).diag_elapsed_ms !== null || (log as any).diag_pwa_port_events !== null) && (
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800/50 text-zinc-500 border border-zinc-700 border-dashed">last probe: none</span>
                             )}
                             {log.diag_last_error !== null && (
                               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-950/40 text-amber-300 border border-amber-500/40 max-w-[260px] truncate" title={log.diag_last_error}>lastError: {log.diag_last_error}</span>
