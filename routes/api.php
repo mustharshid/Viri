@@ -189,6 +189,7 @@ Route::get('/terminal/exchange-sales', [ExchangeSaleController::class, 'index'])
 Route::post('/terminal/exchange-sales', [ExchangeSaleController::class, 'store']);
 Route::get('/terminal/exchange-sales/claimed-tx-keys', [ExchangeSaleController::class, 'getClaimedTransactions']);
 Route::post('/terminal/exchange-sales/{id}/void', [ExchangeSaleController::class, 'void']);
+Route::delete('/terminal/exchange-sales/{id}', [ExchangeSaleController::class, 'destroy']);
 
 // Real-Time Signaling Endpoints (non-cache)
 Route::post('/terminal/session/acknowledge', function (Request $request) {
@@ -233,8 +234,8 @@ Route::post('/bml/oauth/update', [BmlOAuthController::class, 'updateTokens']);
 // auth:sanctum: these endpoints now expose long-lived bank passwords (see
 // MibKeysController::getKeys mib_password disclosure), so a valid account token is
 // required in addition to the terminal hardware_id.
-Route::post('/mib/keys/store', [MibKeysController::class, 'store'])->middleware('auth:sanctum');
-Route::get('/mib/keys', [MibKeysController::class, 'getKeys'])->middleware('auth:sanctum');
+Route::post('/mib/keys/store', [MibKeysController::class, 'store'])->middleware(['auth:sanctum', 'throttle:60,1']);
+Route::get('/mib/keys', [MibKeysController::class, 'getKeys'])->middleware(['auth:sanctum', 'throttle:60,1']);
 Route::get('/terminal/bank-accounts/sibling-check', [MibKeysController::class, 'getSiblingCheck']);
 Route::get('/terminal/bank-accounts/credential-siblings', [MibKeysController::class, 'getCredentialSiblings']);
 
@@ -388,6 +389,12 @@ Route::post('/verify-terminal', function (Request $request) {
         'backlog' => $totalBacklog,
     ];
 
+    // Backfill: mint a terminal token for already-paired terminals that lack one
+    $terminalToken = null;
+    if ($terminal->tokens()->count() === 0) {
+        $terminalToken = $terminal->createToken('terminal')->plainTextToken;
+    }
+
     $isFreeOr499 = in_array($tier, ['free', '499']);
     $tenantFeatures = is_array($tenant->features) ? $tenant->features : [];
     $terminalPermissions = is_array($terminal->permissions) ? $terminal->permissions : [];
@@ -395,6 +402,7 @@ Route::post('/verify-terminal', function (Request $request) {
     return response()->json([
         'status' => 'authorized',
         'terminal_id' => $terminal->id,
+        'terminal_token' => $terminalToken,
         'credits_exhausted' => $creditsExhausted,
         'subscription_expired' => $subscriptionExpired,
         'app_config' => $appConfig,

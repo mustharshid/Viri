@@ -31,11 +31,17 @@ class TerminalPairingController extends Controller
             'pairing_code_expires_at' => null,
         ]);
 
+        // Mint a Sanctum token for the terminal so it can authenticate to
+        // auth:sanctum routes (mib/keys store/getKeys). Rotate on re-pair.
+        $terminal->tokens()->delete();
+        $plainToken = $terminal->createToken('terminal')->plainTextToken;
+
         return response()->json([
             'message' => 'Terminal paired successfully.',
             'hardware_id' => $terminal->hardware_id,
             'extension_id' => env('VIRI_EXTENSION_ID', 'viri_default_extension_id'),
             'terminal_name' => $terminal->terminal_name,
+            'token' => $plainToken,
             // 'credentials' intentionally omitted — credentials are never transmitted by server (ZK architecture)
         ]);
     }

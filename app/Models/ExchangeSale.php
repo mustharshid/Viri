@@ -27,12 +27,14 @@ class ExchangeSale extends Model
         'received_bank_account_id',
         'received_transaction_id',
         'received_transaction_hash',
+        'received_transactions',
         'received_amount',
         'received_currency',
         'sent_payment_type',
         'sent_bank_account_id',
         'sent_transaction_id',
         'sent_transaction_hash',
+        'sent_transactions',
         'sent_amount',
         'sent_currency',
         'customer_name',
@@ -51,6 +53,8 @@ class ExchangeSale extends Model
         'quote_amount' => 'float',
         'received_amount' => 'float',
         'sent_amount' => 'float',
+        'received_transactions' => 'array',
+        'sent_transactions' => 'array',
         'voided_at' => 'datetime',
     ];
 

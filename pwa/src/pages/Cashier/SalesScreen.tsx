@@ -44,11 +44,21 @@ interface LedgerCache {
   };
 }
 
+interface RecentTxCache {
+  [accountId: string]: {
+    transactions: LedgerTx[];
+    balance?: string;
+    label?: string;
+    lastUpdated?: string;
+  };
+}
+
 interface SalesScreenProps {
   backendUrl: string;
   hardwareId: string;
   bankAccounts: BankAccount[];
   ledgerCache: LedgerCache;
+  recentTxCache?: RecentTxCache;
   terminalName: string;
   onRefreshLedger?: (accountId: string) => void;
 }
@@ -58,6 +68,7 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
   hardwareId,
   bankAccounts,
   ledgerCache,
+  recentTxCache,
   terminalName,
   onRefreshLedger,
 }) => {
@@ -97,14 +108,14 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
   const [isSuspicious, setIsSuspicious] = useState(false);
   const [strNotes, setStrNotes] = useState('');
 
-  // Payment Accounts & Transaction Selection
+  // Payment Accounts & Multi-Transaction Selection
   const [receivedPaymentType, setReceivedPaymentType] = useState<'bank' | 'cash'>('bank');
   const [receivedAccountId, setReceivedAccountId] = useState<string>('');
-  const [selectedReceivedTx, setSelectedReceivedTx] = useState<LedgerTx | null>(null);
+  const [selectedReceivedTxs, setSelectedReceivedTxs] = useState<LedgerTx[]>([]);
 
   const [sentPaymentType, setSentPaymentType] = useState<'cash' | 'bank'>('cash');
   const [sentAccountId, setSentAccountId] = useState<string>('');
-  const [selectedSentTx, setSelectedSentTx] = useState<LedgerTx | null>(null);
+  const [selectedSentTxs, setSelectedSentTxs] = useState<LedgerTx[]>([]);
 
   // Submitting & Receipt State
   const [submitting, setSubmitting] = useState(false);
@@ -211,41 +222,129 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
     return Number((baseNum * rateNum).toFixed(2));
   }, [baseNum, rateNum]);
 
-  // Available Transactions in Received Account (Filtered for credits & not claimed)
+  // Helper to parse transaction amounts safely
+  const parseTxAmount = (val: string | number | undefined): number => {
+    if (!val) return 0;
+    const clean = String(val).replace(/,/g, '').replace(/[+\-]/g, '').trim();
+    const num = parseFloat(clean);
+    return isNaN(num) ? 0 : Math.abs(num);
+  };
+
+  // Resolve transactions from verification tab cache or ledger cache
+  const getAccountTransactions = (accId: string): LedgerTx[] => {
+    if (!accId) return [];
+    if (recentTxCache && recentTxCache[accId]?.transactions && recentTxCache[accId].transactions.length > 0) {
+      return recentTxCache[accId].transactions;
+    }
+    try {
+      const local = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('viri_recent_tx_cache') || '{}') : {};
+      if (local[accId]?.transactions && local[accId].transactions.length > 0) {
+        return local[accId].transactions;
+      }
+    } catch (_) {}
+    return ledgerCache[accId]?.transactions || [];
+  };
+
+  // Available Transactions in Received Account (Filtered for credits & not claimed, last 10 un-used)
   const availableReceivedTransactions = useMemo(() => {
     if (receivedPaymentType !== 'bank' || !receivedAccountId) return [];
-    const cache = ledgerCache[receivedAccountId];
-    if (!cache || !cache.transactions) return [];
+    const txs = getAccountTransactions(receivedAccountId);
 
-    return cache.transactions.filter(tx => {
+    return txs.filter(tx => {
       // Inflow must be positive credit
-      const isCredit = !tx.amount.startsWith('-');
+      const isCredit = !String(tx.amount || '').startsWith('-');
       if (!isCredit) return false;
       const key1 = tx.hash;
       const key2 = tx.reference;
       if (key1 && claimedKeys.has(key1)) return false;
       if (key2 && claimedKeys.has(key2)) return false;
       return true;
-    });
-  }, [receivedPaymentType, receivedAccountId, ledgerCache, claimedKeys]);
+    }).slice(0, 10);
+  }, [receivedPaymentType, receivedAccountId, recentTxCache, ledgerCache, claimedKeys]);
 
-  // Available Transactions in Sent Account (Filtered for debits & not claimed)
+  // Available Transactions in Sent Account (Filtered for debits & not claimed, last 10 un-used)
   const availableSentTransactions = useMemo(() => {
     if (sentPaymentType !== 'bank' || !sentAccountId) return [];
-    const cache = ledgerCache[sentAccountId];
-    if (!cache || !cache.transactions) return [];
+    const txs = getAccountTransactions(sentAccountId);
 
-    return cache.transactions.filter(tx => {
+    return txs.filter(tx => {
       // Outflow must be negative debit or transfer
-      const isDebit = tx.amount.startsWith('-');
+      const isDebit = String(tx.amount || '').startsWith('-');
       if (!isDebit) return false;
       const key1 = tx.hash;
       const key2 = tx.reference;
       if (key1 && claimedKeys.has(key1)) return false;
       if (key2 && claimedKeys.has(key2)) return false;
       return true;
-    });
-  }, [sentPaymentType, sentAccountId, ledgerCache, claimedKeys]);
+    }).slice(0, 10);
+  }, [sentPaymentType, sentAccountId, recentTxCache, ledgerCache, claimedKeys]);
+
+  // Totals of selected transactions
+  const totalReceivedSum = useMemo(() => {
+    return selectedReceivedTxs.reduce((sum, tx) => sum + parseTxAmount(tx.amount), 0);
+  }, [selectedReceivedTxs]);
+
+  const totalSentSum = useMemo(() => {
+    return selectedSentTxs.reduce((sum, tx) => sum + parseTxAmount(tx.amount), 0);
+  }, [selectedSentTxs]);
+
+  const receivedAccount = bankAccounts.find(a => String(a.id) === String(receivedAccountId));
+  const receivedAccountCurrency = receivedAccount?.currency || 'USD';
+
+  const sentAccount = bankAccounts.find(a => String(a.id) === String(sentAccountId));
+  const sentAccountCurrency = sentAccount?.currency || 'MVR';
+
+  const toggleReceivedTx = (tx: LedgerTx) => {
+    const isAlready = selectedReceivedTxs.some(t => (t.hash && t.hash === tx.hash) || (t.reference && t.reference === tx.reference));
+    const next = isAlready 
+      ? selectedReceivedTxs.filter(t => !((t.hash && t.hash === tx.hash) || (t.reference && t.reference === tx.reference)))
+      : [...selectedReceivedTxs, tx];
+    
+    setSelectedReceivedTxs(next);
+
+    if (next.length > 0) {
+      const sum = next.reduce((acc, t) => acc + parseTxAmount(t.amount), 0);
+      const acc = bankAccounts.find(a => String(a.id) === String(receivedAccountId));
+      const accCurrency = acc?.currency || 'USD';
+      
+      if (accCurrency === selectedCurrencyCode || (selectedCurrencyCode === 'USD' && accCurrency === 'USD')) {
+        setBaseAmount(Number.isInteger(sum) ? String(sum) : sum.toFixed(2));
+      } else if (accCurrency === 'MVR' && rateNum > 0) {
+        const converted = sum / rateNum;
+        setBaseAmount(Number.isInteger(converted) ? String(converted) : converted.toFixed(2));
+      } else {
+        setBaseAmount(Number.isInteger(sum) ? String(sum) : sum.toFixed(2));
+      }
+    } else {
+      setBaseAmount('');
+    }
+  };
+
+  const toggleSentTx = (tx: LedgerTx) => {
+    const isAlready = selectedSentTxs.some(t => (t.hash && t.hash === tx.hash) || (t.reference && t.reference === tx.reference));
+    const next = isAlready 
+      ? selectedSentTxs.filter(t => !((t.hash && t.hash === tx.hash) || (t.reference && t.reference === tx.reference)))
+      : [...selectedSentTxs, tx];
+    
+    setSelectedSentTxs(next);
+
+    if (next.length > 0) {
+      const sum = next.reduce((acc, t) => acc + parseTxAmount(t.amount), 0);
+      const acc = bankAccounts.find(a => String(a.id) === String(sentAccountId));
+      const accCurrency = acc?.currency || 'USD';
+      
+      if (accCurrency === selectedCurrencyCode || (selectedCurrencyCode === 'USD' && accCurrency === 'USD')) {
+        setBaseAmount(Number.isInteger(sum) ? String(sum) : sum.toFixed(2));
+      } else if (accCurrency === 'MVR' && rateNum > 0) {
+        const converted = sum / rateNum;
+        setBaseAmount(Number.isInteger(converted) ? String(converted) : converted.toFixed(2));
+      } else {
+        setBaseAmount(Number.isInteger(sum) ? String(sum) : sum.toFixed(2));
+      }
+    } else {
+      setBaseAmount('');
+    }
+  };
 
   // Quick Add Customer Handler
   const handleQuickAddCustomer = async (e: React.FormEvent) => {
@@ -300,13 +399,13 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
       return;
     }
 
-    if (receivedPaymentType === 'bank' && !selectedReceivedTx) {
-      alert('Please select the matching received bank credit transaction.');
+    if (receivedPaymentType === 'bank' && selectedReceivedTxs.length === 0) {
+      alert('Please select at least one received bank credit transaction.');
       return;
     }
 
-    if (sentPaymentType === 'bank' && !selectedSentTx) {
-      alert('Please select the matching sent bank transfer transaction.');
+    if (sentPaymentType === 'bank' && selectedSentTxs.length === 0) {
+      alert('Please select at least one sent bank transfer transaction.');
       return;
     }
 
@@ -320,6 +419,12 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
       const sentAmt = saleType === 'buy' ? quoteTotal : baseNum;
       const sentCurr = saleType === 'buy' ? 'MVR' : selectedCurrencyCode;
 
+      const recvIds = selectedReceivedTxs.map(t => t.reference || t.details).filter(Boolean).join(', ');
+      const recvHashes = selectedReceivedTxs.map(t => t.hash).filter(Boolean).join(', ');
+
+      const sentIds = selectedSentTxs.map(t => t.reference || t.details).filter(Boolean).join(', ');
+      const sentHashes = selectedSentTxs.map(t => t.hash).filter(Boolean).join(', ');
+
       const payload = {
         hardware_id: hId,
         sale_type: saleType,
@@ -331,15 +436,29 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
 
         received_payment_type: receivedPaymentType,
         received_bank_account_id: receivedPaymentType === 'bank' ? parseInt(receivedAccountId) : null,
-        received_transaction_id: selectedReceivedTx?.reference || selectedReceivedTx?.details || null,
-        received_transaction_hash: selectedReceivedTx?.hash || null,
+        received_transaction_id: recvIds || null,
+        received_transaction_hash: recvHashes || null,
+        received_transactions: selectedReceivedTxs.map(t => ({
+          hash: t.hash || null,
+          reference: t.reference || null,
+          details: t.details || null,
+          amount: t.amount || null,
+          date: t.date || null
+        })),
         received_amount: recvAmt,
         received_currency: recvCurr,
 
         sent_payment_type: sentPaymentType,
         sent_bank_account_id: sentPaymentType === 'bank' ? parseInt(sentAccountId) : null,
-        sent_transaction_id: selectedSentTx?.reference || selectedSentTx?.details || null,
-        sent_transaction_hash: selectedSentTx?.hash || null,
+        sent_transaction_id: sentIds || null,
+        sent_transaction_hash: sentHashes || null,
+        sent_transactions: selectedSentTxs.map(t => ({
+          hash: t.hash || null,
+          reference: t.reference || null,
+          details: t.details || null,
+          amount: t.amount || null,
+          date: t.date || null
+        })),
         sent_amount: sentAmt,
         sent_currency: sentCurr,
 
@@ -364,12 +483,18 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
         const data = await res.json();
         setCompletedSale(data.sale);
         // Immediately lock transaction hashes locally
-        if (selectedReceivedTx?.hash) {
-          setClaimedKeys(prev => new Set(prev).add(selectedReceivedTx.hash!));
-        }
-        if (selectedSentTx?.hash) {
-          setClaimedKeys(prev => new Set(prev).add(selectedSentTx.hash!));
-        }
+        setClaimedKeys(prev => {
+          const nextSet = new Set(prev);
+          selectedReceivedTxs.forEach(t => {
+            if (t.hash) nextSet.add(t.hash);
+            if (t.reference) nextSet.add(t.reference);
+          });
+          selectedSentTxs.forEach(t => {
+            if (t.hash) nextSet.add(t.hash);
+            if (t.reference) nextSet.add(t.reference);
+          });
+          return nextSet;
+        });
       } else {
         const err = await res.json();
         alert(err.error || 'Failed to complete sale');
@@ -386,8 +511,8 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
     setCompletedSale(null);
     setSelectedCustomer(null);
     setCustomerSearchQuery('');
-    setSelectedReceivedTx(null);
-    setSelectedSentTx(null);
+    setSelectedReceivedTxs([]);
+    setSelectedSentTxs([]);
     setNotes('');
     setIsSuspicious(false);
     setStrNotes('');
@@ -722,7 +847,7 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
             <div className="flex rounded-lg bg-zinc-900 p-0.5 border border-zinc-800 text-xs">
               <button
                 type="button"
-                onClick={() => { setReceivedPaymentType('bank'); setSelectedReceivedTx(null); }}
+                onClick={() => { setReceivedPaymentType('bank'); setSelectedReceivedTxs([]); }}
                 className={`px-3 py-1 rounded-md font-bold transition-colors ${
                   receivedPaymentType === 'bank' ? 'bg-emerald-500 text-black' : 'text-zinc-400 hover:text-white'
                 }`}
@@ -731,7 +856,7 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => { setReceivedPaymentType('cash'); setSelectedReceivedTx(null); }}
+                onClick={() => { setReceivedPaymentType('cash'); setSelectedReceivedTxs([]); }}
                 className={`px-3 py-1 rounded-md font-bold transition-colors ${
                   receivedPaymentType === 'cash' ? 'bg-emerald-500 text-black' : 'text-zinc-400 hover:text-white'
                 }`}
@@ -756,7 +881,7 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
                 <label className="input-label">Select Receiving Bank Account</label>
                 <select
                   value={receivedAccountId}
-                  onChange={e => { setReceivedAccountId(e.target.value); setSelectedReceivedTx(null); }}
+                  onChange={e => { setReceivedAccountId(e.target.value); setSelectedReceivedTxs([]); }}
                   className="input-field text-xs font-medium"
                 >
                   {bankAccounts.map(a => (
@@ -770,7 +895,7 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
               {/* Transactions List */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-[11px] font-bold text-zinc-400">Click matching incoming deposit to link:</label>
+                  <label className="text-[11px] font-bold text-zinc-400">Select matching incoming deposits to link:</label>
                   {onRefreshLedger && receivedAccountId && (
                     <button
                       type="button"
@@ -782,32 +907,66 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
                   )}
                 </div>
 
+                {/* Selected Multi-Transaction Summary Badge */}
+                {selectedReceivedTxs.length > 0 && (
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-[11px] mb-2">
+                    <div className="flex items-center gap-1.5 text-emerald-400 font-bold flex-wrap">
+                      <Check size={13} />
+                      <span>{selectedReceivedTxs.length} selected</span>
+                      <span className="text-zinc-500">•</span>
+                      <span className="font-mono">
+                        Sum: {totalReceivedSum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {receivedAccountCurrency}
+                        {receivedAccountCurrency === 'MVR' && rateNum > 0 && (
+                          <span className="text-zinc-400 font-normal ml-1">
+                            (≈ {(totalReceivedSum / rateNum).toFixed(2)} {selectedCurrencyCode})
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedReceivedTxs([])}
+                      className="text-[10px] text-zinc-400 hover:text-white px-2 py-0.5 rounded bg-zinc-800/80 hover:bg-zinc-800 transition-colors"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+
                 <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
                   {availableReceivedTransactions.length === 0 ? (
                     <div className="text-center py-6 text-xs text-zinc-500 border border-zinc-800 rounded-xl bg-zinc-950/40">
-                      No unclaimed incoming credits found in this account.
+                      No un-used incoming credits found in this account.
                     </div>
                   ) : (
                     availableReceivedTransactions.map((tx, idx) => {
-                      const isSelected = selectedReceivedTx?.hash === tx.hash || (selectedReceivedTx?.reference && selectedReceivedTx.reference === tx.reference);
+                      const isSelected = selectedReceivedTxs.some(t => (t.hash && t.hash === tx.hash) || (t.reference && t.reference === tx.reference));
                       return (
                         <div
-                          key={tx.hash || idx}
-                          onClick={() => setSelectedReceivedTx(tx)}
-                          className={`p-3 rounded-xl border text-xs cursor-pointer transition-all ${
+                          key={tx.hash || tx.reference || idx}
+                          onClick={() => toggleReceivedTx(tx)}
+                          className={`p-3 rounded-xl border text-xs cursor-pointer transition-all flex items-start gap-2.5 ${
                             isSelected 
                               ? 'bg-emerald-500/15 border-emerald-500 shadow-md shadow-emerald-500/10' 
                               : 'bg-zinc-900/60 border-zinc-800 hover:border-zinc-700'
                           }`}
                         >
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold font-mono text-emerald-400 text-sm">
-                              {tx.amount}
-                            </span>
-                            <span className="text-[10px] text-zinc-500 font-mono">{tx.date}</span>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => { e.stopPropagation(); toggleReceivedTx(tx); }}
+                            className="mt-0.5 w-4 h-4 rounded border-zinc-700 bg-zinc-800 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-0 cursor-pointer shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold font-mono text-emerald-400 text-sm">
+                                {tx.amount}
+                              </span>
+                              <span className="text-[10px] text-zinc-500 font-mono">{tx.date}</span>
+                            </div>
+                            <div className="text-zinc-300 font-medium truncate mt-1">{tx.details}</div>
+                            {tx.sender && <div className="text-[10px] text-zinc-500">From: {tx.sender}</div>}
                           </div>
-                          <div className="text-zinc-300 font-medium truncate mt-1">{tx.details}</div>
-                          {tx.sender && <div className="text-[10px] text-zinc-500">From: {tx.sender}</div>}
                         </div>
                       );
                     })
@@ -828,7 +987,7 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
             <div className="flex rounded-lg bg-zinc-900 p-0.5 border border-zinc-800 text-xs">
               <button
                 type="button"
-                onClick={() => { setSentPaymentType('cash'); setSelectedSentTx(null); }}
+                onClick={() => { setSentPaymentType('cash'); setSelectedSentTxs([]); }}
                 className={`px-3 py-1 rounded-md font-bold transition-colors ${
                   sentPaymentType === 'cash' ? 'bg-cyan-500 text-black' : 'text-zinc-400 hover:text-white'
                 }`}
@@ -837,7 +996,7 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => { setSentPaymentType('bank'); setSelectedSentTx(null); }}
+                onClick={() => { setSentPaymentType('bank'); setSelectedSentTxs([]); }}
                 className={`px-3 py-1 rounded-md font-bold transition-colors ${
                   sentPaymentType === 'bank' ? 'bg-cyan-500 text-black' : 'text-zinc-400 hover:text-white'
                 }`}
@@ -862,7 +1021,7 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
                 <label className="input-label">Select Sending Bank Account</label>
                 <select
                   value={sentAccountId}
-                  onChange={e => { setSentAccountId(e.target.value); setSelectedSentTx(null); }}
+                  onChange={e => { setSentAccountId(e.target.value); setSelectedSentTxs([]); }}
                   className="input-field text-xs font-medium"
                 >
                   {bankAccounts.map(a => (
@@ -876,7 +1035,7 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
               {/* Transactions List */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-[11px] font-bold text-zinc-400">Click matching outgoing transfer to link:</label>
+                  <label className="text-[11px] font-bold text-zinc-400">Select matching outgoing transfers to link:</label>
                   {onRefreshLedger && sentAccountId && (
                     <button
                       type="button"
@@ -888,31 +1047,65 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
                   )}
                 </div>
 
+                {/* Selected Multi-Transaction Summary Badge */}
+                {selectedSentTxs.length > 0 && (
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-[11px] mb-2">
+                    <div className="flex items-center gap-1.5 text-cyan-400 font-bold flex-wrap">
+                      <Check size={13} />
+                      <span>{selectedSentTxs.length} selected</span>
+                      <span className="text-zinc-500">•</span>
+                      <span className="font-mono">
+                        Sum: {totalSentSum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {sentAccountCurrency}
+                        {sentAccountCurrency === 'MVR' && rateNum > 0 && (
+                          <span className="text-zinc-400 font-normal ml-1">
+                            (≈ {(totalSentSum / rateNum).toFixed(2)} {selectedCurrencyCode})
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSentTxs([])}
+                      className="text-[10px] text-zinc-400 hover:text-white px-2 py-0.5 rounded bg-zinc-800/80 hover:bg-zinc-800 transition-colors"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+
                 <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
                   {availableSentTransactions.length === 0 ? (
                     <div className="text-center py-6 text-xs text-zinc-500 border border-zinc-800 rounded-xl bg-zinc-950/40">
-                      No unclaimed outgoing debits found in this account.
+                      No un-used outgoing debits found in this account.
                     </div>
                   ) : (
                     availableSentTransactions.map((tx, idx) => {
-                      const isSelected = selectedSentTx?.hash === tx.hash || (selectedSentTx?.reference && selectedSentTx.reference === tx.reference);
+                      const isSelected = selectedSentTxs.some(t => (t.hash && t.hash === tx.hash) || (t.reference && t.reference === tx.reference));
                       return (
                         <div
-                          key={tx.hash || idx}
-                          onClick={() => setSelectedSentTx(tx)}
-                          className={`p-3 rounded-xl border text-xs cursor-pointer transition-all ${
+                          key={tx.hash || tx.reference || idx}
+                          onClick={() => toggleSentTx(tx)}
+                          className={`p-3 rounded-xl border text-xs cursor-pointer transition-all flex items-start gap-2.5 ${
                             isSelected 
                               ? 'bg-cyan-500/15 border-cyan-500 shadow-md shadow-cyan-500/10' 
                               : 'bg-zinc-900/60 border-zinc-800 hover:border-zinc-700'
                           }`}
                         >
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold font-mono text-cyan-400 text-sm">
-                              {tx.amount}
-                            </span>
-                            <span className="text-[10px] text-zinc-500 font-mono">{tx.date}</span>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => { e.stopPropagation(); toggleSentTx(tx); }}
+                            className="mt-0.5 w-4 h-4 rounded border-zinc-700 bg-zinc-800 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-0 cursor-pointer shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold font-mono text-cyan-400 text-sm">
+                                {tx.amount}
+                              </span>
+                              <span className="text-[10px] text-zinc-500 font-mono">{tx.date}</span>
+                            </div>
+                            <div className="text-zinc-300 font-medium truncate mt-1">{tx.details}</div>
                           </div>
-                          <div className="text-zinc-300 font-medium truncate mt-1">{tx.details}</div>
                         </div>
                       );
                     })

@@ -5,6 +5,7 @@ import CryptoJS from 'crypto-js';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { SalesScreen } from './SalesScreen';
 import { SalesReportsView } from './SalesReportsView';
+import { MmaGuidelinesView } from './MmaGuidelinesView';
 
 const Tooltip = ({ text, helpSectionId, onHelpNavigate }: { text: string; helpSectionId?: string; onHelpNavigate?: (sectionId: string) => void }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -1489,7 +1490,7 @@ function App() {
     }
   }, [loading]);
 
-  const [activeTab, setActiveTab] = useState<'verify' | 'sales' | 'sales_reports' | 'ledger' | 'reports' | 'checklist' | 'help' | 'statements' | 'kyc'>('verify');
+  const [activeTab, setActiveTab] = useState<'verify' | 'sales' | 'sales_reports' | 'mma_guidelines' | 'ledger' | 'reports' | 'checklist' | 'help' | 'statements' | 'kyc'>('verify');
   const [helpSearchQuery, setHelpSearchQuery] = useState('');
   const [bankSearchQuery, setBankSearchQuery] = useState('');
   const verifyAccountRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
@@ -2216,6 +2217,12 @@ function App() {
           success = true;
           consecutiveFailures = 0;
           const data = await response.json();
+          if (data.terminal_token) {
+            localStorage.setItem('viri_terminal_token', data.terminal_token);
+            if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+              chrome.storage.local.set({ terminalToken: data.terminal_token });
+            }
+          }
           if (data.app_config) {
             setAppConfig(data.app_config);
           }
@@ -2939,6 +2946,12 @@ function App() {
         localStorage.setItem('viri_extension_id', data.extension_id);
       }
       if (data.terminal_name) setTerminalName(data.terminal_name);
+      if (data.token) {
+        localStorage.setItem('viri_terminal_token', data.token);
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+          chrome.storage.local.set({ terminalToken: data.token });
+        }
+      }
 
       // Credentials are stored locally only (ZK architecture — server no longer holds credentials)
 
@@ -4904,6 +4917,19 @@ function App() {
               >
                 <BarChart3 size={14} className="shrink-0" />
                 <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Sales Reports</span>
+              </button>
+
+              <button
+                onClick={() => { setShowSettings(false); setActiveTab('mma_guidelines'); }}
+                className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-2.5 px-3 py-2'
+                  } ${activeTab === 'mma_guidelines' && !showSettings
+                    ? 'bg-[var(--color-success)] text-black font-bold'
+                    : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
+                  }`}
+                title="MMA Guidelines & Compliance"
+              >
+                <BookOpen size={14} className="shrink-0" />
+                <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>MMA Guidelines</span>
               </button>
             </div>
           </div>
@@ -8151,6 +8177,7 @@ function App() {
                 hardwareId={hardwareId}
                 bankAccounts={bankAccounts}
                 ledgerCache={ledgerCache}
+                recentTxCache={recentTxCache}
                 terminalName={terminalName}
                 onRefreshLedger={(accId) => syncLedger(accId)}
               />
@@ -8166,6 +8193,10 @@ function App() {
                 hardwareId={hardwareId}
                 terminalName={terminalName}
               />
+            )}
+
+            {activeTab === 'mma_guidelines' && (permissions.sales_exchange_enabled || permissions.kyc_enabled) && (
+              <MmaGuidelinesView />
             )}
 
             {activeTab === 'help' && (

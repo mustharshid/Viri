@@ -100,12 +100,47 @@ class ExchangeSaleController extends Controller
         return response()->json($sales);
     }
 
+    private function parseTokens(?string $raw, ?array $txList = null): array
+    {
+        $tokens = [];
+        if ($raw) {
+            $parts = preg_split('/[\r\n,]+/', $raw);
+            foreach ($parts as $p) {
+                $trimmed = trim($p);
+                if ($trimmed !== '') $tokens[] = $trimmed;
+            }
+        }
+        if (is_array($txList)) {
+            foreach ($txList as $tx) {
+                if (!empty($tx['hash'])) $tokens[] = trim($tx['hash']);
+                if (!empty($tx['reference'])) $tokens[] = trim($tx['reference']);
+            }
+        }
+        return array_values(array_unique($tokens));
+    }
+
     public function getClaimedTransactions(Request $request): JsonResponse
     {
         $terminal = $this->resolveTerminal($request);
         if (! $terminal) {
             return response()->json(['error' => 'Unauthorized terminal'], 403);
         }
+
+        // Helper to extract clean tokens from strings (comma or newline separated)
+        $tokenize = function (array $rawList) {
+            $tokens = [];
+            foreach ($rawList as $raw) {
+                if (empty($raw)) continue;
+                $parts = preg_split('/[\r\n,]+/', (string)$raw);
+                foreach ($parts as $p) {
+                    $trimmed = trim($p);
+                    if ($trimmed !== '') {
+                        $tokens[] = $trimmed;
+                    }
+                }
+            }
+            return $tokens;
+        };
 
         // Collect all claimed transaction IDs and hashes across exchange_sales and claimed_sales
         $exchangeReceivedIds = ExchangeSale::where('tenant_id', $terminal->tenant_id)
@@ -137,12 +172,39 @@ class ExchangeSaleController extends Controller
             ->pluck('transaction_id')
             ->toArray();
 
+        // Also check JSON columns received_transactions and sent_transactions
+        $jsonRows = ExchangeSale::where('tenant_id', $terminal->tenant_id)
+            ->where('status', 'completed')
+            ->where(function($q) {
+                $q->whereNotNull('received_transactions')->orWhereNotNull('sent_transactions');
+            })
+            ->get(['received_transactions', 'sent_transactions']);
+
+        $jsonTokens = [];
+        foreach ($jsonRows as $row) {
+            if (is_array($row->received_transactions)) {
+                foreach ($row->received_transactions as $tx) {
+                    if (!empty($tx['hash'])) $jsonTokens[] = trim($tx['hash']);
+                    if (!empty($tx['reference'])) $jsonTokens[] = trim($tx['reference']);
+                    if (!empty($tx['details'])) $jsonTokens[] = trim($tx['details']);
+                }
+            }
+            if (is_array($row->sent_transactions)) {
+                foreach ($row->sent_transactions as $tx) {
+                    if (!empty($tx['hash'])) $jsonTokens[] = trim($tx['hash']);
+                    if (!empty($tx['reference'])) $jsonTokens[] = trim($tx['reference']);
+                    if (!empty($tx['details'])) $jsonTokens[] = trim($tx['details']);
+                }
+            }
+        }
+
         $allClaimed = array_values(array_unique(array_filter(array_merge(
-            $exchangeReceivedIds,
-            $exchangeReceivedHashes,
-            $exchangeSentIds,
-            $exchangeSentHashes,
-            $legacyClaimedIds
+            $tokenize($exchangeReceivedIds),
+            $tokenize($exchangeReceivedHashes),
+            $tokenize($exchangeSentIds),
+            $tokenize($exchangeSentHashes),
+            $tokenize($legacyClaimedIds),
+            $jsonTokens
         ))));
 
         return response()->json([
@@ -169,6 +231,7 @@ class ExchangeSaleController extends Controller
             'received_bank_account_id' => 'nullable|integer',
             'received_transaction_id' => 'nullable|string',
             'received_transaction_hash' => 'nullable|string',
+            'received_transactions' => 'nullable|array',
             'received_amount' => 'required|numeric|gt:0',
             'received_currency' => 'required|string|max:10',
 
@@ -176,6 +239,7 @@ class ExchangeSaleController extends Controller
             'sent_bank_account_id' => 'nullable|integer',
             'sent_transaction_id' => 'nullable|string',
             'sent_transaction_hash' => 'nullable|string',
+            'sent_transactions' => 'nullable|array',
             'sent_amount' => 'required|numeric|gt:0',
             'sent_currency' => 'required|string|max:10',
 
@@ -191,40 +255,50 @@ class ExchangeSaleController extends Controller
 
         // 1. Strict De-Duplication Check for Received Bank Transaction
         if ($request->received_payment_type === 'bank') {
-            $recvId = $request->received_transaction_id;
-            $recvHash = $request->received_transaction_hash;
+            $recvTokens = $this->parseTokens($request->received_transaction_id, $request->received_transactions);
+            $recvHashTokens = $this->parseTokens($request->received_transaction_hash);
+            $allRecvTokens = array_values(array_unique(array_merge($recvTokens, $recvHashTokens)));
 
-            if ($recvId || $recvHash) {
+            if (!empty($allRecvTokens)) {
                 $alreadyClaimed = ExchangeSale::where('tenant_id', $tenantId)
                     ->where('status', 'completed')
-                    ->where(function ($q) use ($recvId, $recvHash) {
-                        if ($recvId) $q->orWhere('received_transaction_id', $recvId)->orWhere('sent_transaction_id', $recvId);
-                        if ($recvHash) $q->orWhere('received_transaction_hash', $recvHash)->orWhere('sent_transaction_hash', $recvHash);
+                    ->where(function ($q) use ($allRecvTokens) {
+                        foreach ($allRecvTokens as $token) {
+                            $q->orWhere('received_transaction_id', 'like', "%{$token}%")
+                              ->orWhere('received_transaction_hash', 'like', "%{$token}%")
+                              ->orWhere('sent_transaction_id', 'like', "%{$token}%")
+                              ->orWhere('sent_transaction_hash', 'like', "%{$token}%");
+                        }
                     })
                     ->exists();
 
                 if ($alreadyClaimed) {
-                    return response()->json(['error' => 'The selected received bank transaction has already been claimed in another sale.'], 409);
+                    return response()->json(['error' => 'One or more of the selected received bank transactions have already been claimed in another sale.'], 409);
                 }
             }
         }
 
         // 2. Strict De-Duplication Check for Sent Bank Transaction
         if ($request->sent_payment_type === 'bank') {
-            $sentId = $request->sent_transaction_id;
-            $sentHash = $request->sent_transaction_hash;
+            $sentTokens = $this->parseTokens($request->sent_transaction_id, $request->sent_transactions);
+            $sentHashTokens = $this->parseTokens($request->sent_transaction_hash);
+            $allSentTokens = array_values(array_unique(array_merge($sentTokens, $sentHashTokens)));
 
-            if ($sentId || $sentHash) {
+            if (!empty($allSentTokens)) {
                 $alreadyClaimed = ExchangeSale::where('tenant_id', $tenantId)
                     ->where('status', 'completed')
-                    ->where(function ($q) use ($sentId, $sentHash) {
-                        if ($sentId) $q->orWhere('sent_transaction_id', $sentId)->orWhere('received_transaction_id', $sentId);
-                        if ($sentHash) $q->orWhere('sent_transaction_hash', $sentHash)->orWhere('received_transaction_hash', $sentHash);
+                    ->where(function ($q) use ($allSentTokens) {
+                        foreach ($allSentTokens as $token) {
+                            $q->orWhere('sent_transaction_id', 'like', "%{$token}%")
+                              ->orWhere('sent_transaction_hash', 'like', "%{$token}%")
+                              ->orWhere('received_transaction_id', 'like', "%{$token}%")
+                              ->orWhere('received_transaction_hash', 'like', "%{$token}%");
+                        }
                     })
                     ->exists();
 
                 if ($alreadyClaimed) {
-                    return response()->json(['error' => 'The selected sent bank transaction has already been claimed in another sale.'], 409);
+                    return response()->json(['error' => 'One or more of the selected sent bank transactions have already been claimed in another sale.'], 409);
                 }
             }
         }
@@ -263,12 +337,14 @@ class ExchangeSaleController extends Controller
                 'received_bank_account_id' => $request->received_bank_account_id,
                 'received_transaction_id' => $request->received_transaction_id,
                 'received_transaction_hash' => $request->received_transaction_hash,
+                'received_transactions' => $request->received_transactions,
                 'received_amount' => $request->received_amount,
                 'received_currency' => strtoupper($request->received_currency),
                 'sent_payment_type' => $request->sent_payment_type,
                 'sent_bank_account_id' => $request->sent_bank_account_id,
                 'sent_transaction_id' => $request->sent_transaction_id,
                 'sent_transaction_hash' => $request->sent_transaction_hash,
+                'sent_transactions' => $request->sent_transactions,
                 'sent_amount' => $request->sent_amount,
                 'sent_currency' => strtoupper($request->sent_currency),
                 'customer_name' => $customerName,
@@ -355,6 +431,28 @@ class ExchangeSaleController extends Controller
             'status' => 'success',
             'message' => 'Sale voided successfully. Claimed bank transactions have been released.',
             'sale' => $sale,
+        ]);
+    }
+
+    public function destroy(Request $request, int $id): JsonResponse
+    {
+        $terminal = $this->resolveTerminal($request);
+        if (! $terminal) {
+            return response()->json(['error' => 'Unauthorized terminal'], 403);
+        }
+
+        $sale = ExchangeSale::where('tenant_id', $terminal->tenant_id)->findOrFail($id);
+
+        if ($sale->kyc_record_id) {
+            KycRecord::where('tenant_id', $terminal->tenant_id)->where('id', $sale->kyc_record_id)->delete();
+        }
+
+        $receiptNumber = $sale->receipt_number;
+        $sale->delete();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "Sale {$receiptNumber} deleted successfully. Claimed bank transactions have been released.",
         ]);
     }
 }

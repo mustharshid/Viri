@@ -7,7 +7,8 @@ import {
   ArrowDownLeft, 
   DollarSign, 
   CheckCircle2, 
-  Coins
+  Coins,
+  Trash2
 } from 'lucide-react';
 
 interface SalesReportsViewProps {
@@ -23,9 +24,11 @@ interface ExchangeSaleRecord {
   customer_name?: string;
   customer_id_number?: string;
   base_amount: string | number;
-  currency_code: string;
+  base_currency?: string;
+  currency_code?: string;
   exchange_rate: string | number;
-  total_mvr: string | number;
+  quote_amount?: string | number;
+  total_mvr?: string | number;
   payment_method_received?: string;
   payment_method_sent?: string;
   status: string;
@@ -46,6 +49,8 @@ export const SalesReportsView: React.FC<SalesReportsViewProps> = ({
   const [timeFilter, setTimeFilter] = useState<'today' | 'all'>('today');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCurrency, setSelectedCurrency] = useState<string>('all');
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [saleToDelete, setSaleToDelete] = useState<ExchangeSaleRecord | null>(null);
 
   const fetchSales = async () => {
     setLoading(true);
@@ -80,10 +85,35 @@ export const SalesReportsView: React.FC<SalesReportsViewProps> = ({
     fetchSales();
   }, [timeFilter]);
 
+  const handleDeleteSale = async (sale: ExchangeSaleRecord) => {
+    setDeletingId(sale.id);
+    try {
+      const res = await fetch(`${bUrl}/terminal/exchange-sales/${sale.id}?hardware_id=${hId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (res.ok) {
+        setSales(prev => prev.filter(s => s.id !== sale.id));
+        setSaleToDelete(null);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Failed to delete sale');
+      }
+    } catch (e) {
+      alert('Network error while deleting sale');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   // Derived statistics
   const filteredSales = useMemo(() => {
     return sales.filter(s => {
-      if (selectedCurrency !== 'all' && s.currency_code !== selectedCurrency) {
+      const curr = s.currency_code || s.base_currency || 'USD';
+      if (selectedCurrency !== 'all' && curr !== selectedCurrency) {
         return false;
       }
       if (searchQuery.trim()) {
@@ -105,8 +135,8 @@ export const SalesReportsView: React.FC<SalesReportsViewProps> = ({
 
     filteredSales.forEach(s => {
       const baseAmt = parseFloat(String(s.base_amount || 0));
-      const mvrAmt = parseFloat(String(s.total_mvr || 0));
-      const curr = s.currency_code || 'USD';
+      const mvrAmt = parseFloat(String(s.total_mvr || s.quote_amount || 0));
+      const curr = s.currency_code || s.base_currency || 'USD';
 
       if (!currencyBreakdown[curr]) {
         currencyBreakdown[curr] = { bought: 0, sold: 0 };
@@ -134,7 +164,8 @@ export const SalesReportsView: React.FC<SalesReportsViewProps> = ({
   const uniqueCurrencies = useMemo(() => {
     const list = new Set<string>();
     sales.forEach(s => {
-      if (s.currency_code) list.add(s.currency_code);
+      const curr = s.currency_code || s.base_currency;
+      if (curr) list.add(curr);
     });
     return Array.from(list);
   }, [sales]);
@@ -172,64 +203,65 @@ export const SalesReportsView: React.FC<SalesReportsViewProps> = ({
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-zinc-800/80 backdrop-blur-sm">
-          <div className="flex items-center justify-between text-zinc-400 text-xs mb-1">
-            <span>Total Exchanges</span>
-            <Coins size={14} className="text-emerald-400" />
-          </div>
-          <div className="text-xl font-bold font-mono text-white">
+      {/* Summary KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="glass-panel p-4 rounded-xl border border-zinc-800 space-y-1 bg-zinc-900/60 backdrop-blur-sm">
+          <div className="text-[11px] font-medium text-zinc-400">Total Exchange Trades</div>
+          <div className="text-xl font-black font-mono text-white">
             {stats.totalTransactions}
           </div>
-          <div className="text-[10px] text-zinc-500 mt-0.5">
-            {timeFilter === 'today' ? "Today's completed sales" : 'All records'}
+          <div className="text-[10px] text-zinc-500 font-mono">
+            {timeFilter === 'today' ? "Today's Trades" : 'All Logged Trades'}
           </div>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-zinc-800/80 backdrop-blur-sm">
-          <div className="flex items-center justify-between text-zinc-400 text-xs mb-1">
-            <span>Foreign Curr Bought</span>
-            <ArrowDownLeft size={14} className="text-blue-400" />
+        <div className="glass-panel p-4 rounded-xl border border-blue-500/20 bg-blue-500/[0.02] space-y-1 bg-zinc-900/60 backdrop-blur-sm">
+          <div className="text-[11px] font-medium text-blue-400 flex items-center gap-1">
+            <ArrowDownLeft size={12} /> Foreign Bought (Inflow)
           </div>
-          <div className="text-xl font-bold font-mono text-blue-400">
+          <div className="text-xl font-black font-mono text-white">
             {stats.totalBoughtForeign.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
-          <div className="text-[10px] text-zinc-500 mt-0.5">We bought from customers</div>
+          <div className="text-[10px] text-zinc-500 font-mono">
+            Counter Inflow Volume
+          </div>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-zinc-800/80 backdrop-blur-sm">
-          <div className="flex items-center justify-between text-zinc-400 text-xs mb-1">
-            <span>Foreign Curr Sold</span>
-            <ArrowUpRight size={14} className="text-amber-400" />
+        <div className="glass-panel p-4 rounded-xl border border-amber-500/20 bg-amber-500/[0.02] space-y-1 bg-zinc-900/60 backdrop-blur-sm">
+          <div className="text-[11px] font-medium text-amber-400 flex items-center gap-1">
+            <ArrowUpRight size={12} /> Foreign Sold (Outflow)
           </div>
-          <div className="text-xl font-bold font-mono text-amber-400">
+          <div className="text-xl font-black font-mono text-white">
             {stats.totalSoldForeign.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
-          <div className="text-[10px] text-zinc-500 mt-0.5">We sold to customers</div>
+          <div className="text-[10px] text-zinc-500 font-mono">
+            Counter Outflow Volume
+          </div>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-zinc-800/80 backdrop-blur-sm">
-          <div className="flex items-center justify-between text-zinc-400 text-xs mb-1">
-            <span>Total MVR Value</span>
-            <DollarSign size={14} className="text-emerald-400" />
+        <div className="glass-panel p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.02] space-y-1 bg-zinc-900/60 backdrop-blur-sm">
+          <div className="text-[11px] font-medium text-emerald-400 flex items-center gap-1">
+            <DollarSign size={12} /> Total MVR Settlement
           </div>
-          <div className="text-xl font-bold font-mono text-emerald-400">
+          <div className="text-xl font-black font-mono text-emerald-400">
             MVR {stats.totalMvrSettled.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
-          <div className="text-[10px] text-zinc-500 mt-0.5">Combined settlement volume</div>
+          <div className="text-[10px] text-zinc-500 font-mono">
+            Local Currency Turnover
+          </div>
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-zinc-900/40 p-3 rounded-xl border border-zinc-800">
+      {/* Filter & Search Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
         <div className="flex items-center gap-2">
-          <div className="inline-flex rounded-lg border border-zinc-700/80 bg-zinc-800/60 p-0.5">
+          {/* Time Filter Pills */}
+          <div className="bg-zinc-900 p-0.5 rounded-lg border border-zinc-800 flex text-xs">
             <button
               onClick={() => setTimeFilter('today')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+              className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
                 timeFilter === 'today'
-                  ? 'bg-emerald-500 text-black shadow-sm font-bold'
+                  ? 'bg-emerald-500 text-black font-bold'
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
@@ -237,9 +269,9 @@ export const SalesReportsView: React.FC<SalesReportsViewProps> = ({
             </button>
             <button
               onClick={() => setTimeFilter('all')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+              className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
                 timeFilter === 'all'
-                  ? 'bg-emerald-500 text-black shadow-sm font-bold'
+                  ? 'bg-emerald-500 text-black font-bold'
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
@@ -247,6 +279,7 @@ export const SalesReportsView: React.FC<SalesReportsViewProps> = ({
             </button>
           </div>
 
+          {/* Currency Filter */}
           {uniqueCurrencies.length > 0 && (
             <select
               value={selectedCurrency}
@@ -287,19 +320,20 @@ export const SalesReportsView: React.FC<SalesReportsViewProps> = ({
                 <th className="py-3 px-4">Rate</th>
                 <th className="py-3 px-4">MVR Total</th>
                 <th className="py-3 px-4">Status</th>
+                <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/60 font-sans">
               {loading && sales.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-zinc-500">
+                  <td colSpan={9} className="py-12 text-center text-zinc-500">
                     <RefreshCw size={18} className="animate-spin mx-auto mb-2 text-emerald-400" />
                     Loading exchange sales records...
                   </td>
                 </tr>
               ) : filteredSales.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-zinc-500">
+                  <td colSpan={9} className="py-12 text-center text-zinc-500">
                     <FileSpreadsheet size={24} className="mx-auto mb-2 opacity-30" />
                     No sales or exchange records found for this view.
                   </td>
@@ -334,19 +368,31 @@ export const SalesReportsView: React.FC<SalesReportsViewProps> = ({
                       )}
                     </td>
                     <td className="py-3 px-4 font-mono font-bold text-white">
-                      {parseFloat(String(sale.base_amount || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })} {sale.currency_code}
+                      {parseFloat(String(sale.base_amount || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })} {sale.currency_code || sale.base_currency || 'USD'}
                     </td>
                     <td className="py-3 px-4 font-mono text-zinc-400">
                       {parseFloat(String(sale.exchange_rate || 0)).toFixed(2)}
                     </td>
                     <td className="py-3 px-4 font-mono font-bold text-emerald-400">
-                      MVR {parseFloat(String(sale.total_mvr || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      MVR {parseFloat(String(sale.total_mvr || sale.quote_amount || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     </td>
                     <td className="py-3 px-4">
                       <span className="inline-flex items-center gap-1 text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
                         <CheckCircle2 size={10} />
                         Completed
                       </span>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setSaleToDelete(sale)}
+                        disabled={deletingId === sale.id}
+                        title="Delete sale and release transactions"
+                        className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-400 hover:text-red-400 hover:bg-red-500/10 p-1.5 rounded-lg border border-transparent hover:border-red-500/20 transition-all cursor-pointer"
+                      >
+                        <Trash2 size={13} />
+                        <span className="hidden sm:inline">Delete</span>
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -355,6 +401,77 @@ export const SalesReportsView: React.FC<SalesReportsViewProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {saleToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="glass-panel p-6 rounded-2xl border border-red-500/30 max-w-md w-full space-y-4 bg-zinc-950 shadow-2xl animate-fade-in">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-500/15 border border-red-500/30 flex items-center justify-center text-red-400 shrink-0">
+                <Trash2 size={20} />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white">Delete Exchange Sale</h3>
+                <p className="text-xs text-zinc-400 font-mono mt-0.5">
+                  {saleToDelete.receipt_number || `#${saleToDelete.id}`}
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800 text-xs space-y-1.5">
+              <div className="flex justify-between text-zinc-400">
+                <span>Customer:</span>
+                <span className="text-white font-medium">{saleToDelete.customer_name || 'Walk-in'}</span>
+              </div>
+              <div className="flex justify-between text-zinc-400">
+                <span>Amount:</span>
+                <span className="text-white font-mono font-bold">
+                  {parseFloat(String(saleToDelete.base_amount || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })} {saleToDelete.currency_code || saleToDelete.base_currency || 'USD'}
+                </span>
+              </div>
+              <div className="flex justify-between text-zinc-400">
+                <span>MVR Total:</span>
+                <span className="text-emerald-400 font-mono font-bold">
+                  MVR {parseFloat(String(saleToDelete.total_mvr || saleToDelete.quote_amount || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-lg leading-relaxed">
+              Deleting this sale will immediately <strong>release all linked bank transactions</strong> so they can be re-selected and used in other sales.
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setSaleToDelete(null)}
+                disabled={deletingId !== null}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteSale(saleToDelete)}
+                disabled={deletingId !== null}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-500 transition-colors flex items-center gap-1.5 shadow-lg shadow-red-600/20 cursor-pointer"
+              >
+                {deletingId === saleToDelete.id ? (
+                  <>
+                    <RefreshCw size={13} className="animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={13} />
+                    <span>Delete & Release</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modular notice for upcoming report extensions */}
       <div className="p-4 rounded-xl bg-zinc-900/40 border border-zinc-800/80 flex items-start gap-3">

@@ -4,9 +4,12 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Laravel\Sanctum\HasApiTokens;
 
 class Terminal extends Model
 {
+    use HasApiTokens;
+
     protected $hidden = ['settings_pin'];
 
     protected $fillable = [

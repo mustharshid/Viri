@@ -38,11 +38,18 @@ class MibKeysController extends Controller
             return response()->json(['error' => 'Unauthorized terminal'], 403);
         }
 
-        // auth:sanctum is required on this route; the authenticated user must belong
-        // to the terminal's tenant (superadmin exempt) so a terminal token can never
-        // poison another tenant's credential group.
+        // auth:sanctum is required on this route; the authenticated token may belong to a
+        // User or a Terminal. Enforce tenant isolation for both.
         $user = $request->user();
-        if ($user && $user->role !== 'superadmin' && $user->tenant_id !== $terminal->tenant_id) {
+        if ($user instanceof \App\Models\Terminal) {
+            if ($user->tenant_id !== $terminal->tenant_id) {
+                return response()->json(['error' => 'Unauthorized terminal'], 403);
+            }
+        } elseif ($user instanceof \App\Models\User) {
+            if ($user->role !== 'superadmin' && $user->tenant_id !== $terminal->tenant_id) {
+                return response()->json(['error' => 'Unauthorized terminal'], 403);
+            }
+        } elseif ($user) {
             return response()->json(['error' => 'Unauthorized terminal'], 403);
         }
 
@@ -183,10 +190,18 @@ class MibKeysController extends Controller
             return response()->json(['error' => 'Unauthorized terminal'], 403);
         }
 
-        // auth:sanctum is required on this route; additionally the authenticated user
-        // must belong to the terminal's tenant (superadmin is exempt for platform ops).
+        // auth:sanctum is required on this route; the authenticated token may belong to a
+        // User or a Terminal — enforce tenant isolation for both.
         $user = $request->user();
-        if ($user && $user->role !== 'superadmin' && $user->tenant_id !== $terminal->tenant_id) {
+        if ($user instanceof \App\Models\Terminal) {
+            if ($user->tenant_id !== $terminal->tenant_id) {
+                return response()->json(['error' => 'Unauthorized terminal'], 403);
+            }
+        } elseif ($user instanceof \App\Models\User) {
+            if ($user->role !== 'superadmin' && $user->tenant_id !== $terminal->tenant_id) {
+                return response()->json(['error' => 'Unauthorized terminal'], 403);
+            }
+        } elseif ($user) {
             return response()->json(['error' => 'Unauthorized terminal'], 403);
         }
 
@@ -347,7 +362,7 @@ class MibKeysController extends Controller
             'key2' => $resolvedKey2,
             'appId' => $resolvedAppId,
             'mib_username' => $mibUsername,
-            'mib_password' => $disclosePassword ? $group->mib_password : null,
+            'mib_password' => ($disclosePassword && $request->user() instanceof \App\Models\User) ? $group->mib_password : null,
             'profileId' => $profile?->profile_id,
             'profileType' => $profile?->profile_type ?? '0',
             'profiles' => $allProfiles,

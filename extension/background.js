@@ -11,6 +11,25 @@ const BASE_URL = "https://www.bankofmaldives.com.mv/internetbanking";
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
 const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 
+// Resolve the backend auth token: user token preferred, terminal token fallback.
+// Mirrors ensureMibSession precedence so admin flows keep User identity.
+async function resolveBackendToken(fallbackToken = '') {
+  const t = await chrome.storage.local.get(['sanctumToken', 'terminalToken']);
+  return t.sanctumToken || t.terminalToken || fallbackToken || '';
+}
+
+function buildMibHeaders(token) {
+  const headers = { 'Accept': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return headers;
+}
+
+function buildMibJsonHeaders(token) {
+  const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return headers;
+}
+
 let globalInertiaVersion = "";
 
 function getTimestamp() {
@@ -2329,14 +2348,15 @@ async function seedServerKeysIfCacheMissing(terminalId, bankAccountId, backendUr
   if (cached.mib_key1 && cached.mib_key2 && cached.mib_appId) {
     return false;
   }
-  if (!sanctumToken || !backendUrl) return false;
+  if (!backendUrl) return false;
+  const resolvedToken = await resolveBackendToken(sanctumToken);
   const params = new URLSearchParams({
     hardware_id: terminalId,
     bank_account_id: bankAccountId,
     mib_username: mibUsername || '',
   });
   const resp = await fetch(`${backendUrl}/mib/keys?${params}`, {
-    headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${sanctumToken}` }
+    headers: buildMibHeaders(resolvedToken)
   });
   if (!resp.ok) return false;
   let data;
@@ -2581,14 +2601,11 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
           await chrome.storage.session.set({ [authSessionKey]: sessionState });
           
           try {
+            const effectiveToken = await resolveBackendToken(sanctumToken);
             if(port) emitLog(port, '> [MIB-API] Storing device keys in backend...');
             const storeResp = await fetch(`${backendUrl}/mib/keys/store`, {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'Authorization': `Bearer ${sanctumToken}`
-              },
+              headers: buildMibJsonHeaders(effectiveToken),
               body: JSON.stringify({
                 hardware_id: terminalId,
                 bank_account_id: bankAccountId,
@@ -2634,14 +2651,11 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
           await chrome.storage.session.set({ [authSessionKey]: sessionState });
           
           try {
+            const effectiveToken2 = await resolveBackendToken(sanctumToken);
             if(port) emitLog(port, '> [MIB-API] Storing device keys in backend...');
             const storeResp = await fetch(`${backendUrl}/mib/keys/store`, {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'Authorization': `Bearer ${sanctumToken}`
-              },
+              headers: buildMibJsonHeaders(effectiveToken2),
               body: JSON.stringify({
                 hardware_id: terminalId,
                 bank_account_id: bankAccountId,
@@ -2688,11 +2702,10 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
   const { mibAuthTemp } = await chrome.storage.session.get('mibAuthTemp');
   if (!mibAuthTemp) throw new Error("No MIB auth session found in storage.");
 
-  // Resolve the backend auth token the same way the resume path does, so a store
-  // that runs with an empty popup localStorage token still authenticates.
+  // Resolve the backend auth token: user token preferred, terminal token fallback.
   if (!sanctumToken) {
-    const t = await chrome.storage.local.get('sanctumToken');
-    sanctumToken = t.sanctumToken || '';
+    const t = await chrome.storage.local.get(['sanctumToken', 'terminalToken']);
+    sanctumToken = t.sanctumToken || t.terminalToken || '';
   }
 
   // Canonical session key — same precedence as startMibAuthFlow/ensureMibSession.
@@ -2767,11 +2780,7 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
         if(port) emitLog(port, '> [MIB-API] Storing device keys in backend...');
         const storeResp = await fetch(`${backendUrl}/mib/keys/store`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Authorization': `Bearer ${sanctumToken}`
-          },
+          headers: buildMibJsonHeaders(sanctumToken),
           body: JSON.stringify({
             hardware_id: terminalId,
             bank_account_id: bankAccountId,
@@ -2892,27 +2901,25 @@ async function ensureMibSession(port, terminalId, backendUrl, credentials, targe
   // falls back to local cache with today's behavior (never breaks the cached path).
   let serverIdentity = null;
   try {
-    const tokenRes = await chrome.storage.local.get('sanctumToken');
-    const token = tokenRes.sanctumToken || sanctumTokenParam || credentials?.token || '';
-    if (token) {
-      const params = new URLSearchParams({ hardware_id: terminalId });
-      if (targetAccount) params.append('account_number', targetAccount);
-      const keysResp = await fetchWithBlockedDiagnostics(`Viri backend ${backendUrl}/mib/keys`, `${backendUrl}/mib/keys?${params}`, {
-        headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }
-      });
-      if (keysResp.ok) {
-        const keysData = await keysResp.json();
-        if (keysData.key1 && keysData.key2) {
-          serverIdentity = {
-            appId: keysData.appId || '',
-            username: keysData.mib_username || '',
-            password: keysData.mib_password || '',
-            key1: keysData.key1,
-            key2: keysData.key2,
-            profileId: keysData.profileId || null,
-            profileType: keysData.profileType || null,
-          };
-        }
+    const tokenRes = await chrome.storage.local.get(['sanctumToken', 'terminalToken']);
+    const token = tokenRes.sanctumToken || tokenRes.terminalToken || sanctumTokenParam || credentials?.token || '';
+    const params = new URLSearchParams({ hardware_id: terminalId });
+    if (targetAccount) params.append('account_number', targetAccount);
+    const keysResp = await fetchWithBlockedDiagnostics(`Viri backend ${backendUrl}/mib/keys`, `${backendUrl}/mib/keys?${params}`, {
+      headers: buildMibHeaders(token)
+    });
+    if (keysResp.ok) {
+      const keysData = await keysResp.json();
+      if (keysData.key1 && keysData.key2) {
+        serverIdentity = {
+          appId: keysData.appId || '',
+          username: keysData.mib_username || '',
+          password: keysData.mib_password || '',
+          key1: keysData.key1,
+          key2: keysData.key2,
+          profileId: keysData.profileId || null,
+          profileType: keysData.profileType || null,
+        };
       }
     }
   } catch (e) {
@@ -3308,11 +3315,11 @@ async function selectMibProfile(profileId, profileType) {
 
   const { sessionState, profiles, mibUsername, key1ToSave, key2ToSave, terminalId, bankAccountId, backendUrl, sanctumToken, accountNumber } = mibAuthTemp;
 
-  // Resolve the backend auth token the same way the resume path does.
+  // Resolve the backend auth token: user token preferred, terminal token fallback.
   let effectiveSanctumToken = sanctumToken;
   if (!effectiveSanctumToken) {
-    const t = await chrome.storage.local.get('sanctumToken');
-    effectiveSanctumToken = t.sanctumToken || '';
+    const t = await chrome.storage.local.get(['sanctumToken', 'terminalToken']);
+    effectiveSanctumToken = t.sanctumToken || t.terminalToken || '';
   }
 
   // Canonical per-account keys — must match the resume flow (account number
@@ -3377,11 +3384,7 @@ async function selectMibProfile(profileId, profileType) {
   }
   const storeResp = await fetch(`${backendUrl}/mib/keys/store`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'Authorization': `Bearer ${effectiveSanctumToken}`
-    },
+    headers: buildMibJsonHeaders(effectiveSanctumToken),
     body: JSON.stringify(storeBody)
   });
   if (!storeResp.ok) {
@@ -3409,17 +3412,15 @@ async function selectMibProfile(profileId, profileType) {
  * @returns {Promise<{ok: boolean, needsLogin: boolean, profiles: Array, profileId: string|null, profileType: string|null, mibUsername: string|null, mibPassword: string|null}>}
  */
 async function fetchMibGroupForProfile(port, terminalId, backendUrl, targetAccount, sanctumTokenParam, bankAccountId = '') {
-  const tokenRes = await chrome.storage.local.get('sanctumToken');
-  const token = tokenRes.sanctumToken || sanctumTokenParam;
-  if (!token) return { ok: false, needsLogin: true, error: 'Missing auth token.' };
-
+  const tokenRes = await chrome.storage.local.get(['sanctumToken', 'terminalToken']);
+  const token = tokenRes.sanctumToken || tokenRes.terminalToken || sanctumTokenParam;
   const params = new URLSearchParams({ hardware_id: terminalId });
   if (bankAccountId) params.append('bank_account_id', bankAccountId);
   else if (targetAccount) params.append('account_number', targetAccount);
 
   try {
     const resp = await fetchWithBlockedDiagnostics(`Viri backend ${backendUrl}/mib/keys`, `${backendUrl}/mib/keys?${params}`, {
-      headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }
+      headers: buildMibHeaders(token)
     });
     if (!resp.ok) {
       if (resp.status === 404) return { ok: false, needsLogin: true };
@@ -3613,11 +3614,12 @@ async function runMibApiFlow(credentials, targetAccount, port, targetAmount, pro
           if (port) emitLog(port, `> [MIB-API] Account not in cached profile. Checking other profiles...`);
           let fallbackFound = false;
           try {
-            const tokenRes = await chrome.storage.local.get('sanctumToken');
-            if (tokenRes.sanctumToken && hardwareId && backendUrl) {
+            const tokenRes = await chrome.storage.local.get(['sanctumToken', 'terminalToken']);
+            const resolvedToken = tokenRes.sanctumToken || tokenRes.terminalToken || '';
+            if (hardwareId && backendUrl) {
               const params = new URLSearchParams({ hardware_id: hardwareId, account_number: targetAccount });
               const keysResp = await fetchWithBlockedDiagnostics(`Viri backend ${backendUrl}/mib/keys`, `${backendUrl}/mib/keys?${params}`, {
-                headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${tokenRes.sanctumToken}` }
+                headers: buildMibHeaders(resolvedToken)
               });
               if (keysResp.ok) {
                 const keysData = await keysResp.json();
