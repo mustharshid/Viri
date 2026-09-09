@@ -506,6 +506,16 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === 'STORE_TERMINAL_TOKEN') {
+    const token = msg.payload?.token || '';
+    if (token) {
+      chrome.storage.local.set({ terminalToken: token }, () => sendResponse({ success: true }));
+    } else {
+      sendResponse({ success: false, error: 'Missing token' });
+    }
+    return true;
+  }
+
   if (msg.action === 'CHECK_BML_TOKENS') {
     getValidBmlAccessToken(msg.payload.terminalId, msg.payload.bankAccountId, msg.payload.backendUrl, msg.payload.bmlUsername, msg.payload.profileType, msg.payload.sanctumToken)
       .then(token => sendResponse({ hasTokens: !!token }))

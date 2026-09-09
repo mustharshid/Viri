@@ -2219,8 +2219,11 @@ function App() {
           const data = await response.json();
           if (data.terminal_token) {
             localStorage.setItem('viri_terminal_token', data.terminal_token);
-            if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-              chrome.storage.local.set({ terminalToken: data.terminal_token });
+            const extId = localStorage.getItem('viri_extension_id');
+            if (extId && typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+              chrome.runtime.sendMessage(extId, { action: 'STORE_TERMINAL_TOKEN', payload: { token: data.terminal_token } }, () => {
+                if (chrome.runtime.lastError) { /* extension not available */ }
+              });
             }
           }
           if (data.app_config) {
@@ -2948,8 +2951,11 @@ function App() {
       if (data.terminal_name) setTerminalName(data.terminal_name);
       if (data.token) {
         localStorage.setItem('viri_terminal_token', data.token);
-        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-          chrome.storage.local.set({ terminalToken: data.token });
+        const extId = localStorage.getItem('viri_extension_id');
+        if (extId && typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+          chrome.runtime.sendMessage(extId, { action: 'STORE_TERMINAL_TOKEN', payload: { token: data.token } }, () => {
+            if (chrome.runtime.lastError) { /* extension not available */ }
+          });
         }
       }
 
