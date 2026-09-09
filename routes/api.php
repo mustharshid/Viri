@@ -389,12 +389,14 @@ Route::post('/verify-terminal', function (Request $request) {
         'backlog' => $totalBacklog,
     ];
 
-    // Mint a terminal token so the extension can authenticate to auth:sanctum
-    // routes (mib/keys). Always rotate to ensure the PWA receives a usable
-    // plain-text token without requiring a manual re-pair (plain text is only
-    // available at creation time).
-    $terminal->tokens()->delete();
-    $terminalToken = $terminal->createToken('terminal')->plainTextToken;
+    // Mint a terminal token for already-paired terminals that lack one.
+    // Only creates when no token exists to avoid churn/race (plain text is
+    // only available at creation time; existing terminals that missed the
+    // first mint should re-pair once).
+    $terminalToken = null;
+    if ($terminal->tokens()->count() === 0) {
+        $terminalToken = $terminal->createToken('terminal')->plainTextToken;
+    }
 
     $isFreeOr499 = in_array($tier, ['free', '499']);
     $tenantFeatures = is_array($tenant->features) ? $tenant->features : [];

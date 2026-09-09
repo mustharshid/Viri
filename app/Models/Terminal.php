@@ -2,13 +2,15 @@
 
 namespace App\Models;
 
+use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
+use Illuminate\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Laravel\Sanctum\HasApiTokens;
 
-class Terminal extends Model
+class Terminal extends Model implements AuthenticatableContract
 {
-    use HasApiTokens;
+    use HasApiTokens, Authenticatable;
 
     protected $hidden = ['settings_pin'];
 
