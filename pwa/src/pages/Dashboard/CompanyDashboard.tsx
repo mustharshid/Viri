@@ -74,7 +74,7 @@ const DeleteConfirmModal = ({ isOpen, onClose, onConfirm, title, message, itemNa
 };
 
 export default function CompanyDashboard() {
-  const LATEST_EXTENSION_VERSION = "1.4.4";
+  const LATEST_EXTENSION_VERSION = "1.4.5";
   const [theme, toggleTheme] = useTheme();
   const [user, setUser] = useState<any>(null);
   const [terminals, setTerminals] = useState<any[]>([]);
@@ -1085,14 +1085,9 @@ export default function CompanyDashboard() {
               <Info size={18} /> Help Center
             </button>
             {!isFeatureDisabledByPlan('sales_exchange_enabled') && (
-              <>
-                <button onClick={() => setActiveTab('kyc')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'kyc' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
-                  <Shield size={18} /> KYC / AML
-                </button>
-                <button onClick={() => setActiveTab('currencies')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'currencies' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
-                  <Coins size={18} /> Currencies & Rates
-                </button>
-              </>
+              <button onClick={() => setActiveTab('kyc')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-xs font-semibold ${activeTab === 'kyc' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.05)]' : 'hover:bg-white/5 border border-transparent text-[var(--text-secondary)] hover:text-white'}`}>
+                <Shield size={18} /> KYC / AML
+              </button>
             )}
           </nav>
         </div>
@@ -1167,14 +1162,9 @@ export default function CompanyDashboard() {
               <Info size={18} /> Help Center
             </button>
             {!isFeatureDisabledByPlan('sales_exchange_enabled') && (
-              <>
-                <button onClick={() => { setActiveTab('kyc'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'kyc' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
-                  <Shield size={18} /> KYC / AML
-                </button>
-                <button onClick={() => { setActiveTab('currencies'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'currencies' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
-                  <Coins size={18} /> Currencies & Rates
-                </button>
-              </>
+              <button onClick={() => { setActiveTab('kyc'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'kyc' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
+                <Shield size={18} /> KYC / AML
+              </button>
             )}
             <button onClick={() => { setActiveTab('settings'); setMobileNavOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-xs font-semibold ${activeTab === 'settings' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-[var(--text-secondary)] hover:text-white'}`}>
               <Settings size={18} /> Settings

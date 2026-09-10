@@ -435,7 +435,7 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
         quote_amount: quoteTotal,
 
         received_payment_type: receivedPaymentType,
-        received_bank_account_id: receivedPaymentType === 'bank' ? parseInt(receivedAccountId) : null,
+        received_bank_account_id: receivedPaymentType === 'bank' ? (receivedAccountId ? parseInt(receivedAccountId, 10) : null) : null,
         received_transaction_id: recvIds || null,
         received_transaction_hash: recvHashes || null,
         received_transactions: selectedReceivedTxs.map(t => ({
@@ -449,7 +449,7 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
         received_currency: recvCurr,
 
         sent_payment_type: sentPaymentType,
-        sent_bank_account_id: sentPaymentType === 'bank' ? parseInt(sentAccountId) : null,
+        sent_bank_account_id: sentPaymentType === 'bank' ? (sentAccountId ? parseInt(sentAccountId, 10) : null) : null,
         sent_transaction_id: sentIds || null,
         sent_transaction_hash: sentHashes || null,
         sent_transactions: selectedSentTxs.map(t => ({
@@ -474,6 +474,7 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
           Authorization: `Bearer ${token}`
         },
         body: JSON.stringify(payload)
@@ -496,11 +497,19 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
           return nextSet;
         });
       } else {
-        const err = await res.json();
-        alert(err.error || 'Failed to complete sale');
+        let errorMsg = 'Failed to complete sale';
+        try {
+          const err = await res.json();
+          errorMsg = err.error || err.message || (err.errors ? Object.values(err.errors).flat().join(', ') : errorMsg);
+        } catch {
+          const text = await res.text().catch(() => '');
+          errorMsg = text || `Server error (${res.status})`;
+        }
+        alert(errorMsg);
       }
-    } catch (e) {
-      alert('Error submitting exchange sale');
+    } catch (e: any) {
+      console.error('Error submitting exchange sale:', e);
+      alert(e?.message ? `Error submitting exchange sale: ${e.message}` : 'Error submitting exchange sale');
     } finally {
       setSubmitting(false);
     }
@@ -685,10 +694,12 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
               <button
                 type="button"
                 onClick={() => {
+                  const cleanQ = customerSearchQuery.trim().toUpperCase();
+                  const isNic = /^A\d{6}$/i.test(cleanQ);
                   setQuickAddForm({
                     full_name: '',
-                    nic_number: customerSearchQuery.match(/^[A-Z]/i) ? customerSearchQuery : '',
-                    passport_number: !customerSearchQuery.match(/^[A-Z]/i) ? customerSearchQuery : '',
+                    nic_number: isNic ? cleanQ : (cleanQ.startsWith('A') && cleanQ.length <= 7 ? cleanQ : ''),
+                    passport_number: isNic ? '' : cleanQ,
                     nationality: 'Maldivian',
                     address: '',
                     contact_number: '',
@@ -1215,14 +1226,32 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="input-label">NIC Number</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="input-label mb-0">NIC Number</label>
+                    {/^A\d{6}$/i.test(quickAddForm.nic_number) && (
+                      <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
+                        <Check size={11} /> Maldivian NIC
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
-                    placeholder="e.g. A123456"
+                    placeholder="A026076"
                     value={quickAddForm.nic_number}
-                    onChange={e => setQuickAddForm({ ...quickAddForm, nic_number: e.target.value.toUpperCase() })}
+                    onChange={e => {
+                      const val = e.target.value.toUpperCase();
+                      const isNic = /^A\d{6}$/i.test(val);
+                      setQuickAddForm({
+                        ...quickAddForm,
+                        nic_number: val,
+                        ...(isNic ? { nationality: 'Maldivian' } : {})
+                      });
+                    }}
                     className="input-field py-2 text-xs font-mono uppercase"
                   />
+                  {/^A\d{6}$/i.test(quickAddForm.nic_number) && (
+                    <p className="text-[10px] text-emerald-400/90 mt-1">Maldivian National ID verified · Nationality: Maldivian</p>
+                  )}
                 </div>
                 <div>
                   <label className="input-label">Passport Number</label>
@@ -1230,7 +1259,19 @@ export const SalesScreen: React.FC<SalesScreenProps> = ({
                     type="text"
                     placeholder="e.g. N1234567"
                     value={quickAddForm.passport_number}
-                    onChange={e => setQuickAddForm({ ...quickAddForm, passport_number: e.target.value.toUpperCase() })}
+                    onChange={e => {
+                      const val = e.target.value.toUpperCase();
+                      if (/^A\d{6}$/i.test(val)) {
+                        setQuickAddForm({
+                          ...quickAddForm,
+                          nic_number: val,
+                          passport_number: '',
+                          nationality: 'Maldivian'
+                        });
+                      } else {
+                        setQuickAddForm({ ...quickAddForm, passport_number: val });
+                      }
+                    }}
                     className="input-field py-2 text-xs font-mono uppercase"
                   />
                 </div>

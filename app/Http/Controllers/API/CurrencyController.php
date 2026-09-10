@@ -16,8 +16,9 @@ class CurrencyController extends Controller
             return (int) $request->user()->tenant_id;
         }
 
-        if ($request->filled('hardware_id')) {
-            $terminal = Terminal::where('hardware_id', $request->hardware_id)->first();
+        $hardwareId = $request->input('hardware_id') ?: $request->header('X-Hardware-Id');
+        if ($hardwareId) {
+            $terminal = Terminal::where('hardware_id', $hardwareId)->first();
             if ($terminal && $terminal->status === 'active') {
                 return (int) $terminal->tenant_id;
             }

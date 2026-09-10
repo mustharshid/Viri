@@ -372,11 +372,13 @@ class ExchangeSaleController extends Controller
                 $requiresEdd = $isHighRisk || ($mvrTotal >= 50000);
                 $isSuspicious = $request->boolean('is_suspicious', false);
 
+                $cashierUserId = $request->user()?->id ?? $terminal->tenant?->users()->first()?->id;
+
                 $kycRecord = KycRecord::create([
                     'tenant_id' => $tenantId,
+                    'terminal_id' => $terminal->id,
+                    'cashier_user_id' => $cashierUserId,
                     'kyc_customer_id' => $kycCustomer->id,
-                    'created_by_user_id' => null,
-                    'created_by_terminal_id' => $terminal->id,
                     'transaction_type' => 'money_changing',
                     'transaction_amount' => $request->base_amount,
                     'transaction_currency' => strtoupper($request->base_currency),

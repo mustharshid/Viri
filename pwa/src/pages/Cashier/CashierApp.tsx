@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Shield, RefreshCw, Settings, AlertTriangle, Lock, Unlock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, ChevronDown, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, Download, FileText, Check, Briefcase, Sparkles, Tag, Printer, FileSpreadsheet, X, RotateCcw, Keyboard, DollarSign } from 'lucide-react';
+import { Shield, RefreshCw, Settings, AlertTriangle, Lock, Unlock, MonitorSmartphone, XCircle, Copy, Loader2, Search, History, BookOpen, BarChart3, Info, HelpCircle, ChevronRight, ChevronLeft, ChevronDown, Terminal, Activity, Sun, Moon, ExternalLink, Trash2, Download, FileText, Check, Briefcase, Sparkles, Tag, Printer, FileSpreadsheet, X, RotateCcw, Keyboard, DollarSign, UserPlus, Edit3, Users, Sliders } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import CryptoJS from 'crypto-js';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { SalesScreen } from './SalesScreen';
 import { SalesReportsView } from './SalesReportsView';
 import { MmaGuidelinesView } from './MmaGuidelinesView';
+import { SalesSettingsView } from './SalesSettingsView';
 
 const Tooltip = ({ text, helpSectionId, onHelpNavigate }: { text: string; helpSectionId?: string; onHelpNavigate?: (sectionId: string) => void }) => (
   <div className="relative inline-flex items-center group ml-1.5 cursor-help align-middle">
@@ -1145,7 +1146,7 @@ function App() {
   const [_terminalId, setTerminalId] = useState<number | null>(null);
   const [accountToClear, setAccountToClear] = useState<any | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const LATEST_EXTENSION_VERSION = "1.4.4";
+  const LATEST_EXTENSION_VERSION = "1.4.5";
 
   // ── Port-lifecycle diagnostics (bounded in-memory ring, near-zero load) ──
   // Captures connect/disconnect/response timing + chrome.runtime.lastError so a
@@ -1490,7 +1491,7 @@ function App() {
     }
   }, [loading]);
 
-  const [activeTab, setActiveTab] = useState<'verify' | 'sales' | 'sales_reports' | 'mma_guidelines' | 'ledger' | 'reports' | 'checklist' | 'help' | 'statements' | 'kyc'>('verify');
+  const [activeTab, setActiveTab] = useState<'verify' | 'sales' | 'sales_reports' | 'mma_guidelines' | 'sales_settings' | 'ledger' | 'reports' | 'checklist' | 'help' | 'statements' | 'kyc'>('verify');
   const [helpSearchQuery, setHelpSearchQuery] = useState('');
   const [bankSearchQuery, setBankSearchQuery] = useState('');
   const verifyAccountRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
@@ -4881,6 +4882,21 @@ function App() {
           <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Verification</span>
         </button>
 
+        {permissions.ledger_enabled && (
+          <button
+            onClick={() => { setShowSettings(false); setActiveTab('ledger'); }}
+            className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
+              } ${activeTab === 'ledger' && !showSettings
+                ? 'bg-[var(--color-success)] text-black font-bold'
+                : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
+              }`}
+            title="Transaction Ledger"
+          >
+            <BookOpen size={16} className="shrink-0" />
+            <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Transaction Ledger</span>
+          </button>
+        )}
+
         {/* Sales & Exchange Module Package */}
         {(permissions.sales_exchange_enabled || permissions.kyc_enabled) && (
           <div className="w-full space-y-1">
@@ -4937,23 +4953,21 @@ function App() {
                 <BookOpen size={14} className="shrink-0" />
                 <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>MMA Guidelines</span>
               </button>
+
+              <button
+                onClick={() => { setShowSettings(false); setActiveTab('sales_settings'); }}
+                className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-2.5 px-3 py-2'
+                  } ${activeTab === 'sales_settings' && !showSettings
+                    ? 'bg-[var(--color-success)] text-black font-bold'
+                    : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
+                  }`}
+                title="Sales Settings & Currency Rates"
+              >
+                <Sliders size={14} className="shrink-0" />
+                <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Sales Setting</span>
+              </button>
             </div>
           </div>
-        )}
-
-        {permissions.ledger_enabled && (
-          <button
-            onClick={() => { setShowSettings(false); setActiveTab('ledger'); }}
-            className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors text-xs font-semibold ${isSidebarCollapsed ? 'md:w-10 md:h-10' : 'md:w-full md:h-auto md:justify-start gap-3 px-3 py-2.5'
-              } ${activeTab === 'ledger' && !showSettings
-                ? 'bg-[var(--color-success)] text-black font-bold'
-                : 'hover:bg-white/5 text-[var(--text-secondary)] hover:text-white'
-              }`}
-            title="Transaction Ledger"
-          >
-            <BookOpen size={16} className="shrink-0" />
-            <span className={`transition-all ${isSidebarCollapsed ? 'hidden' : 'hidden md:inline'}`}>Transaction Ledger</span>
-          </button>
         )}
 
         {permissions.reports_enabled && (
@@ -8205,6 +8219,13 @@ function App() {
               <MmaGuidelinesView />
             )}
 
+            {activeTab === 'sales_settings' && (permissions.sales_exchange_enabled || permissions.kyc_enabled) && (
+              <SalesSettingsView
+                backendUrl={backendUrl}
+                hardwareId={hardwareId}
+              />
+            )}
+
             {activeTab === 'help' && (
               <div ref={helpContentRef} className="flex-1 w-full max-w-4xl mx-auto flex flex-col items-center justify-start p-4 md:p-8 animate-fade-in overflow-y-auto space-y-6">
                 <div className="w-full text-center space-y-2 mb-2">
@@ -8615,465 +8636,793 @@ function App() {
 }
 
 function KycCashierView({ backendUrl }: { backendUrl: string }) {
-  // ── KYC customer index (local autocomplete) ──────────────────
-  const [kycIndex, setKycIndex] = useState<Array<{ id: number; nic_number: string | null; passport_number: string | null; full_name: string }>>([]);
-  const [kycStep, setKycStep] = useState<'search' | 'form' | 'submitted'>('search');
-  const [kycIdQuery, setKycIdQuery] = useState('');
-  const [kycSuggestions, setKycSuggestions] = useState<typeof kycIndex>([]);
+  // ── Types ──────────────────────────────────────────────────
+  type KycCustomerSummary = {
+    id: number;
+    nic_number: string | null;
+    passport_number: string | null;
+    full_name: string;
+    nationality?: string;
+    contact_number?: string;
+    address?: string;
+    email?: string;
+    dob?: string;
+    customer_type?: string;
+    is_pep?: boolean;
+    is_high_risk_country?: boolean;
+    created_at?: string;
+  };
+
+  const [kycIndex, setKycIndex] = useState<Array<KycCustomerSummary>>([]);
+  const [kycLoading, setKycLoading] = useState(false);
+  const [kycStep, setKycStep] = useState<'list' | 'form' | 'submitted'>('list');
+  const [searchQuery, setSearchQuery] = useState('');
   const [kycSavingRecord, setKycSavingRecord] = useState(false);
+  const [deletingCustomerId, setDeletingCustomerId] = useState<number | null>(null);
   const [kycRecordSaved, setKycRecordSaved] = useState<any>(null);
   const [kycCustomer, setKycCustomer] = useState<any>(null);
   const [kycIsNewCustomer, setKycIsNewCustomer] = useState(false);
+  const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [kycForm, setKycForm] = useState({
     nic_number: '', passport_number: '', customer_type: 'individual', full_name: '',
-    nationality: '', dob: '', address: '', contact_number: '', email: '',
+    nationality: 'Maldivian', dob: '', address: '', contact_number: '', email: '',
     is_pep: false,
-    transaction_type: 'money_changing', transaction_amount: '', transaction_currency: 'MVR',
-    transaction_reference: '', transaction_purpose: '',
-    cdd_type: 'standard',
-    is_not_physically_present: false,
-    rep_name: '', rep_id_type: 'nic', rep_id_number: '',
-    transfer_direction: 'domestic', beneficiary_name: '', beneficiary_institution: '',
-    originator_name: '', originator_id_number: '',
-    edd_source_of_wealth: '', edd_source_of_funds: '',
-    is_suspicious: false, str_notes: '',
   });
 
-  // Download the lightweight customer index on first load (ETag-cached)
-  useEffect(() => {
+  const isMaldivianNic = (val: string) => /^A\d{6}$/i.test(val.trim());
+
+  const loadCustomers = async () => {
     const bUrl = backendUrl || localStorage.getItem('viri_backend_url') || (typeof window !== 'undefined' ? `${window.location.origin}/api` : '');
     const token = localStorage.getItem('viri_token') || '';
     const cached = sessionStorage.getItem('kyc_index');
-    const cachedEtag = sessionStorage.getItem('kyc_index_etag') || '';
     if (cached) {
-      setKycIndex(JSON.parse(cached));
+      try { setKycIndex(JSON.parse(cached)); } catch {}
     }
-    fetch(`${bUrl}/kyc/customers/index`, {
-      headers: { Authorization: `Bearer ${token}`, 'If-None-Match': cachedEtag }
-    }).then(async res => {
-      if (res.status === 304) return; // Nothing changed
-      if (!res.ok) return;
-      const etag = res.headers.get('ETag') || '';
-      const data = await res.json();
-      setKycIndex(data);
-      sessionStorage.setItem('kyc_index', JSON.stringify(data));
-      sessionStorage.setItem('kyc_index_etag', etag);
-    }).catch(() => {});
+    setKycLoading(true);
+    try {
+      const res = await fetch(`${bUrl}/kyc/customers`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setKycIndex(data);
+        sessionStorage.setItem('kyc_index', JSON.stringify(data));
+      }
+    } catch {} finally {
+      setKycLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCustomers();
   }, [backendUrl]);
 
-  // Filter suggestions as user types
-  useEffect(() => {
-    if (!kycIdQuery.trim()) { setKycSuggestions([]); return; }
-    const q = kycIdQuery.toLowerCase();
-    setKycSuggestions(kycIndex.filter(c =>
-      c.nic_number?.toLowerCase().startsWith(q) ||
-      c.passport_number?.toLowerCase().startsWith(q) ||
-      c.full_name?.toLowerCase().includes(q)
-    ).slice(0, 8));
-  }, [kycIdQuery, kycIndex]);
+  const startNewCustomer = (initialQuery = '') => {
+    setKycCustomer(null);
+    setKycIsNewCustomer(true);
+    const cleanQuery = initialQuery.trim().toUpperCase();
+    const isNic = isMaldivianNic(cleanQuery);
+    setKycForm({
+      nic_number: isNic ? cleanQuery : (cleanQuery.startsWith('A') && cleanQuery.length <= 7 ? cleanQuery : ''),
+      passport_number: isNic ? '' : cleanQuery,
+      customer_type: 'individual',
+      full_name: '',
+      nationality: 'Maldivian',
+      dob: '',
+      address: '',
+      contact_number: '',
+      email: '',
+      is_pep: false,
+    });
+    setKycStep('form');
+  };
 
-  const selectExistingCustomer = async (item: typeof kycIndex[0]) => {
+  const handleEditCustomer = async (item: KycCustomerSummary) => {
     const bUrl = backendUrl || localStorage.getItem('viri_backend_url') || (typeof window !== 'undefined' ? `${window.location.origin}/api` : '');
     const token = localStorage.getItem('viri_token') || '';
-    setKycIdQuery(item.nic_number || item.passport_number || item.full_name);
-    setKycSuggestions([]);
+    setKycCustomer(item);
+    setKycIsNewCustomer(false);
+    setKycForm({
+      nic_number: item.nic_number || '',
+      passport_number: item.passport_number || '',
+      customer_type: item.customer_type || 'individual',
+      full_name: item.full_name || '',
+      nationality: item.nationality || 'Maldivian',
+      dob: item.dob ? item.dob.substring(0, 10) : '',
+      address: item.address || '',
+      contact_number: item.contact_number || '',
+      email: item.email || '',
+      is_pep: Boolean(item.is_pep),
+    });
+    setKycStep('form');
+
+    // Fetch full fresh profile from server
     try {
-      const res = await fetch(`${bUrl}/kyc/customers/${item.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`${bUrl}/kyc/customers/${item.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       if (res.ok) {
-        const c = await res.json();
-        setKycCustomer(c);
-        setKycIsNewCustomer(false);
-        setKycForm(f => ({ ...f,
-          nic_number: c.nic_number || '',
-          passport_number: c.passport_number || '',
-          customer_type: c.customer_type || 'individual',
-          full_name: c.full_name || '',
-          nationality: c.nationality || '',
-          dob: c.dob || '',
-          address: c.address || '',
-          contact_number: c.contact_number || '',
-          email: c.email || '',
-          is_pep: c.is_pep || false,
-        }));
-        setKycStep('form');
+        const full = await res.json();
+        setKycCustomer(full);
+        setKycForm({
+          nic_number: full.nic_number || '',
+          passport_number: full.passport_number || '',
+          customer_type: full.customer_type || 'individual',
+          full_name: full.full_name || '',
+          nationality: full.nationality || 'Maldivian',
+          dob: full.dob ? full.dob.substring(0, 10) : '',
+          address: full.address || '',
+          contact_number: full.contact_number || '',
+          email: full.email || '',
+          is_pep: Boolean(full.is_pep),
+        });
       }
     } catch {}
   };
 
-  const startNewCustomer = () => {
-    setKycCustomer(null);
-    setKycIsNewCustomer(true);
-    setKycForm(f => ({ ...f, nic_number: kycIdQuery.match(/^[A-Z]/) ? '' : kycIdQuery, passport_number: kycIdQuery.match(/^[A-Z]/) ? kycIdQuery : '' }));
-    setKycSuggestions([]);
-    setKycStep('form');
+  const handleDeleteCustomer = async (item: KycCustomerSummary, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const idLabel = item.nic_number ? `NIC: ${item.nic_number}` : `Passport: ${item.passport_number || '—'}`;
+    const confirmMsg = `Are you sure you want to delete customer "${item.full_name}" (${idLabel})?\n\nThis will remove the customer profile from the active directory.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    const bUrl = backendUrl || localStorage.getItem('viri_backend_url') || (typeof window !== 'undefined' ? `${window.location.origin}/api` : '');
+    const token = localStorage.getItem('viri_token') || '';
+    setDeletingCustomerId(item.id);
+    try {
+      const res = await fetch(`${bUrl}/kyc/customers/${item.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || 'Failed to delete customer.');
+        return;
+      }
+      const updated = kycIndex.filter(c => c.id !== item.id);
+      setKycIndex(updated);
+      sessionStorage.setItem('kyc_index', JSON.stringify(updated));
+      sessionStorage.removeItem('kyc_index_etag');
+      setFeedbackMessage({ type: 'success', text: `Customer "${item.full_name}" deleted successfully.` });
+      setTimeout(() => setFeedbackMessage(null), 4000);
+    } catch (err) {
+      alert('Error deleting customer.');
+    } finally {
+      setDeletingCustomerId(null);
+    }
   };
 
+  // Duplicate NIC validation
+  const normalizedFormNic = kycForm.nic_number.trim().toUpperCase();
+  const duplicateCustomer = normalizedFormNic
+    ? kycIndex.find(c =>
+        c.nic_number?.toUpperCase() === normalizedFormNic &&
+        (!kycCustomer?.id || c.id !== kycCustomer.id)
+      )
+    : null;
+
   const submitKyc = async () => {
+    if (duplicateCustomer) {
+      alert(`A customer with NIC number '${normalizedFormNic}' is already registered (${duplicateCustomer.full_name}). Duplicate NIC numbers cannot be added.`);
+      return;
+    }
+
     const bUrl = backendUrl || localStorage.getItem('viri_backend_url') || (typeof window !== 'undefined' ? `${window.location.origin}/api` : '');
     const token = localStorage.getItem('viri_token') || '';
     setKycSavingRecord(true);
     try {
-      let customerId = kycCustomer?.id;
-      if (kycIsNewCustomer) {
+      let savedCustomer: any = null;
+      if (kycIsNewCustomer || !kycCustomer?.id) {
         const cRes = await fetch(`${bUrl}/kyc/customers`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            nic_number: kycForm.nic_number || undefined,
-            passport_number: kycForm.passport_number || undefined,
+            nic_number: kycForm.nic_number ? kycForm.nic_number.trim().toUpperCase() : undefined,
+            passport_number: kycForm.passport_number ? kycForm.passport_number.trim().toUpperCase() : undefined,
             customer_type: kycForm.customer_type,
-            full_name: kycForm.full_name,
-            nationality: kycForm.nationality,
+            full_name: kycForm.full_name.trim(),
+            nationality: kycForm.nationality.trim(),
             dob: kycForm.dob || undefined,
-            address: kycForm.address,
-            contact_number: kycForm.contact_number,
-            email: kycForm.email || undefined,
+            address: kycForm.address.trim(),
+            contact_number: kycForm.contact_number.trim(),
+            email: kycForm.email ? kycForm.email.trim() : undefined,
             is_pep: kycForm.is_pep,
           })
         });
-        if (!cRes.ok) { alert('Failed to save customer.'); setKycSavingRecord(false); return; }
-        const newC = await cRes.json();
-        customerId = newC.id;
-        // Bust the local index cache so the new customer appears next time
-        sessionStorage.removeItem('kyc_index');
-        sessionStorage.removeItem('kyc_index_etag');
+        if (!cRes.ok) {
+          const err = await cRes.json().catch(() => ({}));
+          alert(err.message || 'Failed to save customer profile.');
+          setKycSavingRecord(false);
+          return;
+        }
+        savedCustomer = await cRes.json();
+        setKycIndex(prev => [savedCustomer, ...prev.filter(c => c.id !== savedCustomer.id)]);
+      } else {
+        const cRes = await fetch(`${bUrl}/kyc/customers/${kycCustomer.id}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nic_number: kycForm.nic_number ? kycForm.nic_number.trim().toUpperCase() : undefined,
+            passport_number: kycForm.passport_number ? kycForm.passport_number.trim().toUpperCase() : undefined,
+            customer_type: kycForm.customer_type,
+            full_name: kycForm.full_name.trim(),
+            nationality: kycForm.nationality.trim(),
+            dob: kycForm.dob || undefined,
+            address: kycForm.address.trim(),
+            contact_number: kycForm.contact_number.trim(),
+            email: kycForm.email ? kycForm.email.trim() : undefined,
+            is_pep: kycForm.is_pep,
+          })
+        });
+        if (!cRes.ok) {
+          const err = await cRes.json().catch(() => ({}));
+          alert(err.message || 'Failed to update customer profile.');
+          setKycSavingRecord(false);
+          return;
+        }
+        savedCustomer = await cRes.json();
+        setKycIndex(prev => prev.map(c => c.id === savedCustomer.id ? savedCustomer : c));
       }
-      const rRes = await fetch(`${bUrl}/kyc/records`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          kyc_customer_id: customerId,
-          transaction_type: kycForm.transaction_type,
-          transaction_amount: parseFloat(kycForm.transaction_amount) || 0,
-          transaction_currency: kycForm.transaction_currency,
-          transaction_reference: kycForm.transaction_reference || undefined,
-          transaction_purpose: kycForm.transaction_purpose || undefined,
-          cdd_type: kycForm.cdd_type,
-          is_not_physically_present: kycForm.is_not_physically_present,
-          rep_name: kycForm.rep_name || undefined,
-          rep_id_type: kycForm.rep_id_type || undefined,
-          rep_id_number: kycForm.rep_id_number || undefined,
-          transfer_direction: kycForm.transaction_type === 'money_transfer' ? kycForm.transfer_direction : undefined,
-          originator_name: kycForm.originator_name || undefined,
-          originator_id_number: kycForm.originator_id_number || undefined,
-          beneficiary_name: kycForm.beneficiary_name || undefined,
-          beneficiary_institution: kycForm.beneficiary_institution || undefined,
-          edd_source_of_wealth: kycForm.edd_source_of_wealth || undefined,
-          edd_source_of_funds: kycForm.edd_source_of_funds || undefined,
-          edd_status: (kycForm.edd_source_of_wealth || kycForm.edd_source_of_funds) ? 'pending_approval' : 'not_required',
-          is_suspicious: kycForm.is_suspicious,
-          str_notes: kycForm.str_notes || undefined,
-        })
-      });
-      if (!rRes.ok) { alert('Failed to save KYC record.'); setKycSavingRecord(false); return; }
-      const saved = await rRes.json();
-      setKycRecordSaved(saved);
+
+      sessionStorage.removeItem('kyc_index');
+      sessionStorage.removeItem('kyc_index_etag');
+
+      setKycRecordSaved(savedCustomer);
       setKycStep('submitted');
     } catch (e) {
-      alert('Error submitting KYC form.');
+      alert('Error saving customer profile.');
     } finally {
       setKycSavingRecord(false);
     }
   };
 
-  const amountNum = parseFloat(kycForm.transaction_amount) || 0;
+  const filteredCustomers = useMemo(() => {
+    if (!searchQuery.trim()) return kycIndex;
+    const q = searchQuery.toLowerCase().trim();
+    return kycIndex.filter(c =>
+      c.full_name?.toLowerCase().includes(q) ||
+      c.nic_number?.toLowerCase().includes(q) ||
+      c.passport_number?.toLowerCase().includes(q) ||
+      c.contact_number?.toLowerCase().includes(q) ||
+      c.nationality?.toLowerCase().includes(q) ||
+      c.address?.toLowerCase().includes(q)
+    );
+  }, [searchQuery, kycIndex]);
+
+  const searchIsNic = isMaldivianNic(searchQuery);
+  const exactNicMatch = searchIsNic
+    ? kycIndex.find(c => c.nic_number?.toUpperCase() === searchQuery.trim().toUpperCase())
+    : null;
+
   const isHighRisk = kycCustomer?.is_high_risk_country || kycCustomer?.is_pep || kycForm.is_pep;
-  const requiresEdd = isHighRisk || amountNum >= 50000;
-  const requiresCtr = kycForm.transaction_currency === 'MVR' && amountNum >= 200000;
 
   return (
-    <div className="flex-1 w-full max-w-2xl mx-auto flex flex-col items-center justify-start p-4 md:p-8 animate-fade-in overflow-y-auto">
-      <div className="w-full space-y-2 mb-6 text-center">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-amber-500/10 mb-2">
-          <Shield size={28} className="text-amber-400" />
-        </div>
-        <h2 className="text-2xl font-bold text-white">KYC / AML Form</h2>
-        <p className="text-xs text-[var(--text-secondary)]">Required for all money changing & transfer transactions under MMA regulations.</p>
-      </div>
+    <div className="flex-1 w-full flex flex-col items-center justify-start p-4 md:p-6 animate-fade-in overflow-y-auto">
+      {/* Step: List / Search Directory */}
+      {kycStep === 'list' && (
+        <div className="w-full max-w-5xl space-y-6">
+          {/* Header Banner */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 glass-panel p-5 rounded-2xl border border-[var(--border-color)]">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
+                <Shield size={24} className="text-amber-400" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  KYC / AML Customer Registry
+                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-zinc-800 text-zinc-300 font-mono font-medium">
+                    {kycIndex.length} {kycIndex.length === 1 ? 'Customer' : 'Customers'}
+                  </span>
+                </h2>
+                <p className="text-xs text-[var(--text-secondary)]">Search, register, and maintain customer identification profiles under MMA regulations.</p>
+              </div>
+            </div>
 
-      {/* Step: Search / Autocomplete */}
-      {kycStep === 'search' && (
-        <div className="w-full space-y-4">
-          <div className="glass-panel p-5 rounded-2xl border border-amber-500/20 space-y-3">
-            <label className="text-xs font-bold text-[var(--text-primary)]">Enter NIC or Passport Number</label>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => loadCustomers()}
+                title="Refresh customer list"
+                className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
+              >
+                <RefreshCw size={15} className={kycLoading ? 'animate-spin' : ''} />
+              </button>
+              <button
+                type="button"
+                onClick={() => startNewCustomer(searchQuery)}
+                className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-colors flex items-center gap-2 shadow-lg shadow-amber-500/10"
+              >
+                <UserPlus size={15} /> Register Customer
+              </button>
+            </div>
+          </div>
+
+          {/* Feedback message banner */}
+          {feedbackMessage && (
+            <div className={`px-4 py-3 rounded-xl border text-xs flex items-center gap-2 animate-fade-in ${
+              feedbackMessage.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-red-400'
+            }`}>
+              <Check size={14} /> {feedbackMessage.text}
+            </div>
+          )}
+
+          {/* Search Bar & Smart Matcher */}
+          <div className="space-y-2">
             <div className="relative">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" />
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
               <input
                 type="text"
                 autoFocus
-                placeholder="Type NIC or Passport to search…"
-                value={kycIdQuery}
-                onChange={e => setKycIdQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-3 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] text-sm text-white focus:outline-none focus:border-amber-500/60 placeholder:text-zinc-600"
+                placeholder="Search registered customers by Name, NIC (e.g. A026076), Passport, Contact, or Nationality…"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-10 py-3 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] text-sm text-white focus:outline-none focus:border-amber-500/60 placeholder:text-zinc-500"
               />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                >
+                  <X size={15} />
+                </button>
+              )}
             </div>
-            {kycSuggestions.length > 0 && (
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-                {kycSuggestions.map(s => (
-                  <button key={s.id} onClick={() => selectExistingCustomer(s)}
-                    className="w-full text-left px-4 py-3 text-xs hover:bg-zinc-800 transition-colors flex items-center justify-between border-b border-zinc-800 last:border-0">
-                    <span className="font-bold text-white">{s.full_name}</span>
-                    <span className="font-mono text-zinc-400">{s.nic_number || s.passport_number}</span>
+
+            {/* Smart Maldivian NIC Banner */}
+            {searchIsNic && (
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Check size={14} className="text-emerald-400 shrink-0" />
+                  <span className="text-zinc-300">
+                    Maldivian NIC format detected: <strong className="font-mono text-white">{searchQuery.trim().toUpperCase()}</strong>
+                    {exactNicMatch ? (
+                      <span className="text-amber-400 font-semibold ml-2">· Already registered to {exactNicMatch.full_name}</span>
+                    ) : (
+                      <span className="text-zinc-400 ml-2">· Not yet registered in database</span>
+                    )}
+                  </span>
+                </div>
+                {exactNicMatch ? (
+                  <button
+                    type="button"
+                    onClick={() => handleEditCustomer(exactNicMatch)}
+                    className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-colors shrink-0 ml-2"
+                  >
+                    Edit Customer
                   </button>
-                ))}
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => startNewCustomer(searchQuery)}
+                    className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-colors shrink-0 ml-2"
+                  >
+                    Register This NIC
+                  </button>
+                )}
               </div>
             )}
-            {kycIdQuery.trim() && kycSuggestions.length === 0 && (
-              <div className="text-xs text-zinc-500 text-center py-2">No existing customer found for "{kycIdQuery}"</div>
+          </div>
+
+          {/* Customer Directory Table */}
+          <div className="glass-panel rounded-2xl border border-[var(--border-color)] overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-[var(--border-color)] bg-zinc-900/40 flex items-center justify-between text-xs text-[var(--text-secondary)]">
+              <span className="font-semibold uppercase tracking-wider text-[11px]">
+                {searchQuery ? `Matching Results (${filteredCustomers.length})` : `All Customers (${filteredCustomers.length})`}
+              </span>
+              {kycLoading && (
+                <span className="flex items-center gap-1.5 text-amber-400 font-medium">
+                  <Loader2 size={12} className="animate-spin" /> Synchronizing…
+                </span>
+              )}
+            </div>
+
+            {filteredCustomers.length === 0 ? (
+              <div className="p-12 text-center space-y-3">
+                <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-zinc-800/80 text-zinc-500 mb-1">
+                  <Users size={22} />
+                </div>
+                <h4 className="text-sm font-bold text-white">No customers found</h4>
+                <p className="text-xs text-zinc-500 max-w-sm mx-auto">
+                  {searchQuery
+                    ? `No registered customers match "${searchQuery}". Click below to register a new customer with this information.`
+                    : 'No customer profiles have been registered yet. Add your first customer to get started.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => startNewCustomer(searchQuery)}
+                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-colors inline-flex items-center gap-1.5 mt-2"
+                >
+                  <UserPlus size={14} /> Register New Customer
+                </button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-zinc-800 bg-zinc-900/60 text-zinc-400 font-semibold">
+                      <th className="py-3 px-4">Customer</th>
+                      <th className="py-3 px-4">Identification</th>
+                      <th className="py-3 px-4">Nationality</th>
+                      <th className="py-3 px-4">Contact</th>
+                      <th className="py-3 px-4">Risk Profile</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800/60">
+                    {filteredCustomers.map(c => {
+                      const isNic = c.nic_number && isMaldivianNic(c.nic_number);
+                      const isDeleting = deletingCustomerId === c.id;
+                      return (
+                        <tr
+                          key={c.id}
+                          onClick={() => handleEditCustomer(c)}
+                          className="hover:bg-zinc-800/40 cursor-pointer transition-colors group"
+                        >
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 font-bold flex items-center justify-center text-xs shrink-0">
+                                {c.full_name?.charAt(0)?.toUpperCase() || 'C'}
+                              </div>
+                              <div>
+                                <div className="font-bold text-white group-hover:text-amber-400 transition-colors">
+                                  {c.full_name}
+                                </div>
+                                <div className="text-[10px] text-zinc-500 capitalize">
+                                  {c.customer_type || 'individual'}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-4">
+                            {c.nic_number ? (
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono text-zinc-200 font-semibold">{c.nic_number}</span>
+                                {isNic && (
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+                                    NIC
+                                  </span>
+                                )}
+                              </div>
+                            ) : c.passport_number ? (
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono text-zinc-300">{c.passport_number}</span>
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">
+                                  Passport
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-zinc-600">—</span>
+                            )}
+                          </td>
+
+                          <td className="py-3.5 px-4 text-zinc-300">
+                            {c.nationality || 'Maldivian'}
+                          </td>
+
+                          <td className="py-3.5 px-4">
+                            <div className="text-zinc-200 font-mono text-[11px]">{c.contact_number || '—'}</div>
+                            {c.email && <div className="text-[10px] text-zinc-500 truncate max-w-[140px]">{c.email}</div>}
+                          </td>
+
+                          <td className="py-3.5 px-4">
+                            {c.is_pep ? (
+                              <span className="px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30 text-[10px] font-bold">
+                                PEP
+                              </span>
+                            ) : c.is_high_risk_country ? (
+                              <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 text-[10px] font-semibold">
+                                High Risk Country
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-zinc-500">Standard</span>
+                            )}
+                          </td>
+
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="inline-flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                onClick={() => handleEditCustomer(c)}
+                                title="Edit Customer Profile"
+                                className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors"
+                              >
+                                <Edit3 size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isDeleting}
+                                onClick={e => handleDeleteCustomer(c, e)}
+                                title="Delete Customer Profile"
+                                className="p-1.5 rounded-lg bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 transition-colors disabled:opacity-50"
+                              >
+                                {isDeleting ? <Loader2 size={13} className="animate-spin text-red-400" /> : <Trash2 size={13} />}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
-          <div className="flex gap-3">
-            <button onClick={startNewCustomer} disabled={!kycIdQuery.trim()}
-              className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-sm font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-              Register New Customer
-            </button>
-          </div>
-          <p className="text-[10px] text-zinc-600 text-center">If customer already exists, select from the list above to auto-fill their profile. No data is transferred unless you select or submit.</p>
         </div>
       )}
 
-      {/* Step: Form */}
+      {/* Step: Form (Register / Edit) */}
       {kycStep === 'form' && (
-        <div className="w-full space-y-5">
-          {/* Customer Profile Section */}
+        <div className="w-full max-w-2xl space-y-5">
           <div className="glass-panel p-5 rounded-2xl border border-[var(--border-color)] space-y-4">
-            <h3 className="text-sm font-bold text-amber-400 flex items-center gap-2"><Shield size={14} /> Customer Identity</h3>
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <h3 className="text-sm font-bold text-amber-400 flex items-center gap-2">
+                <Shield size={16} />
+                {kycIsNewCustomer ? 'Register New Customer' : 'Edit Customer Profile'}
+              </h3>
+              {!kycIsNewCustomer && kycCustomer?.id && (
+                <span className="text-xs font-mono text-zinc-500">Customer ID: #{kycCustomer.id}</span>
+              )}
+            </div>
+
+            {/* Returning customer indicator */}
             {!kycIsNewCustomer && (
-              <div className="px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-bold flex items-center gap-2">
-                <Check size={13} /> Returning customer — profile pre-filled from database.
+              <div className="px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-bold flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Check size={13} /> Editing existing profile. Update fields below as needed.
+                </div>
               </div>
             )}
+
+            {/* Identifiers Grid */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="input-label">NIC Number</label>
-                <input type="text" value={kycForm.nic_number} onChange={e => setKycForm(f => ({...f, nic_number: e.target.value}))}
-                  disabled={!kycIsNewCustomer} placeholder="A123456"
-                  className="input-field text-sm disabled:opacity-60" />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="input-label mb-0">NIC Number</label>
+                  {isMaldivianNic(kycForm.nic_number) && (
+                    <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
+                      <Check size={11} /> Maldivian NIC
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={kycForm.nic_number}
+                  onChange={e => {
+                    const raw = e.target.value.toUpperCase();
+                    const isNic = isMaldivianNic(raw);
+                    setKycForm(f => ({
+                      ...f,
+                      nic_number: raw,
+                      ...(isNic ? { nationality: 'Maldivian', customer_type: 'individual' } : {})
+                    }));
+                  }}
+                  placeholder="A026076"
+                  className={`input-field text-sm font-mono ${duplicateCustomer ? 'border-red-500 focus:border-red-500' : ''}`}
+                />
+                {isMaldivianNic(kycForm.nic_number) && !duplicateCustomer && (
+                  <p className="text-[10px] text-emerald-400/90 mt-1">
+                    Valid Maldivian National ID (A + 6 digits). Nationality auto-completed to Maldivian.
+                  </p>
+                )}
+
+                {/* Duplicate NIC alert */}
+                {duplicateCustomer && (
+                  <div className="mt-2 p-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-400 flex items-center justify-between gap-2 animate-fade-in">
+                    <div className="flex items-center gap-1.5">
+                      <AlertTriangle size={14} className="shrink-0 text-red-400" />
+                      <span>NIC <strong>{normalizedFormNic}</strong> already registered to <strong>{duplicateCustomer.full_name}</strong></span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleEditCustomer(duplicateCustomer)}
+                      className="px-2 py-0.5 rounded bg-red-500/20 hover:bg-red-500/30 text-red-300 font-bold text-[10px] shrink-0"
+                    >
+                      Edit Profile
+                    </button>
+                  </div>
+                )}
               </div>
+
               <div>
                 <label className="input-label">Passport Number</label>
-                <input type="text" value={kycForm.passport_number} onChange={e => setKycForm(f => ({...f, passport_number: e.target.value}))}
-                  disabled={!kycIsNewCustomer} placeholder="AB1234567"
-                  className="input-field text-sm disabled:opacity-60" />
+                <input
+                  type="text"
+                  value={kycForm.passport_number}
+                  onChange={e => {
+                    const raw = e.target.value.toUpperCase();
+                    if (isMaldivianNic(raw)) {
+                      setKycForm(f => ({
+                        ...f,
+                        nic_number: raw,
+                        passport_number: '',
+                        nationality: 'Maldivian',
+                        customer_type: 'individual'
+                      }));
+                    } else {
+                      setKycForm(f => ({ ...f, passport_number: raw }));
+                    }
+                  }}
+                  placeholder="AB1234567"
+                  className="input-field text-sm font-mono"
+                />
               </div>
             </div>
+
+            {/* Profile Fields */}
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
                 <label className="input-label">Full Name *</label>
-                <input type="text" value={kycForm.full_name} onChange={e => setKycForm(f => ({...f, full_name: e.target.value}))}
-                  disabled={!kycIsNewCustomer} placeholder="Full legal name"
-                  className="input-field text-sm disabled:opacity-60" />
+                <input
+                  type="text"
+                  value={kycForm.full_name}
+                  onChange={e => setKycForm(f => ({ ...f, full_name: e.target.value }))}
+                  placeholder="Full legal name"
+                  className="input-field text-sm"
+                />
               </div>
+
               <div>
                 <label className="input-label">Nationality *</label>
-                <input type="text" value={kycForm.nationality} onChange={e => setKycForm(f => ({...f, nationality: e.target.value}))}
-                  disabled={!kycIsNewCustomer} placeholder="e.g. Maldivian"
-                  className="input-field text-sm disabled:opacity-60" />
+                <input
+                  type="text"
+                  value={kycForm.nationality}
+                  onChange={e => setKycForm(f => ({ ...f, nationality: e.target.value }))}
+                  placeholder="e.g. Maldivian"
+                  className="input-field text-sm"
+                />
               </div>
+
               <div>
                 <label className="input-label">Date of Birth</label>
-                <input type="date" value={kycForm.dob} onChange={e => setKycForm(f => ({...f, dob: e.target.value}))}
-                  disabled={!kycIsNewCustomer}
-                  className="input-field text-sm disabled:opacity-60" />
+                <input
+                  type="date"
+                  value={kycForm.dob}
+                  onChange={e => setKycForm(f => ({ ...f, dob: e.target.value }))}
+                  className="input-field text-sm"
+                />
               </div>
+
               <div className="col-span-2">
                 <label className="input-label">Address *</label>
-                <input type="text" value={kycForm.address} onChange={e => setKycForm(f => ({...f, address: e.target.value}))}
-                  disabled={!kycIsNewCustomer} placeholder="Permanent residential address"
-                  className="input-field text-sm disabled:opacity-60" />
+                <input
+                  type="text"
+                  value={kycForm.address}
+                  onChange={e => setKycForm(f => ({ ...f, address: e.target.value }))}
+                  placeholder="Permanent residential address"
+                  className="input-field text-sm"
+                />
               </div>
+
               <div>
                 <label className="input-label">Contact *</label>
-                <input type="text" value={kycForm.contact_number} onChange={e => setKycForm(f => ({...f, contact_number: e.target.value}))}
-                  disabled={!kycIsNewCustomer}
-                  className="input-field text-sm disabled:opacity-60" />
+                <input
+                  type="text"
+                  value={kycForm.contact_number}
+                  onChange={e => setKycForm(f => ({ ...f, contact_number: e.target.value }))}
+                  placeholder="e.g. 7771234"
+                  className="input-field text-sm"
+                />
               </div>
+
               <div>
                 <label className="input-label">Email</label>
-                <input type="email" value={kycForm.email} onChange={e => setKycForm(f => ({...f, email: e.target.value}))}
-                  disabled={!kycIsNewCustomer}
-                  className="input-field text-sm disabled:opacity-60" />
+                <input
+                  type="email"
+                  value={kycForm.email}
+                  onChange={e => setKycForm(f => ({ ...f, email: e.target.value }))}
+                  placeholder="name@example.com"
+                  className="input-field text-sm"
+                />
               </div>
             </div>
-            <label className="flex items-center gap-2 text-xs cursor-pointer">
-              <input type="checkbox" checked={kycForm.is_pep} onChange={e => setKycForm(f => ({...f, is_pep: e.target.checked}))}
-                disabled={!kycIsNewCustomer} className="rounded" />
+
+            <label className="flex items-center gap-2 text-xs cursor-pointer pt-1">
+              <input
+                type="checkbox"
+                checked={kycForm.is_pep}
+                onChange={e => setKycForm(f => ({ ...f, is_pep: e.target.checked }))}
+                className="rounded"
+              />
               <span className={kycForm.is_pep ? 'text-red-400 font-bold' : 'text-[var(--text-secondary)]'}>
                 Politically Exposed Person (PEP)
               </span>
             </label>
-            {kycCustomer?.is_high_risk_country && (
+
+            {isHighRisk && (
               <div className="px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-bold flex items-center gap-2">
-                <AlertTriangle size={13} /> High-risk country nationality — EDD required
-              </div>
-            )}
-          </div>
-
-          {/* Transaction Details Section */}
-          <div className="glass-panel p-5 rounded-2xl border border-[var(--border-color)] space-y-4">
-            <h3 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2"><Briefcase size={14} className="text-amber-400" /> Transaction Details</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="input-label">Transaction Type *</label>
-                <select value={kycForm.transaction_type} onChange={e => setKycForm(f => ({...f, transaction_type: e.target.value}))}
-                  className="input-field text-sm">
-                  <option value="money_changing">Money Changing</option>
-                  <option value="money_transfer">Money Transfer</option>
-                </select>
-              </div>
-              <div>
-                <label className="input-label">CDD Level *</label>
-                <select value={kycForm.cdd_type} onChange={e => setKycForm(f => ({...f, cdd_type: e.target.value}))}
-                  className="input-field text-sm">
-                  <option value="simplified">Simplified</option>
-                  <option value="standard">Standard</option>
-                  <option value="enhanced">Enhanced (EDD)</option>
-                </select>
-              </div>
-              <div>
-                <label className="input-label">Amount *</label>
-                <input type="number" min="0" step="0.01" value={kycForm.transaction_amount} onChange={e => setKycForm(f => ({...f, transaction_amount: e.target.value}))}
-                  placeholder="0.00" className="input-field text-sm" />
-              </div>
-              <div>
-                <label className="input-label">Currency</label>
-                <input type="text" value={kycForm.transaction_currency} onChange={e => setKycForm(f => ({...f, transaction_currency: e.target.value.toUpperCase()}))}
-                  maxLength={5} className="input-field text-sm" />
-              </div>
-              <div className="col-span-2">
-                <label className="input-label">Purpose of Transaction</label>
-                <input type="text" value={kycForm.transaction_purpose} onChange={e => setKycForm(f => ({...f, transaction_purpose: e.target.value}))}
-                  placeholder="e.g. Family remittance, tourism, trade" className="input-field text-sm" />
-              </div>
-              <div className="col-span-2">
-                <label className="input-label">Reference</label>
-                <input type="text" value={kycForm.transaction_reference} onChange={e => setKycForm(f => ({...f, transaction_reference: e.target.value}))}
-                  className="input-field text-sm" />
-              </div>
-            </div>
-            <label className="flex items-center gap-2 text-xs cursor-pointer">
-              <input type="checkbox" checked={kycForm.is_not_physically_present} onChange={e => setKycForm(f => ({...f, is_not_physically_present: e.target.checked}))} className="rounded" />
-              <span className="text-[var(--text-secondary)]">Customer not physically present</span>
-            </label>
-          </div>
-
-          {/* Money Transfer — Beneficiary Details */}
-          {kycForm.transaction_type === 'money_transfer' && (
-            <div className="glass-panel p-5 rounded-2xl border border-blue-500/20 space-y-4">
-              <h3 className="text-sm font-bold text-blue-400">Wire Transfer Details (§7d)</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="input-label">Direction</label>
-                  <select value={kycForm.transfer_direction} onChange={e => setKycForm(f => ({...f, transfer_direction: e.target.value}))} className="input-field text-sm">
-                    <option value="domestic">Domestic</option>
-                    <option value="outbound">Outbound</option>
-                    <option value="inbound">Inbound</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="input-label">Originator Name</label>
-                  <input type="text" value={kycForm.originator_name} onChange={e => setKycForm(f => ({...f, originator_name: e.target.value}))} className="input-field text-sm" />
-                </div>
-                <div>
-                  <label className="input-label">Originator ID</label>
-                  <input type="text" value={kycForm.originator_id_number} onChange={e => setKycForm(f => ({...f, originator_id_number: e.target.value}))} className="input-field text-sm" />
-                </div>
-                <div>
-                  <label className="input-label">Beneficiary Name</label>
-                  <input type="text" value={kycForm.beneficiary_name} onChange={e => setKycForm(f => ({...f, beneficiary_name: e.target.value}))} className="input-field text-sm" />
-                </div>
-                <div className="col-span-2">
-                  <label className="input-label">Beneficiary Institution</label>
-                  <input type="text" value={kycForm.beneficiary_institution} onChange={e => setKycForm(f => ({...f, beneficiary_institution: e.target.value}))} className="input-field text-sm" />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* EDD Section — shown when risk flags trigger */}
-          {requiresEdd && (
-            <div className="glass-panel p-5 rounded-2xl border border-amber-500/30 space-y-4 bg-amber-500/5">
-              <h3 className="text-sm font-bold text-amber-400 flex items-center gap-2"><AlertTriangle size={14} /> Enhanced Due Diligence Required (§12)</h3>
-              <p className="text-[10px] text-amber-300/70">This customer/transaction requires EDD. Source of wealth and funds must be documented and approved by senior management.</p>
-              <div>
-                <label className="input-label">Source of Wealth *</label>
-                <input type="text" value={kycForm.edd_source_of_wealth} onChange={e => setKycForm(f => ({...f, edd_source_of_wealth: e.target.value}))}
-                  placeholder="e.g. Business income, employment, inheritance" className="input-field text-sm" />
-              </div>
-              <div>
-                <label className="input-label">Source of Funds *</label>
-                <input type="text" value={kycForm.edd_source_of_funds} onChange={e => setKycForm(f => ({...f, edd_source_of_funds: e.target.value}))}
-                  placeholder="e.g. Salary, savings, business revenue" className="input-field text-sm" />
-              </div>
-            </div>
-          )}
-
-          {/* CTR Notice */}
-          {requiresCtr && (
-            <div className="px-4 py-3 rounded-xl bg-orange-500/10 border border-orange-500/30 text-orange-400 text-xs font-bold flex items-center gap-2">
-              <AlertTriangle size={14} /> CTR Required — Cash transaction ≥ MVR 200,000 will be flagged for reporting to FIU (§18-19).
-            </div>
-          )}
-
-          {/* STR Flag */}
-          <div className="glass-panel p-5 rounded-2xl border border-[var(--border-color)] space-y-3">
-            <label className="flex items-center gap-2 text-xs cursor-pointer">
-              <input type="checkbox" checked={kycForm.is_suspicious} onChange={e => setKycForm(f => ({...f, is_suspicious: e.target.checked}))} className="rounded" />
-              <span className={kycForm.is_suspicious ? 'text-red-400 font-bold' : 'text-[var(--text-secondary)]'}>
-                Flag as Suspicious Transaction (STR) (§17)
-              </span>
-            </label>
-            {kycForm.is_suspicious && (
-              <div>
-                <label className="input-label">Grounds for Suspicion *</label>
-                <textarea value={kycForm.str_notes} onChange={e => setKycForm(f => ({...f, str_notes: e.target.value}))}
-                  rows={3} placeholder="Describe the suspicious behaviour or inconsistency observed…"
-                  className="input-field text-sm resize-none" />
+                <AlertTriangle size={13} /> High-risk customer profile (PEP or High-risk nationality)
               </div>
             )}
           </div>
 
           <div className="flex gap-3">
-            <button onClick={() => setKycStep('search')} className="px-5 py-3 rounded-xl bg-zinc-800 text-zinc-300 text-sm font-semibold hover:bg-zinc-700 transition-colors">
-              Back
+            <button
+              type="button"
+              onClick={() => setKycStep('list')}
+              className="px-5 py-3 rounded-xl bg-zinc-800 text-zinc-300 text-sm font-semibold hover:bg-zinc-700 transition-colors"
+            >
+              Cancel / Back to List
             </button>
             <button
+              type="button"
               onClick={submitKyc}
-              disabled={kycSavingRecord || !kycForm.full_name || !kycForm.nationality || !kycForm.address || !kycForm.contact_number || !kycForm.transaction_amount || (!kycForm.nic_number && !kycForm.passport_number)}
+              disabled={
+                kycSavingRecord ||
+                Boolean(duplicateCustomer) ||
+                !kycForm.full_name.trim() ||
+                !kycForm.nationality.trim() ||
+                !kycForm.address.trim() ||
+                !kycForm.contact_number.trim() ||
+                (!kycForm.nic_number.trim() && !kycForm.passport_number.trim())
+              }
               className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-sm font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              {kycSavingRecord ? <><Loader2 size={16} className="animate-spin" /> Saving…</> : 'Submit KYC Record'}
+              {kycSavingRecord ? (
+                <><Loader2 size={16} className="animate-spin" /> Saving…</>
+              ) : (
+                kycIsNewCustomer ? 'Save Customer Profile' : 'Update Customer Profile'
+              )}
             </button>
           </div>
         </div>
       )}
 
-      {/* Step: Submitted */}
+      {/* Step: Submitted Confirmation */}
       {kycStep === 'submitted' && kycRecordSaved && (
-        <div className="w-full space-y-5 text-center">
+        <div className="w-full max-w-xl space-y-5 text-center">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-500/10 border border-green-500/20 mb-2">
             <Check size={28} className="text-green-400" />
           </div>
-          <h3 className="text-xl font-bold text-white">KYC Record Submitted</h3>
-          <p className="text-xs text-zinc-400">Record ID: <span className="font-mono text-amber-400">KYC-{kycRecordSaved.id}</span></p>
+          <h3 className="text-xl font-bold text-white">
+            {kycIsNewCustomer ? 'Customer Profile Registered' : 'Customer Profile Updated'}
+          </h3>
+          <p className="text-xs text-zinc-400">
+            Customer: <span className="font-bold text-white">{kycRecordSaved.full_name}</span> · ID: <span className="font-mono text-amber-400">#{kycRecordSaved.id}</span>
+          </p>
+
           <div className="glass-panel p-5 rounded-2xl border border-[var(--border-color)] text-left space-y-2 text-xs">
-            {kycRecordSaved.requires_ctr && (
-              <div className="flex items-center gap-2 text-orange-400 font-bold"><AlertTriangle size={13} /> CTR required — report this transaction to FIU</div>
-            )}
-            {kycRecordSaved.is_suspicious && (
-              <div className="flex items-center gap-2 text-red-400 font-bold"><AlertTriangle size={13} /> STR flagged — submit to FIU within 3 working days</div>
-            )}
-            {kycRecordSaved.edd_status === 'pending_approval' && (
-              <div className="flex items-center gap-2 text-amber-400 font-bold"><Shield size={13} /> EDD pending — awaiting senior management approval</div>
-            )}
-            {!kycRecordSaved.requires_ctr && !kycRecordSaved.is_suspicious && kycRecordSaved.edd_status !== 'pending_approval' && (
-              <div className="flex items-center gap-2 text-green-400"><Check size={13} /> All compliance checks passed</div>
-            )}
+            <div className="flex items-center justify-between py-1 border-b border-zinc-800">
+              <span className="text-zinc-400">NIC / Passport</span>
+              <span className="font-mono text-white">{kycRecordSaved.nic_number || kycRecordSaved.passport_number || '—'}</span>
+            </div>
+            <div className="flex items-center justify-between py-1 border-b border-zinc-800">
+              <span className="text-zinc-400">Nationality</span>
+              <span className="text-white">{kycRecordSaved.nationality}</span>
+            </div>
+            <div className="flex items-center justify-between py-1 border-b border-zinc-800">
+              <span className="text-zinc-400">Contact Number</span>
+              <span className="text-white">{kycRecordSaved.contact_number}</span>
+            </div>
+            <div className="flex items-center justify-between py-1 border-b border-zinc-800">
+              <span className="text-zinc-400">Address</span>
+              <span className="text-white truncate max-w-[280px]">{kycRecordSaved.address}</span>
+            </div>
+            <div className="flex items-center justify-between py-1">
+              <span className="text-zinc-400">PEP Status</span>
+              <span className={kycRecordSaved.is_pep ? 'text-red-400 font-bold' : 'text-green-400'}>
+                {kycRecordSaved.is_pep ? 'Politically Exposed Person' : 'No'}
+              </span>
+            </div>
           </div>
-          <button onClick={() => { setKycStep('search'); setKycIdQuery(''); setKycForm(f => ({ ...f, transaction_amount: '', transaction_reference: '', transaction_purpose: '', is_suspicious: false, str_notes: '', edd_source_of_wealth: '', edd_source_of_funds: '' })); setKycRecordSaved(null); setKycCustomer(null); setKycIsNewCustomer(false); }}
-            className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-sm font-bold transition-colors">
-            New Transaction
-          </button>
+
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => { setKycStep('list'); setKycRecordSaved(null); }}
+              className="flex-1 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-sm font-bold transition-colors"
+            >
+              Back to Customer Directory
+            </button>
+            <button
+              type="button"
+              onClick={() => { startNewCustomer(); setKycRecordSaved(null); }}
+              className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-sm font-bold transition-colors"
+            >
+              Register Another Customer
+            </button>
+          </div>
         </div>
       )}
     </div>

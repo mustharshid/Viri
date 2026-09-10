@@ -122,9 +122,11 @@ Route::middleware('auth:sanctum')->group(function () {
         // Customer lightweight index for autocomplete (minimal data transfer)
         Route::get('/customers/index', [KycController::class, 'customerIndex']);
         // Customer CRUD
+        Route::get('/customers', [KycController::class, 'listCustomers']);
         Route::post('/customers', [KycController::class, 'createCustomer']);
         Route::get('/customers/{id}', [KycController::class, 'showCustomer']);
         Route::put('/customers/{id}', [KycController::class, 'updateCustomer']);
+        Route::delete('/customers/{id}', [KycController::class, 'deleteCustomer']);
         // Transaction Records
         Route::get('/records', [KycController::class, 'listRecords']);
         Route::post('/records', [KycController::class, 'createRecord']);
@@ -183,6 +185,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
 // Terminal Currency Endpoints
 Route::get('/terminal/currencies', [CurrencyController::class, 'index']);
+Route::post('/terminal/currencies', [CurrencyController::class, 'store']);
+Route::put('/terminal/currencies/{id}', [CurrencyController::class, 'update']);
+Route::delete('/terminal/currencies/{id}', [CurrencyController::class, 'destroy']);
 
 // Terminal Currency Exchange Sales Endpoints
 Route::get('/terminal/exchange-sales', [ExchangeSaleController::class, 'index']);

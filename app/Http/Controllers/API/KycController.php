@@ -59,7 +59,7 @@ class KycController extends Controller
             return KycCustomer::where('tenant_id', $tenantId)
                 ->whereNull('deleted_at')
                 ->orderBy('full_name')
-                ->get(['id', 'nic_number', 'passport_number', 'full_name']);
+                ->get(['id', 'nic_number', 'passport_number', 'full_name', 'nationality', 'contact_number', 'address', 'email', 'dob', 'customer_type', 'is_pep', 'is_high_risk_country', 'created_at']);
         });
 
         // Generate ETag from a hash of the data so clients can use conditional requests
@@ -77,6 +77,34 @@ class KycController extends Controller
     // ════════════════════════════════════════════════════════════════════════
     //  CUSTOMER CRUD
     // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * GET /api/kyc/customers
+     * List registered customers for the tenant — searchable.
+     */
+    public function listCustomers(Request $request)
+    {
+        $this->ensureKycEnabled($request);
+        $tenantId = $request->user()->tenant_id;
+
+        $query = KycCustomer::where('tenant_id', $tenantId)
+            ->whereNull('deleted_at');
+
+        if ($request->filled('search')) {
+            $term = trim($request->search);
+            $query->where(function ($q) use ($term) {
+                $q->where('nic_number', 'like', "%{$term}%")
+                  ->orWhere('passport_number', 'like', "%{$term}%")
+                  ->orWhere('full_name', 'like', "%{$term}%")
+                  ->orWhere('contact_number', 'like', "%{$term}%")
+                  ->orWhere('nationality', 'like', "%{$term}%");
+            });
+        }
+
+        $customers = $query->orderBy('full_name')->get();
+
+        return response()->json($customers);
+    }
 
     /**
      * GET /api/kyc/customers/{id}
@@ -128,6 +156,23 @@ class KycController extends Controller
         $user = $request->user();
         $tenantId = $user->tenant_id;
 
+        // Ensure duplicate NIC cannot be added within the same company
+        if (!empty($data['nic_number'])) {
+            $normalizedNic = trim(strtoupper($data['nic_number']));
+            $data['nic_number'] = $normalizedNic;
+
+            $existing = KycCustomer::where('tenant_id', $tenantId)
+                ->where('nic_number', $normalizedNic)
+                ->whereNull('deleted_at')
+                ->first();
+
+            if ($existing) {
+                return response()->json([
+                    'message' => "A customer with NIC number '{$normalizedNic}' is already registered ({$existing->full_name})."
+                ], 422);
+            }
+        }
+
         $customer = KycCustomer::create(array_merge($data, [
             'tenant_id'       => $tenantId,
             'created_by'      => $user->id,
@@ -173,12 +218,54 @@ class KycController extends Controller
             'id_document_local_path'      => 'nullable|string|max:500',
         ]);
 
+        // Ensure duplicate NIC cannot be assigned to another customer
+        if (!empty($data['nic_number'])) {
+            $normalizedNic = trim(strtoupper($data['nic_number']));
+            $data['nic_number'] = $normalizedNic;
+
+            $existing = KycCustomer::where('tenant_id', $tenantId)
+                ->where('nic_number', $normalizedNic)
+                ->where('id', '!=', $id)
+                ->whereNull('deleted_at')
+                ->first();
+
+            if ($existing) {
+                return response()->json([
+                    'message' => "A customer with NIC number '{$normalizedNic}' is already registered ({$existing->full_name})."
+                ], 422);
+            }
+        }
+
         $customer->update(array_merge($data, ['last_updated_by' => $user->id]));
 
         // Invalidate index cache (name or IDs may have changed)
         Cache::forget("kyc_customer_index_{$tenantId}");
 
         return response()->json($customer->fresh());
+    }
+
+    /**
+     * DELETE /api/kyc/customers/{id}
+     * Soft delete a customer profile.
+     */
+    public function deleteCustomer(Request $request, int $id)
+    {
+        $this->ensureKycEnabled($request);
+        $user = $request->user();
+        $tenantId = $user->tenant_id;
+
+        $customer = KycCustomer::where('tenant_id', $tenantId)->findOrFail($id);
+
+        $customerName = $customer->full_name;
+        $customer->update(['last_updated_by' => $user->id]);
+        $customer->delete();
+
+        // Invalidate index cache
+        Cache::forget("kyc_customer_index_{$tenantId}");
+
+        return response()->json([
+            'message' => "Customer profile '{$customerName}' deleted successfully."
+        ]);
     }
 
     // ════════════════════════════════════════════════════════════════════════
