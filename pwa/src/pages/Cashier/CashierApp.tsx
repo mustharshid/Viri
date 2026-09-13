@@ -2218,11 +2218,18 @@ function App() {
           success = true;
           consecutiveFailures = 0;
           const data = await response.json();
+          // Re-sync the extension's terminal token on every poll. The server only
+          // returns a fresh plain-text token at bootstrap (count===0); after that it
+          // returns null, so re-relay the locally-stored token to heal any extension
+          // that missed the one-shot delivery (otherwise it 401s forever).
           if (data.terminal_token) {
             localStorage.setItem('viri_terminal_token', data.terminal_token);
+          }
+          const storedToken = localStorage.getItem('viri_terminal_token');
+          if (storedToken) {
             const extId = localStorage.getItem('viri_extension_id');
             if (extId && typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-              chrome.runtime.sendMessage(extId, { action: 'STORE_TERMINAL_TOKEN', payload: { token: data.terminal_token } }, () => {
+              chrome.runtime.sendMessage(extId, { action: 'STORE_TERMINAL_TOKEN', payload: { token: storedToken } }, () => {
                 if (chrome.runtime.lastError) { /* extension not available */ }
               });
             }
