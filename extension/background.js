@@ -30,6 +30,32 @@ function buildMibJsonHeaders(token) {
   return headers;
 }
 
+// POST /mib/keys/store with a token that self-heals on 401. A stale user token
+// (sanctumToken) can shadow a valid terminal token because resolveBackendToken
+// prefers sanctumToken; on 401 we drop the stale user token and retry once with
+// the terminal token so the store never fails permanently on a stale credential.
+async function postMibKeysStore(backendUrl, body, fallbackToken = '') {
+  const doPost = (tok) => fetch(`${backendUrl}/mib/keys/store`, {
+    method: 'POST',
+    headers: buildMibJsonHeaders(tok),
+    body: JSON.stringify(body),
+  });
+
+  const token = await resolveBackendToken(fallbackToken);
+  let resp = await doPost(token);
+
+  if (resp.status === 401) {
+    const t = await chrome.storage.local.get(['sanctumToken', 'terminalToken']);
+    if (t.sanctumToken && t.sanctumToken === token) {
+      await chrome.storage.local.remove('sanctumToken');
+    }
+    if (t.terminalToken && t.terminalToken !== token) {
+      resp = await doPost(t.terminalToken);
+    }
+  }
+  return resp;
+}
+
 let globalInertiaVersion = "";
 
 function getTimestamp() {
@@ -2611,12 +2637,8 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
           await chrome.storage.session.set({ [authSessionKey]: sessionState });
           
           try {
-            const effectiveToken = await resolveBackendToken(sanctumToken);
             if(port) emitLog(port, '> [MIB-API] Storing device keys in backend...');
-            const storeResp = await fetch(`${backendUrl}/mib/keys/store`, {
-              method: 'POST',
-              headers: buildMibJsonHeaders(effectiveToken),
-              body: JSON.stringify({
+            const storeResp = await postMibKeysStore(backendUrl, {
                 hardware_id: terminalId,
                 bank_account_id: bankAccountId,
                 mib_username: mibUsername,
@@ -2628,8 +2650,7 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
                 profile_name: spProfileName,
                 mib_password: password,
                 credentials_hash: credsHash
-              })
-            });
+              }, sanctumToken);
             if (!storeResp.ok) {
               const errText = await storeResp.text();
               throw new Error(`Server failed to store keys: Status ${storeResp.status} - ${errText}`);
@@ -2661,12 +2682,8 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
           await chrome.storage.session.set({ [authSessionKey]: sessionState });
           
           try {
-            const effectiveToken2 = await resolveBackendToken(sanctumToken);
             if(port) emitLog(port, '> [MIB-API] Storing device keys in backend...');
-            const storeResp = await fetch(`${backendUrl}/mib/keys/store`, {
-              method: 'POST',
-              headers: buildMibJsonHeaders(effectiveToken2),
-              body: JSON.stringify({
+            const storeResp = await postMibKeysStore(backendUrl, {
                 hardware_id: terminalId,
                 bank_account_id: bankAccountId,
                 mib_username: mibUsername,
@@ -2678,8 +2695,7 @@ async function startMibAuthFlow(terminalId, bankAccountId, backendUrl, mibUserna
                 profile_name: spProfileName,
                 mib_password: password,
                 credentials_hash: credsHash
-              })
-            });
+              }, sanctumToken);
             if (!storeResp.ok) {
               const errText = await storeResp.text();
               throw new Error(`Server failed to store keys: Status ${storeResp.status} - ${errText}`);
@@ -2788,10 +2804,7 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
             }
         // Store in backend
         if(port) emitLog(port, '> [MIB-API] Storing device keys in backend...');
-        const storeResp = await fetch(`${backendUrl}/mib/keys/store`, {
-          method: 'POST',
-          headers: buildMibJsonHeaders(sanctumToken),
-          body: JSON.stringify({
+        const storeResp = await postMibKeysStore(backendUrl, {
             hardware_id: terminalId,
             bank_account_id: bankAccountId,
             mib_username: mibUsername,
@@ -2803,8 +2816,7 @@ async function submitMibOtp(otp, terminalId, bankAccountId, backendUrl, mibUsern
             profile_name: spProfileName,
             mib_password: mibPassword,
             credentials_hash: credsHash
-          })
-        });
+          }, sanctumToken);
         if (!storeResp.ok) {
           const errText = await storeResp.text();
           throw new Error(`Server failed to store keys: Status ${storeResp.status} - ${errText}`);
@@ -3392,11 +3404,7 @@ async function selectMibProfile(profileId, profileType) {
       profile_name: String(p.profileName || p.name || p.profile_name || ''),
     })).filter(p => !!p.profile_id);
   }
-  const storeResp = await fetch(`${backendUrl}/mib/keys/store`, {
-    method: 'POST',
-    headers: buildMibJsonHeaders(effectiveSanctumToken),
-    body: JSON.stringify(storeBody)
-  });
+  const storeResp = await postMibKeysStore(backendUrl, storeBody, effectiveSanctumToken);
   if (!storeResp.ok) {
     const errText = await storeResp.text();
     throw new Error(`Server failed to store keys: Status ${storeResp.status} - ${errText}`);
